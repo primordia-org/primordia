@@ -161,6 +161,14 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 ## Changelog
 
+### 2026-03-14 — Add README.md
+
+**What changed**: Created `README.md` with a project overview, how-it-works explanation for both chat and evolve modes, tech stack table, step-by-step setup instructions, environment variable reference, and a link to `PRIMORDIA.md` for deeper architecture details.
+
+**Why**: The repo had no README, making it hard for new users to understand what Primordia is or how to set it up.
+
+---
+
 ### 2026-03-14 — Comment on PR instead of issue when a PR already exists
 
 **What changed**:
