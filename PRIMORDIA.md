@@ -132,7 +132,7 @@ When implementing changes, follow these principles:
 5. **TypeScript everywhere.** Explicit types make the codebase more navigable for AI models.
 6. **Tailwind for styling.** Do not add CSS files or CSS-in-JS libraries.
 7. **App Router conventions.** Follow Next.js App Router patterns: `page.tsx`, `layout.tsx`, `route.ts`.
-8. **Update PRIMORDIA.md last.** Add a Changelog entry after every set of changes.
+8. **Update PRIMORDIA.md last.** Add a Changelog entry after every set of changes. Prepend new entries at the top of the Changelog section (newest first). Git's union merge driver (configured in `.gitattributes`) ensures concurrent PRs never conflict here.
 
 ---
 
@@ -160,6 +160,14 @@ These were noted at project inception but are explicitly out of scope for the MV
 ---
 
 ## Changelog
+
+### 2026-03-14 — Prevent changelog merge conflicts with union merge strategy
+
+**What changed**: Added `.gitattributes` with `PRIMORDIA.md merge=union`.
+
+**Why**: Every PR that follows the "prepend a changelog entry" convention inserts new text at the same line in `PRIMORDIA.md`. When two PRs are open simultaneously, git sees two insertions at the same position and cannot auto-resolve them, producing a merge conflict on every merge. The `union` merge driver tells git to accept all lines from both sides without conflicting. Since each changelog entry is unique text, the merged result is always correct and ordering stays newest-first.
+
+---
 
 ### 2026-03-14 — Fix "landmark-one-main" axe rule ("Ensures the document has a main landmark")
 
