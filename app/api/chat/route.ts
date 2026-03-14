@@ -21,6 +21,8 @@ When users seem interested in changing the app itself, remind them they can swit
 export async function POST(request: Request) {
   const body = (await request.json()) as {
     messages: Array<{ role: "user" | "assistant"; content: string }>;
+    // Optional extra context appended to the system prompt (e.g. deploy preview info).
+    systemContext?: string;
   };
 
   if (!body.messages || !Array.isArray(body.messages)) {
@@ -49,7 +51,9 @@ export async function POST(request: Request) {
         const anthropicStream = await client.messages.stream({
           model: "claude-sonnet-4-6",
           max_tokens: 1024,
-          system: SYSTEM_PROMPT,
+          system: body.systemContext
+            ? `${SYSTEM_PROMPT}\n\n${body.systemContext}`
+            : SYSTEM_PROMPT,
           messages: body.messages,
         });
 

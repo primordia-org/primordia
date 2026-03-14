@@ -47,6 +47,8 @@ export default function ChatInterface() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [evolveResult, setEvolveResult] = useState<EvolveResult | null>(null);
+  // Stores deploy preview context string; injected into the system prompt for chat.
+  const [deployContext, setDeployContext] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Holds the active polling interval so we can cancel it on unmount or mode reset.
@@ -77,6 +79,27 @@ export default function ChatInterface() {
         clearInterval(pollingIntervalRef.current);
       }
     };
+  }, []);
+
+  // On preview deployments, fetch PR + issue context and inject it into the chat
+  // so the assistant (and the user) know this is a work-in-progress build.
+  useEffect(() => {
+    if (process.env.VERCEL_ENV !== "preview") return;
+
+    fetch("/api/deploy-context")
+      .then((res) => res.json())
+      .then((data: { context: string | null }) => {
+        if (!data.context) return;
+        setDeployContext(data.context);
+        // Prepend a visible system message so the context is front-and-centre.
+        setMessages((prev) => [
+          { role: "system" as const, content: data.context! },
+          ...prev,
+        ]);
+      })
+      .catch(() => {
+        // Non-critical — silently ignore network errors
+      });
   }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -118,6 +141,7 @@ export default function ChatInterface() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: newMessages.filter((m) => m.role !== "system"),
+          systemContext: deployContext ?? undefined,
         }),
       });
 
@@ -447,6 +471,18 @@ export default function ChatInterface() {
 
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
+  const isSystem = message.role === "system";
+
+  // System messages are shown as a distinct notice bar (e.g. deploy preview context).
+  if (isSystem) {
+    return (
+      <div className="flex justify-center">
+        <div className="w-full px-4 py-3 rounded-lg text-xs text-amber-300 bg-amber-900/30 border border-amber-700/30 whitespace-pre-wrap leading-relaxed">
+          <SimpleMarkdown text={message.content} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
