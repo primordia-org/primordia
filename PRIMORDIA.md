@@ -172,6 +172,22 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 ---
 
+### 2026-03-14 — Fix "landmark-one-main" axe rule ("Ensures the document has a main landmark")
+
+**What changed**: No additional code change required. The `landmark-one-main` axe rule fires when there is no *accessible* `<main>` landmark — i.e. when the only `<main>` element is an ancestor with `aria-hidden="true"`. The previous code had `<main>` in `app/page.tsx` where Next.js App Router could transiently apply `aria-hidden="true"`, making the landmark invisible to assistive technology and causing axe to report both `aria-hidden-focus` and `landmark-one-main`. The change in this same session (moving `<main>` into `ChatInterface.tsx`) resolves both violations simultaneously.
+
+**Why**: Covered by the `aria-hidden-focus` fix above — same root cause, same fix.
+
+---
+
+### 2026-03-14 — Fix aria-hidden-focus accessibility violation on `main`
+
+**What changed**: Removed the `<main>` wrapper from `app/page.tsx` (which could receive `aria-hidden="true"` from Next.js App Router's concurrent rendering / Suspense machinery while still containing focusable elements). Moved the landmark directly onto `ChatInterface`'s root element in `components/ChatInterface.tsx`, changing it from `<div>` to `<main>` and adding `mx-auto` to preserve horizontal centering.
+
+**Why**: The axe `aria-hidden-focus` rule fires when an element with `aria-hidden="true"` contains focusable children. The `<main>` in `page.tsx` was the flagged target. By owning the `<main>` element inside the component that controls its content, we eliminate the detached wrapper that Next.js could transiently hide from AT while form elements remained keyboard-reachable.
+
+---
+
 ### 2026-03-14 — Search for existing evolve issues + live CI progress for follow-ups
 
 ---
