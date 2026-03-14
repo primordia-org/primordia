@@ -5,6 +5,14 @@
 //   - "chat" mode: streams responses from Claude via /api/chat
 //   - "evolve" mode: submits a GitHub Issue via /api/evolve, triggering the CI pipeline
 //
+// Evolve flow:
+//   1. User submits a request.
+//   2. /api/evolve?action=search checks for open evolve issues.
+//   3. If matches exist, a decision card is shown: comment on an existing issue
+//      (so Claude can update its branch) or create a new one.
+//   4. If no matches, a new issue is created automatically.
+//
+// The mode toggle is always visible so users can switch without losing their draft message.
 // After an evolve submit, the UI polls /api/evolve/status and updates Claude's
 // CI progress comment in-place as the bot continuously edits it on GitHub.
 
@@ -22,9 +30,17 @@ interface Message {
   id?: string;
 }
 
+interface RelatedIssue {
+  number: number;
+  title: string;
+  html_url: string;
+}
+
 interface EvolveResult {
-  issueNumber: number;
-  issueUrl: string;
+  type: "created" | "commented";
+  issueNumber?: number;
+  issueUrl?: string;
+  commentUrl?: string;
 }
 
 interface EvolveStatus {
@@ -49,6 +65,10 @@ export default function ChatInterface() {
   const [evolveResult, setEvolveResult] = useState<EvolveResult | null>(null);
   // Stores deploy preview context string; injected into the system prompt for chat.
   const [deployContext, setDeployContext] = useState<string | null>(null);
+  // Decision state: shown when related open issues are found before creating a new one
+  const [relatedIssues, setRelatedIssues] = useState<RelatedIssue[] | null>(null);
+  const [pendingRequest, setPendingRequest] = useState<string | null>(null);
+  const [evolveLoadingMsg, setEvolveLoadingMsg] = useState<string>("Checking for related issues…");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Holds the active polling interval so we can cancel it on unmount or mode reset.
@@ -67,9 +87,11 @@ export default function ChatInterface() {
     textarea.style.height = `${textarea.scrollHeight}px`;
   }, [input]);
 
-  // Reset evolve result when switching modes
+  // Reset evolve state when switching modes
   useEffect(() => {
     setEvolveResult(null);
+    setRelatedIssues(null);
+    setPendingRequest(null);
   }, [mode]);
 
   // Cancel any in-flight polling when the component unmounts
@@ -201,17 +223,107 @@ export default function ChatInterface() {
   }
 
   async function handleEvolveSubmit(request: string) {
+    // Clear any previous decision state
+    setPendingRequest(null);
+    setRelatedIssues(null);
+
     // Show the user's request in the chat as context
     setMessages((prev) => [
       ...prev,
       { role: "user", content: `[evolve request] ${request}` },
     ]);
 
+    // First, search for related open evolve issues
+    setEvolveLoadingMsg("Checking for related issues…");
+    try {
+      const res = await fetch("/api/evolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "search", request }),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as { issues?: RelatedIssue[] };
+        if (data.issues && data.issues.length > 0) {
+          // Show decision UI — handleSubmit will clear isLoading after we return
+          setPendingRequest(request);
+          setRelatedIssues(data.issues);
+          return;
+        }
+      }
+    } catch {
+      // Search failed — fall through to auto-create
+    }
+
+    // No related issues found (or search failed) — create a new issue directly
+    setEvolveLoadingMsg("Opening GitHub issue…");
+    await performEvolveCreate(request);
+  }
+
+  // Called when the user picks "Add comment" on an existing issue
+  async function handleEvolveComment(issueNumber: number) {
+    if (!pendingRequest || isLoading) return;
+    const request = pendingRequest;
+    setPendingRequest(null);
+    setRelatedIssues(null);
+    setIsLoading(true);
+    setEvolveLoadingMsg("Adding comment to issue…");
+
+    try {
+      const res = await fetch("/api/evolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "comment", issueNumber, request }),
+      });
+
+      const data = (await res.json()) as { commentUrl?: string; error?: string };
+
+      if (!res.ok) {
+        throw new Error(data.error ?? `API error: ${res.statusText}`);
+      }
+
+      setEvolveResult({ type: "commented", commentUrl: data.commentUrl });
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Done! I've added your request as a [comment](${data.commentUrl}) to issue #${issueNumber}. Claude will pick it up and continue on the existing branch.`,
+        },
+      ]);
+    } catch (err) {
+      const errorMsg =
+        err instanceof Error ? err.message : "Something went wrong.";
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Failed to add comment: ${errorMsg}`,
+        },
+      ]);
+    }
+
+    setIsLoading(false);
+  }
+
+  // Called when the user picks "Create new issue" from the decision card
+  async function handleEvolveCreate() {
+    if (!pendingRequest || isLoading) return;
+    const request = pendingRequest;
+    setPendingRequest(null);
+    setRelatedIssues(null);
+    setIsLoading(true);
+    setEvolveLoadingMsg("Opening GitHub issue…");
+    await performEvolveCreate(request);
+    setIsLoading(false);
+  }
+
+  // Core logic for creating a new GitHub issue
+  async function performEvolveCreate(request: string) {
     try {
       const response = await fetch("/api/evolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request }),
+        body: JSON.stringify({ action: "create", request }),
       });
 
       const data = (await response.json()) as {
@@ -224,7 +336,11 @@ export default function ChatInterface() {
         throw new Error(data.error ?? `API error: ${response.statusText}`);
       }
 
-      setEvolveResult({ issueNumber: data.issueNumber, issueUrl: data.issueUrl });
+      setEvolveResult({
+        type: "created",
+        issueNumber: data.issueNumber,
+        issueUrl: data.issueUrl,
+      });
 
       // Add a confirmation message and a CI-status message that will be updated in-place.
       const statusMsgId = `evolve-status-${data.issueNumber}`;
@@ -406,11 +522,53 @@ export default function ChatInterface() {
         ))}
         {isLoading && mode === "evolve" && (
           <div className="text-sm text-gray-500 animate-pulse">
-            Opening GitHub issue…
+            {evolveLoadingMsg}
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Decision card — shown when open evolve issues were found */}
+      {relatedIssues !== null &&
+        relatedIssues.length > 0 &&
+        pendingRequest &&
+        !isLoading && (
+          <div className="mb-3 px-4 py-3 rounded-lg bg-amber-900/30 border border-amber-700/40 text-sm flex-shrink-0 space-y-3">
+            <p className="text-amber-200 font-semibold">
+              Found {relatedIssues.length} open evolve request
+              {relatedIssues.length > 1 ? "s" : ""}. Add your request to one,
+              or create a new issue:
+            </p>
+            <ul className="space-y-2">
+              {relatedIssues.map((issue) => (
+                <li key={issue.number} className="flex items-center gap-2">
+                  <a
+                    href={issue.html_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-amber-300 underline hover:text-amber-200 truncate flex-1 min-w-0 text-xs"
+                  >
+                    #{issue.number}: {issue.title}
+                  </a>
+                  <button
+                    onClick={() => handleEvolveComment(issue.number)}
+                    disabled={isLoading}
+                    className="flex-shrink-0 px-2 py-1 text-xs bg-amber-700 hover:bg-amber-600 rounded text-white disabled:opacity-50"
+                  >
+                    Add comment
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button
+              onClick={handleEvolveCreate}
+              disabled={isLoading}
+              className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded text-gray-200 disabled:opacity-50"
+            >
+              Create new issue instead
+            </button>
+          </div>
+        )}
 
       {/* Input area */}
       <form
@@ -448,19 +606,36 @@ export default function ChatInterface() {
         </button>
       </form>
 
-      {/* Evolve success card */}
+      {/* Evolve result card */}
       {evolveResult && (
         <div className="mt-3 px-4 py-3 rounded-lg bg-green-900/30 border border-green-700/40 text-green-300 text-sm flex-shrink-0">
-          Issue{" "}
-          <a
-            href={evolveResult.issueUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline font-medium hover:text-green-200"
-          >
-            #{evolveResult.issueNumber}
-          </a>{" "}
-          opened — watching for CI progress, PR, and deploy preview…
+          {evolveResult.type === "commented" ? (
+            <>
+              Comment added —{" "}
+              <a
+                href={evolveResult.commentUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline font-medium hover:text-green-200"
+              >
+                view comment
+              </a>{" "}
+              — Claude will update the existing branch.
+            </>
+          ) : (
+            <>
+              Issue{" "}
+              <a
+                href={evolveResult.issueUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline font-medium hover:text-green-200"
+              >
+                #{evolveResult.issueNumber}
+              </a>{" "}
+            opened — watching for CI progress, PR, and deploy preview…
+            </>
+          )}
         </div>
       )}
     </div>

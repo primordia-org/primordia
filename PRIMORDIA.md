@@ -172,6 +172,17 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 ---
 
+### 2026-03-14 — Check for related open issues before creating a new evolve request
+
+**What changed**:
+- `/api/evolve/route.ts` now supports three actions: `search` (find open evolve issues via GitHub Search API), `comment` (add a `@claude` follow-up comment to an existing issue), and `create` (existing behavior, now explicit).
+- `ChatInterface.tsx` now searches for open evolve issues before creating a new one. If any are found, a decision card is shown listing them. The user can either add their request as a comment to an existing issue (so Claude continues on the existing branch) or create a fresh issue. If no matches are found, a new issue is created automatically.
+- `EvolveResult` type updated to support both `"created"` and `"commented"` outcomes, with the result card updated accordingly.
+
+**Why**: Repeated evolve requests on the same topic were creating duplicate GitHub issues and separate branches. By routing follow-ups as comments to the existing issue, Claude can update its existing branch rather than starting from scratch.
+
+---
+
 ### 2026-03-14 — Fix Vercel env var name for PR ID
 
 **What changed**: Renamed `VERCEL_GIT_PULL_REQUEST_NUMBER` → `VERCEL_GIT_PULL_REQUEST_ID` in `next.config.ts` and `ChatInterface.tsx`.
