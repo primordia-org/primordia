@@ -119,8 +119,9 @@ export default function ChatInterface() {
         setDeployContext(data.context);
         if (data.prNumber) setDeployPrNumber(data.prNumber);
         // Prepend a visible system message so the context is front-and-centre.
+        // Show only a brief notice; the full PR/issue context is sent to Claude via systemContext.
         setMessages((prev) => [
-          { role: "system" as const, content: data.context! },
+          { role: "system" as const, content: "⚠️ This is a **deploy preview** — a work-in-progress build, not the production app." },
           ...prev,
         ]);
       })

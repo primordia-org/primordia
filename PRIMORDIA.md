@@ -161,6 +161,14 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 ## Changelog
 
+### 2026-03-14 — Simplify deploy preview banner (hide PR details from visible notice)
+
+**What changed**: `components/ChatInterface.tsx`: the visible system message shown at the top of the chat on deploy previews now always displays only "⚠️ This is a deploy preview — a work-in-progress build, not the production app." The full PR/issue context string is still sent to Claude via `systemContext` so the assistant remains aware of it.
+
+**Why**: The PR title and branch name in the banner were noisy and not useful to end users; the brief warning is sufficient.
+
+---
+
 ### 2026-03-14 — Fix evolve workflow to auto-create PR instead of showing a Create PR link
 
 **What changed**: Added `id: claude` to the "Run Claude Code" step in `evolve.yml` and added a new "Create Pull Request" step after it. The new step runs only on `issues` events and only when the action produced a `branch_name` output. It calls `gh pr create` with a title derived from the issue title and a body that closes the originating issue.
