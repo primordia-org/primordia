@@ -46,9 +46,51 @@ jobs:
           fetch-depth: 1
 
       - name: Run Claude Code
+        id: claude
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: |
             --allowedTools "Edit,Write,Read,Bash,Glob,Grep"
             --system-prompt "You are working on Primordia, a self-modifying web application built with TypeScript, Tailwind CSS, and Next.js App Router. Keep changes minimal and focused on the request. Do not introduce new dependencies unless absolutely required. Maintain the existing code style. Read PRIMORDIA.md for architecture context and update its Changelog section with a brief entry describing what you changed and why."
+
+      - name: Create Pull Request
+        if: github.event_name == 'issues' && steps.claude.outputs.branch_name != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          BRANCH: ${{ steps.claude.outputs.branch_name }}
+        run: |
+          if gh pr list --head "$BRANCH" --json number --jq '.[0].number' | grep -q .; then
+            echo "PR already exists for branch $BRANCH"
+            exit 0
+          fi
+
+          # Extract Claude's generated title and body from the compare URL in the issue comments.
+          # The action posts a "[Create a PR](...?quick_pull=1&title=...&body=...)" link whose
+          # query params contain the real PR title and description Claude wrote.
+          COMPARE_URL=$(gh issue view "$ISSUE_NUMBER" --json comments \
+            --jq '[.comments[].body | scan("https://[^)]+quick_pull=1[^)]*")] | last')
+
+          if [ -n "$COMPARE_URL" ]; then
+            PR_TITLE=$(python3 -c "
+import sys, urllib.parse
+qs = urllib.parse.urlparse('$COMPARE_URL').query
+print(urllib.parse.parse_qs(qs).get('title', [''])[0])
+")
+            PR_BODY=$(python3 -c "
+import sys, urllib.parse
+qs = urllib.parse.urlparse('$COMPARE_URL').query
+print(urllib.parse.parse_qs(qs).get('body', [''])[0])
+")
+          fi
+
+          # Fall back to a generic title/body if parsing failed
+          PR_TITLE="${PR_TITLE:-"Issue #$ISSUE_NUMBER: Changes from Claude"}"
+          PR_BODY="${PR_BODY:-"Closes #$ISSUE_NUMBER\n\nGenerated with [Claude Code](https://claude.ai/code)"}"
+
+          gh pr create \
+            --head "$BRANCH" \
+            --base main \
+            --title "$PR_TITLE" \
+            --body "$PR_BODY"
