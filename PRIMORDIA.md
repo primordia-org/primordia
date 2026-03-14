@@ -162,10 +162,8 @@ These were noted at project inception but are explicitly out of scope for the MV
 ### 2026-03-14 — Search for existing evolve issues + live CI progress for follow-ups
 
 **What changed**:
-- `/api/evolve/route.ts`: added two new actions alongside the existing `create`:
-  - `search` — queries the GitHub Search API for open `[Primordia Evolve]` issues (up to 5 most recent).
-  - `comment` — posts a `@claude` follow-up comment to an existing issue so Claude Code continues on the existing branch.
-- `components/ChatInterface.tsx`: on evolve submit, the app now searches for open evolve issues first. If any are found, a **decision card** lists them with an "Add comment" button per issue and a "Create new issue instead" fallback. After posting a comment on an existing issue, the same live CI-progress polling starts (identical to the new-issue path), so users see Claude's task-list updating in real time.
+- `/api/evolve/route.ts` now supports three actions: `search` (find open evolve issues via GitHub Search API), `comment` (add a `@claude` follow-up comment to an existing issue), and `create` (existing behavior, now explicit). The `comment` action returns `issueNumber` so the frontend can start CI polling.
+- `components/ChatInterface.tsx`: on evolve submit, the app searches for open evolve issues first. If any are found, a **decision card** lists them with an "Add comment" button per issue and a "Create new issue instead" fallback. After posting a comment on an existing issue, the same live CI-progress polling starts (identical to the new-issue path), so users see Claude's task-list updating in real time. `EvolveResult` type updated to support both `"created"` and `"commented"` outcomes.
 
 **Why**: Avoid unnecessary issue/branch proliferation; follow-up requests should continue on the existing branch. The live comment display was already present for new issues — now it works for follow-ups too.
 

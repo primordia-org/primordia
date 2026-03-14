@@ -1,9 +1,14 @@
 // app/api/evolve/route.ts
 // Handles three actions for the evolve pipeline:
 //
-//   action: "create"  — create a new labeled GitHub Issue (default)
-//   action: "search"  — search for existing open evolve issues
-//   action: "comment" — add a @claude follow-up comment to an existing issue
+//   action: "search"  — finds open evolve issues in the repo
+//   action: "comment" — adds a @claude comment to an existing issue
+//   action: "create"  — creates a new labeled GitHub Issue (default)
+//
+// Request body:
+//   { action?: "create"; request: string }
+//   { action: "search"; request: string }
+//   { action: "comment"; issueNumber: number; request: string }
 //
 // Required environment variables:
 //   GITHUB_TOKEN  — personal access token with repo + issues write access
@@ -31,47 +36,48 @@ export async function POST(request: Request) {
 
   const action = body.action ?? "create";
 
-  // ── action: "search" ─────────────────────────────────────────────────────
+  // ── Search: find open evolve issues ────────────────────────────────────────
   if (action === "search") {
     try {
       const issues = await searchOpenEvolveIssues({ token, repo });
       return Response.json({ issues });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Search failed";
+      const msg =
+        err instanceof Error ? err.message : "Failed to search issues";
       return Response.json({ error: msg }, { status: 500 });
     }
   }
 
-  // ── action: "comment" ────────────────────────────────────────────────────
+  // ── Comment: add a @claude follow-up comment to an existing issue ──────────
   if (action === "comment") {
-    if (!body.issueNumber || !body.request) {
+    if (!body.issueNumber || !body.request || typeof body.request !== "string") {
       return Response.json(
-        { error: "issueNumber and request are required for comment action" },
+        { error: "issueNumber and request are required" },
         { status: 400 }
       );
     }
-
-    const commentBody = buildFollowUpComment(body.request);
-
+    const commentBody = buildCommentBody(body.request);
     try {
-      const result = await postIssueComment({
+      const result = await addIssueComment({
         token,
         repo,
         issueNumber: body.issueNumber,
         body: commentBody,
       });
+      // Return issueNumber so the frontend can start CI polling on the existing issue
       return Response.json({
         outcome: "commented",
         issueNumber: body.issueNumber,
         commentUrl: result.html_url,
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to post comment";
+      const msg =
+        err instanceof Error ? err.message : "Failed to add comment";
       return Response.json({ error: msg }, { status: 500 });
     }
   }
 
-  // ── action: "create" (default) ───────────────────────────────────────────
+  // ── Create: open a new GitHub Issue (default) ──────────────────────────────
   if (!body.request || typeof body.request !== "string") {
     return Response.json({ error: "request string required" }, { status: 400 });
   }
@@ -87,7 +93,6 @@ export async function POST(request: Request) {
     });
 
     return Response.json({
-      outcome: "created",
       issueNumber: result.number,
       issueUrl: result.html_url,
     });
@@ -131,7 +136,7 @@ ${userRequest}
 `;
 }
 
-function buildFollowUpComment(userRequest: string): string {
+function buildCommentBody(userRequest: string): string {
   const timestamp = new Date().toISOString();
 
   return `@claude
@@ -160,18 +165,20 @@ ${userRequest}
 `;
 }
 
+// ─── GitHub API helpers ───────────────────────────────────────────────────────
+
 interface GitHubIssue {
   number: number;
   html_url: string;
 }
 
-interface GitHubComment {
+interface OpenIssue {
+  number: number;
+  title: string;
   html_url: string;
 }
 
-interface SearchResult {
-  number: number;
-  title: string;
+interface GitHubComment {
   html_url: string;
 }
 
@@ -181,12 +188,12 @@ async function searchOpenEvolveIssues({
 }: {
   token: string;
   repo: string;
-}): Promise<SearchResult[]> {
-  // Search for open issues with the [Primordia Evolve] title prefix
+}): Promise<OpenIssue[]> {
+  // Search for open issues whose title starts with the evolve prefix
   const q = encodeURIComponent(
-    `[Primordia Evolve] repo:${repo} is:issue is:open`
+    `repo:${repo} is:issue state:open "[Primordia Evolve]" in:title`
   );
-  const url = `https://api.github.com/search/issues?q=${q}&sort=updated&order=desc&per_page=5`;
+  const url = `https://api.github.com/search/issues?q=${q}&sort=created&order=desc&per_page=5`;
 
   const response = await fetch(url, {
     headers: {
@@ -198,21 +205,14 @@ async function searchOpenEvolveIssues({
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`GitHub Search API error ${response.status}: ${text}`);
+    throw new Error(`GitHub API error ${response.status}: ${text}`);
   }
 
-  const data = (await response.json()) as {
-    items: Array<{ number: number; title: string; html_url: string }>;
-  };
-
-  return data.items.map((item) => ({
-    number: item.number,
-    title: item.title,
-    html_url: item.html_url,
-  }));
+  const data = (await response.json()) as { items: OpenIssue[] };
+  return data.items;
 }
 
-async function postIssueComment({
+async function addIssueComment({
   token,
   repo,
   issueNumber,
