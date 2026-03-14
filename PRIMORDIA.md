@@ -169,6 +169,26 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 ---
 
+### 2026-03-14 — Fix "landmark-one-main" axe rule ("Ensures the document has a main landmark")
+
+**What changed**: No additional code change required. The `landmark-one-main` axe rule fires when there is no *accessible* `<main>` landmark — i.e. when the only `<main>` element is an ancestor with `aria-hidden="true"`. The previous code had `<main>` in `app/page.tsx` where Next.js App Router could transiently apply `aria-hidden="true"`, making the landmark invisible to assistive technology and causing axe to report both `aria-hidden-focus` and `landmark-one-main`. The change in this same session (moving `<main>` into `ChatInterface.tsx`) resolves both violations simultaneously.
+
+**Why**: Covered by the `aria-hidden-focus` fix above — same root cause, same fix.
+
+---
+
+### 2026-03-14 — Fix aria-hidden-focus accessibility violation on `main`
+
+**What changed**: Removed the `<main>` wrapper from `app/page.tsx` (which could receive `aria-hidden="true"` from Next.js App Router's concurrent rendering / Suspense machinery while still containing focusable elements). Moved the landmark directly onto `ChatInterface`'s root element in `components/ChatInterface.tsx`, changing it from `<div>` to `<main>` and adding `mx-auto` to preserve horizontal centering.
+
+**Why**: The axe `aria-hidden-focus` rule fires when an element with `aria-hidden="true"` contains focusable children. The `<main>` in `page.tsx` was the flagged target. By owning the `<main>` element inside the component that controls its content, we eliminate the detached wrapper that Next.js could transiently hide from AT while form elements remained keyboard-reachable.
+
+---
+
+### 2026-03-14 — Search for existing evolve issues + live CI progress for follow-ups
+
+---
+
 ### 2026-03-14 — Deploy previews are now self-aware (show PR + issue context)
 
 **What changed**:
@@ -183,11 +203,10 @@ These were noted at project inception but are explicitly out of scope for the MV
 ### 2026-03-14 — Check for related open issues before creating a new evolve request
 
 **What changed**:
-- `/api/evolve/route.ts` now supports three actions: `search` (find open evolve issues via GitHub Search API), `comment` (add a `@claude` follow-up comment to an existing issue), and `create` (existing behavior, now explicit).
-- `ChatInterface.tsx` now searches for open evolve issues before creating a new one. If any are found, a decision card is shown listing them. The user can either add their request as a comment to an existing issue (so Claude continues on the existing branch) or create a fresh issue. If no matches are found, a new issue is created automatically.
-- `EvolveResult` type updated to support both `"created"` and `"commented"` outcomes, with the result card updated accordingly.
+- `/api/evolve/route.ts` now supports three actions: `search` (find open evolve issues via GitHub Search API), `comment` (add a `@claude` follow-up comment to an existing issue), and `create` (existing behavior, now explicit). The `comment` action returns `issueNumber` so the frontend can start CI polling.
+- `components/ChatInterface.tsx`: on evolve submit, the app searches for open evolve issues first. If any are found, a **decision card** lists them with an "Add comment" button per issue and a "Create new issue instead" fallback. After posting a comment on an existing issue, the same live CI-progress polling starts (identical to the new-issue path), so users see Claude's task-list updating in real time. `EvolveResult` type updated to support both `"created"` and `"commented"` outcomes.
 
-**Why**: Repeated evolve requests on the same topic were creating duplicate GitHub issues and separate branches. By routing follow-ups as comments to the existing issue, Claude can update its existing branch rather than starting from scratch.
+**Why**: Avoid unnecessary issue/branch proliferation; follow-up requests should continue on the existing branch. The live comment display was already present for new issues — now it works for follow-ups too.
 
 ---
 
