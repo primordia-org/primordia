@@ -345,8 +345,19 @@ export default function ChatInterface() {
       {/* Header */}
       <header className="flex items-center justify-between mb-6 flex-shrink-0">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-white">
+          <h1 className="text-xl font-bold tracking-tight text-white flex items-baseline gap-2">
             Primordia
+            {process.env.VERCEL_ENV === "preview" &&
+              process.env.VERCEL_GIT_PULL_REQUEST_ID && (
+                <a
+                  href={`https://github.com/${process.env.VERCEL_GIT_REPO_OWNER}/${process.env.VERCEL_GIT_REPO_SLUG}/pull/${process.env.VERCEL_GIT_PULL_REQUEST_ID}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-normal text-blue-400 hover:text-blue-300"
+                >
+                  #{process.env.VERCEL_GIT_PULL_REQUEST_ID}
+                </a>
+              )}
           </h1>
           <p className="text-xs text-gray-400 mt-0.5">
             A self-evolving application
