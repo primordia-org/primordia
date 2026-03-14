@@ -30,7 +30,7 @@ export default function ModeToggle({ mode, onModeChange }: Props) {
         onClick={() => onModeChange("evolve")}
         label="Evolve"
         description="Propose a change to this app"
-        activeClass="bg-amber-600 text-white"
+        activeClass="bg-amber-700 text-white"
       />
     </div>
   );
