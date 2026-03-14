@@ -64,7 +64,12 @@ export async function POST(request: Request) {
         issueNumber: body.issueNumber,
         body: commentBody,
       });
-      return Response.json({ commentUrl: result.html_url });
+      // Return issueNumber so the frontend can start CI polling on the existing issue
+      return Response.json({
+        outcome: "commented",
+        issueNumber: body.issueNumber,
+        commentUrl: result.html_url,
+      });
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Failed to add comment";

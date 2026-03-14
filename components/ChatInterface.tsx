@@ -276,20 +276,36 @@ export default function ChatInterface() {
         body: JSON.stringify({ action: "comment", issueNumber, request }),
       });
 
-      const data = (await res.json()) as { commentUrl?: string; error?: string };
+      const data = (await res.json()) as {
+        outcome?: string;
+        issueNumber?: number;
+        commentUrl?: string;
+        error?: string;
+      };
 
       if (!res.ok) {
         throw new Error(data.error ?? `API error: ${res.statusText}`);
       }
 
       setEvolveResult({ type: "commented", commentUrl: data.commentUrl });
+
+      // Add confirmation message and a CI-status message updated in-place —
+      // same live polling as the new-issue flow.
+      const statusMsgId = `evolve-status-${issueNumber}`;
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: `Done! I've added your request as a [comment](${data.commentUrl}) to issue #${issueNumber}. Claude will pick it up and continue on the existing branch.`,
+          content: `Got it! I've added your request as a [comment on Issue #${issueNumber}](${data.commentUrl}). Claude Code will pick it up and continue on the existing branch. Progress will appear below.`,
+        },
+        {
+          role: "assistant",
+          id: statusMsgId,
+          content: "⏳ Waiting for CI to start…",
         },
       ]);
+
+      startEvolvePolling(issueNumber, statusMsgId);
     } catch (err) {
       const errorMsg =
         err instanceof Error ? err.message : "Something went wrong.";
@@ -633,7 +649,7 @@ export default function ChatInterface() {
               >
                 #{evolveResult.issueNumber}
               </a>{" "}
-            opened — watching for CI progress, PR, and deploy preview…
+              opened — watching for CI progress, PR, and deploy preview…
             </>
           )}
         </div>
