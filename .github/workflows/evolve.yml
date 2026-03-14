@@ -1,0 +1,199 @@
+# .github/workflows/evolve.yml
+#
+# The Primordia Evolve Pipeline
+# ──────────────────────────────────────────────────────────────────────────────
+# Triggered when a GitHub Issue is labeled "primordia-evolve".
+#
+# What it does:
+#   1. Reads the issue body (the user's natural-language change request)
+#   2. Checks out the repo on a new branch: evolve/issue-{number}
+#   3. Runs Claude Code CLI in non-interactive mode, passing:
+#        - The user's request from the issue body
+#        - The contents of PRIMORDIA.md as architecture context
+#   4. Commits any file changes Claude Code made
+#   5. Opens a Pull Request linked to the originating issue
+#   6. Comments on the issue with the PR link
+#
+# Required GitHub repository secrets:
+#   ANTHROPIC_API_KEY  — used by Claude Code CLI
+#   GH_PAT             — GitHub personal access token with repo write access
+#                        (the default GITHUB_TOKEN can't open PRs from Actions
+#                         in some configurations, so a PAT is recommended)
+#
+# Required repository setup:
+#   - A label named "primordia-evolve" must exist in the repo
+#   - Vercel must be connected to the repo for preview deployments
+
+name: Primordia Evolve Pipeline
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  evolve:
+    # Only run when the specific evolve label is added
+    if: github.event.label.name == 'primordia-evolve'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT || github.token }}
+          fetch-depth: 0
+
+      # ── 2. Setup Node ─────────────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # ── 3. Install Claude Code CLI ────────────────────────────────────────────
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      # ── 4. Create evolve branch ───────────────────────────────────────────────
+      - name: Create evolve branch
+        id: branch
+        run: |
+          BRANCH="evolve/issue-${{ github.event.issue.number }}"
+          git checkout -b "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      # ── 5. Build Claude Code prompt ───────────────────────────────────────────
+      # We combine the issue body with PRIMORDIA.md so Claude Code has full context.
+      - name: Build prompt
+        id: prompt
+        run: |
+          ISSUE_BODY=$(cat <<'ISSUE_EOF'
+          ${{ github.event.issue.body }}
+          ISSUE_EOF
+          )
+
+          PRIMORDIA_MD=""
+          if [ -f "PRIMORDIA.md" ]; then
+            PRIMORDIA_MD=$(cat PRIMORDIA.md)
+          fi
+
+          PROMPT=$(cat <<PROMPT_EOF
+          You are working on Primordia, a self-modifying web application.
+          A user submitted the following change request via the app's evolve mode:
+
+          ---
+          ${{ github.event.issue.body }}
+          ---
+
+          Here is the current architecture documentation (PRIMORDIA.md):
+
+          $PRIMORDIA_MD
+
+          Please implement the requested changes. Follow these rules:
+          1. Keep changes minimal and focused on the request.
+          2. Do not introduce new dependencies unless absolutely required.
+          3. Maintain the existing code style (TypeScript, Tailwind CSS, Next.js App Router).
+          4. Update the Changelog section in PRIMORDIA.md with a brief entry describing what you changed and why.
+          5. Do not commit — the workflow will handle that.
+          PROMPT_EOF
+          )
+
+          # Write prompt to a temp file to avoid shell escaping issues
+          echo "$PROMPT" > /tmp/evolve_prompt.txt
+          echo "prompt_file=/tmp/evolve_prompt.txt" >> "$GITHUB_OUTPUT"
+
+      # ── 6. Run Claude Code ────────────────────────────────────────────────────
+      - name: Run Claude Code
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude \
+            --print \
+            --no-interactive \
+            --allowedTools "Edit,Write,Read,Bash,Glob,Grep" \
+            -p "$(cat /tmp/evolve_prompt.txt)"
+
+      # ── 7. Commit changes ─────────────────────────────────────────────────────
+      - name: Commit changes
+        id: commit
+        run: |
+          git config user.name  "primordia-bot[bot]"
+          git config user.email "primordia-bot[bot]@users.noreply.github.com"
+
+          git add -A
+
+          # Only commit if there are actual changes
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "evolve: $(echo '${{ github.event.issue.title }}' | head -c 72)
+
+          Closes #${{ github.event.issue.number }}"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── 8. Push branch ────────────────────────────────────────────────────────
+      - name: Push branch
+        if: steps.commit.outputs.has_changes == 'true'
+        run: |
+          git push -u origin "${{ steps.branch.outputs.branch }}"
+
+      # ── 9. Open Pull Request ──────────────────────────────────────────────────
+      - name: Open Pull Request
+        if: steps.commit.outputs.has_changes == 'true'
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: |
+          PR_URL=$(gh pr create \
+            --title "evolve: ${{ github.event.issue.title }}" \
+            --body "## Summary
+
+          This PR was automatically generated by the Primordia evolve pipeline in response to a user request.
+
+          **Originating issue:** #${{ github.event.issue.number }}
+          **User request:**
+          > ${{ github.event.issue.body }}
+
+          ---
+
+          ## Review checklist
+          - [ ] The change matches the user's intent
+          - [ ] No unintended files were modified
+          - [ ] PRIMORDIA.md changelog was updated
+
+          ---
+
+          *Generated by Claude Code CLI via GitHub Actions*" \
+            --base main \
+            --head "${{ steps.branch.outputs.branch }}")
+
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+
+      # ── 10. Comment on issue ──────────────────────────────────────────────────
+      - name: Comment on issue with PR link
+        if: steps.commit.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "✅ A Pull Request has been generated for this request:
+          ${{ steps.pr.outputs.pr_url }}
+
+          Once the PR is merged, this change will be live. A Vercel preview deployment is automatically created for the PR — see the PR page for the preview URL."
+
+      # ── 11. Handle no-changes case ────────────────────────────────────────────
+      - name: Comment on issue when no changes were made
+        if: steps.commit.outputs.has_changes == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "⚠️ Claude Code ran but did not produce any file changes for this request. This may mean the request was ambiguous, the feature already exists, or the request was outside what Claude Code could implement automatically.
+
+          Please clarify the request or try rephrasing it."
