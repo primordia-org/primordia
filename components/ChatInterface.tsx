@@ -215,7 +215,7 @@ export default function ChatInterface() {
           <h1 className="text-xl font-bold tracking-tight text-white">
             Primordia
           </h1>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-gray-400 mt-0.5">
             A self-evolving application
           </p>
         </div>

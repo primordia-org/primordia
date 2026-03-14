@@ -159,6 +159,16 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 ## Changelog
 
+### 2026-03-14 — Fix WCAG 2 AA color contrast issues
+
+**What changed**: Improved color contrast for two elements that failed the WCAG 2 AA 4.5:1 minimum ratio for normal text:
+1. `<p>A self-evolving application</p>` subtitle: changed `text-gray-500` to `text-gray-400` (contrast on `bg-gray-950` improves from ~4.16:1 to ~7.9:1).
+2. Evolve mode toggle button active state: changed `bg-amber-600` to `bg-amber-700` (contrast for white text improves from ~3.19:1 to ~5.0:1).
+
+**Why**: Both elements failed the WCAG 2 AA threshold of 4.5:1 for normal (non-large) text, flagged by an accessibility audit.
+
+---
+
 ### 2026-03-14 — Fix bold text duplication in SimpleMarkdown
 
 **What changed**: Fixed a bug in `SimpleMarkdown` where bold text (`**text**`) was rendered twice — once as a `<strong>` element and once as a plain `<span>`.
