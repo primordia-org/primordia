@@ -3,7 +3,8 @@
 # The Primordia Evolve Pipeline
 # ──────────────────────────────────────────────────────────────────────────────
 # Triggered when:
-#   - A GitHub Issue is labeled "primordia-evolve"
+#   - A GitHub Issue is labeled "primordia-evolve" (the issue body always
+#     contains @claude, added by the app's /api/evolve route)
 #   - @claude is mentioned in an issue, issue comment, or PR review comment
 #
 # Uses the official anthropics/claude-code-action to handle branching,
@@ -50,28 +51,10 @@ jobs:
         with:
           fetch-depth: 1
 
-      # When triggered by the primordia-evolve label (no @claude in content),
-      # build an explicit prompt from the issue body so the action has something
-      # to work with. For @claude mention triggers this step is skipped and the
-      # action extracts the prompt from the event content itself.
-      - name: Build prompt for label trigger
-        id: label_prompt
-        if: github.event_name == 'issues' && github.event.label.name == 'primordia-evolve'
-        run: |
-          cat >> "$GITHUB_OUTPUT" <<'EOF'
-          prompt=Please implement the following change request from the issue. Read PRIMORDIA.md for full architecture context, implement the requested changes, and update the Changelog section of PRIMORDIA.md with a brief entry describing what you changed and why.
-
-          Issue title: ${{ github.event.issue.title }}
-
-          Issue body:
-          ${{ github.event.issue.body }}
-          EOF
-
       - name: Run Claude Code
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          direct_prompt: ${{ steps.label_prompt.outputs.prompt }}
           claude_args: |
             --allowedTools "Edit,Write,Read,Bash,Glob,Grep"
-            --system-prompt "You are working on Primordia, a self-modifying web application built with TypeScript, Tailwind CSS, and Next.js App Router. Keep changes minimal and focused on the request. Do not introduce new dependencies unless absolutely required. Maintain the existing code style."
+            --system-prompt "You are working on Primordia, a self-modifying web application built with TypeScript, Tailwind CSS, and Next.js App Router. Keep changes minimal and focused on the request. Do not introduce new dependencies unless absolutely required. Maintain the existing code style. Read PRIMORDIA.md for architecture context and update its Changelog section with a brief entry describing what you changed and why."

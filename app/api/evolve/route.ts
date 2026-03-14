@@ -63,7 +63,9 @@ export async function POST(request: Request) {
 function buildIssueBody(userRequest: string): string {
   const timestamp = new Date().toISOString();
 
-  return `## User Request
+  return `@claude
+
+## User Request
 
 ${userRequest}
 
