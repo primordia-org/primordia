@@ -161,6 +161,39 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 ## Changelog
 
+### 2026-03-14 — Investigate: why the Claude Code Action shows "Create PR" instead of auto-creating
+
+**What changed**: No code changed (workflow files cannot be modified by the Claude Code Action due to GitHub App token permission restrictions). Documented the root cause and fix in this changelog entry.
+
+**Root cause**: The `anthropics/claude-code-action@v1` intentionally does NOT auto-create PRs. After Claude finishes, `src/entrypoints/update-comment-link.ts` in the action checks for branch changes and posts a `compare/...?quick_pull=1` link labelled "Create a PR" — it never calls `gh pr create`.
+
+**Fix (apply manually to `.github/workflows/evolve.yml`)**: Two options:
+
+*Option A — Tell Claude to create the PR via Bash (minimal change):* Add to the `claude_args` system prompt:
+> "After committing all changes, create a pull request with `gh pr create --title '<title>' --body 'Closes #N\n\nGenerated with [Claude Code](https://claude.ai/code)' --base main`."
+
+*Option B — Add a dedicated post-step (more robust):*
+```yaml
+- name: Create PR if branch has changes
+  if: env.CLAUDE_BRANCH != ''
+  env:
+    GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+  run: |
+    if gh pr list --head "$CLAUDE_BRANCH" --json number --jq '.[0].number' | grep -q .; then
+      echo "PR already exists"
+    else
+      gh pr create \
+        --head "$CLAUDE_BRANCH" \
+        --base main \
+        --title "$(gh issue view ${{ github.event.issue.number }} --json title --jq .title)" \
+        --body "Closes #${{ github.event.issue.number }}\n\nGenerated with [Claude Code](https://claude.ai/code)"
+    fi
+```
+
+**Why**: Eliminates the manual "Create PR" click for every evolve request, making the pipeline fully automatic end-to-end.
+
+---
+
 ### 2026-03-14 — Add README.md
 
 **What changed**: Created `README.md` with a project overview, how-it-works explanation for both chat and evolve modes, tech stack table, step-by-step setup instructions, environment variable reference, and a link to `PRIMORDIA.md` for deeper architecture details.
