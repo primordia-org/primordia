@@ -5,8 +5,11 @@
 //   - "chat" mode: streams responses from Claude via /api/chat
 //   - "evolve" mode: submits a GitHub Issue via /api/evolve, triggering the CI pipeline
 //
-// After an evolve submit, the UI polls /api/evolve/status and updates Claude's
-// CI progress comment in-place as the bot continuously edits it on GitHub.
+// Evolve flow:
+//   1. Search for open evolve issues first.
+//   2. If any found → show a decision card letting the user comment on one or
+//      create a new issue instead.
+//   3. Either way, start live-polling CI progress once the issue/comment is made.
 
 import { useState, useRef, useEffect, FormEvent } from "react";
 import ModeToggle from "./ModeToggle";
@@ -33,6 +36,17 @@ interface EvolveStatus {
   deployPreviewUrl?: string;
 }
 
+interface OpenIssue {
+  number: number;
+  title: string;
+  html_url: string;
+}
+
+interface EvolveDecision {
+  request: string;
+  options: OpenIssue[];
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function ChatInterface() {
@@ -47,6 +61,8 @@ export default function ChatInterface() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [evolveResult, setEvolveResult] = useState<EvolveResult | null>(null);
+  // When open evolve issues are found, store them here to show the decision card.
+  const [evolveDecision, setEvolveDecision] = useState<EvolveDecision | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Holds the active polling interval so we can cancel it on unmount or mode reset.
@@ -68,6 +84,7 @@ export default function ChatInterface() {
   // Reset evolve result when switching modes
   useEffect(() => {
     setEvolveResult(null);
+    setEvolveDecision(null);
   }, [mode]);
 
   // Cancel any in-flight polling when the component unmounts
@@ -89,6 +106,7 @@ export default function ChatInterface() {
     setInput("");
     setIsLoading(true);
     setEvolveResult(null);
+    setEvolveDecision(null);
 
     if (mode === "chat") {
       await handleChatSubmit(trimmed);
@@ -184,13 +202,122 @@ export default function ChatInterface() {
     ]);
 
     try {
+      // ── Step 1: Search for existing open evolve issues ───────────────────
+      const searchRes = await fetch("/api/evolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "search" }),
+      });
+
+      if (searchRes.ok) {
+        const searchData = (await searchRes.json()) as { issues: OpenIssue[] };
+        if (searchData.issues && searchData.issues.length > 0) {
+          // Found open issues — show decision card instead of auto-creating
+          setEvolveDecision({ request, options: searchData.issues });
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content:
+                "I found some open evolve issues. You can add your request as a follow-up to an existing one, or create a brand-new issue.",
+            },
+          ]);
+          return;
+        }
+      }
+
+      // ── Step 2: No existing issues — create a new one ────────────────────
+      await createNewEvolveIssue(request);
+    } catch (err) {
+      const errorMsg =
+        err instanceof Error ? err.message : "Something went wrong.";
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Failed to submit evolve request: ${errorMsg}`,
+        },
+      ]);
+    }
+  }
+
+  // Called when user clicks "Add comment" on an existing issue from the decision card.
+  async function handleCommentOnIssue(issue: OpenIssue, request: string) {
+    setEvolveDecision(null);
+    setIsLoading(true);
+
+    try {
+      const res = await fetch("/api/evolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "comment",
+          issueNumber: issue.number,
+          request,
+        }),
+      });
+
+      const data = (await res.json()) as {
+        outcome: string;
+        issueNumber: number;
+        commentUrl: string;
+        error?: string;
+      };
+
+      if (!res.ok) {
+        throw new Error(data.error ?? `API error: ${res.statusText}`);
+      }
+
+      // Show confirmation and start live CI polling — same as new-issue flow
+      const statusMsgId = `evolve-status-${data.issueNumber}`;
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Got it! I've added your request as a [comment on Issue #${data.issueNumber}](${data.commentUrl}). Claude Code will pick it up and continue on the existing branch. Progress will appear below.`,
+        },
+        {
+          role: "assistant",
+          id: statusMsgId,
+          content: "⏳ Waiting for CI to start…",
+        },
+      ]);
+
+      startEvolvePolling(data.issueNumber, statusMsgId);
+    } catch (err) {
+      const errorMsg =
+        err instanceof Error ? err.message : "Something went wrong.";
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Failed to post comment: ${errorMsg}`,
+        },
+      ]);
+    }
+
+    setIsLoading(false);
+  }
+
+  // Called when user clicks "Create new issue" from the decision card.
+  async function handleCreateNewFromDecision(request: string) {
+    setEvolveDecision(null);
+    setIsLoading(true);
+    await createNewEvolveIssue(request);
+    setIsLoading(false);
+  }
+
+  // Shared helper: POST action=create and kick off live polling.
+  async function createNewEvolveIssue(request: string) {
+    try {
       const response = await fetch("/api/evolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request }),
+        body: JSON.stringify({ action: "create", request }),
       });
 
       const data = (await response.json()) as {
+        outcome: string;
         issueNumber: number;
         issueUrl: string;
         error?: string;
@@ -387,6 +514,48 @@ export default function ChatInterface() {
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Decision card — shown when open evolve issues were found */}
+      {evolveDecision && (
+        <div className="mb-3 px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-sm flex-shrink-0 space-y-3">
+          <p className="text-gray-300 font-medium">
+            Found {evolveDecision.options.length} open evolve{" "}
+            {evolveDecision.options.length === 1 ? "issue" : "issues"}. Add
+            your request as a follow-up, or create a new issue.
+          </p>
+          <ul className="space-y-2">
+            {evolveDecision.options.map((issue) => (
+              <li
+                key={issue.number}
+                className="flex items-center justify-between gap-3"
+              >
+                <a
+                  href={issue.html_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:text-blue-300 underline truncate"
+                >
+                  #{issue.number} {issue.title}
+                </a>
+                <button
+                  onClick={() =>
+                    handleCommentOnIssue(issue, evolveDecision.request)
+                  }
+                  className="flex-shrink-0 px-3 py-1 rounded-md bg-amber-700 hover:bg-amber-600 text-white text-xs font-medium transition-colors"
+                >
+                  Add comment
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button
+            onClick={() => handleCreateNewFromDecision(evolveDecision.request)}
+            className="text-xs text-gray-400 hover:text-gray-200 underline"
+          >
+            Create new issue instead
+          </button>
+        </div>
+      )}
 
       {/* Input area */}
       <form

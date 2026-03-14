@@ -159,6 +159,18 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 ## Changelog
 
+### 2026-03-14 — Search for existing evolve issues + live CI progress for follow-ups
+
+**What changed**:
+- `/api/evolve/route.ts`: added two new actions alongside the existing `create`:
+  - `search` — queries the GitHub Search API for open `[Primordia Evolve]` issues (up to 5 most recent).
+  - `comment` — posts a `@claude` follow-up comment to an existing issue so Claude Code continues on the existing branch.
+- `components/ChatInterface.tsx`: on evolve submit, the app now searches for open evolve issues first. If any are found, a **decision card** lists them with an "Add comment" button per issue and a "Create new issue instead" fallback. After posting a comment on an existing issue, the same live CI-progress polling starts (identical to the new-issue path), so users see Claude's task-list updating in real time.
+
+**Why**: Avoid unnecessary issue/branch proliferation; follow-up requests should continue on the existing branch. The live comment display was already present for new issues — now it works for follow-ups too.
+
+---
+
 ### 2026-03-14 — Fix Vercel env var name for PR ID
 
 **What changed**: Renamed `VERCEL_GIT_PULL_REQUEST_NUMBER` → `VERCEL_GIT_PULL_REQUEST_ID` in `next.config.ts` and `ChatInterface.tsx`.
