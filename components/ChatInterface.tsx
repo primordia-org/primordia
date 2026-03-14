@@ -3,18 +3,24 @@
 // components/ChatInterface.tsx
 // The main chat UI for Primordia. Handles two modes:
 //   - "chat" mode: streams responses from Claude via /api/chat
-//   - "evolve" mode: submits a GitHub Issue via /api/evolve, triggering the CI pipeline
+//   - "evolve" mode: submits a change request, triggering an automated implementation
 //
-// Evolve flow:
+// Evolve flow (production / NODE_ENV=production):
 //   1. User submits a request.
 //   2. /api/evolve?action=search checks for open evolve issues.
 //   3. If matches exist, a decision card is shown: comment on an existing issue
 //      (so Claude can update its branch) or create a new one.
 //   4. If no matches, a new issue is created automatically.
 //
+// Evolve flow (development / NODE_ENV=development):
+//   1. User submits a request.
+//   2. POST /api/evolve/local — creates a git worktree, runs Claude Code, starts dev server.
+//   3. UI polls /api/evolve/local?sessionId=... for status updates.
+//   4. When ready, shows a preview link + accept/reject buttons.
+//   5. Accept merges the branch into main; reject cleans up.
+//
 // The mode toggle is always visible so users can switch without losing their draft message.
-// After an evolve submit, the UI polls /api/evolve/status and updates Claude's
-// CI progress comment in-place as the bot continuously edits it on GitHub.
+// After an evolve submit, the UI polls for progress and updates the status message in-place.
 
 import { useState, useRef, useEffect, FormEvent } from "react";
 import ModeToggle from "./ModeToggle";
@@ -49,6 +55,15 @@ interface EvolveStatus {
   deployPreviewUrl?: string;
 }
 
+// Status polled from /api/evolve/local (development only)
+interface LocalEvolveSession {
+  id: string;
+  status: "starting" | "running-claude" | "starting-server" | "ready" | "error";
+  logs: string;
+  previewUrl: string | null;
+  branch: string;
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function ChatInterface() {
@@ -73,10 +88,14 @@ export default function ChatInterface() {
   const [relatedIssues, setRelatedIssues] = useState<RelatedIssue[] | null>(null);
   const [pendingRequest, setPendingRequest] = useState<string | null>(null);
   const [evolveLoadingMsg, setEvolveLoadingMsg] = useState<string>("Checking for related issues…");
+  // Local evolve session state (development only)
+  const [localEvolveSession, setLocalEvolveSession] = useState<LocalEvolveSession | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Holds the active polling interval so we can cancel it on unmount or mode reset.
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Polling interval for local evolve status (development only)
+  const localPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Auto-scroll to the latest message
   useEffect(() => {
@@ -96,6 +115,7 @@ export default function ChatInterface() {
     setEvolveResult(null);
     setRelatedIssues(null);
     setPendingRequest(null);
+    setLocalEvolveSession(null);
   }, [mode]);
 
   // Cancel any in-flight polling when the component unmounts
@@ -103,6 +123,9 @@ export default function ChatInterface() {
     return () => {
       if (pollingIntervalRef.current !== null) {
         clearInterval(pollingIntervalRef.current);
+      }
+      if (localPollingRef.current !== null) {
+        clearInterval(localPollingRef.current);
       }
     };
   }, []);
@@ -236,6 +259,14 @@ export default function ChatInterface() {
   }
 
   async function handleEvolveSubmit(request: string) {
+    // In development, use the local worktree flow instead of GitHub Issues.
+    if (process.env.NODE_ENV === "development") {
+      await handleLocalEvolveSubmit(request);
+      return;
+    }
+
+    // ── Production: GitHub Issues flow ────────────────────────────────────────
+
     // Clear any previous decision state
     setPendingRequest(null);
     setRelatedIssues(null);
@@ -272,6 +303,177 @@ export default function ChatInterface() {
     setEvolveLoadingMsg("Opening GitHub issue…");
     await performEvolveCreate(request);
   }
+
+  // ── Local evolve (development only) ───────────────────────────────────────
+
+  async function handleLocalEvolveSubmit(request: string) {
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: `[evolve request] ${request}` },
+    ]);
+
+    const statusMsgId = `local-evolve-status-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      { role: "assistant", id: statusMsgId, content: "⏳ Setting up local preview…" },
+    ]);
+
+    try {
+      const res = await fetch("/api/evolve/local", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request }),
+      });
+
+      const data = (await res.json()) as { sessionId?: string; error?: string };
+
+      if (!res.ok) {
+        throw new Error(data.error ?? `API error: ${res.statusText}`);
+      }
+
+      startLocalEvolvePolling(data.sessionId!, statusMsgId);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Something went wrong.";
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === statusMsgId
+            ? { ...m, content: `Failed to start local evolve: ${errorMsg}` }
+            : m,
+        ),
+      );
+    }
+  }
+
+  // Polls /api/evolve/local every 5 s.
+  // Updates the status message in-place; appends a preview-ready message once ready.
+  function startLocalEvolvePolling(sessionId: string, statusMsgId: string) {
+    if (localPollingRef.current !== null) {
+      clearInterval(localPollingRef.current);
+    }
+
+    localPollingRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/evolve/local?sessionId=${sessionId}`);
+        if (!res.ok) return;
+
+        const data = (await res.json()) as LocalEvolveSession;
+        setLocalEvolveSession({ ...data, id: sessionId });
+
+        // Build a human-readable status label
+        const statusLabel: Record<string, string> = {
+          starting: "⏳ Setting up worktree…",
+          "running-claude": "🤖 Claude Code is implementing changes…",
+          "starting-server": "🚀 Starting preview server…",
+          ready: "✅ Preview ready!",
+          error: "❌ An error occurred.",
+        };
+        const label = statusLabel[data.status] ?? "⏳ Working…";
+
+        // Show the last ~20 lines of logs as context
+        const recentLogs = data.logs
+          .split("\n")
+          .slice(-20)
+          .join("\n")
+          .trim();
+
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === statusMsgId
+              ? { ...m, content: `${label}\n\n${recentLogs}` }
+              : m,
+          ),
+        );
+
+        // Stop polling once terminal state is reached
+        if (data.status === "ready" || data.status === "error") {
+          clearInterval(localPollingRef.current!);
+          localPollingRef.current = null;
+
+          if (data.status === "ready" && data.previewUrl) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: `🚀 Preview ready: [${data.previewUrl}](${data.previewUrl})\n\nReview the changes, then use the **Accept** or **Reject** buttons below.`,
+              },
+            ]);
+          }
+        }
+      } catch {
+        // Silently ignore transient network errors between polls
+      }
+    }, 5_000);
+  }
+
+  async function handleLocalAccept() {
+    if (!localEvolveSession || isLoading) return;
+    setIsLoading(true);
+
+    try {
+      const res = await fetch("/api/evolve/local/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "accept", sessionId: localEvolveSession.id }),
+      });
+
+      const data = (await res.json()) as { outcome?: string; branch?: string; error?: string };
+
+      if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
+
+      setLocalEvolveSession(null);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `✅ Changes accepted and merged into main! The preview server has been shut down.`,
+        },
+      ]);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Something went wrong.";
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `Failed to accept changes: ${errorMsg}` },
+      ]);
+    }
+
+    setIsLoading(false);
+  }
+
+  async function handleLocalReject() {
+    if (!localEvolveSession || isLoading) return;
+    setIsLoading(true);
+
+    try {
+      const res = await fetch("/api/evolve/local/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reject", sessionId: localEvolveSession.id }),
+      });
+
+      const data = (await res.json()) as { outcome?: string; error?: string };
+
+      if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
+
+      setLocalEvolveSession(null);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `🗑️ Preview rejected. The worktree and branch have been cleaned up.`,
+        },
+      ]);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Something went wrong.";
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `Failed to reject: ${errorMsg}` },
+      ]);
+    }
+
+    setIsLoading(false);
+  }
+
+  // ── GitHub evolve helpers (production) ────────────────────────────────────
 
   // Called when the user picks "Add comment" on an existing issue
   async function handleEvolveComment(issueNumber: number) {
@@ -585,9 +787,18 @@ export default function ChatInterface() {
       {/* Evolve mode banner */}
       {mode === "evolve" && (
         <div className="mb-4 px-4 py-3 rounded-lg bg-amber-900/40 border border-amber-700/50 text-amber-300 text-sm flex-shrink-0">
-          <strong className="font-semibold">Evolve mode</strong> — Describe a
-          change you want to make to this app. Your request will become a GitHub
-          Issue and trigger an automated PR.
+          <strong className="font-semibold">Evolve mode</strong> —{" "}
+          {process.env.NODE_ENV === "development" ? (
+            <>
+              Describe a change you want to make to this app. Claude Code will
+              implement it locally in a preview server — no GitHub required.
+            </>
+          ) : (
+            <>
+              Describe a change you want to make to this app. Your request will
+              become a GitHub Issue and trigger an automated PR.
+            </>
+          )}
         </div>
       )}
 
@@ -604,7 +815,7 @@ export default function ChatInterface() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Decision card — shown when open evolve issues were found */}
+      {/* Decision card — shown when open evolve issues were found (production only) */}
       {relatedIssues !== null &&
         relatedIssues.length > 0 &&
         pendingRequest &&
@@ -645,6 +856,44 @@ export default function ChatInterface() {
             </button>
           </div>
         )}
+
+      {/* Local evolve accept/reject card — development only, shown when preview is ready */}
+      {localEvolveSession?.status === "ready" && localEvolveSession.previewUrl && (
+        <div className="mb-3 px-4 py-3 rounded-lg bg-green-900/30 border border-green-700/40 text-sm flex-shrink-0 space-y-3">
+          <p className="text-green-200 font-semibold">
+            Preview ready:{" "}
+            <a
+              href={localEvolveSession.previewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-green-100"
+            >
+              {localEvolveSession.previewUrl}
+            </a>
+          </p>
+          <p className="text-green-300 text-xs">
+            Review the changes in the preview, then accept to merge into{" "}
+            <code className="bg-green-900/50 px-1 rounded">main</code> or
+            reject to discard.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleLocalAccept}
+              disabled={isLoading}
+              className="px-3 py-1.5 text-xs bg-green-700 hover:bg-green-600 rounded text-white disabled:opacity-50"
+            >
+              Accept Changes
+            </button>
+            <button
+              onClick={handleLocalReject}
+              disabled={isLoading}
+              className="px-3 py-1.5 text-xs bg-red-800 hover:bg-red-700 rounded text-white disabled:opacity-50"
+            >
+              Reject
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Merge card — shown when the user expresses merge/accept intent on a deploy preview */}
       {showMergeCard && deployPrNumber && !isLoading && (
@@ -708,7 +957,7 @@ export default function ChatInterface() {
         </button>
       </form>
 
-      {/* Evolve result card */}
+      {/* Evolve result card (production — after GitHub issue is created/commented) */}
       {evolveResult && (
         <div className="mt-3 px-4 py-3 rounded-lg bg-green-900/30 border border-green-700/40 text-green-300 text-sm flex-shrink-0">
           {evolveResult.type === "commented" ? (
