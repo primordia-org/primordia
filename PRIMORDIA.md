@@ -51,7 +51,9 @@ primordia/
 │       ├── chat/
 │       │   └── route.ts           ← Streams Claude responses via SSE
 │       └── evolve/
-│           └── route.ts           ← Creates a labeled GitHub Issue
+│           ├── route.ts           ← Creates a labeled GitHub Issue
+│           └── status/
+│               └── route.ts      ← Polls GitHub for issue comment, PR, deploy preview
 │
 ├── components/
 │   ├── ChatInterface.tsx          ← Main chat UI; handles chat + evolve modes
@@ -158,6 +160,18 @@ These were noted at project inception but are explicitly out of scope for the MV
 ---
 
 ## Changelog
+
+### 2026-03-14 — Evolve pipeline feedback loop in chat
+
+**What changed**: After an evolve request is submitted, the Primordia chat now automatically tracks CI progress and surfaces updates without requiring the user to leave the page.
+
+**New**: `app/api/evolve/status/route.ts` — a `GET /api/evolve/status?issueNumber=N` endpoint that polls three GitHub API resources: (1) issue comments to find Claude's response comment, (2) open/recent PRs whose branch matches `claude/issue-{N}-*`, and (3) PR comments to find the Vercel deploy preview URL posted by the Vercel GitHub bot.
+
+**Modified**: `components/ChatInterface.tsx` — after a successful evolve submit, starts polling `/api/evolve/status` every 10 seconds (up to 15 min). When each milestone is detected it appends a chat message: Claude's initial response (first 400 chars + link), the PR link, and finally the deploy preview URL. Polling stops when the deploy preview is found or the timeout is reached. A "Watching CI pipeline…" indicator is shown while polling.
+
+**Why**: Users had to manually navigate to GitHub to see whether the CI pipeline had responded to their evolve request. This closes the loop so everything — request, Claude response, PR, and live preview — is visible within the Primordia chat.
+
+---
 
 ### 2026-03-14 — Fix bold text duplication in SimpleMarkdown
 

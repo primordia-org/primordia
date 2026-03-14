@@ -5,6 +5,12 @@
 //   - "chat" mode: streams responses from Claude via /api/chat
 //   - "evolve" mode: submits a GitHub Issue via /api/evolve, triggering the CI pipeline
 //
+// After an evolve issue is created, the component polls /api/evolve/status every 10s
+// and adds chat messages when:
+//   - Claude's comment appears on the issue (shows a summary + link)
+//   - A PR is created (shows PR link)
+//   - A Vercel deploy preview URL becomes available (shows preview link)
+//
 // The mode toggle is always visible so users can switch without losing their draft message.
 
 import { useState, useRef, useEffect, FormEvent } from "react";
@@ -24,6 +30,28 @@ interface EvolveResult {
   issueUrl: string;
 }
 
+interface EvolveStatus {
+  claudeComment: string | null;
+  claudeCommentUrl: string | null;
+  prNumber: number | null;
+  prUrl: string | null;
+  deployPreviewUrl: string | null;
+}
+
+// Mutable ref tracking what has already been surfaced in chat for a given issue,
+// to avoid duplicate messages across poll ticks.
+interface EvolveTracker {
+  issueNumber: number;
+  startTime: number;
+  claudeShown: boolean;
+  prShown: boolean;
+  deployShown: boolean;
+}
+
+// How often to poll (ms) and when to give up (ms)
+const POLL_INTERVAL_MS = 10_000;
+const POLL_TIMEOUT_MS = 15 * 60_000; // 15 minutes
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function ChatInterface() {
@@ -40,6 +68,11 @@ export default function ChatInterface() {
   const [evolveResult, setEvolveResult] = useState<EvolveResult | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Mutable tracker for evolve polling — read inside setInterval without stale closures
+  const evolveTrackerRef = useRef<EvolveTracker | null>(null);
+  // Changing this state value kicks off the polling useEffect
+  const [activeEvolveIssue, setActiveEvolveIssue] = useState<number | null>(null);
 
   // Auto-scroll to the latest message
   useEffect(() => {
@@ -58,6 +91,87 @@ export default function ChatInterface() {
   useEffect(() => {
     setEvolveResult(null);
   }, [mode]);
+
+  // ── Evolve polling ────────────────────────────────────────────────────────
+  // Runs whenever a new evolve issue number becomes active.
+  // Polls /api/evolve/status and surfaces progress as chat messages.
+
+  useEffect(() => {
+    if (activeEvolveIssue === null) return;
+
+    const interval = setInterval(async () => {
+      const tracker = evolveTrackerRef.current;
+      if (!tracker) return;
+
+      // Give up after POLL_TIMEOUT_MS
+      if (Date.now() - tracker.startTime > POLL_TIMEOUT_MS) {
+        clearInterval(interval);
+        evolveTrackerRef.current = null;
+        setActiveEvolveIssue(null);
+        return;
+      }
+
+      try {
+        const res = await fetch(
+          `/api/evolve/status?issueNumber=${tracker.issueNumber}`
+        );
+        if (!res.ok) return; // transient error — will retry
+
+        const data = (await res.json()) as EvolveStatus;
+
+        // Show Claude's comment once it appears
+        if (data.claudeComment && !tracker.claudeShown) {
+          tracker.claudeShown = true;
+          // Show the first ~400 chars of Claude's comment so the chat isn't flooded,
+          // with a link to read the full comment on GitHub.
+          const preview = data.claudeComment.slice(0, 400).trimEnd();
+          const ellipsis = data.claudeComment.length > 400 ? "…" : "";
+          const linkPart = data.claudeCommentUrl
+            ? ` [View full response](${data.claudeCommentUrl})`
+            : "";
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: `**Claude is working on it:**\n${preview}${ellipsis}${linkPart}`,
+            },
+          ]);
+        }
+
+        // Show PR link once the PR is created
+        if (data.prUrl && !tracker.prShown) {
+          tracker.prShown = true;
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: `PR created! [View PR #${data.prNumber}](${data.prUrl})`,
+            },
+          ]);
+        }
+
+        // Show deploy preview URL once Vercel finishes building
+        if (data.deployPreviewUrl && !tracker.deployShown) {
+          tracker.deployShown = true;
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: `Deploy preview is ready! [Open preview](${data.deployPreviewUrl})`,
+            },
+          ]);
+          // All done — stop polling
+          clearInterval(interval);
+          evolveTrackerRef.current = null;
+          setActiveEvolveIssue(null);
+        }
+      } catch {
+        // Network hiccup — will retry on next tick
+      }
+    }, POLL_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [activeEvolveIssue]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -170,7 +284,11 @@ export default function ChatInterface() {
         body: JSON.stringify({ request }),
       });
 
-      const data = (await response.json()) as { issueNumber: number; issueUrl: string; error?: string };
+      const data = (await response.json()) as {
+        issueNumber: number;
+        issueUrl: string;
+        error?: string;
+      };
 
       if (!response.ok) {
         throw new Error(data.error ?? `API error: ${response.statusText}`);
@@ -181,9 +299,19 @@ export default function ChatInterface() {
         ...prev,
         {
           role: "assistant",
-          content: `Got it! I've opened [GitHub Issue #${data.issueNumber}](${data.issueUrl}) for your request. The CI pipeline will now generate a PR with the changes. You can follow along at the link above.`,
+          content: `Got it! I've opened [GitHub Issue #${data.issueNumber}](${data.issueUrl}) for your request. I'll let you know here when Claude responds, a PR is created, and the deploy preview is ready.`,
         },
       ]);
+
+      // Start polling for CI progress
+      evolveTrackerRef.current = {
+        issueNumber: data.issueNumber,
+        startTime: Date.now(),
+        claudeShown: false,
+        prShown: false,
+        deployShown: false,
+      };
+      setActiveEvolveIssue(data.issueNumber);
     } catch (err) {
       const errorMsg =
         err instanceof Error ? err.message : "Something went wrong.";
@@ -241,6 +369,11 @@ export default function ChatInterface() {
             Opening GitHub issue…
           </div>
         )}
+        {activeEvolveIssue !== null && (
+          <div className="text-sm text-gray-500 animate-pulse">
+            Watching CI pipeline…
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
@@ -292,7 +425,7 @@ export default function ChatInterface() {
           >
             #{evolveResult.issueNumber}
           </a>{" "}
-          opened — a PR will be generated shortly.
+          opened — watching for PR and deploy preview…
         </div>
       )}
     </div>
