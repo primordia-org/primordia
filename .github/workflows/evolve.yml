@@ -73,16 +73,8 @@ jobs:
             --jq '[.comments[].body | scan("https://[^)]+quick_pull=1[^)]*")] | last')
 
           if [ -n "$COMPARE_URL" ]; then
-            PR_TITLE=$(python3 -c "
-import sys, urllib.parse
-qs = urllib.parse.urlparse('$COMPARE_URL').query
-print(urllib.parse.parse_qs(qs).get('title', [''])[0])
-")
-            PR_BODY=$(python3 -c "
-import sys, urllib.parse
-qs = urllib.parse.urlparse('$COMPARE_URL').query
-print(urllib.parse.parse_qs(qs).get('body', [''])[0])
-")
+            PR_TITLE=$(python3 -c "import urllib.parse; qs = urllib.parse.urlparse('$COMPARE_URL').query; print(urllib.parse.parse_qs(qs).get('title', [''])[0])")
+            PR_BODY=$(python3 -c "import urllib.parse; qs = urllib.parse.urlparse('$COMPARE_URL').query; print(urllib.parse.parse_qs(qs).get('body', [''])[0])")
           fi
 
           # Fall back to a generic title/body if parsing failed
