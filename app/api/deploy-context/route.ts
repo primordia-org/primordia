@@ -86,5 +86,5 @@ export async function GET() {
     );
   }
 
-  return Response.json({ context: lines.join("\n") });
+  return Response.json({ context: lines.join("\n"), prNumber: pr.number, prUrl: pr.html_url });
 }
