@@ -176,6 +176,7 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 ---
 
+
 ### 2026-03-14 — Add README.md
 
 **What changed**: Created `README.md` with a project overview, how-it-works explanation for both chat and evolve modes, tech stack table, step-by-step setup instructions, environment variable reference, and a link to `PRIMORDIA.md` for deeper architecture details.
