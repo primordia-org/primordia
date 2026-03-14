@@ -65,6 +65,10 @@ export default function ChatInterface() {
   const [evolveResult, setEvolveResult] = useState<EvolveResult | null>(null);
   // Stores deploy preview context string; injected into the system prompt for chat.
   const [deployContext, setDeployContext] = useState<string | null>(null);
+  // PR number for the current deploy preview (null on production/local builds).
+  const [deployPrNumber, setDeployPrNumber] = useState<number | null>(null);
+  // Whether to show the "Accept Changes / merge PR" card.
+  const [showMergeCard, setShowMergeCard] = useState(false);
   // Decision state: shown when related open issues are found before creating a new one
   const [relatedIssues, setRelatedIssues] = useState<RelatedIssue[] | null>(null);
   const [pendingRequest, setPendingRequest] = useState<string | null>(null);
@@ -110,9 +114,10 @@ export default function ChatInterface() {
 
     fetch("/api/deploy-context")
       .then((res) => res.json())
-      .then((data: { context: string | null }) => {
+      .then((data: { context: string | null; prNumber?: number; prUrl?: string }) => {
         if (!data.context) return;
         setDeployContext(data.context);
+        if (data.prNumber) setDeployPrNumber(data.prNumber);
         // Prepend a visible system message so the context is front-and-centre.
         setMessages((prev) => [
           { role: "system" as const, content: data.context! },
@@ -145,6 +150,13 @@ export default function ChatInterface() {
   }
 
   async function handleChatSubmit(userMessage: string) {
+    // On deploy previews, intercept merge/accept intent before sending to Claude.
+    if (deployPrNumber && isMergeIntent(userMessage)) {
+      setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
+      setShowMergeCard(true);
+      return;
+    }
+
     const newMessages: Message[] = [
       ...messages,
       { role: "user", content: userMessage },
@@ -493,6 +505,46 @@ export default function ChatInterface() {
     }, 10_000);
   }
 
+  // Merges the deploy-preview PR when the user confirms via the merge card.
+  async function handleMergePr() {
+    if (!deployPrNumber || isLoading) return;
+    setShowMergeCard(false);
+    setIsLoading(true);
+
+    try {
+      const res = await fetch("/api/merge-pr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prNumber: deployPrNumber }),
+      });
+
+      const data = (await res.json()) as { merged?: boolean; message?: string; error?: string };
+
+      if (!res.ok) {
+        throw new Error(data.error ?? `GitHub error: ${res.statusText}`);
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `✅ PR #${deployPrNumber} has been merged! The changes will be deployed to production shortly.`,
+        },
+      ]);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Something went wrong.";
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Failed to merge PR #${deployPrNumber}: ${errorMsg}`,
+        },
+      ]);
+    }
+
+    setIsLoading(false);
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // Submit on Enter (without Shift)
     if (e.key === "Enter" && !e.shiftKey) {
@@ -592,6 +644,32 @@ export default function ChatInterface() {
             </button>
           </div>
         )}
+
+      {/* Merge card — shown when the user expresses merge/accept intent on a deploy preview */}
+      {showMergeCard && deployPrNumber && !isLoading && (
+        <div className="mb-3 px-4 py-3 rounded-lg bg-green-900/30 border border-green-700/40 text-sm flex-shrink-0 space-y-3">
+          <p className="text-green-200 font-semibold">
+            Merge PR #{deployPrNumber} into production?
+          </p>
+          <p className="text-green-300 text-xs">
+            This will squash-merge the branch and trigger a production deployment.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleMergePr}
+              className="px-3 py-1.5 text-xs bg-green-700 hover:bg-green-600 rounded text-white"
+            >
+              Accept Changes
+            </button>
+            <button
+              onClick={() => setShowMergeCard(false)}
+              className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded text-gray-200"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Input area */}
       <form
@@ -695,6 +773,25 @@ function MessageBubble({ message }: { message: Message }) {
       </div>
     </div>
   );
+}
+
+// ─── isMergeIntent ───────────────────────────────────────────────────────────
+// Returns true when the message clearly expresses an intent to merge / accept
+// the current PR.  Only used on deploy previews.
+
+function isMergeIntent(text: string): boolean {
+  const lower = text.toLowerCase().trim();
+  // Exact short commands
+  if (lower === "merge" || lower === "accept") return true;
+  // "merge this / the / it / pr / branch / pull request / change(s)"
+  if (/\bmerge\s+(this|the|it|pr|branch|pull\s+request|change|changes)\b/.test(lower)) return true;
+  // "accept this / the change(s) / pr / pull request"
+  if (/\baccept\s+(this\s+|the\s+)?(change|changes|pr|pull\s+request)\b/.test(lower)) return true;
+  // "ship this / it"
+  if (/\bship\s+(this|it)\b/.test(lower)) return true;
+  // "approve and merge", "lgtm merge"
+  if (/\b(approve\s+and\s+merge|lgtm\s+merge)\b/.test(lower)) return true;
+  return false;
 }
 
 // ─── SimpleMarkdown ──────────────────────────────────────────────────────────

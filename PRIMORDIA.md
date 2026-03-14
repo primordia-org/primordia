@@ -161,6 +161,30 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 ## Changelog
 
+### 2026-03-14 — Switch Accept Changes merge from squash to regular merge commit
+
+**What changed**: `app/api/merge-pr/route.ts`: changed `merge_method` from `"squash"` to `"merge"` in the GitHub API call.
+
+**Why**: User requested regular merge commits instead of squash merges to preserve individual commit history from the PR branch.
+
+---
+
+### 2026-03-14 — Accept Changes card for deploy-preview merge
+
+**What changed**:
+- `app/api/merge-pr/route.ts` (new): POST endpoint that squash-merges a PR via the GitHub API using `GITHUB_TOKEN`.
+- `app/api/deploy-context/route.ts`: now also returns `prNumber` and `prUrl` alongside `context` so the client can identify the PR without re-parsing the context string.
+- `components/ChatInterface.tsx`:
+  - Stores `deployPrNumber` from the deploy-context response.
+  - New `isMergeIntent()` helper detects phrasing like "merge this branch", "accept this change", "ship this", etc.
+  - When a merge-intent message is submitted on a deploy preview, a green **"Accept Changes"** card is shown above the input (styled like the related-issues decision card). It displays the PR number and a "Cancel" option.
+  - Clicking "Accept Changes" calls `/api/merge-pr`, then appends a confirmation (or error) message to the chat.
+
+**Why**: On deploy previews users sometimes want to merge the PR right from the chat rather than switching to GitHub. The card-response pattern (same as related issues) gives a clear, safe confirmation step before an irreversible action.
+
+---
+
+
 ### 2026-03-14 — Add README.md
 
 **What changed**: Created `README.md` with a project overview, how-it-works explanation for both chat and evolve modes, tech stack table, step-by-step setup instructions, environment variable reference, and a link to `PRIMORDIA.md` for deeper architecture details.
