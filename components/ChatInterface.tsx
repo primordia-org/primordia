@@ -562,7 +562,18 @@ export default function ChatInterface() {
       <header className="flex items-center justify-between mb-6 flex-shrink-0">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-white flex items-baseline gap-2">
-            Primordia
+            {process.env.VERCEL_PROJECT_PRODUCTION_URL ? (
+              <a
+                href={`https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-white no-underline hover:text-gray-300"
+              >
+                Primordia
+              </a>
+            ) : (
+              "Primordia"
+            )}
             {process.env.VERCEL_ENV === "preview" &&
               process.env.VERCEL_GIT_PULL_REQUEST_ID && (
                 <a

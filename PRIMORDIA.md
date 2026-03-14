@@ -161,6 +161,14 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 ## Changelog
 
+### 2026-03-14 — Make "Primordia" header text a link to the production app
+
+**What changed**: `next.config.ts` now exposes `VERCEL_PROJECT_PRODUCTION_URL` to client components. `components/ChatInterface.tsx`: the "Primordia" h1 text is now wrapped in an `<a>` tag (when the production URL is available) pointing to `https://${VERCEL_PROJECT_PRODUCTION_URL}` with `target="_blank"`. Styled with `text-white no-underline hover:text-gray-300` to preserve the same appearance as the plain text.
+
+**Why**: Gives users on deployment previews a one-click way to jump to the production app without the link looking like an obvious URL or button.
+
+---
+
 ### 2026-03-14 — Simplify deploy preview banner (hide PR details from visible notice)
 
 **What changed**: `components/ChatInterface.tsx`: the visible system message shown at the top of the chat on deploy previews now always displays only "⚠️ This is a deploy preview — a work-in-progress build, not the production app." The full PR/issue context string is still sent to Claude via `systemContext` so the assistant remains aware of it.
