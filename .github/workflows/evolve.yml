@@ -57,14 +57,17 @@ jobs:
       - name: Create Pull Request
         if: github.event_name == 'issues' && steps.claude.outputs.branch_name != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           BRANCH: ${{ steps.claude.outputs.branch_name }}
         run: |
-          gh pr create \
-            --head "$BRANCH" \
-            --base main \
-            --title "Evolve: $ISSUE_TITLE" \
-            --body "Closes #$ISSUE_NUMBER" \
-            || echo "PR already exists for this branch"
+          if gh pr list --head "$BRANCH" --json number --jq '.[0].number' | grep -q .; then
+            echo "PR already exists for branch $BRANCH"
+          else
+            gh pr create \
+              --head "$BRANCH" \
+              --base main \
+              --title "Evolve: $ISSUE_TITLE" \
+              --body "Closes #$ISSUE_NUMBER\n\nGenerated with [Claude Code](https://claude.ai/code)"
+          fi
