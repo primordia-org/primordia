@@ -159,6 +159,16 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 ## Changelog
 
+### 2026-03-14 — Show PR link in header for deploy previews
+
+**What changed**: On Vercel preview deployments, the top header now displays a linked `#N` badge right after "Primordia", pointing to the GitHub PR for that preview. Production deployments are unaffected.
+
+**How**: `next.config.ts` now exposes four Vercel system env vars (`VERCEL_ENV`, `VERCEL_GIT_PULL_REQUEST_NUMBER`, `VERCEL_GIT_REPO_OWNER`, `VERCEL_GIT_REPO_SLUG`) via the `env` block, which Next.js inlines at build time so client components can read them. `ChatInterface.tsx` conditionally renders the link when `VERCEL_ENV === "preview"` and a PR number is present.
+
+**Why**: Makes it easy to identify which PR each preview tab corresponds to.
+
+---
+
 ### 2026-03-14 — Fix WCAG 2 AA color contrast issues
 
 **What changed**: Improved color contrast for two elements that failed the WCAG 2 AA 4.5:1 minimum ratio for normal text:
