@@ -216,6 +216,11 @@ These were noted at project inception but are explicitly out of scope for the MV
 - `PRIMORDIA.md`: updated File Map and Data Flow sections.
 
 **Why**: When iterating locally, creating a GitHub Issue → waiting for CI → waiting for a Vercel deploy is slow. The new flow lets a developer see changes in a local preview server within minutes and accept/reject without touching GitHub.
+### 2026-03-14 — Make "Primordia" header text a link to the production app
+
+**What changed**: `next.config.ts` now exposes `VERCEL_PROJECT_PRODUCTION_URL` to client components. `components/ChatInterface.tsx`: the "Primordia" h1 text is now wrapped in an `<a>` tag (when the production URL is available) pointing to `https://${VERCEL_PROJECT_PRODUCTION_URL}` with `target="_blank"`. Styled with `text-white no-underline hover:text-gray-300` to preserve the same appearance as the plain text.
+
+**Why**: Gives users on deployment previews a one-click way to jump to the production app without the link looking like an obvious URL or button.
 
 ---
 
