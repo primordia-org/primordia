@@ -3,6 +3,7 @@
 // Module-level singleton — shared across all API routes within the same
 // Next.js dev server process. Only used when NODE_ENV=development.
 
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as net from 'net';
@@ -20,7 +21,8 @@ export interface LocalSession {
   branch: string;
   worktreePath: string;
   status: LocalSessionStatus;
-  logs: string;
+  /** Formatted markdown progress string for display in the chat. */
+  progressText: string;
   port: number | null;
   previewUrl: string | null;
   /** Spawned dev server process. Null when not running or after cleanup. */
@@ -48,13 +50,32 @@ export async function findAvailablePort(startPort: number): Promise<number> {
   throw new Error(`No available port found in range ${startPort}–${startPort + 99}`);
 }
 
-// ─── Logging ──────────────────────────────────────────────────────────────────
+// ─── Progress logging ─────────────────────────────────────────────────────────
 
-export function appendLog(session: LocalSession, text: string): void {
-  session.logs += text;
+export function appendProgress(session: LocalSession, text: string): void {
+  session.progressText += text;
   // Cap at 100 KB to avoid unbounded memory growth
-  if (session.logs.length > 100_000) {
-    session.logs = '[…earlier output truncated…]\n' + session.logs.slice(-90_000);
+  if (session.progressText.length > 100_000) {
+    session.progressText = '[…earlier output truncated…]\n' + session.progressText.slice(-90_000);
+  }
+}
+
+// ─── Tool use summarizer ──────────────────────────────────────────────────────
+
+function summarizeToolUse(name: string, input: Record<string, unknown>): string {
+  const filePath = String(input.file_path ?? input.path ?? '');
+  const command = String(input.command ?? '');
+  const pattern = String(input.pattern ?? '');
+  switch (name) {
+    case 'Read':      return `Read \`${filePath}\``;
+    case 'Write':     return `Write \`${filePath}\``;
+    case 'Edit':      return `Edit \`${filePath}\``;
+    case 'Glob':      return `Glob \`${pattern}\``;
+    case 'Grep':      return `Grep \`${pattern}\``;
+    case 'Bash':      return `Bash \`${command.slice(0, 80)}\``;
+    case 'TodoWrite': return `Update todo list`;
+    case 'Agent':     return `Spawn sub-agent`;
+    default:          return name;
   }
 }
 
@@ -83,7 +104,7 @@ export async function startLocalEvolve(
   repoRoot: string,
 ): Promise<void> {
   // Step 1 — Create a new git worktree on a fresh branch
-  appendLog(session, `[local-evolve] Creating worktree: ${session.worktreePath}\n`);
+  appendProgress(session, `- [ ] Creating worktree \`${session.branch}\`…\n`);
   const wtResult = await runGit(
     ['worktree', 'add', session.worktreePath, '-b', session.branch],
     repoRoot,
@@ -91,14 +112,18 @@ export async function startLocalEvolve(
   if (wtResult.code !== 0) {
     throw new Error(`git worktree add failed:\n${wtResult.stderr}`);
   }
-  appendLog(session, '[local-evolve] Worktree created.\n');
+  // Mark done by replacing the pending item
+  session.progressText = session.progressText.replace(
+    `- [ ] Creating worktree \`${session.branch}\`…`,
+    `- [x] Worktree created on branch \`${session.branch}\``,
+  );
 
   // Step 2 — Symlink node_modules to avoid a full npm install (saves minutes)
   const srcMods = path.join(repoRoot, 'node_modules');
   const dstMods = path.join(session.worktreePath, 'node_modules');
   if (fs.existsSync(srcMods) && !fs.existsSync(dstMods)) {
     fs.symlinkSync(srcMods, dstMods, 'junction');
-    appendLog(session, '[local-evolve] Symlinked node_modules.\n');
+    appendProgress(session, `- [x] Symlinked \`node_modules\`\n`);
   }
 
   // Step 3 — Symlink .env.local so the preview server has the same credentials
@@ -106,12 +131,12 @@ export async function startLocalEvolve(
   const dstEnv = path.join(session.worktreePath, '.env.local');
   if (fs.existsSync(srcEnv) && !fs.existsSync(dstEnv)) {
     fs.symlinkSync(srcEnv, dstEnv);
-    appendLog(session, '[local-evolve] Symlinked .env.local.\n');
+    appendProgress(session, `- [x] Symlinked \`.env.local\`\n`);
   }
 
-  // Step 4 — Run Claude Code in the worktree
+  // Step 4 — Run Claude Code via the Agent SDK
   session.status = 'running-claude';
-  appendLog(session, '[local-evolve] Spawning Claude Code...\n\n');
+  appendProgress(session, `\n### 🤖 Claude Code\n\n`);
 
   const prompt =
     `Read PRIMORDIA.md first for architecture context, then implement the following change:\n\n` +
@@ -120,30 +145,39 @@ export async function startLocalEvolve(
     `1. Update the Changelog section of PRIMORDIA.md with a brief entry.\n` +
     `2. Commit all changes with a descriptive message.`;
 
-  await new Promise<void>((resolve, reject) => {
-    const proc = spawn(
-      'claude',
-      ['--dangerouslySkipPermissions', '-p', prompt],
-      { cwd: session.worktreePath, env: { ...process.env } },
-    );
-    proc.stdout.on('data', (d: Buffer) => appendLog(session, d.toString()));
-    proc.stderr.on('data', (d: Buffer) => appendLog(session, d.toString()));
-    proc.on('error', (err) =>
-      reject(new Error(`Failed to spawn claude: ${err.message}. Is the claude CLI installed?`)),
-    );
-    proc.on('close', (code) => {
-      if (code !== 0) reject(new Error(`claude exited with code ${code}`));
-      else resolve();
-    });
+  const run = query({
+    prompt,
+    options: {
+      cwd: session.worktreePath,
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+    },
   });
 
-  appendLog(session, '\n[local-evolve] Claude Code finished.\n');
+  for await (const message of run) {
+    if (message.type === 'assistant') {
+      for (const block of message.message.content) {
+        if (block.type === 'text' && block.text.trim()) {
+          appendProgress(session, block.text.trimEnd() + '\n\n');
+        } else if (block.type === 'tool_use') {
+          const summary = summarizeToolUse(block.name, block.input as Record<string, unknown>);
+          appendProgress(session, `- 🔧 ${summary}\n`);
+        }
+      }
+    } else if (message.type === 'result') {
+      if (message.subtype !== 'success') {
+        throw new Error(`Claude Code run ended with: ${message.subtype}`);
+      }
+    }
+  }
+
+  appendProgress(session, `\n✅ **Claude Code finished.**\n`);
 
   // Step 5 — Start Next.js dev server on an available port
   session.status = 'starting-server';
   const port = await findAvailablePort(3001);
   session.port = port;
-  appendLog(session, `[local-evolve] Starting dev server on port ${port}...\n`);
+  appendProgress(session, `\n### 🚀 Starting preview server on port ${port}…\n\n`);
 
   await new Promise<void>((resolve, reject) => {
     const proc = spawn('npm', ['run', 'dev'], {
@@ -159,7 +193,7 @@ export async function startLocalEvolve(
 
     const onData = (d: Buffer) => {
       const text = d.toString();
-      appendLog(session, text);
+      appendProgress(session, text);
       // Next.js 15 prints "Ready" when the dev server is up
       if (!session.previewUrl && text.includes('Ready')) {
         session.previewUrl = `http://localhost:${port}`;
@@ -185,7 +219,7 @@ export async function startLocalEvolve(
     }, 120_000);
   });
 
-  appendLog(session, `\n[local-evolve] Ready at http://localhost:${port}\n`);
+  appendProgress(session, `\n✅ **Ready at http://localhost:${port}**\n`);
 }
 
 // ─── Kill dev server ──────────────────────────────────────────────────────────

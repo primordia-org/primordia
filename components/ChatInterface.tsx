@@ -14,8 +14,11 @@
 //
 // Evolve flow (development / NODE_ENV=development):
 //   1. User submits a request.
-//   2. POST /api/evolve/local — creates a git worktree, runs Claude Code, starts dev server.
+//   2. POST /api/evolve/local — creates a git worktree, runs Claude Code via the
+//      @anthropic-ai/claude-agent-sdk, then starts a Next.js dev server.
 //   3. UI polls /api/evolve/local?sessionId=... for status updates.
+//      Progress is rendered as "**Local Evolve Progress**:\n\n{progressText}" —
+//      the same format used by the GitHub CI flow for its comment body.
 //   4. When ready, shows a preview link + accept/reject buttons.
 //   5. Accept merges the branch into main; reject cleans up.
 //
@@ -59,7 +62,8 @@ interface EvolveStatus {
 interface LocalEvolveSession {
   id: string;
   status: "starting" | "running-claude" | "starting-server" | "ready" | "error";
-  logs: string;
+  /** Formatted markdown progress string built from Claude Agent SDK messages. */
+  progressText: string;
   previewUrl: string | null;
   branch: string;
 }
@@ -359,27 +363,14 @@ export default function ChatInterface() {
         const data = (await res.json()) as LocalEvolveSession;
         setLocalEvolveSession({ ...data, id: sessionId });
 
-        // Build a human-readable status label
-        const statusLabel: Record<string, string> = {
-          starting: "⏳ Setting up worktree…",
-          "running-claude": "🤖 Claude Code is implementing changes…",
-          "starting-server": "🚀 Starting preview server…",
-          ready: "✅ Preview ready!",
-          error: "❌ An error occurred.",
-        };
-        const label = statusLabel[data.status] ?? "⏳ Working…";
-
-        // Show the last ~20 lines of logs as context
-        const recentLogs = data.logs
-          .split("\n")
-          .slice(-20)
-          .join("\n")
-          .trim();
+        // Display progress in the same format as the GitHub CI flow:
+        // "**Local Evolve Progress**:\n\n{progressText}"
+        const progressContent = `**Local Evolve Progress**:\n\n${data.progressText || "⏳ Starting…"}`;
 
         setMessages((prev) =>
           prev.map((m) =>
             m.id === statusMsgId
-              ? { ...m, content: `${label}\n\n${recentLogs}` }
+              ? { ...m, content: progressContent }
               : m,
           ),
         );

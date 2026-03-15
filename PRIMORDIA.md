@@ -29,6 +29,7 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 | Hosting | Vercel | Zero-config deploys; automatic preview URLs per PR |
 | Version control | GitHub | Issues → Actions → PRs pipeline |
 | CI/AI code gen | GitHub Actions + Claude Code CLI | Runs `claude --print --no-interactive` against issues |
+| Local AI code gen | `@anthropic-ai/claude-agent-sdk` | `query()` replaces spawning `claude` CLI in local dev flow |
 
 ### File Map
 
@@ -108,9 +109,13 @@ User types change request in evolve mode
   → POST /api/evolve/local
   → git worktree add ../primordia-preview-{ts} -b preview-{ts}
   → symlink node_modules + .env.local into worktree
-  → spawn: claude --dangerouslySkipPermissions -p "{task}"
+  → @anthropic-ai/claude-agent-sdk query() in worktree
+      → streams SDKMessage events → formatted progressText
+      → text blocks + tool_use blocks appended as markdown
   → spawn: npm run dev (PORT=next available ≥ 3001) in worktree
-  → UI polls /api/evolve/local?sessionId=... for status + logs
+  → UI polls /api/evolve/local?sessionId=... for status + progressText
+      → rendered as "**Local Evolve Progress**:\n\n{progressText}"
+         (same format as the GitHub CI comment display)
   → Preview link shown in chat when Next.js prints "Ready"
   → User clicks Accept → POST /api/evolve/local/manage { action: "accept" }
       → git merge preview-{ts} --no-ff
@@ -188,6 +193,18 @@ These were noted at project inception but are explicitly out of scope for the MV
 ---
 
 ## Changelog
+
+### 2026-03-15 — Local evolve flow now uses `@anthropic-ai/claude-agent-sdk`
+
+**What changed**:
+- `lib/local-evolve-sessions.ts`: replaced `spawn('claude', ...)` with `query()` from `@anthropic-ai/claude-agent-sdk`. The session now stores a `progressText` field (formatted markdown) instead of raw `logs`. As the SDK emits `assistant` messages, text blocks are appended verbatim and `tool_use` blocks are summarised as `- 🔧 Read \`path\`` style lines. A `summarizeToolUse()` helper handles the common Claude Code tools (Read, Write, Edit, Glob, Grep, Bash, TodoWrite).
+- `app/api/evolve/local/route.ts`: GET endpoint now returns `progressText` instead of `logs`. Error handler updated to use `appendProgress`.
+- `components/ChatInterface.tsx`: `LocalEvolveSession` interface renamed `logs` → `progressText`. The polling handler now renders `**Local Evolve Progress**:\n\n{progressText}` — the same pattern as `**CI Progress** ...\n\n{body}` used by the GitHub/CI flow, so both paths have a consistent progress display style.
+- `package.json`: added `@anthropic-ai/claude-agent-sdk` dependency.
+
+**Why**: Spawning the `claude` CLI produced unstructured stdout that was truncated to 20 lines. Using the SDK gives structured message events (text blocks, tool-use blocks, result), enabling a formatted progress display that mirrors what the GitHub CI comment shows — checklist setup steps, then Claude's live commentary and tool calls, then a ✅ finish line.
+
+---
 
 ### 2026-03-14 — Local development evolve flow (bypass GitHub entirely)
 

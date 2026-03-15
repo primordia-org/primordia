@@ -8,13 +8,13 @@
 //
 // GET — poll session status.
 //   Query: ?sessionId=<id>
-//   Returns: { status, logs, port, previewUrl, branch }
+//   Returns: { status, progressText, port, previewUrl, branch }
 
 import * as path from 'path';
 import {
   sessions,
   startLocalEvolve,
-  appendLog,
+  appendProgress,
   type LocalSession,
 } from '../../../../lib/local-evolve-sessions';
 
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     branch,
     worktreePath,
     status: 'starting',
-    logs: '',
+    progressText: '',
     port: null,
     previewUrl: null,
     devServerProcess: null,
@@ -52,9 +52,9 @@ export async function POST(request: Request) {
   // Fire-and-forget — run async so POST returns immediately with the session ID.
   startLocalEvolve(session, body.request, repoRoot).catch((err) => {
     session.status = 'error';
-    appendLog(
+    appendProgress(
       session,
-      `\n\n[error] ${err instanceof Error ? err.message : String(err)}\n`,
+      `\n\n❌ **Error**: ${err instanceof Error ? err.message : String(err)}\n`,
     );
   });
 
@@ -81,7 +81,7 @@ export async function GET(request: Request) {
 
   return Response.json({
     status: session.status,
-    logs: session.logs,
+    progressText: session.progressText,
     port: session.port,
     previewUrl: session.previewUrl,
     branch: session.branch,
