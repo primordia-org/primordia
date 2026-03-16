@@ -4,9 +4,13 @@
 // Generates public/changelog.json from git history.
 // Run automatically as a prebuild/predev step (see package.json).
 //
-// Handles shallow clones (default in Vercel and GitHub Actions) by deepening
-// the clone with --filter=tree:0, which fetches only commit objects and avoids
-// downloading any blobs or trees.
+// Handles shallow clones:
+// - Vercel: does a shallow clone with no remote configured, so
+//   `git fetch --deepen` fails.  Instead we use `git pull --unshallow`
+//   with the public HTTPS URL constructed from Vercel system env vars.
+//   See: https://github.com/vercel/vercel/discussions/5737#discussioncomment-7984929
+// - GitHub Actions / local: deepen with --filter=tree:0 (commits only,
+//   no blobs or trees).
 
 import { execSync } from "child_process";
 import { writeFileSync, mkdirSync } from "fs";
@@ -17,19 +21,48 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..");
 const COMMIT_LIMIT = 300;
 
-// Deepen the shallow clone so we get enough history.
-// --filter=tree:0  → fetch only commit objects (no trees, no blobs).
-// This is safe to skip if the repo already has enough history.
-try {
-  execSync(`git fetch --deepen=${COMMIT_LIMIT} --filter=tree:0`, {
-    cwd: repoRoot,
-    stdio: "pipe",
-  });
-  console.log("changelog: git fetch (deepen) succeeded");
-} catch {
-  // Not fatal — the remote may be unavailable or the clone already has enough
-  // depth.  We'll work with whatever commits are locally available.
-  console.warn("changelog: git fetch --deepen skipped (not fatal)");
+const isVercel = !!process.env.VERCEL;
+
+if (isVercel) {
+  // Vercel shallow clones have no remote configured, so `git fetch --deepen`
+  // fails with "no remote".  Pull directly from the public HTTPS URL instead.
+  const owner = process.env.VERCEL_GIT_REPO_OWNER;
+  const slug = process.env.VERCEL_GIT_REPO_SLUG;
+  const ref = process.env.VERCEL_GIT_COMMIT_REF || "main";
+
+  if (owner && slug) {
+    const repoUrl = `https://github.com/${owner}/${slug}.git`;
+    try {
+      execSync(`git pull --unshallow "${repoUrl}" "main:${ref}"`, {
+        cwd: repoRoot,
+        stdio: "pipe",
+      });
+      console.log("changelog: git pull --unshallow succeeded (Vercel)");
+    } catch (e) {
+      // Not fatal — e.g. already unshallow, or private repo without token.
+      console.warn("changelog: git pull --unshallow skipped (not fatal):", e.message);
+    }
+  } else {
+    console.warn(
+      "changelog: VERCEL_GIT_REPO_OWNER/SLUG not set; skipping unshallow"
+    );
+  }
+} else {
+  // Non-Vercel (GitHub Actions, local dev): deepen the shallow clone so we
+  // get enough history.
+  // --filter=tree:0  → fetch only commit objects (no trees, no blobs).
+  // Safe to skip if the repo already has full history.
+  try {
+    execSync(`git fetch --deepen=${COMMIT_LIMIT} --filter=tree:0`, {
+      cwd: repoRoot,
+      stdio: "pipe",
+    });
+    console.log("changelog: git fetch (deepen) succeeded");
+  } catch {
+    // Not fatal — the remote may be unavailable or the clone already has
+    // enough depth.  We'll work with whatever commits are locally available.
+    console.warn("changelog: git fetch --deepen skipped (not fatal)");
+  }
 }
 
 // Read git log.  Use ASCII unit-separator (0x1f) as the field delimiter so

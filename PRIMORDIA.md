@@ -202,6 +202,14 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 ## Changelog
 
+### 2026-03-16 — Fix changelog script for Vercel's no-remote shallow clone
+
+**What changed**: `scripts/generate-changelog.mjs`: replaced the single `git fetch --deepen` block with a branch on `process.env.VERCEL`. In Vercel builds, the script now constructs the public HTTPS clone URL from `VERCEL_GIT_REPO_OWNER`/`VERCEL_GIT_REPO_SLUG` and runs `git pull --unshallow <url> "main:<ref>"` (per the [Vercel community workaround](https://github.com/vercel/vercel/discussions/5737#discussioncomment-7984929)). Non-Vercel environments (GitHub Actions, local dev) continue to use `git fetch --deepen=300 --filter=tree:0` as before.
+
+**Why**: Vercel's build environment performs a shallow clone *without* configuring a remote, so `git fetch --deepen` always fails with "no remote". Detecting `VERCEL=1` and using a direct HTTPS pull unshallows the history without requiring a configured remote.
+
+---
+
 ### 2026-03-16 — Auto-generated changelog from git history
 
 **What changed**:
