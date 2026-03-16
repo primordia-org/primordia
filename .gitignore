@@ -29,3 +29,6 @@ yarn-error.log*
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Build artifacts — generated at build time, not committed to git
+/public/changelog.json

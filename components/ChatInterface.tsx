@@ -26,6 +26,7 @@
 // After an evolve submit, the UI polls for progress and updates the status message in-place.
 
 import { useState, useRef, useEffect, FormEvent } from "react";
+import Link from "next/link";
 import ModeToggle from "./ModeToggle";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -780,7 +781,10 @@ export default function ChatInterface() {
               )}
           </h1>
           <p className="text-xs text-gray-400 mt-0.5">
-            A self-evolving application
+            A self-evolving application ·{" "}
+            <Link href="/changelog" className="text-blue-400 hover:text-blue-300">
+              Changelog
+            </Link>
           </p>
         </div>
         <ModeToggle mode={mode} onModeChange={setMode} />
