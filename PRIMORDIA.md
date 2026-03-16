@@ -207,28 +207,7 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 ### 2026-03-16 — Switch to file-based changelog system
 
-Replaced git-history-based changelog with `changelog/YYYY-MM-DD-HH-MM-SS Description.md` files. `scripts/generate-changelog.mjs` now reads those files instead of git log. `/changelog` page uses `<details>`/`<summary>` elements. Protocol updated: agents now add a file to `changelog/` instead of prepending here. See `changelog/2026-03-16-00-03-00 Switch to file-based changelog system.md`.
-
----
-
-### 2026-03-16 — Fix changelog script for Vercel's no-remote shallow clone
-
-**What changed**: `scripts/generate-changelog.mjs`: replaced the single `git fetch --deepen` block with a branch on `process.env.VERCEL`. In Vercel builds, the script now constructs the public HTTPS clone URL from `VERCEL_GIT_REPO_OWNER`/`VERCEL_GIT_REPO_SLUG` and runs `git pull --unshallow <url> "main:<ref>"` (per the [Vercel community workaround](https://github.com/vercel/vercel/discussions/5737#discussioncomment-7984929)). Non-Vercel environments (GitHub Actions, local dev) continue to use `git fetch --deepen=300 --filter=tree:0` as before.
-
-**Why**: Vercel's build environment performs a shallow clone *without* configuring a remote, so `git fetch --deepen` always fails with "no remote". Detecting `VERCEL=1` and using a direct HTTPS pull unshallows the history without requiring a configured remote.
-
----
-
-### 2026-03-16 — Auto-generated changelog from git history
-
-**What changed**:
-- `scripts/generate-changelog.mjs` (new): prebuild/predev script that deepens shallow clones with `git fetch --deepen=300 --filter=tree:0` (fetches only commit objects, no blobs or trees), then writes the last 300 commits as structured JSON to `public/changelog.json`.
-- `package.json`: added `prebuild` and `predev` scripts that run `generate-changelog.mjs` automatically before every build and local dev start.
-- `app/changelog/page.tsx` (new): Next.js Server Component at `/changelog` that reads `public/changelog.json` at render time and displays commits in a chronological list (date, message, author, linked short hash).
-- `components/ChatInterface.tsx`: added a "Changelog" link in the subtitle below the "Primordia" heading.
-- `.gitignore`: added `public/changelog.json` — it's a build artifact and should not be committed to git.
-
-**Why**: The manual changelog in PRIMORDIA.md was causing merge conflicts on every PR because GitHub doesn't honour `.gitattributes` union-merge directives. Generating the changelog from git history at build time eliminates the manual step entirely, gives users a richer commit-level history view in the app, and keeps the file out of version control.
+A git-history-based changelog was first experimented with (reading from `git log`, including a Vercel shallow-clone workaround), but git commit messages lacked the detail of the original PRIMORDIA.md entries. Replaced with `changelog/YYYY-MM-DD-HH-MM-SS Description.md` files. `scripts/generate-changelog.mjs` reads those files. `/changelog` page uses `<details>`/`<summary>` elements. Protocol updated: agents now add a file to `changelog/` instead of prepending here. See `changelog/2026-03-16-00-03-00 Switch to file-based changelog system.md`.
 
 ---
 
