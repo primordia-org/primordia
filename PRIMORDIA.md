@@ -127,7 +127,7 @@ User types change request in evolve mode
   → @anthropic-ai/claude-agent-sdk query() in worktree
       → streams SDKMessage events → formatted progressText
       → text blocks + tool_use blocks appended as markdown
-  → spawn: npm run dev (PORT=next available ≥ 3001) in worktree
+  → spawn: bun run dev (PORT=next available ≥ 3001) in worktree
   → UI polls /api/evolve/local?sessionId=... for status + progressText
       → rendered as "**Local Evolve Progress**:\n\n{progressText}"
          (same format as the GitHub CI comment display)

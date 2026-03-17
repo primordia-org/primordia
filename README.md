@@ -68,8 +68,8 @@ Describe a change you want (e.g. *"add a dark mode toggle"* or *"make the header
 cp .env.example .env.local
 # Fill in the values in .env.local
 
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).

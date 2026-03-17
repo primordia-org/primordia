@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "node scripts/generate-changelog.mjs",
+    "predev": "bun scripts/generate-changelog.mjs",
     "dev": "next dev",
-    "prebuild": "node scripts/generate-changelog.mjs",
+    "prebuild": "bun scripts/generate-changelog.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
