@@ -36,10 +36,14 @@ export async function POST(request: Request) {
 
   const action = body.action ?? "create";
 
-  // ── Search: find open evolve issues ────────────────────────────────────────
+  // ── Search: find open evolve issues related to the request ─────────────────
   if (action === "search") {
     try {
-      const issues = await searchOpenEvolveIssues({ token, repo });
+      const issues = await searchOpenEvolveIssues({
+        token,
+        repo,
+        request: body.request ?? "",
+      });
       return Response.json({ issues });
     } catch (err) {
       const msg =
@@ -224,17 +228,35 @@ async function findOpenPrForIssue({
   return prs.find((p) => p.head.ref.includes(`issue-${issueNumber}-`)) ?? null;
 }
 
+// Extract meaningful keywords from a freeform request string.
+// Filters out short words (≤ 3 chars) and limits to the first 6 keywords so
+// the GitHub Search query stays concise.
+function extractKeywords(request: string): string {
+  return request
+    .replace(/[^\w\s]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 3)
+    .slice(0, 6)
+    .join(" ");
+}
+
 async function searchOpenEvolveIssues({
   token,
   repo,
+  request,
 }: {
   token: string;
   repo: string;
+  request: string;
 }): Promise<OpenIssue[]> {
-  // Search for open issues whose title starts with the evolve prefix
-  const q = encodeURIComponent(
-    `repo:${repo} is:issue state:open "[Primordia Evolve]" in:title`
-  );
+  // Build a query that requires the evolve prefix in the title AND matches
+  // keywords extracted from the user's request anywhere in the issue.
+  // This narrows results to issues that are actually related to the request.
+  const keywords = extractKeywords(request);
+  const queryText = keywords
+    ? `repo:${repo} is:issue state:open "[Primordia Evolve]" in:title ${keywords}`
+    : `repo:${repo} is:issue state:open "[Primordia Evolve]" in:title`;
+  const q = encodeURIComponent(queryText);
   const url = `https://api.github.com/search/issues?q=${q}&sort=created&order=desc&per_page=5`;
 
   const response = await fetch(url, {
