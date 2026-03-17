@@ -6,7 +6,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
-import * as net from 'net';
 import * as fs from 'fs';
 
 export type LocalSessionStatus =
@@ -31,24 +30,6 @@ export interface LocalSession {
 
 /** All active local evolve sessions, keyed by session ID. */
 export const sessions = new Map<string, LocalSession>();
-
-// ─── Port finding ─────────────────────────────────────────────────────────────
-
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const srv = net.createServer();
-    srv.once('error', () => resolve(false));
-    srv.once('listening', () => srv.close(() => resolve(true)));
-    srv.listen(port, '127.0.0.1');
-  });
-}
-
-export async function findAvailablePort(startPort: number): Promise<number> {
-  for (let port = startPort; port < startPort + 100; port++) {
-    if (await isPortAvailable(port)) return port;
-  }
-  throw new Error(`No available port found in range ${startPort}–${startPort + 99}`);
-}
 
 // ─── Progress logging ─────────────────────────────────────────────────────────
 
@@ -173,16 +154,20 @@ export async function startLocalEvolve(
 
   appendProgress(session, `\n✅ **Claude Code finished.**\n`);
 
-  // Step 5 — Start Next.js dev server on an available port
+  // Step 5 — Start Next.js dev server and detect the port from its output.
+  // We let Next.js pick its own port (defaulting to 3000, or the next available
+  // port if 3000 is busy) rather than pre-finding a free port ourselves. This
+  // avoids a race condition between our port check and Next.js binding. We parse
+  // two possible output patterns to discover which port was chosen:
+  //   "- Local:        http://localhost:3002"
+  //   "⚠ Port 3000 is in use by process 85352, using available port 3002 instead."
   session.status = 'starting-server';
-  const port = await findAvailablePort(3001);
-  session.port = port;
-  appendProgress(session, `\n### 🚀 Starting preview server on port ${port}…\n\n`);
+  appendProgress(session, `\n### 🚀 Starting preview server…\n\n`);
 
   await new Promise<void>((resolve, reject) => {
     const proc = spawn('npm', ['run', 'dev'], {
       cwd: session.worktreePath,
-      env: { ...process.env, PORT: port.toString() },
+      env: { ...process.env },
       // detached=true creates a new process group so we can kill the entire tree
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -194,9 +179,20 @@ export async function startLocalEvolve(
     const onData = (d: Buffer) => {
       const text = d.toString();
       appendProgress(session, text);
+
+      // Parse the port from Next.js output if not yet known.
+      if (session.port === null) {
+        const portMatch =
+          text.match(/localhost:(\d+)/) ??
+          text.match(/using available port (\d+) instead/i);
+        if (portMatch) {
+          session.port = parseInt(portMatch[1], 10);
+        }
+      }
+
       // Next.js 15 prints "Ready" when the dev server is up
-      if (!session.previewUrl && text.includes('Ready')) {
-        session.previewUrl = `http://localhost:${port}`;
+      if (!session.previewUrl && session.port !== null && text.includes('Ready')) {
+        session.previewUrl = `http://localhost:${session.port}`;
         session.status = 'ready';
         resolve();
       }
@@ -219,7 +215,7 @@ export async function startLocalEvolve(
     }, 120_000);
   });
 
-  appendProgress(session, `\n✅ **Ready at http://localhost:${port}**\n`);
+  appendProgress(session, `\n✅ **Ready at http://localhost:${session.port}**\n`);
 }
 
 // ─── Kill dev server ──────────────────────────────────────────────────────────
