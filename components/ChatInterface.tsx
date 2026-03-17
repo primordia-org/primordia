@@ -28,6 +28,7 @@
 import { useState, useRef, useEffect, FormEvent } from "react";
 import Link from "next/link";
 import ModeToggle from "./ModeToggle";
+import { SimpleMarkdown } from "./SimpleMarkdown";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -1050,56 +1051,4 @@ function isMergeIntent(text: string): boolean {
   return false;
 }
 
-// ─── SimpleMarkdown ──────────────────────────────────────────────────────────
-// Minimal markdown renderer — just enough for bold, links, and inline code.
-// Claude Code can replace this with a proper markdown library when needed.
-
-function SimpleMarkdown({ text }: { text: string }) {
-  if (!text) return null;
-
-  // Split on links [text](url), bold **text**, and inline `code`.
-  // Use non-capturing inner groups so split() only puts the full token in the
-  // array — not each inner capture group — which would otherwise cause bold
-  // text to be rendered twice (once as <strong>, once as a plain <span>).
-  const parts = text.split(/(\[(?:[^\]]+)\]\((?:[^)]+)\)|\*\*(?:[^*]+)\*\*|`(?:[^`]+)`)/g);
-
-  const rendered: React.ReactNode[] = [];
-  let i = 0;
-  let key = 0;
-
-  while (i < parts.length) {
-    const part = parts[i];
-    if (!part) { i++; continue; }
-
-    const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-    const boldMatch = part.match(/^\*\*([^*]+)\*\*$/);
-    const codeMatch = part.match(/^`([^`]+)`$/);
-
-    if (linkMatch) {
-      rendered.push(
-        <a
-          key={key++}
-          href={linkMatch[2]}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline text-blue-300 hover:text-blue-200"
-        >
-          {linkMatch[1]}
-        </a>
-      );
-    } else if (boldMatch) {
-      rendered.push(<strong key={key++}>{boldMatch[1]}</strong>);
-    } else if (codeMatch) {
-      rendered.push(
-        <code key={key++} className="bg-gray-700 px-1 rounded text-xs">
-          {codeMatch[1]}
-        </code>
-      );
-    } else {
-      rendered.push(<span key={key++}>{part}</span>);
-    }
-    i++;
-  }
-
-  return <>{rendered}</>;
-}
+// SimpleMarkdown is imported from ./SimpleMarkdown

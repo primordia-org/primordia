@@ -9,6 +9,7 @@ import fs from "fs";
 import path from "path";
 import Link from "next/link";
 import type { Metadata } from "next";
+import { MarkdownContent } from "@/components/SimpleMarkdown";
 
 export const metadata: Metadata = {
   title: "Changelog — Primordia",
@@ -98,9 +99,7 @@ export default function ChangelogPage() {
                     {/* Full content */}
                     {entry.content && (
                       <div className="px-4 pb-4 pt-2 border-t border-gray-800">
-                        <pre className="text-xs text-gray-300 whitespace-pre-wrap font-sans leading-relaxed">
-                          {entry.content}
-                        </pre>
+                        <MarkdownContent text={entry.content} />
                       </div>
                     )}
                   </details>
