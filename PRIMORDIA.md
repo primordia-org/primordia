@@ -5,7 +5,7 @@
 > 1. **Read this file first** to understand the current state of the app.
 > 2. **Update this file last** — keep it up to date and accurate.
 >
-> This file is the source of truth for architecture, features, and history.
+> This file is the source of truth for architecture and features.
 
 ---
 
@@ -202,9 +202,3 @@ These were noted at project inception but are explicitly out of scope for the MV
 - **Voting**: upvote proposed evolve requests before they get built
 - **Rollback**: "go back to before X was added" via natural language
 - **Multi-tenant**: each user gets their own Primordia instance
-
----
-
-## Changelog
-
-> Detailed changelog entries live in `changelog/`. Each file is named `YYYY-MM-DD-HH-MM-SS Description.md`; the filename is the short description and the body has the full what+why detail. The auto-generated `/changelog` page is built from these files at build time. Having each entry as a separate timestamped file prevents merge conflicts.
