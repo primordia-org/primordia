@@ -83,7 +83,7 @@ export async function GET(request: Request) {
 
     if (claudeCommentRaw) {
       claudeComment = {
-        body: claudeCommentRaw.body,
+        body: stripThinkingSpinner(claudeCommentRaw.body),
         htmlUrl: claudeCommentRaw.html_url,
         updatedAt: claudeCommentRaw.updated_at,
       };
@@ -135,7 +135,7 @@ export async function GET(request: Request) {
           );
           if (claudeCommentRaw) {
             claudeComment = {
-              body: claudeCommentRaw.body,
+              body: stripThinkingSpinner(claudeCommentRaw.body),
               htmlUrl: claudeCommentRaw.html_url,
               updatedAt: claudeCommentRaw.updated_at,
             };
@@ -154,4 +154,16 @@ export async function GET(request: Request) {
   }
 
   return Response.json({ claudeComment, pr, deployPreviewUrl });
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+// Strips the Claude Code "thinking" spinner <img> tags from a GitHub comment
+// body before displaying it in the chat UI. The spinner is a 14×14 px inline
+// image (e.g. a GitHub user-attachment asset) that makes no sense outside of
+// GitHub's rendered markdown view.
+function stripThinkingSpinner(body: string): string {
+  // Match any <img> tag whose width and height are both "14px" — that's the
+  // characteristic size of the spinner Claude Code appends while working.
+  return body.replace(/<img[^>]*width="14px"[^>]*height="14px"[^>]*\/?>/gi, "").trim();
 }
