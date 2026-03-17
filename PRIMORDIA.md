@@ -208,8 +208,3 @@ These were noted at project inception but are explicitly out of scope for the MV
 ## Changelog
 
 > Detailed changelog entries live in `changelog/`. Each file is named `YYYY-MM-DD-HH-MM-SS Description.md`; the filename is the short description and the body has the full what+why detail. The auto-generated `/changelog` page is built from these files at build time.
-
-- 2026-03-15 — Check for missing API keys on page load and warn in chat → `changelog/2026-03-15-00-02-00 Check for missing API keys on page load.md`
-- 2026-03-16 — Switch to file-based changelog system → `changelog/2026-03-16-00-03-00 Switch to file-based changelog system.md`
-- 2026-03-15 — Local evolve flow now uses `@anthropic-ai/claude-agent-sdk` → `changelog/2026-03-15-00-01-00 Local evolve flow now uses claude-agent-sdk.md`
-- 2026-03-14 — (20 earlier entries) Initial scaffold through various fixes and improvements → see `changelog/`
