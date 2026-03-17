@@ -136,6 +136,26 @@ export default function ChatInterface() {
     };
   }, []);
 
+  // On mount, check for missing API keys and warn the user if any are absent.
+  useEffect(() => {
+    fetch("/api/check-keys")
+      .then((res) => res.json())
+      .then((data: { missing: Array<{ key: string; description: string }> }) => {
+        if (!data.missing || data.missing.length === 0) return;
+        const list = data.missing.map((m) => `\`${m.key}\` (${m.description})`).join(", ");
+        setMessages((prev) => [
+          {
+            role: "system" as const,
+            content: `⚠️ **Missing API keys**: ${list}. Some features may not work. Check your environment variables.`,
+          },
+          ...prev,
+        ]);
+      })
+      .catch(() => {
+        // Non-critical — silently ignore network errors
+      });
+  }, []);
+
   // On preview deployments, fetch PR + issue context and inject it into the chat
   // so the assistant (and the user) know this is a work-in-progress build.
   useEffect(() => {

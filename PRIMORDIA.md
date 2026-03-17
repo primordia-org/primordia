@@ -65,6 +65,8 @@ primordia/
 │   └── api/
 │       ├── chat/
 │       │   └── route.ts           ← Streams Claude responses via SSE
+│       ├── check-keys/
+│       │   └── route.ts           ← Returns list of missing required env vars (called on page load)
 │       ├── deploy-context/
 │       │   └── route.ts           ← Returns PR + linked-issue info for preview deploys
 │       ├── merge-pr/
