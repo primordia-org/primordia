@@ -11,12 +11,10 @@
 //     data: [DONE]\n\n
 
 import Anthropic from "@anthropic-ai/sdk";
-
-// The system prompt that gives Claude its Primordia persona.
-// Keep this short — it should be expanded via PRIMORDIA.md as the app evolves.
-const SYSTEM_PROMPT = `You are the AI assistant embedded in Primordia, a self-modifying web application.
-You help users accomplish tasks and answer questions. Be concise and helpful.
-When users seem interested in changing the app itself, remind them they can switch to "evolve mode" to propose changes.`;
+// SYSTEM_PROMPT is generated at build time by scripts/generate-changelog.mjs
+// (run as a prebuild/predev step). It embeds PRIMORDIA.md + the last 30
+// changelog entry filenames so the assistant has accurate self-knowledge.
+import { SYSTEM_PROMPT } from "@/lib/generated/system-prompt";
 
 export async function POST(request: Request) {
   const body = (await request.json()) as {
