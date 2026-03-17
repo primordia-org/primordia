@@ -14,20 +14,25 @@
 //
 // Evolve flow (development / NODE_ENV=development):
 //   1. User submits a request.
-//   2. POST /api/evolve/local — creates a git worktree, runs Claude Code via the
-//      @anthropic-ai/claude-agent-sdk, then starts a Next.js dev server.
+//   2. POST /api/evolve/local — creates a git worktree on a fresh branch, stores
+//      the parent branch in git config (branch.<name>.parent), runs Claude Code
+//      via @anthropic-ai/claude-agent-sdk, then starts a Next.js dev server with
+//      PREVIEW_BRANCH set in the environment.
 //   3. UI polls /api/evolve/local?sessionId=... for status updates.
 //      Progress is rendered as "**Local Evolve Progress**:\n\n{progressText}" —
 //      the same format used by the GitHub CI flow for its comment body.
-//   4. When ready, shows a preview link + accept/reject buttons.
-//   5. Accept merges the branch into main; reject cleans up.
+//   4. When ready, shows a plain preview link (no URL params needed).
+//   5. The preview instance detects itself via GET /api/evolve/local/manage
+//      (returns { isPreview: true } when PREVIEW_BRANCH is set).
+//   6. Accept/Reject bar in the preview calls its own manage POST endpoint.
+//      The manage route reads the parent branch from git config, merges/cleans up,
+//      then exits the preview process — no cross-origin requests required.
 //
 // The mode toggle is always visible so users can switch without losing their draft message.
 // After an evolve submit, the UI polls for progress and updates the status message in-place.
 
 import { useState, useRef, useEffect, FormEvent } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import ModeToggle from "./ModeToggle";
 import { SimpleMarkdown } from "./SimpleMarkdown";
 
@@ -97,12 +102,8 @@ export default function ChatInterface() {
   const [evolveLoadingMsg, setEvolveLoadingMsg] = useState<string>("Checking for related issues…");
   // Local evolve session state (development only)
   const [localEvolveSession, setLocalEvolveSession] = useState<LocalEvolveSession | null>(null);
-  // When this app IS the preview instance, these params are set in the URL.
-  // The parent dev server appends ?sessionId=...&parentOrigin=... to the preview link.
-  const searchParams = useSearchParams();
-  const previewSessionId = searchParams.get("sessionId");
-  const previewParentOrigin = searchParams.get("parentOrigin");
-  const isPreviewInstance = !!(previewSessionId && previewParentOrigin);
+  // Whether this app is running as a preview instance (detected via API on mount).
+  const [isPreviewInstance, setIsPreviewInstance] = useState(false);
   const [previewActionState, setPreviewActionState] = useState<"idle" | "loading" | "accepted" | "rejected">("idle");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -142,6 +143,20 @@ export default function ChatInterface() {
         clearInterval(localPollingRef.current);
       }
     };
+  }, []);
+
+  // On mount, ask the server whether this is a local preview instance.
+  // The manage GET endpoint returns { isPreview: true } when the PREVIEW_BRANCH
+  // env var is set (injected by the parent server when spawning the preview process).
+  useEffect(() => {
+    fetch("/api/evolve/local/manage")
+      .then((res) => res.json())
+      .then((data: { isPreview: boolean }) => {
+        if (data.isPreview) setIsPreviewInstance(true);
+      })
+      .catch(() => {
+        // Non-critical — silently ignore
+      });
   }, []);
 
   // On mount, check for missing API keys and warn the user if any are absent.
@@ -411,18 +426,12 @@ export default function ChatInterface() {
           localPollingRef.current = null;
 
           if (data.status === "ready" && data.previewUrl) {
-            // Append sessionId + parentOrigin so the preview instance can show
-            // its own Accept/Reject bar and call back to this parent server.
-            const parentOrigin = window.location.origin;
-            const previewUrlWithParams =
-              `${data.previewUrl}?sessionId=${sessionId}` +
-              `&parentOrigin=${encodeURIComponent(parentOrigin)}`;
             setMessages((prev) => [
               ...prev,
               {
                 role: "assistant",
                 content:
-                  `🚀 Preview ready: [${data.previewUrl}](${previewUrlWithParams})\n\n` +
+                  `🚀 Preview ready: [${data.previewUrl}](${data.previewUrl})\n\n` +
                   `Open the preview link and use the **Accept** or **Reject** bar there to apply or discard the changes.`,
               },
             ]);
@@ -434,86 +443,19 @@ export default function ChatInterface() {
     }, 5_000);
   }
 
-  async function handleLocalAccept() {
-    if (!localEvolveSession || isLoading) return;
-    setIsLoading(true);
-
-    try {
-      const res = await fetch("/api/evolve/local/manage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "accept", sessionId: localEvolveSession.id }),
-      });
-
-      const data = (await res.json()) as { outcome?: string; branch?: string; error?: string };
-
-      if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
-
-      setLocalEvolveSession(null);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `✅ Changes accepted and merged into main! The preview server has been shut down.`,
-        },
-      ]);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Something went wrong.";
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: `Failed to accept changes: ${errorMsg}` },
-      ]);
-    }
-
-    setIsLoading(false);
-  }
-
-  async function handleLocalReject() {
-    if (!localEvolveSession || isLoading) return;
-    setIsLoading(true);
-
-    try {
-      const res = await fetch("/api/evolve/local/manage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reject", sessionId: localEvolveSession.id }),
-      });
-
-      const data = (await res.json()) as { outcome?: string; error?: string };
-
-      if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
-
-      setLocalEvolveSession(null);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `🗑️ Preview rejected. The worktree and branch have been cleaned up.`,
-        },
-      ]);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Something went wrong.";
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: `Failed to reject: ${errorMsg}` },
-      ]);
-    }
-
-    setIsLoading(false);
-  }
-
   // ── Preview-instance accept/reject (development only) ─────────────────────
-  // These run inside the *child* preview server. They POST to the parent server
-  // (identified by previewParentOrigin) which holds the session state.
+  // These run inside the preview server. They POST to this server's own manage
+  // endpoint — no cross-origin needed. The manage route reads PREVIEW_BRANCH
+  // and the parent branch from git config to handle everything.
 
   async function handlePreviewAccept() {
-    if (!previewSessionId || !previewParentOrigin || previewActionState !== "idle") return;
+    if (!isPreviewInstance || previewActionState !== "idle") return;
     setPreviewActionState("loading");
     try {
-      const res = await fetch(`${previewParentOrigin}/api/evolve/local/manage`, {
+      const res = await fetch("/api/evolve/local/manage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "accept", sessionId: previewSessionId }),
+        body: JSON.stringify({ action: "accept" }),
       });
       const data = (await res.json()) as { outcome?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
@@ -524,13 +466,13 @@ export default function ChatInterface() {
   }
 
   async function handlePreviewReject() {
-    if (!previewSessionId || !previewParentOrigin || previewActionState !== "idle") return;
+    if (!isPreviewInstance || previewActionState !== "idle") return;
     setPreviewActionState("loading");
     try {
-      const res = await fetch(`${previewParentOrigin}/api/evolve/local/manage`, {
+      const res = await fetch("/api/evolve/local/manage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reject", sessionId: previewSessionId }),
+        body: JSON.stringify({ action: "reject" }),
       });
       const data = (await res.json()) as { outcome?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
