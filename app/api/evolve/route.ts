@@ -231,7 +231,7 @@ async function findOpenPrForIssue({
 // Extract meaningful keywords from a freeform request string.
 // Filters out short words (≤ 3 chars) and limits to the first 6 keywords so
 // the GitHub Search query stays concise.
-function extractKeywords(request: string): string {
+export function extractKeywords(request: string): string {
   return request
     .replace(/[^\w\s]/g, " ")
     .split(/\s+/)
