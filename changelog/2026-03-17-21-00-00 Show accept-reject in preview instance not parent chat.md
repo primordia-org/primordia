@@ -12,13 +12,12 @@ via git config — no cross-origin requests or URL params are required.
 - **`lib/local-evolve-sessions.ts`**:
   - On worktree creation, records the current branch as `git config branch.<preview-branch>.parent <parent-branch>` so the preview server can find where to merge back.
   - Exports `runGit` so the manage route can reuse it.
-  - Passes `PREVIEW_BRANCH=<branch-name>` in the environment when spawning the preview dev server, so the server knows it is a preview instance.
   - Removed `acceptSession` and `rejectSession` — cleanup is now handled by the preview instance itself.
 
 - **`app/api/evolve/local/manage/route.ts`**:
   - Removed CORS headers and `OPTIONS` handler (no longer needed — same-origin only).
-  - Added `GET` handler that returns `{ isPreview: boolean, branch: string | null }` based on the `PREVIEW_BRANCH` env var.
-  - Rewrote `POST` handler: reads `PREVIEW_BRANCH` from env, locates the parent repo root via `git rev-parse --git-common-dir`, reads the parent branch from `git config branch.<branch>.parent`, performs the merge (accept) or skips it (reject), removes the worktree and branch in the parent repo, then calls `process.exit(0)` to shut itself down.
+  - Added `GET` handler that detects preview instances by reading the current branch via `git rev-parse --abbrev-ref HEAD` and checking whether `git config branch.<name>.parent` is set. This is persistent across server restarts and manual dev server invocations — no environment variable required.
+  - Rewrote `POST` handler: uses the same git-based branch detection, locates the parent repo root via `git rev-parse --git-common-dir`, reads the parent branch from `git config branch.<branch>.parent`, performs the merge (accept) or skips it (reject), removes the worktree and branch in the parent repo, then calls `process.exit(0)` to shut itself down.
 
 - **`components/ChatInterface.tsx`**:
   - Removed `useSearchParams` import and all `searchParams` / `previewSessionId` / `previewParentOrigin` state.
@@ -40,3 +39,10 @@ Using `git config` to store the parent branch name lets the preview instance
 handle its own lifecycle: it merges into the parent branch (discovered from git
 config), removes its own worktree and branch via the parent repo, and exits —
 all without needing to know the parent server's address.
+
+The initial implementation detected preview instances via a `PREVIEW_BRANCH`
+environment variable injected at spawn time. This was fragile: the env var
+would not survive a server restart or a user manually running `npm run dev`
+inside the worktree. Replacing it with a git-based check (`git rev-parse
+--abbrev-ref HEAD` + `git config branch.<name>.parent`) makes detection fully
+persistent, since git config is stored on disk and survives any restart.

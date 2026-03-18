@@ -2,13 +2,15 @@
 // Accept or reject a local evolve session (development only).
 //
 // This route runs inside the *preview* Next.js instance (the child worktree
-// server). It discovers its own branch name and parent branch from git config,
-// performs the merge / cleanup in the parent repo, then exits the process.
+// server). It discovers its own branch name from git and the parent branch
+// from git config, performs the merge / cleanup in the parent repo, then
+// exits the process.
 //
 // GET
-//   Returns { isPreview: boolean, branch: string | null } based on whether the
-//   PREVIEW_BRANCH environment variable is set (injected by the parent server
-//   when it spawns the preview dev process).
+//   Returns { isPreview: boolean, branch: string | null }.
+//   Detects a preview instance by reading the current branch via git and
+//   checking whether git config branch.<name>.parent is set. This is
+//   persistent across server restarts and manual dev server invocations.
 //
 // POST
 //   Body: { action: "accept" | "reject" }
@@ -21,9 +23,27 @@
 import * as path from 'path';
 import { runGit } from '../../../../../lib/local-evolve-sessions';
 
+/** Read the current git branch and check for a stored parent config entry.
+ *  Returns { branch, parentBranch } when this is a preview worktree,
+ *  or { branch: null, parentBranch: null } otherwise. */
+async function getPreviewInfo(
+  cwd: string,
+): Promise<{ branch: string | null; parentBranch: string | null }> {
+  const branchResult = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
+  if (branchResult.code !== 0) return { branch: null, parentBranch: null };
+
+  const branch = branchResult.stdout.trim();
+  const parentResult = await runGit(['config', `branch.${branch}.parent`], cwd);
+  if (parentResult.code !== 0 || !parentResult.stdout.trim()) {
+    return { branch: null, parentBranch: null };
+  }
+
+  return { branch, parentBranch: parentResult.stdout.trim() };
+}
+
 // GET — used by the UI on mount to detect whether this is a preview instance.
 export async function GET() {
-  const branch = process.env.PREVIEW_BRANCH ?? null;
+  const { branch } = await getPreviewInfo(process.cwd());
   return Response.json({ isPreview: !!branch, branch });
 }
 
@@ -35,10 +55,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const branch = process.env.PREVIEW_BRANCH;
+  const worktreePath = process.cwd();
+  const { branch, parentBranch } = await getPreviewInfo(worktreePath);
+
   if (!branch) {
     return Response.json(
-      { error: 'Not a preview instance (PREVIEW_BRANCH is not set)' },
+      { error: 'Not a preview instance (no branch.*.parent entry found in git config)' },
       { status: 400 },
     );
   }
@@ -50,9 +72,6 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-
-  // The preview server's CWD is the worktree directory.
-  const worktreePath = process.cwd();
 
   // Locate the parent (main) repo root via the shared git common directory.
   // In a linked worktree, --git-common-dir returns the absolute path of the
@@ -66,19 +85,6 @@ export async function POST(request: Request) {
   }
   const gitCommonDir = path.resolve(worktreePath, commonDirResult.stdout.trim());
   const parentRepoRoot = path.dirname(gitCommonDir);
-
-  // Look up the parent branch stored by the parent server on worktree creation.
-  const parentBranchResult = await runGit(
-    ['config', `branch.${branch}.parent`],
-    worktreePath,
-  );
-  if (parentBranchResult.code !== 0) {
-    return Response.json(
-      { error: `Parent branch not found in git config for branch "${branch}"` },
-      { status: 500 },
-    );
-  }
-  const parentBranch = parentBranchResult.stdout.trim();
 
   try {
     if (body.action === 'accept') {

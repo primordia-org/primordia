@@ -191,7 +191,7 @@ export async function startLocalEvolve(
   await new Promise<void>((resolve, reject) => {
     const proc = spawn('npm', ['run', 'dev'], {
       cwd: session.worktreePath,
-      env: { ...process.env, PORT: port.toString(), PREVIEW_BRANCH: session.branch },
+      env: { ...process.env, PORT: port.toString() },
       // detached=true creates a new process group so we can kill the entire tree
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
