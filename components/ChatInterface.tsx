@@ -809,7 +809,7 @@ export default function ChatInterface() {
 
       {/* Evolve mode banner */}
       {mode === "evolve" && (
-        <div className="mb-4 px-4 py-3 rounded-lg bg-amber-900/40 border border-amber-700/50 text-amber-300 text-sm flex-shrink-0">
+        <div className="mb-4 px-4 py-3 rounded-lg bg-green-900/40 border border-green-700/50 text-green-300 text-sm flex-shrink-0">
           <strong className="font-semibold">Evolve mode</strong> —{" "}
           {process.env.NODE_ENV === "development" ? (
             <>
@@ -843,8 +843,8 @@ export default function ChatInterface() {
         relatedIssues.length > 0 &&
         pendingRequest &&
         !isLoading && (
-          <div className="mb-3 px-4 py-3 rounded-lg bg-amber-900/30 border border-amber-700/40 text-sm flex-shrink-0 space-y-3">
-            <p className="text-amber-200 font-semibold">
+          <div className="mb-3 px-4 py-3 rounded-lg bg-green-900/30 border border-green-700/40 text-sm flex-shrink-0 space-y-3">
+            <p className="text-green-200 font-semibold">
               Found {relatedIssues.length} open evolve request
               {relatedIssues.length > 1 ? "s" : ""}. Add your request to one,
               or create a new issue:
@@ -856,14 +856,14 @@ export default function ChatInterface() {
                     href={issue.html_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-amber-300 underline hover:text-amber-200 truncate flex-1 min-w-0 text-xs"
+                    className="text-green-300 underline hover:text-green-200 truncate flex-1 min-w-0 text-xs"
                   >
                     #{issue.number}: {issue.title}
                   </a>
                   <button
                     onClick={() => handleEvolveComment(issue.number)}
                     disabled={isLoading}
-                    className="flex-shrink-0 px-2 py-1 text-xs bg-amber-700 hover:bg-amber-600 rounded text-white disabled:opacity-50"
+                    className="flex-shrink-0 px-2 py-1 text-xs bg-green-700 hover:bg-green-600 rounded text-white disabled:opacity-50"
                   >
                     Add comment
                   </button>
@@ -970,7 +970,7 @@ export default function ChatInterface() {
           disabled={isLoading || !input.trim()}
           className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
             mode === "evolve"
-              ? "bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white"
+              ? "bg-green-600 hover:bg-green-500 disabled:bg-green-900 text-white"
               : "bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900 text-white"
           } disabled:cursor-not-allowed`}
         >
