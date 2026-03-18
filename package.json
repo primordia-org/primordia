@@ -2,6 +2,7 @@
   "name": "primordia",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "bun@1.2.0",
   "scripts": {
     "predev": "bun scripts/generate-changelog.mjs",
     "dev": "next dev",
