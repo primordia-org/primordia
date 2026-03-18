@@ -165,9 +165,11 @@ export async function startLocalEvolve(
   appendProgress(session, `\n### 🚀 Starting preview server…\n\n`);
 
   await new Promise<void>((resolve, reject) => {
+    // omit the PORT env var so Next.js can pick an available port
+    const { PORT, ...envWithoutPort } = process.env;
     const proc = spawn('bun', ['run', 'dev'], {
       cwd: session.worktreePath,
-      env: { ...process.env },
+      env: envWithoutPort,
       // detached=true creates a new process group so we can kill the entire tree
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
