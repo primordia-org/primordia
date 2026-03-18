@@ -99,7 +99,7 @@ export async function startLocalEvolve(
     `- [x] Worktree created on branch \`${session.branch}\``,
   );
 
-  // Step 2 — Symlink node_modules to avoid a full npm install (saves minutes)
+  // Step 2 — Symlink node_modules to avoid a full bun install (saves minutes)
   const srcMods = path.join(repoRoot, 'node_modules');
   const dstMods = path.join(session.worktreePath, 'node_modules');
   if (fs.existsSync(srcMods) && !fs.existsSync(dstMods)) {
@@ -165,7 +165,7 @@ export async function startLocalEvolve(
   appendProgress(session, `\n### 🚀 Starting preview server…\n\n`);
 
   await new Promise<void>((resolve, reject) => {
-    const proc = spawn('npm', ['run', 'dev'], {
+    const proc = spawn('bun', ['run', 'dev'], {
       cwd: session.worktreePath,
       env: { ...process.env },
       // detached=true creates a new process group so we can kill the entire tree
@@ -224,7 +224,7 @@ function killDevServer(session: LocalSession): void {
   const proc = session.devServerProcess;
   if (!proc || proc.killed) return;
   try {
-    // Kill the entire process group (npm + next + its child workers)
+    // Kill the entire process group (bun + next + its child workers)
     if (proc.pid !== undefined) {
       process.kill(-proc.pid, 'SIGTERM');
     }

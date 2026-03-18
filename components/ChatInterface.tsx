@@ -772,7 +772,7 @@ export default function ChatInterface() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <main className="flex flex-col w-full max-w-3xl h-screen mx-auto px-4 py-6">
+    <main className="flex flex-col w-full max-w-3xl h-dvh mx-auto px-4 py-6">
       {/* Header */}
       <header className="flex items-center justify-between mb-6 flex-shrink-0">
         <div>
