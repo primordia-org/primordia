@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Skip type-checking and linting during `next build` — these run in CI instead.
+  typescript: { ignoreBuildErrors: true },
+  eslint: { ignoreDuringBuilds: true },
+
   // Expose Vercel system env vars to client components.
   // Next.js inlines `env` values at build time, so they work in "use client" code.
   env: {
