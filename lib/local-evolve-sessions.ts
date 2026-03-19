@@ -3,7 +3,7 @@
 // Module-level singleton — shared across all API routes within the same
 // Next.js dev server process. Only used when NODE_ENV=development.
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, type HookCallback, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -58,6 +58,71 @@ function summarizeToolUse(name: string, input: Record<string, unknown>): string 
     case 'Agent':     return `Spawn sub-agent`;
     default:          return name;
   }
+}
+
+// ─── Worktree boundary enforcement ───────────────────────────────────────────
+
+/**
+ * Returns a PreToolUse hook that blocks any file operation whose resolved path
+ * falls outside worktreePath. Prevents Claude from accidentally touching the
+ * main repo or other worktrees during a local evolve session.
+ *
+ * Covers:
+ *  - Read / Write / Edit  — checked via `file_path`
+ *  - Glob / Grep          — checked via `path` (absolute paths only)
+ *  - Bash                 — blocks commands that explicitly reference repoRoot
+ */
+function makeWorktreeBoundaryHook(worktreePath: string, repoRoot: string): HookCallback {
+  const worktreeNorm = path.resolve(worktreePath);
+  const repoRootNorm = path.resolve(repoRoot);
+
+  function isInsideWorktree(p: string): boolean {
+    const resolved = path.resolve(worktreeNorm, p);
+    return resolved === worktreeNorm || resolved.startsWith(worktreeNorm + path.sep);
+  }
+
+  return async (input) => {
+    const hook = input as PreToolUseHookInput;
+    const toolInput = hook.tool_input as Record<string, unknown>;
+    const toolName = hook.tool_name;
+
+    // Read / Write / Edit — block if file_path resolves outside the worktree
+    const filePath = typeof toolInput.file_path === 'string' ? toolInput.file_path : '';
+    if (filePath && !isInsideWorktree(filePath)) {
+      return {
+        decision: 'block' as const,
+        reason:
+          `Out-of-worktree access blocked: \`${filePath}\` is outside the worktree at ` +
+          `\`${worktreeNorm}\`. Only files within the worktree may be read or modified.`,
+      };
+    }
+
+    // Glob / Grep — block absolute search paths outside the worktree
+    const searchPath = typeof toolInput.path === 'string' ? toolInput.path : '';
+    if (searchPath && path.isAbsolute(searchPath) && !isInsideWorktree(searchPath)) {
+      return {
+        decision: 'block' as const,
+        reason:
+          `Out-of-worktree access blocked: search path \`${searchPath}\` is outside the ` +
+          `worktree at \`${worktreeNorm}\`.`,
+      };
+    }
+
+    // Bash — block commands that explicitly reference the main repo root
+    if (toolName === 'Bash') {
+      const command = typeof toolInput.command === 'string' ? toolInput.command : '';
+      if (command.includes(repoRootNorm)) {
+        return {
+          decision: 'block' as const,
+          reason:
+            `Out-of-worktree access blocked: the Bash command references the main repo root ` +
+            `\`${repoRootNorm}\`. Run git commands inside the worktree instead.`,
+        };
+      }
+    }
+
+    return {};
+  };
 }
 
 // ─── Git ──────────────────────────────────────────────────────────────────────
@@ -141,6 +206,17 @@ export async function startLocalEvolve(
       cwd: session.worktreePath,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
+      // Enforce that Claude can only touch files inside the worktree. Without
+      // this, Claude Code could (and occasionally did) write directly into the
+      // main repo branch instead of the isolated preview worktree.
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: 'Read|Write|Edit|Glob|Grep|Bash',
+            hooks: [makeWorktreeBoundaryHook(session.worktreePath, repoRoot)],
+          },
+        ],
+      },
     },
   });
 
