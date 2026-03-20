@@ -4,20 +4,19 @@
 // The "submit a request" form for Primordia's evolve pipeline.
 // Rendered at /evolve — a dedicated page, separate from the main chat interface.
 //
-// Evolve flow (production — NODE_ENV=production):
-//   1. User submits a request.
-//   2. /api/evolve?action=search checks for open evolve issues.
-//   3. If matches exist, a decision card is shown: comment on an existing issue
-//      (so Claude can update its branch) or create a new one.
-//   4. If no matches, a new issue is created automatically.
+// This component is environment-agnostic: it always calls /api/evolve, and the
+// backend decides whether to run the local worktree flow (development) or the
+// GitHub Issues flow (production).
 //
-// Evolve flow (development — NODE_ENV=development):
+// Evolve flow (all environments):
 //   1. User submits a request.
-//   2. POST /api/evolve/local — creates a git worktree on a fresh branch, runs
-//      Claude Code via @anthropic-ai/claude-agent-sdk, then starts a Next.js
-//      dev server with PREVIEW_BRANCH set.
-//   3. UI polls /api/evolve/local?sessionId=... for status updates.
-//   4. When ready, shows a preview link.
+//   2. POST /api/evolve { action: "search" } — checks for related open issues.
+//      (In development, the backend returns [] so this is effectively skipped.)
+//   3. If matches exist (production only), a decision card is shown.
+//   4. Otherwise, POST /api/evolve { action: "create" }.
+//      - Production: returns { mode: "github", issueNumber, issueUrl }
+//      - Development: returns { mode: "local", sessionId }
+//   5. UI polls for status updates via the appropriate polling endpoint.
 
 import { useState, useRef, useEffect, FormEvent } from "react";
 import Link from "next/link";
@@ -60,7 +59,12 @@ interface LocalEvolveSession {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export default function EvolveForm() {
+interface EvolveFormProps {
+  /** True when running in local development mode. Set by the server component. */
+  isLocalDev?: boolean;
+}
+
+export default function EvolveForm({ isLocalDev = false }: EvolveFormProps) {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -100,10 +104,9 @@ export default function EvolveForm() {
     };
   }, []);
 
-  // On Vercel preview deployments, fetch the PR branch so evolve requests
-  // branch off the preview rather than main.
+  // Fetch the PR branch so evolve requests can branch off a preview rather than main.
+  // No environment guard needed — the API returns null data on non-preview builds.
   useEffect(() => {
-    if (process.env.VERCEL_ENV !== "preview") return;
     fetch("/api/deploy-context")
       .then((res) => res.json())
       .then((data: { prBranch?: string }) => {
@@ -125,11 +128,7 @@ export default function EvolveForm() {
     setSubmitted(true);
     setSubmittedRequest(trimmed);
 
-    if (process.env.NODE_ENV === "development") {
-      await handleLocalEvolveSubmit(trimmed);
-    } else {
-      await handleEvolveSubmit(trimmed);
-    }
+    await handleEvolveSubmit(trimmed);
 
     setIsLoading(false);
   }
@@ -158,43 +157,8 @@ export default function EvolveForm() {
       // Search failed — fall through to auto-create
     }
 
-    setEvolveLoadingMsg("Opening GitHub issue…");
+    setEvolveLoadingMsg("Submitting request…");
     await performEvolveCreate(request);
-  }
-
-  // ── Local evolve (development only) ───────────────────────────────────────
-
-  async function handleLocalEvolveSubmit(request: string) {
-    const statusMsgId = `local-evolve-status-${Date.now()}`;
-    setMessages((prev) => [
-      ...prev,
-      { role: "assistant", id: statusMsgId, content: "⏳ Setting up local preview…" },
-    ]);
-
-    try {
-      const res = await fetch("/api/evolve/local", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request }),
-      });
-
-      const data = (await res.json()) as { sessionId?: string; error?: string };
-
-      if (!res.ok) {
-        throw new Error(data.error ?? `API error: ${res.statusText}`);
-      }
-
-      startLocalEvolvePolling(data.sessionId!, statusMsgId);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Something went wrong.";
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === statusMsgId
-            ? { ...m, content: `Failed to start local evolve: ${errorMsg}` }
-            : m,
-        ),
-      );
-    }
   }
 
   function startLocalEvolvePolling(sessionId: string, statusMsgId: string) {
@@ -301,7 +265,7 @@ export default function EvolveForm() {
     setPendingRequest(null);
     setRelatedIssues(null);
     setIsLoading(true);
-    setEvolveLoadingMsg("Opening GitHub issue…");
+    setEvolveLoadingMsg("Submitting request…");
     await performEvolveCreate(request);
     setIsLoading(false);
   }
@@ -319,12 +283,28 @@ export default function EvolveForm() {
       });
 
       const data = (await response.json()) as {
-        issueNumber: number;
-        issueUrl: string;
+        mode?: "local" | "github";
+        sessionId?: string;
+        issueNumber?: number;
+        issueUrl?: string;
         error?: string;
       };
 
       if (!response.ok) throw new Error(data.error ?? `API error: ${response.statusText}`);
+
+      // ── Local dev mode: start polling the local session ──────────────────
+      if (data.mode === "local" && data.sessionId) {
+        const statusMsgId = `evolve-local-${Date.now()}`;
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", id: statusMsgId, content: "⏳ Setting up local preview…" },
+        ]);
+        startLocalEvolvePolling(data.sessionId, statusMsgId);
+        return;
+      }
+
+      // ── GitHub mode: show issue link and start CI polling ────────────────
+      if (!data.issueNumber) throw new Error("No issue number returned from server");
 
       setEvolveResult({
         type: "created",
@@ -481,7 +461,7 @@ export default function EvolveForm() {
       {!submitted && (
         <div className="mb-6 px-4 py-3 rounded-lg bg-amber-900/40 border border-amber-700/50 text-amber-300 text-sm">
           <strong className="font-semibold">Evolve Primordia</strong> —{" "}
-          {process.env.NODE_ENV === "development" ? (
+          {isLocalDev ? (
             <>
               Describe a change you want to make to this app. Claude Code will implement it
               locally in a preview server — no GitHub required.

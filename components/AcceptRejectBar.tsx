@@ -21,9 +21,9 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
   const [vercelActionState, setVercelActionState] = useState<"idle" | "loading" | "accepted" | "rejected">("idle");
   const [previewActionState, setPreviewActionState] = useState<"idle" | "loading" | "accepted" | "rejected">("idle");
 
-  // On Vercel preview deployments, fetch PR context for accept/reject.
+  // Fetch PR context for accept/reject on Vercel preview deployments.
+  // No environment guard needed — the API returns null data on non-preview builds.
   useEffect(() => {
-    if (process.env.VERCEL_ENV !== "preview") return;
     fetch("/api/deploy-context")
       .then((res) => res.json())
       .then((data: { prNumber?: number; prState?: "open" | "closed" | "merged"; prBaseBranch?: string }) => {

@@ -56,10 +56,26 @@ export default function Home() {
 
   const commitMessage = getMostRecentChangelogEntry();
 
+  // Compute deploy-preview link data here (server component) so ChatInterface
+  // stays environment-agnostic and doesn't reference Vercel env vars directly.
+  const productionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL ?? null;
+  const headerHref = productionUrl ? `https://${productionUrl}` : null;
+
+  const isPreview = process.env.VERCEL_ENV === "preview";
+  const prId = process.env.VERCEL_GIT_PULL_REQUEST_ID ?? null;
+  const repoOwner = process.env.VERCEL_GIT_REPO_OWNER ?? null;
+  const repoSlug = process.env.VERCEL_GIT_REPO_SLUG ?? null;
+  const prLink =
+    isPreview && prId && repoOwner && repoSlug
+      ? { id: prId, url: `https://github.com/${repoOwner}/${repoSlug}/pull/${prId}` }
+      : null;
+
   return (
     <ChatInterface
       branch={branch ?? null}
       commitMessage={commitMessage ?? null}
+      headerHref={headerHref}
+      prLink={prLink}
     />
   );
 }

@@ -1,6 +1,8 @@
 // app/api/evolve/route.ts
-// Handles three actions for the evolve pipeline:
+// Handles the evolve pipeline. In local development, routes to the local
+// worktree flow. In production, routes to the GitHub Issues flow.
 //
+// Actions (production only):
 //   action: "search"  — finds open evolve issues in the repo
 //   action: "comment" — adds a @claude comment to an existing issue
 //   action: "create"  — creates a new labeled GitHub Issue (default)
@@ -10,9 +12,11 @@
 //   { action: "search"; request: string }
 //   { action: "comment"; issueNumber: number; request: string }
 //
-// Required environment variables:
+// Required environment variables (production):
 //   GITHUB_TOKEN  — personal access token with repo + issues write access
 //   GITHUB_REPO   — "owner/repo" string, e.g. "alice/primordia"
+
+import { createLocalEvolveSession } from '../../../lib/local-evolve-sessions';
 
 export async function POST(request: Request) {
   const body = (await request.json()) as {
@@ -22,6 +26,29 @@ export async function POST(request: Request) {
     /** Branch to base new work on and target with the PR. Set when issuing from a deploy preview. */
     parentBranch?: string;
   };
+
+  // ── Local development: bypass GitHub entirely ──────────────────────────────
+  // The backend picks the implementation; the frontend stays environment-agnostic.
+  if (process.env.NODE_ENV === 'development') {
+    const action = body.action ?? 'create';
+    // Search: return empty so the frontend falls through to create.
+    if (action === 'search') {
+      return Response.json({ issues: [] });
+    }
+    // Create: start a local worktree session.
+    if (action === 'create') {
+      if (!body.request || typeof body.request !== 'string') {
+        return Response.json({ error: 'request string required' }, { status: 400 });
+      }
+      const sessionId = await createLocalEvolveSession(body.request, process.cwd());
+      return Response.json({ mode: 'local', sessionId });
+    }
+    // Comment: not applicable in local dev.
+    return Response.json(
+      { error: 'Comment action is not available in local development mode' },
+      { status: 400 },
+    );
+  }
 
   const token = process.env.GITHUB_TOKEN;
   const repo = process.env.GITHUB_REPO;
@@ -110,6 +137,7 @@ export async function POST(request: Request) {
     });
 
     return Response.json({
+      mode: 'github',
       issueNumber: result.number,
       issueUrl: result.html_url,
     });
