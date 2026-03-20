@@ -27,9 +27,13 @@ interface Message {
 interface GitContext {
   branch: string | null;
   commitMessage: string | null;
+  /** Href for the "Primordia" header link. Null when not on a Vercel deploy. */
+  headerHref?: string | null;
+  /** PR badge data for Vercel preview deployments. Null otherwise. */
+  prLink?: { id: string; url: string } | null;
 }
 
-export default function ChatInterface({ branch, commitMessage }: GitContext) {
+export default function ChatInterface({ branch, commitMessage, headerHref, prLink }: GitContext) {
   const [messages, setMessages] = useState<Message[]>(() => {
     const initial: Message[] = [
       {
@@ -106,9 +110,8 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
 
   // On preview deployments, fetch PR + issue context and inject it into the chat
   // so the assistant (and the user) know this is a work-in-progress build.
+  // No environment guard needed — the API returns null context on non-preview.
   useEffect(() => {
-    if (process.env.VERCEL_ENV !== "preview") return;
-
     fetch("/api/deploy-context")
       .then((res) => res.json())
       .then((data: { context: string | null }) => {
@@ -235,9 +238,9 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
       <header className="flex items-center justify-between mb-6 flex-shrink-0">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-white flex flex-wrap items-baseline gap-x-2">
-            {process.env.VERCEL_PROJECT_PRODUCTION_URL ? (
+            {headerHref ? (
               <a
-                href={`https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`}
+                href={headerHref}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white no-underline hover:text-gray-300"
@@ -247,15 +250,14 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
             ) : (
               "Primordia"
             )}
-            {process.env.VERCEL_ENV === "preview" &&
-              process.env.VERCEL_GIT_PULL_REQUEST_ID && (
+            {prLink && (
                 <a
-                  href={`https://github.com/${process.env.VERCEL_GIT_REPO_OWNER}/${process.env.VERCEL_GIT_REPO_SLUG}/pull/${process.env.VERCEL_GIT_PULL_REQUEST_ID}`}
+                  href={prLink.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm font-normal text-blue-400 hover:text-blue-300"
                 >
-                  #{process.env.VERCEL_GIT_PULL_REQUEST_ID}
+                  #{prLink.id}
                 </a>
               )}
             {branch && (

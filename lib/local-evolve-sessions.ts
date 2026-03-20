@@ -4,6 +4,8 @@
 // Next.js dev server process. Only used when NODE_ENV=development.
 
 import { query, type HookCallback, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
+import Anthropic from '@anthropic-ai/sdk';
+import { createNameId } from 'mnemonic-id';
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -30,6 +32,91 @@ export interface LocalSession {
 
 /** All active local evolve sessions, keyed by session ID. */
 export const sessions = new Map<string, LocalSession>();
+
+// ─── Slug generation ──────────────────────────────────────────────────────────
+
+/** Ask Claude to choose a short, descriptive kebab-case slug for the request.
+ *  Falls back to the first-5-words approach if the API call fails. */
+export async function generateSlug(text: string): Promise<string> {
+  try {
+    const client = new Anthropic();
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5',
+      max_tokens: 32,
+      messages: [
+        {
+          role: 'user',
+          content:
+            `Generate a short kebab-case slug (3–5 words, lowercase, hyphens only) that ` +
+            `captures the essence of this feature request. Reply with only the slug, nothing else.\n\n` +
+            `Request: ${text}`,
+        },
+      ],
+    });
+    const block = response.content[0];
+    if (block.type === 'text') {
+      const cleaned = block.text
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+      if (cleaned.length > 0) return cleaned;
+    }
+  } catch {
+    // Fall through to simple fallback
+  }
+  // Fallback: first 5 words
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 5)
+    .join('-');
+}
+
+// ─── Session creation ─────────────────────────────────────────────────────────
+
+/**
+ * Creates a new local evolve session: generates a slug, registers the session,
+ * and fires off the background evolution task.
+ * Returns the sessionId.
+ */
+export async function createLocalEvolveSession(
+  request: string,
+  repoRoot: string,
+): Promise<string> {
+  const slug = await generateSlug(request);
+  const mnemonicId = createNameId();
+  const sessionId = slug ? `${slug}-${mnemonicId}` : mnemonicId;
+  const branch = `evolve/${sessionId}`;
+  const worktreePath = path.join(repoRoot, '..', 'primordia-worktrees', sessionId);
+
+  const session: LocalSession = {
+    id: sessionId,
+    branch,
+    worktreePath,
+    status: 'starting',
+    progressText: '',
+    port: null,
+    previewUrl: null,
+    devServerProcess: null,
+  };
+
+  sessions.set(sessionId, session);
+
+  // Fire-and-forget — run async so the caller returns immediately with the session ID.
+  startLocalEvolve(session, request, repoRoot).catch((err) => {
+    session.status = 'error';
+    appendProgress(
+      session,
+      `\n\n❌ **Error**: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  });
+
+  return sessionId;
+}
 
 // ─── Progress logging ─────────────────────────────────────────────────────────
 

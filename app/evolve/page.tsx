@@ -11,5 +11,6 @@ export const metadata: Metadata = {
 };
 
 export default function EvolvePage() {
-  return <EvolveForm />;
+  // Read NODE_ENV here (server component) so EvolveForm stays environment-agnostic.
+  return <EvolveForm isLocalDev={process.env.NODE_ENV === "development"} />;
 }
