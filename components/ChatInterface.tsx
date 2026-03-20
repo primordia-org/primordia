@@ -756,7 +756,7 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
         ...prev,
         {
           role: "assistant",
-          content: `✅ PR #${deployPrNumber} has been merged! The changes will be deployed to production shortly.`,
+          content: `✅ PR #${deployPrNumber} has been merged! The changes will be deployed shortly.`,
         },
       ]);
     } catch (err) {
