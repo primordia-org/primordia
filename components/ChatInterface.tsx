@@ -96,7 +96,7 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
     if (commitMessage) {
       initial.push({
         role: "assistant",
-        content: `Ok, here's what's changed:\n\n${commitMessage}`,
+        content: `Most recent change:\n\n${commitMessage}`,
       });
     }
     return initial;
