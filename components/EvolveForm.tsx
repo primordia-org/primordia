@@ -64,6 +64,7 @@ export default function EvolveForm() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [submittedRequest, setSubmittedRequest] = useState<string | null>(null);
   const [evolveResult, setEvolveResult] = useState<EvolveResult | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [relatedIssues, setRelatedIssues] = useState<RelatedIssue[] | null>(null);
@@ -122,6 +123,7 @@ export default function EvolveForm() {
     setIsLoading(true);
     setEvolveResult(null);
     setSubmitted(true);
+    setSubmittedRequest(trimmed);
 
     if (process.env.NODE_ENV === "development") {
       await handleLocalEvolveSubmit(trimmed);
@@ -451,6 +453,7 @@ export default function EvolveForm() {
     setEvolveResult(null);
     setRelatedIssues(null);
     setPendingRequest(null);
+    setSubmittedRequest(null);
     setLocalEvolveSession(null);
     if (pollingIntervalRef.current !== null) clearInterval(pollingIntervalRef.current);
     if (localPollingRef.current !== null) clearInterval(localPollingRef.current);
@@ -488,6 +491,14 @@ export default function EvolveForm() {
               Describe a change you want to make to this app.
             </>
           )}
+        </div>
+      )}
+
+      {/* Submitted request — shown after form is submitted so user can see their request */}
+      {submitted && submittedRequest && (
+        <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm">
+          <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Your request</p>
+          <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{submittedRequest}</p>
         </div>
       )}
 
