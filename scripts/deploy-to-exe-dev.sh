@@ -48,7 +48,7 @@ if [[ -z "$GITHUB_REPO" ]]; then
 fi
 
 REPO_URL="https://github.com/${GITHUB_REPO}.git"
-REMOTE_DIR="/root/primordia"
+REMOTE_DIR="/home/exedev/primordia"
 
 echo "Deploying Primordia to ${HOST}..."
 echo "  Repository: ${REPO_URL}"
@@ -141,7 +141,7 @@ fi
 # ── Start the dev server ──────────────────────────────────────────────────────
 # Run with HOSTNAME=0.0.0.0 so the server binds to all interfaces and is
 # reachable at the server's public hostname, not just localhost.
-# NODE_ENV=development is set automatically by `next dev`, which enables the
+# NODE_ENV=development is set automatically by \`next dev\`, which enables the
 # fast local evolve flow (Claude Agent SDK + git worktrees).
 echo "Starting Primordia dev server..."
 cd "\${REMOTE_DIR}"
