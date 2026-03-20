@@ -114,6 +114,8 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
   const [deployContext, setDeployContext] = useState<string | null>(null);
   // PR number for the current deploy preview (null on production/local builds).
   const [deployPrNumber, setDeployPrNumber] = useState<number | null>(null);
+  // PR state for the current deploy preview ("open", "closed", or "merged").
+  const [deployPrState, setDeployPrState] = useState<"open" | "closed" | "merged" | null>(null);
   // Action state for the Vercel preview accept/reject bar.
   const [vercelActionState, setVercelActionState] = useState<"idle" | "loading" | "accepted" | "rejected">("idle");
   // Decision state: shown when related open issues are found before creating a new one
@@ -197,10 +199,11 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
 
     fetch("/api/deploy-context")
       .then((res) => res.json())
-      .then((data: { context: string | null; prNumber?: number; prUrl?: string }) => {
+      .then((data: { context: string | null; prNumber?: number; prUrl?: string; prState?: "open" | "closed" | "merged" }) => {
         if (!data.context) return;
         setDeployContext(data.context);
         if (data.prNumber) setDeployPrNumber(data.prNumber);
+        if (data.prState) setDeployPrState(data.prState);
         // Prepend a visible system message so the context is front-and-centre.
         // Show only a brief notice; the full PR/issue context is sent to Claude via systemContext.
         setMessages((prev) => [
@@ -952,7 +955,17 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
       )}
 
       {/* Vercel preview accept/reject bar — shown on Vercel deploy preview deployments */}
-      {deployPrNumber !== null && vercelActionState !== "accepted" && vercelActionState !== "rejected" && (
+      {deployPrNumber !== null && deployPrState === "merged" && vercelActionState !== "accepted" && (
+        <div className="mb-3 px-4 py-3 rounded-lg bg-green-900/30 border border-green-700/40 text-sm flex-shrink-0">
+          <p className="text-green-200">✅ PR #{deployPrNumber} has already been merged. These changes are live in production.</p>
+        </div>
+      )}
+      {deployPrNumber !== null && deployPrState === "closed" && vercelActionState !== "rejected" && (
+        <div className="mb-3 px-4 py-3 rounded-lg bg-red-900/30 border border-red-700/40 text-sm flex-shrink-0">
+          <p className="text-red-200">🗑️ PR #{deployPrNumber} has already been closed. These changes were discarded.</p>
+        </div>
+      )}
+      {deployPrNumber !== null && (deployPrState === "open" || deployPrState === null) && vercelActionState !== "accepted" && vercelActionState !== "rejected" && (
         <div className="mb-3 px-4 py-3 rounded-lg bg-green-900/30 border border-green-700/40 text-sm flex-shrink-0 space-y-3">
           <p className="text-green-200 font-semibold">
             🔍 This is a preview of PR #{deployPrNumber} — review the changes, then accept or reject.
