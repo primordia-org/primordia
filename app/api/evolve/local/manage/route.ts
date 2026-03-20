@@ -90,18 +90,30 @@ export async function POST(request: Request) {
     if (body.action === 'accept') {
       // Checkout the parent branch first so the merge lands on the right branch,
       // not on whatever happens to be checked out in the main repo.
+      // If the parent branch is already checked out in another worktree (e.g. a
+      // prior evolve session), git refuses the checkout. In that case we parse
+      // the worktree path from the error message and run the merge there instead.
       const checkoutResult = await runGit(['checkout', parentBranch!], parentRepoRoot);
+      let mergeRoot = parentRepoRoot;
       if (checkoutResult.code !== 0) {
-        return Response.json(
-          { error: `git checkout ${parentBranch} failed:\n${checkoutResult.stderr}` },
-          { status: 500 },
+        const alreadyCheckedOutMatch = checkoutResult.stderr.match(
+          /already checked out at '([^']+)'/,
         );
+        if (alreadyCheckedOutMatch) {
+          // Parent branch lives in a different worktree — merge from there.
+          mergeRoot = alreadyCheckedOutMatch[1];
+        } else {
+          return Response.json(
+            { error: `git checkout ${parentBranch} failed:\n${checkoutResult.stderr}` },
+            { status: 500 },
+          );
+        }
       }
 
-      // Merge the preview branch into the parent branch (in the main repo).
+      // Merge the preview branch into the parent branch (in the appropriate worktree).
       const mergeResult = await runGit(
         ['merge', branch, '--no-ff', '-m', `chore: merge ${branch}`],
-        parentRepoRoot,
+        mergeRoot,
       );
       if (mergeResult.code !== 0) {
         return Response.json(
