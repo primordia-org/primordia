@@ -197,7 +197,7 @@ export async function startLocalEvolve(
     `Read PRIMORDIA.md first for architecture context, then implement the following change:\n\n` +
     `${taskRequest}\n\n` +
     `After making changes:\n` +
-    `1. Update the Changelog section of PRIMORDIA.md with a brief entry.\n` +
+    `1. Create a new changelog file in the \`changelog/\` directory named \`YYYY-MM-DD-HH-MM-SS Description of change.md\` (UTC time, e.g. \`2026-03-16-21-00-00 Fix login bug.md\`). The filename is the short description; the file body is the full "what changed + why" detail in markdown. Do NOT add changelog entries to PRIMORDIA.md itself.\n` +
     `2. Commit all changes with a descriptive message.`;
 
   const run = query({
@@ -302,7 +302,7 @@ export async function startLocalEvolve(
     }, 120_000);
   });
 
-  appendProgress(session, `\n✅ **Ready at http://localhost:${session.port}**\n`);
+  appendProgress(session, `\n✅ **Ready on port ${session.port}**\n`);
 }
 
 // ─── Kill dev server ──────────────────────────────────────────────────────────

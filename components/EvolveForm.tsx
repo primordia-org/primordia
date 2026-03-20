@@ -21,7 +21,7 @@
 
 import { useState, useRef, useEffect, FormEvent } from "react";
 import Link from "next/link";
-import { SimpleMarkdown } from "./SimpleMarkdown";
+import { MarkdownContent } from "./SimpleMarkdown";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -54,6 +54,7 @@ interface LocalEvolveSession {
   id: string;
   status: "starting" | "running-claude" | "starting-server" | "ready" | "error";
   progressText: string;
+  port: number | null;
   previewUrl: string | null;
   branch: string;
 }
@@ -217,13 +218,16 @@ export default function EvolveForm() {
           clearInterval(localPollingRef.current!);
           localPollingRef.current = null;
 
-          if (data.status === "ready" && data.previewUrl) {
+          if (data.status === "ready" && data.port !== null) {
+            // Build the URL from the browser's own hostname so it works on remote
+            // machines (e.g. primordia.exe.xyz) as well as plain localhost.
+            const previewUrl = `${window.location.protocol}//${window.location.hostname}:${data.port}`;
             setMessages((prev) => [
               ...prev,
               {
                 role: "assistant",
                 content:
-                  `🚀 Preview ready: [${data.previewUrl}](${data.previewUrl})\n\n` +
+                  `🚀 Preview ready: [${previewUrl}](${previewUrl})\n\n` +
                   `Open the preview link and use the **Accept** or **Reject** bar there to apply or discard the changes.`,
               },
             ]);
@@ -507,7 +511,7 @@ export default function EvolveForm() {
         <div className="flex-1 space-y-4 mb-6">
           {messages.map((msg, i) => (
             <div key={msg.id ?? i} className="px-4 py-3 rounded-lg bg-gray-800 text-gray-100 text-sm leading-relaxed">
-              <SimpleMarkdown text={msg.content} />
+              <MarkdownContent text={msg.content} />
             </div>
           ))}
           {isLoading && (

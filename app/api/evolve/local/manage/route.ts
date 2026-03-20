@@ -97,7 +97,7 @@ export async function POST(request: Request) {
       let mergeRoot = parentRepoRoot;
       if (checkoutResult.code !== 0) {
         const alreadyCheckedOutMatch = checkoutResult.stderr.match(
-          /already checked out at '([^']+)'/,
+          /(?:already checked out at|already used by worktree at) '([^']+)'/,
         );
         if (alreadyCheckedOutMatch) {
           // Parent branch lives in a different worktree — merge from there.
