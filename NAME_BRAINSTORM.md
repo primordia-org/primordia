@@ -75,10 +75,56 @@
 
 ---
 
+## Domain Availability Research
+
+Checked `.app`, `.dev`, `.com`, and `.io` variants for all top candidates.
+
+### For Sale (registered but unused — can be purchased)
+| Domain | Notes |
+|---|---|
+| **morph.app** | Explicitly for sale on GoDaddy |
+| **morph.dev** | "Reserved for something great" placeholder — owned but idle |
+| **mutable.app** | Listed on Afternic domain marketplace |
+| **evolveapp.com** | Listed on HugeDomains for $9,695 |
+
+### Possibly Available (no live product found)
+| Domain | Notes |
+|---|---|
+| **wishcraft.app** | Returns 403 but no product found anywhere at this domain |
+| **wordcraft.app** | Returns 403 but no product found anywhere at this domain |
+| **liveapp.dev** | Returns 404 — best candidate for a genuinely unregistered domain |
+
+### Taken — Live Active Products
+| Domain | What it is |
+|---|---|
+| morph.io | Web scraping platform (OpenAustralia Foundation) |
+| clay.app | Mental health journaling app |
+| clay.dev | Registered, actively blocking crawlers |
+| flux.app | Energy billing software (Flux Federation) |
+| forge.dev | Three.js graphics rendering library |
+| wishcraft.com | Barbara Sher self-help program (1980s) |
+| wordcraft.com | UK software company est. 1978 |
+| plainly.com | Legal workflow automation SaaS |
+| malleable.app | Redirects to usemalleable.com — workflow automation |
+| buildwith.app | Live framework comparison tool |
+| shapeshift.app | Registered under ShapeShift crypto brand |
+
+### Registered but Parked (GoDaddy lander / no active product)
+`sprout.app`, `sprout.dev`, `pliable.app`, `reforge.app`, `knead.app`, `shapeshift.app`, `getclay.com`, `plainly.app`
+
+---
+
 ## Recommendation
 
-**Morph** or **Clay** would be the most user-friendly drop-in replacements:
-- Short, one-syllable
-- Immediately convey "this thing changes / is shapeable"
-- No spelling ambiguity
-- Work as a domain name (morph.app, clay.app — though availability may vary)
+Based on name quality + domain availability:
+
+| Name | Best Available Domain | Notes |
+|---|---|---|
+| **Morph** | `morph.app` (for sale) or `morph.dev` (idle) | Best brand; domains acquirable |
+| **Mutable** | `mutable.app` (for sale on Afternic) | Honest name; niche appeal |
+| **Wishcraft** | `wishcraft.app` (possibly unregistered) | Most memorable; whimsical |
+| **Wordcraft** | `wordcraft.app` (possibly unregistered) | Clear meaning; worth a WHOIS check |
+
+**Top pick overall: `morph.app`** — the name is the best fit, the domain is for sale (not in use by a competing product), and one syllable means zero spelling friction.
+
+**Budget-friendly pick: `wishcraft.app`** — if it's truly unregistered, this is a distinctive, memorable name with an open domain at standard registration price.
