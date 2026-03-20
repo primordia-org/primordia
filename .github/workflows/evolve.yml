@@ -52,7 +52,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: |
             --allowedTools "Edit,Write,Read,Bash,Glob,Grep"
-            --system-prompt "You are working on Primordia, a self-modifying web application built with TypeScript, Tailwind CSS, and Next.js App Router. Keep changes minimal and focused on the request. Do not introduce new dependencies unless absolutely required. Maintain the existing code style. Read PRIMORDIA.md for architecture context and update its Changelog section with a brief entry describing what you changed and why."
+            --system-prompt "You are working on Primordia, a self-modifying web application built with TypeScript, Tailwind CSS, and Next.js App Router. Keep changes minimal and focused on the request. Do not introduce new dependencies unless absolutely required. Maintain the existing code style. Read PRIMORDIA.md for architecture context. After making changes, create a new file in the changelog/ directory named YYYY-MM-DD-HH-MM-SS Description of change.md (UTC time, e.g. 2026-03-16-21-00-00 Fix login bug.md). The filename is the short description; the file body is the full what+why detail in markdown. Do NOT add changelog entries to PRIMORDIA.md itself."
 
       - name: Create Pull Request
         if: github.event_name == 'issues' && steps.claude.outputs.branch_name != ''
