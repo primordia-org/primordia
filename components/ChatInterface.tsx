@@ -90,7 +90,7 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
       {
         role: "assistant",
         content:
-          "Hi! I'm Primordia. You can chat with me, or switch to **evolve mode** to propose a change to this app itself. Your idea will be turned into a GitHub PR automatically.",
+          "Hi! I'm Primordia. You can chat with me, or switch to **evolve mode** to propose a change to this app itself.",
       },
     ];
     if (commitMessage) {
