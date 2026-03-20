@@ -6,7 +6,7 @@
 //   action: "create"  — creates a new labeled GitHub Issue (default)
 //
 // Request body:
-//   { action?: "create"; request: string }
+//   { action?: "create"; request: string; parentBranch?: string }
 //   { action: "search"; request: string }
 //   { action: "comment"; issueNumber: number; request: string }
 //
@@ -19,6 +19,8 @@ export async function POST(request: Request) {
     action?: string;
     request?: string;
     issueNumber?: number;
+    /** Branch to base new work on and target with the PR. Set when issuing from a deploy preview. */
+    parentBranch?: string;
   };
 
   const token = process.env.GITHUB_TOKEN;
@@ -97,7 +99,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "request string required" }, { status: 400 });
   }
 
-  const issueBody = buildIssueBody(body.request);
+  const issueBody = buildIssueBody(body.request, body.parentBranch);
 
   try {
     const result = await createGitHubIssue({
@@ -120,8 +122,28 @@ export async function POST(request: Request) {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function buildIssueBody(userRequest: string): string {
+function buildIssueBody(userRequest: string, parentBranch?: string): string {
   const timestamp = new Date().toISOString();
+
+  const branchInstructions = parentBranch && parentBranch !== "main" && parentBranch !== "master"
+    ? `> **Important**: This request came from a deploy preview of branch \`${parentBranch}\`.
+> Make your changes on a new branch based on \`${parentBranch}\` (not \`main\`), and open
+> the PR targeting \`${parentBranch}\`. To do this, run these git commands before making
+> any edits:
+>
+> \`\`\`
+> git fetch origin ${parentBranch}
+> git checkout -b <new-branch> origin/${parentBranch}
+> \`\`\`
+>
+> Then after committing your changes, create the PR with:
+>
+> \`\`\`
+> gh pr create --base ${parentBranch} --head <new-branch> --title "..." --body "..."
+> \`\`\`
+>
+`
+    : "";
 
   return `@claude
 
@@ -134,7 +156,7 @@ ${userRequest}
 ## Metadata
 
 - **Submitted at**: ${timestamp}
-- **Source**: Primordia evolve mode (chat interface)
+- **Source**: Primordia evolve mode (chat interface)${parentBranch && parentBranch !== "main" && parentBranch !== "master" ? `\n- **Parent branch**: \`${parentBranch}\`` : ""}
 
 ---
 
@@ -144,7 +166,7 @@ ${userRequest}
 > Claude Code will read \`PRIMORDIA.md\` for architecture context, then implement
 > the changes described in the "User Request" section above.
 >
-> After making changes:
+${branchInstructions}> After making changes:
 > 1. Update the **Changelog** section of \`PRIMORDIA.md\` with a brief entry.
 > 2. Commit all changes with a descriptive message.
 > 3. The workflow will open a PR and link it back to this issue.

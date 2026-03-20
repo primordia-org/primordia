@@ -4,7 +4,7 @@
 // pre-loaded with "works-in-progress" context.
 //
 // Response (JSON):
-//   { context: string | null, prNumber?: number, prUrl?: string, prState?: "open" | "closed" | "merged" }
+//   { context: string | null, prNumber?: number, prUrl?: string, prState?: "open" | "closed" | "merged", prBranch?: string, prBaseBranch?: string }
 //
 // Returns null context when:
 //   - Not a preview branch (i.e. this is production or local)
@@ -29,6 +29,7 @@ interface GitHubPR {
   state: "open" | "closed";
   merged_at: string | null;
   head: { ref: string };
+  base: { ref: string };
 }
 
 interface GitHubIssue {
@@ -132,5 +133,7 @@ export async function GET() {
     prNumber: pr.number,
     prUrl: pr.html_url,
     prState,
+    prBranch: pr.head.ref,
+    prBaseBranch: pr.base.ref,
   });
 }
