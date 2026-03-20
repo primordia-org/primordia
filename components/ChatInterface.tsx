@@ -1007,7 +1007,7 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
       )}
       {deployPrNumber !== null && vercelActionState === "accepted" && (
         <div className="mb-3 px-4 py-3 rounded-lg bg-green-900/30 border border-green-700/40 text-sm flex-shrink-0">
-          <p className="text-green-200">✅ Changes accepted and merged into <code className="bg-green-900/50 px-1 rounded">{deployPrBaseBranch}</code>. Production deployment is on its way!</p>
+          <p className="text-green-200">✅ Changes accepted and merged into <code className="bg-green-900/50 px-1 rounded">{deployPrBaseBranch}</code>.</p>
         </div>
       )}
       {deployPrNumber !== null && vercelActionState === "rejected" && (
