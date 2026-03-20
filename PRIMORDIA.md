@@ -11,7 +11,7 @@
 
 ## What Is Primordia?
 
-Primordia is a self-modifying web application. Users interact with an AI chat interface and can switch into "evolve mode" to describe changes they want made to the app itself. Those requests are automatically turned into GitHub Pull Requests via a CI pipeline powered by Claude Code CLI.
+Primordia is a self-modifying web application. Users interact with an AI chat interface. To propose a change to the app, they click the Edit (pencil) icon button in the header to navigate to the `/evolve` page — a dedicated "submit a request" form. Requests are automatically turned into GitHub Pull Requests via a CI pipeline powered by Claude Code CLI.
 
 The core idea: **the app becomes whatever its users need it to be**, with no coding or git knowledge required from users.
 
@@ -64,6 +64,8 @@ primordia/
 │   ├── globals.css                ← Tailwind base imports only
 │   ├── changelog/
 │   │   └── page.tsx               ← Server component: renders auto-generated changelog
+│   ├── evolve/
+│   │   └── page.tsx               ← Dedicated "propose a change" page; renders <EvolveForm>
 │   └── api/
 │       ├── chat/
 │       │   └── route.ts           ← Streams Claude responses via SSE
@@ -83,8 +85,8 @@ primordia/
 │                   └── route.ts   ← POST accept/reject a local session (development)
 │
 ├── components/
-│   ├── ChatInterface.tsx          ← Main chat UI; handles chat + evolve modes
-│   └── ModeToggle.tsx             ← Toggle button: "Chat" vs "Evolve"
+│   ├── ChatInterface.tsx          ← Main chat UI (chat only); Edit icon button links to /evolve
+│   └── EvolveForm.tsx             ← "Submit a request" form; handles all evolve logic
 │
 └── .github/
     └── workflows/
@@ -189,7 +191,7 @@ When implementing changes, follow these principles:
 | Feature | Status | Notes |
 |---|---|---|
 | Chat interface (streaming) | ✅ Live | Streams from `claude-sonnet-4-6` via SSE |
-| Evolve mode | ✅ Live | Creates labeled GitHub Issue |
+| Evolve mode | ✅ Live | Dedicated `/evolve` page; Edit icon in chat header |
 | CI evolve pipeline | ✅ Live | `evolve.yml` → Claude Code → PR |
 | Vercel deploy pipeline | ✅ Live (setup required) | Preview per PR, prod on merge to main |
 | Dark theme | ✅ Live | Default dark UI with Tailwind |
