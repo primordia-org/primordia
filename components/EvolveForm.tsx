@@ -485,8 +485,7 @@ export default function EvolveForm() {
             </>
           ) : (
             <>
-              Describe a change you want to make to this app. Your request will become a
-              GitHub Issue and trigger an automated PR.
+              Describe a change you want to make to this app.
             </>
           )}
         </div>
