@@ -114,17 +114,47 @@ Checked `.app`, `.dev`, `.com`, and `.io` variants for all top candidates.
 
 ---
 
+## Round 2 — Building / DIY / Evolving
+
+### For Sale (acquirable at reasonable prices)
+| Domain | Price | Notes |
+|---|---|---|
+| **chisel.app** | ~$2,490 | Listed on domain marketplace |
+| **chisel.dev** | Unknown | GoDaddy for-sale page |
+| **stitch.app** | Unknown | Listed on Atom/Dan.com |
+
+### Taken — Live Active Products
+| Domain | What it is |
+|---|---|
+| tinker.app | Mira Murati's Thinking Machines Lab AI fine-tuning API |
+| cobble.app | NYC date-idea matching iOS app |
+| carve.app | No-code NFT creator platform |
+| weld.app / weld.dev | ELT/data pipeline platform (Weld) |
+| iterate.app | Customer feedback & survey platform |
+| remake.app / remake.dev | No-code website builder |
+| recast.app | Digital media monetization platform |
+
+### Registered but No Active Product
+| Domain | Status |
+|---|---|
+| tinker.dev | "Nothing to see here" placeholder |
+| rework.app | "Under construction" page |
+
+### Registered / Parked (GoDaddy lander or blocked)
+`whittle.app`, `whittle.dev`, `cobble.dev`, `lathe.app`, `lathe.dev`, `carve.dev`, `stitch.dev`, `iterate.dev`, `recast.dev`, `retrofit.app`, `retrofit.dev`, `weave.app`, `weave.dev`, `livebuild.app`, `livebuild.dev`, `selfmade.app`, `selfmade.dev`
+
+---
+
 ## Recommendation
 
-Based on name quality + domain availability:
+Based on name quality + domain availability across both rounds:
 
-| Name | Best Available Domain | Notes |
-|---|---|---|
-| **Morph** | `morph.app` (for sale) or `morph.dev` (idle) | Best brand; domains acquirable |
-| **Mutable** | `mutable.app` (for sale on Afternic) | Honest name; niche appeal |
-| **Wishcraft** | `wishcraft.app` (possibly unregistered) | Most memorable; whimsical |
-| **Wordcraft** | `wordcraft.app` (possibly unregistered) | Clear meaning; worth a WHOIS check |
+| Name | Best Available Domain | Price | Notes |
+|---|---|---|---|
+| **Chisel** | `chisel.app` + `chisel.dev` | ~$2,490 | Best combo: great name, both domains for sale, no competing product |
+| **Stitch** | `stitch.app` | Unknown | Warm, tactile; for sale; Google uses "Stitch" brand separately |
+| **Morph** | `morph.app` | $239,999 | Best name but prohibitively expensive |
 
-**Top pick overall: `morph.app`** — the name is the best fit, the domain is for sale (not in use by a competing product), and one syllable means zero spelling friction.
+**Top pick: `chisel.app`** — "Chisel" perfectly captures shaping something with precision; $2,490 is a realistic price for a project domain; no active product at chisel.app or chisel.dev to conflict with.
 
-**Budget-friendly pick: `wishcraft.app`** — if it's truly unregistered, this is a distinctive, memorable name with an open domain at standard registration price.
+**Runner-up: `stitch.app`** — warm, approachable, and the "stitching features together" metaphor works well. Worth checking the sale price on Dan.com.
