@@ -813,7 +813,7 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
       {/* Header */}
       <header className="flex items-center justify-between mb-6 flex-shrink-0">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-white flex items-baseline gap-2">
+          <h1 className="text-xl font-bold tracking-tight text-white flex flex-wrap items-baseline gap-x-2">
             {process.env.VERCEL_PROJECT_PRODUCTION_URL ? (
               <a
                 href={`https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`}
@@ -838,7 +838,7 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
                 </a>
               )}
             {branch && (
-              <span className="text-sm font-normal text-gray-400">
+              <span className="text-sm font-normal text-gray-400 w-full sm:w-auto">
                 ({branch})
               </span>
             )}
