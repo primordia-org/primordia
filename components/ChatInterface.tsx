@@ -102,6 +102,8 @@ export default function ChatInterface() {
   const [evolveLoadingMsg, setEvolveLoadingMsg] = useState<string>("Checking for related issues…");
   // Local evolve session state (development only)
   const [localEvolveSession, setLocalEvolveSession] = useState<LocalEvolveSession | null>(null);
+  // Git branch + HEAD commit message, fetched once on mount from /api/git-context.
+  const [gitContext, setGitContext] = useState<{ branch: string | null; commitMessage: string | null }>({ branch: null, commitMessage: null });
   // Whether this app is running as a preview instance (detected via API on mount).
   const [isPreviewInstance, setIsPreviewInstance] = useState(false);
   const [previewActionState, setPreviewActionState] = useState<"idle" | "loading" | "accepted" | "rejected">("idle");
@@ -143,6 +145,31 @@ export default function ChatInterface() {
         clearInterval(localPollingRef.current);
       }
     };
+  }, []);
+
+  // On mount, fetch the current git branch + HEAD commit message.
+  // Updates the page title and injects a "here's what changed" assistant message.
+  useEffect(() => {
+    fetch("/api/git-context")
+      .then((res) => res.json())
+      .then((data: { branch: string | null; commitMessage: string | null }) => {
+        setGitContext(data);
+        if (data.branch) {
+          document.title = `Primordia (${data.branch})`;
+        }
+        if (data.commitMessage) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant" as const,
+              content: `Ok, here's what's changed: _${data.commitMessage}_`,
+            },
+          ]);
+        }
+      })
+      .catch(() => {
+        // Non-critical — silently ignore
+      });
   }, []);
 
   // On mount, ask the server whether this is a local preview instance.
@@ -796,6 +823,11 @@ export default function ChatInterface() {
                   #{process.env.VERCEL_GIT_PULL_REQUEST_ID}
                 </a>
               )}
+            {gitContext.branch && (
+              <span className="text-sm font-normal text-gray-400">
+                ({gitContext.branch})
+              </span>
+            )}
           </h1>
           <p className="text-xs text-gray-400 mt-0.5">
             A self-evolving application ·{" "}
