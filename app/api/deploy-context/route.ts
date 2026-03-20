@@ -21,6 +21,7 @@ interface GitHubPR {
   body: string;
   html_url: string;
   head: { ref: string };
+  base: { ref: string };
 }
 
 interface GitHubIssue {
@@ -86,5 +87,5 @@ export async function GET() {
     );
   }
 
-  return Response.json({ context: lines.join("\n"), prNumber: pr.number, prUrl: pr.html_url });
+  return Response.json({ context: lines.join("\n"), prNumber: pr.number, prUrl: pr.html_url, prBaseBranch: pr.base.ref });
 }

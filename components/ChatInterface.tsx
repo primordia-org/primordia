@@ -114,6 +114,8 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
   const [deployContext, setDeployContext] = useState<string | null>(null);
   // PR number for the current deploy preview (null on production/local builds).
   const [deployPrNumber, setDeployPrNumber] = useState<number | null>(null);
+  // Base branch of the deploy preview PR (the branch it will be merged into).
+  const [deployPrBaseBranch, setDeployPrBaseBranch] = useState<string>("main");
   // Action state for the Vercel preview accept/reject bar.
   const [vercelActionState, setVercelActionState] = useState<"idle" | "loading" | "accepted" | "rejected">("idle");
   // Decision state: shown when related open issues are found before creating a new one
@@ -197,10 +199,11 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
 
     fetch("/api/deploy-context")
       .then((res) => res.json())
-      .then((data: { context: string | null; prNumber?: number; prUrl?: string }) => {
+      .then((data: { context: string | null; prNumber?: number; prUrl?: string; prBaseBranch?: string }) => {
         if (!data.context) return;
         setDeployContext(data.context);
         if (data.prNumber) setDeployPrNumber(data.prNumber);
+        if (data.prBaseBranch) setDeployPrBaseBranch(data.prBaseBranch);
         // Prepend a visible system message so the context is front-and-centre.
         // Show only a brief notice; the full PR/issue context is sent to Claude via systemContext.
         setMessages((prev) => [
@@ -955,10 +958,12 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
       {deployPrNumber !== null && vercelActionState !== "accepted" && vercelActionState !== "rejected" && (
         <div className="mb-3 px-4 py-3 rounded-lg bg-green-900/30 border border-green-700/40 text-sm flex-shrink-0 space-y-3">
           <p className="text-green-200 font-semibold">
-            🔍 This is a preview of PR #{deployPrNumber} — review the changes, then accept or reject.
+            🔍 This is a deploy preview of PR #{deployPrNumber} — review the changes, then accept or reject.
           </p>
           <p className="text-green-300 text-xs">
-            Accepting will merge the PR and trigger a production deployment. Rejecting will close the PR.
+            Accepting will merge the PR into{" "}
+            <code className="bg-green-900/50 px-1 rounded">{deployPrBaseBranch}</code>.
+            Rejecting will close the PR.
           </p>
           <div className="flex items-center gap-2">
             <button
@@ -980,7 +985,7 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
       )}
       {deployPrNumber !== null && vercelActionState === "accepted" && (
         <div className="mb-3 px-4 py-3 rounded-lg bg-green-900/30 border border-green-700/40 text-sm flex-shrink-0">
-          <p className="text-green-200">✅ PR #{deployPrNumber} merged. Production deployment is on its way!</p>
+          <p className="text-green-200">✅ Changes accepted and merged into <code className="bg-green-900/50 px-1 rounded">{deployPrBaseBranch}</code>. Production deployment is on its way!</p>
         </div>
       )}
       {deployPrNumber !== null && vercelActionState === "rejected" && (
