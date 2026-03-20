@@ -88,6 +88,16 @@ export async function POST(request: Request) {
 
   try {
     if (body.action === 'accept') {
+      // Checkout the parent branch first so the merge lands on the right branch,
+      // not on whatever happens to be checked out in the main repo.
+      const checkoutResult = await runGit(['checkout', parentBranch!], parentRepoRoot);
+      if (checkoutResult.code !== 0) {
+        return Response.json(
+          { error: `git checkout ${parentBranch} failed:\n${checkoutResult.stderr}` },
+          { status: 500 },
+        );
+      }
+
       // Merge the preview branch into the parent branch (in the main repo).
       const mergeResult = await runGit(
         ['merge', branch, '--no-ff', '-m', `chore: merge ${branch}`],
