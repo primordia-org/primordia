@@ -116,6 +116,10 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
   const [deployPrNumber, setDeployPrNumber] = useState<number | null>(null);
   // Base branch of the deploy preview PR (the branch it will be merged into).
   const [deployPrBaseBranch, setDeployPrBaseBranch] = useState<string>("main");
+  // Head branch of the deploy preview PR (the branch being previewed).
+  const [deployPrBranch, setDeployPrBranch] = useState<string | null>(null);
+  // PR state for the current deploy preview ("open", "closed", or "merged").
+  const [deployPrState, setDeployPrState] = useState<"open" | "closed" | "merged" | null>(null);
   // Action state for the Vercel preview accept/reject bar.
   const [vercelActionState, setVercelActionState] = useState<"idle" | "loading" | "accepted" | "rejected">("idle");
   // Decision state: shown when related open issues are found before creating a new one
@@ -199,10 +203,12 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
 
     fetch("/api/deploy-context")
       .then((res) => res.json())
-      .then((data: { context: string | null; prNumber?: number; prUrl?: string; prBaseBranch?: string }) => {
+      .then((data: { context: string | null; prNumber?: number; prUrl?: string; prState?: "open" | "closed" | "merged"; prBranch?: string; prBaseBranch?: string }) => {
         if (!data.context) return;
         setDeployContext(data.context);
         if (data.prNumber) setDeployPrNumber(data.prNumber);
+        if (data.prState) setDeployPrState(data.prState);
+        if (data.prBranch) setDeployPrBranch(data.prBranch);
         if (data.prBaseBranch) setDeployPrBaseBranch(data.prBaseBranch);
         // Prepend a visible system message so the context is front-and-centre.
         // Show only a brief notice; the full PR/issue context is sent to Claude via systemContext.
@@ -577,7 +583,13 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
       const response = await fetch("/api/evolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create", request }),
+        body: JSON.stringify({
+          action: "create",
+          request,
+          // If we're in a deploy preview, pass the preview branch so Claude
+          // creates a new branch from it and targets it with the PR.
+          parentBranch: deployPrBranch ?? undefined,
+        }),
       });
 
       const data = (await response.json()) as {
@@ -955,7 +967,17 @@ export default function ChatInterface({ branch, commitMessage, isPreviewInstance
       )}
 
       {/* Vercel preview accept/reject bar — shown on Vercel deploy preview deployments */}
-      {deployPrNumber !== null && vercelActionState !== "accepted" && vercelActionState !== "rejected" && (
+      {deployPrNumber !== null && deployPrState === "merged" && vercelActionState !== "accepted" && (
+        <div className="mb-3 px-4 py-3 rounded-lg bg-green-900/30 border border-green-700/40 text-sm flex-shrink-0">
+          <p className="text-green-200">✅ PR #{deployPrNumber} has already been merged. These changes are live in production.</p>
+        </div>
+      )}
+      {deployPrNumber !== null && deployPrState === "closed" && vercelActionState !== "rejected" && (
+        <div className="mb-3 px-4 py-3 rounded-lg bg-red-900/30 border border-red-700/40 text-sm flex-shrink-0">
+          <p className="text-red-200">🗑️ PR #{deployPrNumber} has already been closed. These changes were discarded.</p>
+        </div>
+      )}
+      {deployPrNumber !== null && (deployPrState === "open" || deployPrState === null) && vercelActionState !== "accepted" && vercelActionState !== "rejected" && (
         <div className="mb-3 px-4 py-3 rounded-lg bg-green-900/30 border border-green-700/40 text-sm flex-shrink-0 space-y-3">
           <p className="text-green-200 font-semibold">
             🔍 This is a deploy preview of PR #{deployPrNumber} — review the changes, then accept or reject.
