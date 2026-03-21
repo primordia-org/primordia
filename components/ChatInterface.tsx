@@ -3,16 +3,15 @@
 // components/ChatInterface.tsx
 // The main chat UI for Primordia. Streams responses from Claude via /api/chat.
 //
-// To propose a change to the app itself, use the Edit (pencil) icon button in
-// the header, which links to /evolve — a dedicated "submit a request" form.
-//
-// The sync (cloud-upload) icon button in the header triggers a git pull+push
-// dialog — see GitSyncDialog below.
+// The header contains a hamburger (☰) menu button. Tapping it opens a dropdown
+// with two actions:
+//   • "Propose a change" — links to /evolve, the dedicated change-request form.
+//   • "Sync with GitHub" — triggers a git pull+push dialog (GitSyncDialog).
 //
 // The accept/reject bar for previews lives in AcceptRejectBar (rendered in the
 // root layout below the fold — scroll down to reveal it).
 
-import { useState, useRef, useEffect, FormEvent } from "react";
+import { useState, useRef, useEffect, useCallback, FormEvent } from "react";
 import Link from "next/link";
 import { SimpleMarkdown } from "./SimpleMarkdown";
 
@@ -34,13 +33,28 @@ interface GitContext {
 
 export default function ChatInterface({ branch, commitMessage }: GitContext) {
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close the hamburger dropdown when the user clicks outside it
+  const handleClickOutside = useCallback((e: MouseEvent) => {
+    if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      setMenuOpen(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen, handleClickOutside]);
 
   const [messages, setMessages] = useState<Message[]>(() => {
     const initial: Message[] = [
       {
         role: "assistant",
         content:
-          "Hi! I'm Primordia. Ask me anything, or click the ✏️ button in the top right to propose a change to this app.",
+          "Hi! I'm Primordia. Ask me anything, or open the ☰ menu in the top right to propose a change to this app.",
       },
     ];
     if (commitMessage) {
@@ -276,35 +290,61 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
             </Link>
           </p>
         </div>
-        {/* Header action buttons */}
-        <div className="flex items-center gap-1">
-          {/* Sync icon button — pulls then pushes the current branch to GitHub */}
+        {/* Hamburger menu */}
+        <div className="relative" ref={menuRef}>
           <button
             type="button"
-            onClick={() => setSyncDialogOpen(true)}
-            title="Synchronise branch with GitHub"
-            aria-label="Synchronise branch with GitHub"
-            className="p-2 rounded-lg text-gray-400 hover:text-green-400 hover:bg-gray-800 transition-colors"
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label={menuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={menuOpen}
+            className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
           >
-            {/* Cloud-upload icon */}
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polyline points="16 16 12 12 8 16"/>
-              <line x1="12" y1="12" x2="12" y2="21"/>
-              <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
-            </svg>
+            {menuOpen ? (
+              /* X icon — close */
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            ) : (
+              /* Hamburger icon — open */
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="3" y1="6" x2="21" y2="6"/>
+                <line x1="3" y1="12" x2="21" y2="12"/>
+                <line x1="3" y1="18" x2="21" y2="18"/>
+              </svg>
+            )}
           </button>
-          {/* Edit icon button — links to /evolve to propose a change */}
-          <Link
-            href="/evolve"
-            title="Propose a change to this app"
-            className="p-2 rounded-lg text-gray-400 hover:text-amber-400 hover:bg-gray-800 transition-colors"
-            aria-label="Propose a change"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-            </svg>
-          </Link>
+
+          {/* Dropdown */}
+          {menuOpen && (
+            <div className="absolute right-0 top-full mt-1 w-52 rounded-xl bg-gray-900 border border-gray-700 shadow-2xl z-40 overflow-hidden">
+              {/* Propose a change */}
+              <Link
+                href="/evolve"
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-amber-400 hover:bg-gray-800 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                Propose a change
+              </Link>
+              {/* Sync with GitHub */}
+              <button
+                type="button"
+                onClick={() => { setMenuOpen(false); setSyncDialogOpen(true); }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-green-400 hover:bg-gray-800 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="16 16 12 12 8 16"/>
+                  <line x1="12" y1="12" x2="12" y2="21"/>
+                  <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+                </svg>
+                Sync with GitHub
+              </button>
+            </div>
+          )}
         </div>
         {/* Git sync confirmation dialog */}
         {syncDialogOpen && (

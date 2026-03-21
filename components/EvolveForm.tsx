@@ -485,16 +485,7 @@ export default function EvolveForm() {
       {!submitted && (
         <div className="mb-6 px-4 py-3 rounded-lg bg-amber-900/40 border border-amber-700/50 text-amber-300 text-sm">
           <strong className="font-semibold">Evolve Primordia</strong> —{" "}
-          {process.env.NODE_ENV === "development" ? (
-            <>
-              Describe a change you want to make to this app. Claude Code will implement it
-              locally in a preview server — no GitHub required.
-            </>
-          ) : (
-            <>
-              Describe a change you want to make to this app.
-            </>
-          )}
+          Describe a change you want to make to this app.
         </div>
       )}
 
