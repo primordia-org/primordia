@@ -11,17 +11,17 @@
 //   Returns: { status, progressText, port, previewUrl, branch }
 
 import * as path from 'path';
-import { createNameId } from 'mnemonic-id';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   sessions,
   startLocalEvolve,
   appendProgress,
+  runGit,
   type LocalSession,
 } from '../../../../lib/local-evolve-sessions';
 
 /** Ask Claude to choose a short, descriptive kebab-case slug for the request.
- *  Falls back to the first-5-words approach if the API call fails. */
+ *  Falls back to the first-4-words approach if the API call fails. */
 async function generateSlug(text: string): Promise<string> {
   try {
     const client = new Anthropic();
@@ -32,7 +32,7 @@ async function generateSlug(text: string): Promise<string> {
         {
           role: 'user',
           content:
-            `Generate a short kebab-case slug (3–5 words, lowercase, hyphens only) that ` +
+            `Generate a short kebab-case slug (2–4 words, lowercase, hyphens only) that ` +
             `captures the essence of this feature request. Reply with only the slug, nothing else.\n\n` +
             `Request: ${text}`,
         },
@@ -51,14 +51,31 @@ async function generateSlug(text: string): Promise<string> {
   } catch {
     // Fall through to simple fallback
   }
-  // Fallback: first 5 words
+  // Fallback: first 4 words
   return text
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, '')
     .trim()
     .split(/\s+/)
-    .slice(0, 5)
+    .slice(0, 4)
     .join('-');
+}
+
+/** Return an `evolve/…` branch name that doesn't already exist in the repo.
+ *  Tries `evolve/{slug}` first, then `evolve/{slug}-2`, `-3`, … up to -99. */
+async function findUniqueBranch(slug: string, repoRoot: string): Promise<string> {
+  const base = `evolve/${slug}`;
+  const taken = async (name: string): Promise<boolean> => {
+    const r = await runGit(['branch', '--list', name], repoRoot);
+    return r.stdout.trim().length > 0;
+  };
+  if (!(await taken(base))) return base;
+  for (let i = 2; i <= 99; i++) {
+    const candidate = `${base}-${i}`;
+    if (!(await taken(candidate))) return candidate;
+  }
+  // Last-resort fallback: append a short timestamp
+  return `${base}-${Date.now()}`;
 }
 
 export async function POST(request: Request) {
@@ -74,11 +91,10 @@ export async function POST(request: Request) {
     return Response.json({ error: 'request string required' }, { status: 400 });
   }
 
-  const slug = await generateSlug(body.request);
-  const mnemonicId = createNameId();
-  const sessionId = slug ? `${slug}-${mnemonicId}` : mnemonicId;
-  const branch = `evolve/${sessionId}`;
   const repoRoot = process.cwd();
+  const slug = await generateSlug(body.request);
+  const branch = await findUniqueBranch(slug, repoRoot);
+  const sessionId = branch.replace(/^evolve\//, '');
   const worktreePath = path.join(repoRoot, '..', 'primordia-worktrees', sessionId);
 
   const session: LocalSession = {
