@@ -32,6 +32,21 @@ export interface Session {
   expiresAt: number;
 }
 
+/**
+ * A short-lived token that coordinates cross-device authentication.
+ * The "requester" device (e.g. laptop) creates one and shows a QR code.
+ * The "approver" device (e.g. phone, already signed in) scans the QR and
+ * approves it; the requester then polls until approved and gets a session.
+ */
+export interface CrossDeviceToken {
+  id: string;
+  /** "pending" → created, waiting for approval; "approved" → approver clicked approve */
+  status: "pending" | "approved";
+  /** Set when the approver approves — the userId of the approving user. */
+  userId: string | null;
+  expiresAt: number;
+}
+
 export interface DbAdapter {
   // Users
   createUser(user: User): Promise<void>;
@@ -54,4 +69,11 @@ export interface DbAdapter {
   createSession(session: Session): Promise<void>;
   getSession(id: string): Promise<Session | null>;
   deleteSession(id: string): Promise<void>;
+
+  // Cross-device QR tokens
+  createCrossDeviceToken(token: CrossDeviceToken): Promise<void>;
+  getCrossDeviceToken(id: string): Promise<CrossDeviceToken | null>;
+  approveCrossDeviceToken(id: string, userId: string): Promise<void>;
+  deleteCrossDeviceToken(id: string): Promise<void>;
+  deleteExpiredCrossDeviceTokens(): Promise<void>;
 }

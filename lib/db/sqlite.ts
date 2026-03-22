@@ -2,7 +2,7 @@
 // Uses bun:sqlite which is built into Bun and requires no npm package.
 // Only imported when DATABASE_URL is not set (i.e., local dev without Neon).
 
-import type { DbAdapter, User, Passkey, Challenge, Session } from "./types";
+import type { DbAdapter, User, Passkey, Challenge, Session, CrossDeviceToken } from "./types";
 
 let dbInstance: DbAdapter | null = null;
 
@@ -44,6 +44,12 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id),
+      expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS cross_device_tokens (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'pending',
+      user_id TEXT,
       expires_at INTEGER NOT NULL
     );
   `);
@@ -203,6 +209,41 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     },
     async deleteSession(id: string) {
       db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+    },
+    async createCrossDeviceToken(token: CrossDeviceToken) {
+      db.prepare(
+        "INSERT INTO cross_device_tokens (id, status, user_id, expires_at) VALUES (?, ?, ?, ?)"
+      ).run(token.id, token.status, token.userId ?? null, token.expiresAt);
+    },
+    async getCrossDeviceToken(id: string) {
+      const r = db
+        .prepare("SELECT * FROM cross_device_tokens WHERE id = ?")
+        .get(id) as {
+        id: string;
+        status: string;
+        user_id: string | null;
+        expires_at: number;
+      } | null;
+      if (!r) return null;
+      return {
+        id: r.id,
+        status: r.status as CrossDeviceToken["status"],
+        userId: r.user_id,
+        expiresAt: r.expires_at,
+      };
+    },
+    async approveCrossDeviceToken(id: string, userId: string) {
+      db.prepare(
+        "UPDATE cross_device_tokens SET status = 'approved', user_id = ? WHERE id = ?"
+      ).run(userId, id);
+    },
+    async deleteCrossDeviceToken(id: string) {
+      db.prepare("DELETE FROM cross_device_tokens WHERE id = ?").run(id);
+    },
+    async deleteExpiredCrossDeviceTokens() {
+      db.prepare(
+        "DELETE FROM cross_device_tokens WHERE expires_at < ?"
+      ).run(Date.now());
     },
   };
 

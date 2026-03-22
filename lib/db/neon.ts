@@ -1,7 +1,7 @@
 // lib/db/neon.ts — Neon PostgreSQL adapter for Vercel production deployments.
 // Requires DATABASE_URL env var pointing to a Neon connection string.
 
-import type { DbAdapter, User, Passkey, Challenge, Session } from "./types";
+import type { DbAdapter, User, Passkey, Challenge, Session, CrossDeviceToken } from "./types";
 import { neon } from "@neondatabase/serverless";
 
 export async function createNeonAdapter(): Promise<DbAdapter> {
@@ -38,6 +38,13 @@ export async function createNeonAdapter(): Promise<DbAdapter> {
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id),
+      expires_at BIGINT NOT NULL
+    )`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS cross_device_tokens (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'pending',
+      user_id TEXT,
       expires_at BIGINT NOT NULL
     )`;
 
@@ -151,6 +158,33 @@ export async function createNeonAdapter(): Promise<DbAdapter> {
     },
     async deleteSession(id: string) {
       await sql`DELETE FROM sessions WHERE id = ${id}`;
+    },
+    async createCrossDeviceToken(token: CrossDeviceToken) {
+      await sql`
+        INSERT INTO cross_device_tokens (id, status, user_id, expires_at)
+        VALUES (${token.id}, ${token.status}, ${token.userId ?? null}, ${token.expiresAt})`;
+    },
+    async getCrossDeviceToken(id: string) {
+      const rows =
+        await sql`SELECT * FROM cross_device_tokens WHERE id = ${id}`;
+      const r = rows[0];
+      if (!r) return null;
+      return {
+        id: r.id as string,
+        status: r.status as CrossDeviceToken["status"],
+        userId: (r.user_id as string | null) ?? null,
+        expiresAt: Number(r.expires_at),
+      };
+    },
+    async approveCrossDeviceToken(id: string, userId: string) {
+      await sql`
+        UPDATE cross_device_tokens SET status = 'approved', user_id = ${userId} WHERE id = ${id}`;
+    },
+    async deleteCrossDeviceToken(id: string) {
+      await sql`DELETE FROM cross_device_tokens WHERE id = ${id}`;
+    },
+    async deleteExpiredCrossDeviceTokens() {
+      await sql`DELETE FROM cross_device_tokens WHERE expires_at < ${Date.now()}`;
     },
   };
 

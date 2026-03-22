@@ -1,23 +1,129 @@
 "use client";
 
 // app/login/page.tsx — Login and registration page using WebAuthn passkeys.
-// Uses @simplewebauthn/browser for the browser-side ceremony.
+// Also supports cross-device sign-in via QR code.
+// Uses @simplewebauthn/browser for the browser-side WebAuthn ceremony.
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   startRegistration,
   startAuthentication,
 } from "@simplewebauthn/browser";
 
+type Tab = "passkey" | "qr";
+
+// --- QR flow state ---
+type QrPhase =
+  | "idle"      // not started
+  | "loading"   // waiting for tokenId from server
+  | "polling"   // showing QR code, polling for approval
+  | "approved"  // approved — redirecting
+  | "expired"   // token expired
+  | "error";
+
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // After login, redirect to ?next= if present, otherwise "/".
+  const nextUrl = searchParams.get("next") ?? "/";
+
+  const [tab, setTab] = useState<Tab>("passkey");
+
+  // --- Passkey state ---
   const [username, setUsername] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<"register" | "login" | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // --- QR state ---
+  const [qrPhase, setQrPhase] = useState<QrPhase>("idle");
+  const [qrTokenId, setQrTokenId] = useState<string | null>(null);
+  const [qrError, setQrError] = useState<string | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Clean up poll interval when leaving QR tab or unmounting.
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
+
+  function stopPolling() {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  }
+
+  async function startQrFlow() {
+    stopPolling();
+    setQrPhase("loading");
+    setQrError(null);
+    setQrTokenId(null);
+    try {
+      const res = await fetch("/api/auth/cross-device/start", { method: "POST" });
+      const data = (await res.json()) as { tokenId?: string; error?: string };
+      if (!res.ok || !data.tokenId) {
+        setQrPhase("error");
+        setQrError(data.error ?? "Failed to start QR flow.");
+        return;
+      }
+      setQrTokenId(data.tokenId);
+      setQrPhase("polling");
+
+      // Poll every 2 seconds for approval.
+      pollIntervalRef.current = setInterval(async () => {
+        try {
+          const pollRes = await fetch(
+            `/api/auth/cross-device/poll?tokenId=${data.tokenId}`
+          );
+          const pollData = (await pollRes.json()) as {
+            status?: string;
+            username?: string;
+            error?: string;
+          };
+
+          if (pollData.status === "approved") {
+            stopPolling();
+            setQrPhase("approved");
+            // Session cookie has been set by the poll response.
+            // Redirect to the intended destination.
+            router.push(nextUrl);
+            router.refresh();
+          } else if (
+            pollData.status === "expired" ||
+            pollData.status === "not_found"
+          ) {
+            stopPolling();
+            setQrPhase("expired");
+          }
+          // "pending" → keep polling
+        } catch {
+          // Network hiccup — keep polling (don't abort on transient errors)
+        }
+      }, 2000);
+    } catch {
+      setQrPhase("error");
+      setQrError("Network error. Please try again.");
+    }
+  }
+
+  // When switching to the QR tab, auto-start the flow.
+  function switchToQr() {
+    setTab("qr");
+    if (qrPhase === "idle" || qrPhase === "expired" || qrPhase === "error") {
+      startQrFlow();
+    }
+  }
+
+  function switchToPasskey() {
+    stopPolling();
+    setTab("passkey");
+  }
+
+  // --- Passkey handlers ---
   async function handleRegister() {
     if (!username.trim()) {
       setError("Please enter a username.");
@@ -63,7 +169,7 @@ export default function LoginPage() {
       }
 
       setSuccess(`Welcome, ${finishData.username}! Redirecting\u2026`);
-      router.push("/");
+      router.push(nextUrl);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -113,7 +219,7 @@ export default function LoginPage() {
       }
 
       setSuccess(`Welcome back, ${finishData.username}! Redirecting\u2026`);
-      router.push("/");
+      router.push(nextUrl);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -133,95 +239,207 @@ export default function LoginPage() {
             Sign in to Primordia
           </h1>
           <p className="text-sm text-gray-400 mt-1">
-            Use a passkey &mdash; Face ID, Touch ID, or your device PIN.
+            Use a passkey or scan a QR code from another device.
           </p>
+        </div>
+
+        {/* Tab switcher */}
+        <div className="flex rounded-lg bg-gray-800 p-1 gap-1">
+          <button
+            type="button"
+            onClick={switchToPasskey}
+            className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              tab === "passkey"
+                ? "bg-gray-700 text-white"
+                : "text-gray-400 hover:text-gray-200"
+            }`}
+          >
+            Passkey
+          </button>
+          <button
+            type="button"
+            onClick={switchToQr}
+            className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              tab === "qr"
+                ? "bg-gray-700 text-white"
+                : "text-gray-400 hover:text-gray-200"
+            }`}
+          >
+            QR Code
+          </button>
         </div>
 
         {/* Card */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-          {/* Username */}
-          <div>
-            <label
-              htmlFor="username"
-              className="block text-sm text-gray-300 mb-1.5"
-            >
-              Username
-            </label>
-            <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleLogin();
-              }}
-              placeholder="your-name"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              disabled={isLoading}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 outline-none focus:border-blue-500 transition-colors disabled:opacity-60"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Leave blank to use a saved passkey without typing.
-            </p>
-          </div>
 
-          {/* Error / success */}
-          {error && (
-            <p className="text-sm text-red-400 bg-red-900/20 border border-red-800/30 rounded-lg px-3 py-2">
-              {error}
-            </p>
-          )}
-          {success && (
-            <p className="text-sm text-green-400 bg-green-900/20 border border-green-800/30 rounded-lg px-3 py-2">
-              {success}
-            </p>
-          )}
+          {/* ── Passkey tab ── */}
+          {tab === "passkey" && (
+            <>
+              {/* Username */}
+              <div>
+                <label
+                  htmlFor="username"
+                  className="block text-sm text-gray-300 mb-1.5"
+                >
+                  Username
+                </label>
+                <input
+                  id="username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleLogin();
+                  }}
+                  placeholder="your-name"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  disabled={isLoading}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 outline-none focus:border-blue-500 transition-colors disabled:opacity-60"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Leave blank to use a saved passkey without typing.
+                </p>
+              </div>
 
-          {/* Buttons */}
-          <div className="space-y-2 pt-1">
-            {/* Sign in */}
-            <button
-              type="button"
-              onClick={handleLogin}
-              disabled={isLoading}
-              className="w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900 text-white transition-colors flex items-center justify-center gap-2"
-            >
-              {loading === "login" ? (
-                <span className="animate-pulse">Waiting for passkey&hellip;</span>
-              ) : (
-                <>
-                  <KeyIcon />
-                  Sign in with passkey
-                </>
+              {/* Error / success */}
+              {error && (
+                <p className="text-sm text-red-400 bg-red-900/20 border border-red-800/30 rounded-lg px-3 py-2">
+                  {error}
+                </p>
               )}
-            </button>
+              {success && (
+                <p className="text-sm text-green-400 bg-green-900/20 border border-green-800/30 rounded-lg px-3 py-2">
+                  {success}
+                </p>
+              )}
 
-            {/* Divider */}
-            <div className="relative flex items-center gap-3 py-1">
-              <div className="flex-1 h-px bg-gray-800" />
-              <span className="text-xs text-gray-500">or create an account</span>
-              <div className="flex-1 h-px bg-gray-800" />
+              {/* Buttons */}
+              <div className="space-y-2 pt-1">
+                {/* Sign in */}
+                <button
+                  type="button"
+                  onClick={handleLogin}
+                  disabled={isLoading}
+                  className="w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900 text-white transition-colors flex items-center justify-center gap-2"
+                >
+                  {loading === "login" ? (
+                    <span className="animate-pulse">Waiting for passkey&hellip;</span>
+                  ) : (
+                    <>
+                      <KeyIcon />
+                      Sign in with passkey
+                    </>
+                  )}
+                </button>
+
+                {/* Divider */}
+                <div className="relative flex items-center gap-3 py-1">
+                  <div className="flex-1 h-px bg-gray-800" />
+                  <span className="text-xs text-gray-500">or create an account</span>
+                  <div className="flex-1 h-px bg-gray-800" />
+                </div>
+
+                {/* Register */}
+                <button
+                  type="button"
+                  onClick={handleRegister}
+                  disabled={isLoading}
+                  className="w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white transition-colors flex items-center justify-center gap-2"
+                >
+                  {loading === "register" ? (
+                    <span className="animate-pulse">Setting up passkey&hellip;</span>
+                  ) : (
+                    <>
+                      <KeyIcon />
+                      Register with passkey
+                    </>
+                  )}
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── QR tab ── */}
+          {tab === "qr" && (
+            <div className="space-y-4">
+              <p className="text-sm text-gray-300 text-center">
+                Open Primordia on a device where you&apos;re already signed in,
+                then scan this code to sign in here.
+              </p>
+
+              {qrPhase === "loading" && (
+                <div className="flex justify-center py-8">
+                  <span className="text-gray-500 text-sm animate-pulse">
+                    Generating QR code&hellip;
+                  </span>
+                </div>
+              )}
+
+              {qrPhase === "polling" && qrTokenId && (
+                <div className="space-y-3">
+                  {/* QR code image from the server */}
+                  <div className="flex justify-center">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/auth/cross-device/qr?tokenId=${qrTokenId}`}
+                      alt="QR code for cross-device sign-in"
+                      width={200}
+                      height={200}
+                      className="rounded-lg"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 text-center animate-pulse">
+                    Waiting for approval&hellip;
+                  </p>
+                  <button
+                    type="button"
+                    onClick={startQrFlow}
+                    className="w-full text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    Refresh QR code
+                  </button>
+                </div>
+              )}
+
+              {qrPhase === "approved" && (
+                <p className="text-sm text-green-400 bg-green-900/20 border border-green-800/30 rounded-lg px-3 py-2 text-center">
+                  Approved! Redirecting&hellip;
+                </p>
+              )}
+
+              {qrPhase === "expired" && (
+                <div className="space-y-3 text-center">
+                  <p className="text-sm text-yellow-400 bg-yellow-900/20 border border-yellow-800/30 rounded-lg px-3 py-2">
+                    QR code expired.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={startQrFlow}
+                    className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    Generate a new one
+                  </button>
+                </div>
+              )}
+
+              {qrPhase === "error" && (
+                <div className="space-y-3 text-center">
+                  <p className="text-sm text-red-400 bg-red-900/20 border border-red-800/30 rounded-lg px-3 py-2">
+                    {qrError ?? "Something went wrong."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={startQrFlow}
+                    className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
             </div>
-
-            {/* Register */}
-            <button
-              type="button"
-              onClick={handleRegister}
-              disabled={isLoading}
-              className="w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white transition-colors flex items-center justify-center gap-2"
-            >
-              {loading === "register" ? (
-                <span className="animate-pulse">Setting up passkey&hellip;</span>
-              ) : (
-                <>
-                  <KeyIcon />
-                  Register with passkey
-                </>
-              )}
-            </button>
-          </div>
+          )}
         </div>
 
         {/* Back link */}
