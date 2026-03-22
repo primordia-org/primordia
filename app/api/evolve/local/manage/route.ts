@@ -110,16 +110,46 @@ export async function POST(request: Request) {
         }
       }
 
+      // Stash any uncommitted local changes in mergeRoot so they don't block
+      // the merge. Git refuses to merge when tracked files would be overwritten.
+      let stashed = false;
+      const statusResult = await runGit(['status', '--porcelain'], mergeRoot);
+      if (statusResult.stdout.trim()) {
+        const stashResult = await runGit(
+          ['stash', 'push', '-u', '-m', 'primordia-auto-stash-before-merge'],
+          mergeRoot,
+        );
+        // Only treat as stashed if git actually created a stash entry
+        stashed = stashResult.code === 0 && !stashResult.stdout.includes('No local changes');
+      }
+
       // Merge the preview branch into the parent branch (in the appropriate worktree).
       const mergeResult = await runGit(
         ['merge', branch, '--no-ff', '-m', `chore: merge ${branch}`],
         mergeRoot,
       );
+
+      // If the merge failed, restore any stash and surface the error.
       if (mergeResult.code !== 0) {
+        if (stashed) {
+          await runGit(['stash', 'pop'], mergeRoot);
+        }
         return Response.json(
           { error: `git merge failed:\n${mergeResult.stderr}` },
           { status: 500 },
         );
+      }
+
+      // Restore stashed changes on top of the merge result.
+      let stashWarning: string | undefined;
+      if (stashed) {
+        const popResult = await runGit(['stash', 'pop'], mergeRoot);
+        if (popResult.code !== 0) {
+          // Stash pop conflicted — not fatal, but worth surfacing to the user.
+          stashWarning =
+            `Merge succeeded but restoring your stashed changes produced a conflict. ` +
+            `Run \`git stash pop\` manually to resolve:\n${popResult.stderr}`;
+        }
       }
 
       // Remove this worktree and delete the preview branch.
@@ -128,7 +158,7 @@ export async function POST(request: Request) {
 
       // Shut down the preview server shortly after sending the response.
       setTimeout(() => process.exit(0), 500);
-      return Response.json({ outcome: 'accepted', branch, parentBranch });
+      return Response.json({ outcome: 'accepted', branch, parentBranch, stashWarning });
     }
 
     // action === 'reject'

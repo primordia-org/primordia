@@ -20,6 +20,7 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
   const [deployPrState, setDeployPrState] = useState<"open" | "closed" | "merged" | null>(null);
   const [vercelActionState, setVercelActionState] = useState<"idle" | "loading" | "accepted" | "rejected">("idle");
   const [previewActionState, setPreviewActionState] = useState<"idle" | "loading" | "accepted" | "rejected">("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // On Vercel preview deployments, fetch PR context for accept/reject.
   useEffect(() => {
@@ -43,6 +44,7 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
   async function handlePreviewAccept() {
     if (!isPreviewInstance || previewActionState !== "idle") return;
     setPreviewActionState("loading");
+    setErrorMessage(null);
     try {
       const res = await fetch("/api/evolve/local/manage", {
         method: "POST",
@@ -52,14 +54,16 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
       const data = (await res.json()) as { outcome?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
       setPreviewActionState("accepted");
-    } catch {
+    } catch (err) {
       setPreviewActionState("idle");
+      setErrorMessage(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function handlePreviewReject() {
     if (!isPreviewInstance || previewActionState !== "idle") return;
     setPreviewActionState("loading");
+    setErrorMessage(null);
     try {
       const res = await fetch("/api/evolve/local/manage", {
         method: "POST",
@@ -69,8 +73,9 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
       const data = (await res.json()) as { outcome?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
       setPreviewActionState("rejected");
-    } catch {
+    } catch (err) {
       setPreviewActionState("idle");
+      setErrorMessage(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -79,6 +84,7 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
   async function handleVercelAccept() {
     if (!deployPrNumber || vercelActionState !== "idle") return;
     setVercelActionState("loading");
+    setErrorMessage(null);
     try {
       const res = await fetch("/api/merge-pr", {
         method: "POST",
@@ -88,14 +94,16 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
       const data = (await res.json()) as { merged?: boolean; message?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? `GitHub error: ${res.statusText}`);
       setVercelActionState("accepted");
-    } catch {
+    } catch (err) {
       setVercelActionState("idle");
+      setErrorMessage(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function handleVercelReject() {
     if (!deployPrNumber || vercelActionState !== "idle") return;
     setVercelActionState("loading");
+    setErrorMessage(null);
     try {
       const res = await fetch("/api/close-pr", {
         method: "POST",
@@ -105,8 +113,9 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
       const data = (await res.json()) as { closed?: boolean; error?: string };
       if (!res.ok) throw new Error(data.error ?? `GitHub error: ${res.statusText}`);
       setVercelActionState("rejected");
-    } catch {
+    } catch (err) {
       setVercelActionState("idle");
+      setErrorMessage(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -211,6 +220,20 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
       {deployPrNumber !== null && vercelActionState === "rejected" && (
         <div className="px-4 py-3 rounded-lg bg-red-900/30 border border-red-700/40 text-sm">
           <p className="text-red-200">🗑️ PR #{deployPrNumber} closed. Changes discarded.</p>
+        </div>
+      )}
+
+      {/* Error banner — shown whenever any action fails */}
+      {errorMessage && (
+        <div className="mt-2 px-4 py-3 rounded-lg bg-red-900/40 border border-red-600/50 text-sm flex items-start justify-between gap-2">
+          <p className="text-red-300 whitespace-pre-wrap break-words">⚠️ Error: {errorMessage}</p>
+          <button
+            onClick={() => setErrorMessage(null)}
+            className="text-red-400 hover:text-red-200 shrink-0 text-xs"
+            aria-label="Dismiss error"
+          >
+            ✕
+          </button>
         </div>
       )}
     </div>

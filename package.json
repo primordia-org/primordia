@@ -5,7 +5,7 @@
   "packageManager": "bun@1.2.0",
   "scripts": {
     "predev": "bun scripts/generate-changelog.mjs",
-    "dev": "next dev",
+    "dev": "bun scripts/watch-changelog.mjs & next dev",
     "prebuild": "bun scripts/generate-changelog.mjs",
     "build": "next build",
     "start": "next start",
