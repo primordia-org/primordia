@@ -15,6 +15,13 @@ import { useState, useRef, useEffect, useCallback, FormEvent } from "react";
 import Link from "next/link";
 import { SimpleMarkdown } from "./SimpleMarkdown";
 
+// ─── Auth types ──────────────────────────────────────────────────────────────
+
+interface SessionUser {
+  id: string;
+  username: string;
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface Message {
@@ -35,6 +42,22 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+
+  // Fetch session on mount
+  useEffect(() => {
+    fetch("/api/auth/session")
+      .then((res) => res.json())
+      .then((data: { user: SessionUser | null }) => {
+        setSessionUser(data.user);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setSessionUser(null);
+  }
 
   // Close the hamburger dropdown when the user clicks outside it
   const handleClickOutside = useCallback((e: MouseEvent) => {
@@ -318,6 +341,40 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
           {/* Dropdown */}
           {menuOpen && (
             <div className="absolute right-0 top-full mt-1 w-52 rounded-xl bg-gray-900 border border-gray-700 shadow-2xl z-40 overflow-hidden">
+              {/* Auth item */}
+              {sessionUser ? (
+                <>
+                  <div className="px-4 py-2 border-b border-gray-800">
+                    <p className="text-xs text-gray-500">Signed in as</p>
+                    <p className="text-sm text-gray-200 font-medium truncate">@{sessionUser.username}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setMenuOpen(false); handleLogout(); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-red-400 hover:bg-gray-800 transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                      <polyline points="16 17 21 12 16 7"/>
+                      <line x1="21" y1="12" x2="9" y2="12"/>
+                    </svg>
+                    Sign out
+                  </button>
+                </>
+              ) : (
+                <Link
+                  href="/login"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-blue-400 hover:bg-gray-800 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                    <polyline points="10 17 15 12 10 7"/>
+                    <line x1="15" y1="12" x2="3" y2="12"/>
+                  </svg>
+                  Log in
+                </Link>
+              )}
               {/* Propose a change */}
               <Link
                 href="/evolve"

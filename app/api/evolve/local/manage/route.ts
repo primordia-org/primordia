@@ -21,7 +21,7 @@
 //   reject — removes the worktree and branch without merging, then exits.
 
 import * as path from 'path';
-import { runGit } from '../../../../../lib/local-evolve-sessions';
+import { runGit, resolveConflictsWithClaude } from '../../../../../lib/local-evolve-sessions';
 
 /** Read the current git branch and check for a stored parent config entry.
  *  Returns { branch, parentBranch } when this is a preview worktree,
@@ -131,13 +131,25 @@ export async function POST(request: Request) {
 
       // If the merge failed, restore any stash and surface the error.
       if (mergeResult.code !== 0) {
-        if (stashed) {
-          await runGit(['stash', 'pop'], mergeRoot);
+        // Attempt automatic conflict resolution via Claude Code before giving up.
+        const resolution = await resolveConflictsWithClaude(mergeRoot, branch!, parentBranch!);
+        if (!resolution.success) {
+          // Restore a clean state so the user can retry or investigate manually.
+          await runGit(['merge', '--abort'], mergeRoot);
+          if (stashed) {
+            await runGit(['stash', 'pop'], mergeRoot);
+          }
+          return Response.json(
+            {
+              error:
+                `git merge failed and automatic conflict resolution also failed.\n\n` +
+                `Merge error:\n${mergeResult.stderr}\n\n` +
+                `Auto-resolution log:\n${resolution.log}`,
+            },
+            { status: 500 },
+          );
         }
-        return Response.json(
-          { error: `git merge failed:\n${mergeResult.stderr}` },
-          { status: 500 },
-        );
+        // Claude successfully resolved the conflicts and committed — fall through to cleanup.
       }
 
       // Restore stashed changes on top of the merge result.

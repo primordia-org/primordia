@@ -57,7 +57,13 @@ primordia/
 ├── lib/
 │   ├── generated/
 │   │   └── system-prompt.ts      ← Build artifact (gitignored); static chat system prompt with PRIMORDIA.md + last 30 changelog filenames baked in
-│   └── local-evolve-sessions.ts  ← Shared session state + business logic for local evolve
+│   ├── auth.ts                    ← Session helpers: createSession, getSessionUser
+│   ├── local-evolve-sessions.ts  ← Shared session state + business logic for local evolve
+│   └── db/
+│       ├── index.ts               ← Factory: getDb() → SQLite (local) or Neon (Vercel)
+│       ├── types.ts               ← Shared DB types: User, Passkey, Challenge, Session, CrossDeviceToken
+│       ├── sqlite.ts              ← bun:sqlite adapter (local dev, no DATABASE_URL)
+│       └── neon.ts                ← Neon adapter (Vercel, DATABASE_URL set)
 │
 ├── app/                           ← Next.js App Router
 │   ├── layout.tsx                 ← Root layout (font, metadata, body styling)
@@ -67,6 +73,10 @@ primordia/
 │   │   └── page.tsx               ← Server component: renders auto-generated changelog
 │   ├── evolve/
 │   │   └── page.tsx               ← Dedicated "propose a change" page; renders <EvolveForm>
+│   ├── login/
+│   │   ├── page.tsx               ← Passkey login/register page + QR cross-device tab
+│   │   └── approve/
+│   │       └── page.tsx           ← Approval page: authenticated device approves a QR sign-in
 │   └── api/
 │       ├── chat/
 │       │   └── route.ts           ← Streams Claude responses via SSE
@@ -76,6 +86,23 @@ primordia/
 │       │   └── route.ts           ← Returns PR + linked-issue info for preview deploys
 │       ├── merge-pr/
 │       │   └── route.ts           ← Merges a PR via GitHub API (deploy preview only)
+│       ├── auth/
+│       │   ├── session/
+│       │   │   └── route.ts       ← GET current session user
+│       │   ├── logout/
+│       │   │   └── route.ts       ← POST clear session
+│       │   ├── passkey/
+│       │   │   ├── register/
+│       │   │   │   ├── start/route.ts  ← Generate WebAuthn registration options
+│       │   │   │   └── finish/route.ts ← Verify registration, create user+session
+│       │   │   └── login/
+│       │   │       ├── start/route.ts  ← Generate WebAuthn authentication options
+│       │   │       └── finish/route.ts ← Verify authentication, create session
+│       │   └── cross-device/
+│       │       ├── start/route.ts      ← POST create a cross-device token; returns tokenId
+│       │       ├── poll/route.ts       ← GET poll token status; sets session cookie on approval
+│       │       ├── approve/route.ts    ← POST approve a token (requires auth on approver device)
+│       │       └── qr/route.ts         ← GET SVG QR code encoding the approval URL for a tokenId
 │       └── evolve/
 │           ├── route.ts           ← Creates/searches/comments GitHub Issues (production)
 │           ├── status/
@@ -171,6 +198,7 @@ These must be set in:
 | `GITHUB_REPO` | Yes (app) | The `owner/repo` the app lives in |
 | `EVOLVE_LABEL` | No (default: `primordia-evolve`) | Issue label that triggers the workflow |
 | `GH_PAT` | Yes (CI) | GitHub PAT for the Actions workflow to open PRs |
+| `DATABASE_URL` | No (local dev uses SQLite) | Neon PostgreSQL connection string for Vercel |
 
 ---
 
@@ -209,6 +237,8 @@ When implementing changes, follow these principles:
 | CI evolve pipeline | ✅ Live | `evolve.yml` → Claude Code → PR |
 | Vercel deploy pipeline | ✅ Live (setup required) | Preview per PR, prod on merge to main |
 | Dark theme | ✅ Live | Default dark UI with Tailwind |
+| Passkey authentication | ✅ Live | WebAuthn passkeys via /login; sessions stored in SQLite (local) or Neon (Vercel) |
+| Cross-device QR sign-in | ✅ Live | Laptop shows QR code; authenticated phone scans it and approves; laptop gets a session |
 
 ---
 
