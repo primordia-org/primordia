@@ -15,6 +15,14 @@ const nextConfig: NextConfig = {
     VERCEL_PROJECT_PRODUCTION_URL:
       process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "",
   },
+
+  // Tell webpack not to bundle bun:sqlite. It's only available at runtime in
+  // the Bun environment (local dev). On Vercel (Node.js), DATABASE_URL is set
+  // so the sqlite adapter is never imported.
+  webpack: (config) => {
+    config.externals = [...(config.externals ?? []), "bun:sqlite"];
+    return config;
+  },
 };
 
 export default nextConfig;

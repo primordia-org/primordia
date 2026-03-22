@@ -35,3 +35,8 @@ next-env.d.ts
 # Build artifacts — generated at build time, not committed to git
 /public/changelog.json
 /lib/generated/
+
+# Local SQLite database (passkey auth — local dev only)
+*.db
+*.db-shm
+*.db-wal
