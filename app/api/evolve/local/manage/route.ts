@@ -21,7 +21,7 @@
 //   reject — removes the worktree and branch without merging, then exits.
 
 import * as path from 'path';
-import { runGit } from '../../../../../lib/local-evolve-sessions';
+import { runGit, sessions } from '../../../../../lib/local-evolve-sessions';
 
 /** Read the current git branch and check for a stored parent config entry.
  *  Returns { branch, parentBranch } when this is a preview worktree,
@@ -55,20 +55,73 @@ export async function POST(request: Request) {
     );
   }
 
+  // Parse body first so we can branch on mode before any git introspection.
+  const body = (await request.json()) as {
+    action?: string;
+    mode?: 'live' | 'worktree';
+    sessionId?: string;
+  };
+  if (body.action !== 'accept' && body.action !== 'reject') {
+    return Response.json(
+      { error: 'action must be "accept" or "reject"' },
+      { status: 400 },
+    );
+  }
+
+  // ── Live edit mode ─────────────────────────────────────────────────────────
+  // The manage call comes from the main server (not a worktree preview).
+  // Accept → commit all changes. Reject → restore working tree to HEAD.
+  if (body.mode === 'live') {
+    if (!body.sessionId) {
+      return Response.json({ error: 'sessionId required in live mode' }, { status: 400 });
+    }
+
+    const repoRoot = process.cwd();
+    const sessionId = body.sessionId;
+
+    try {
+      if (body.action === 'accept') {
+        const addResult = await runGit(['add', '-A'], repoRoot);
+        if (addResult.code !== 0) {
+          return Response.json(
+            { error: `git add failed:\n${addResult.stderr}` },
+            { status: 500 },
+          );
+        }
+        const commitResult = await runGit(
+          ['commit', '-m', `chore: live edit — ${sessionId}`],
+          repoRoot,
+        );
+        if (commitResult.code !== 0) {
+          return Response.json(
+            { error: `git commit failed:\n${commitResult.stderr}` },
+            { status: 500 },
+          );
+        }
+        sessions.delete(sessionId);
+        return Response.json({ outcome: 'accepted', sessionId });
+      }
+
+      // reject — restore tracked files then remove any untracked files Claude created
+      await runGit(['restore', '--source=HEAD', '--staged', '--worktree', '--', '.'], repoRoot);
+      await runGit(['clean', '-fd', '--', '.'], repoRoot);
+      sessions.delete(sessionId);
+      return Response.json({ outcome: 'rejected', sessionId });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return Response.json({ error: msg }, { status: 500 });
+    }
+  }
+  // ── End live edit mode ─────────────────────────────────────────────────────
+
+  // Worktree mode: this request arrives from the preview server.
+  // Verify we are actually in a preview worktree (branch.*.parent must be set).
   const worktreePath = process.cwd();
   const { branch, parentBranch } = await getPreviewInfo(worktreePath);
 
   if (!branch) {
     return Response.json(
       { error: 'Not a preview instance (no branch.*.parent entry found in git config)' },
-      { status: 400 },
-    );
-  }
-
-  const body = (await request.json()) as { action?: string };
-  if (body.action !== 'accept' && body.action !== 'reject') {
-    return Response.json(
-      { error: 'action must be "accept" or "reject"' },
       { status: 400 },
     );
   }

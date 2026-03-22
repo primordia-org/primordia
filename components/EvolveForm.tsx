@@ -12,12 +12,19 @@
 //   4. If no matches, a new issue is created automatically.
 //
 // Evolve flow (development — NODE_ENV=development):
-//   1. User submits a request.
-//   2. POST /api/evolve/local — creates a git worktree on a fresh branch, runs
-//      Claude Code via @anthropic-ai/claude-agent-sdk, then starts a Next.js
-//      dev server with PREVIEW_BRANCH set.
-//   3. UI polls /api/evolve/local?sessionId=... for status updates.
-//   4. When ready, shows a preview link.
+//   Two sub-modes, selectable via the toggle in the form:
+//
+//   ⚡ Live (default, only on non-main branches):
+//     1. POST /api/evolve/local { request, mode: "live" }
+//        Claude Code runs directly in the main repo. Changes appear via HMR.
+//     2. When ready, Accept/Reject buttons appear inline (no new tab).
+//        Accept → git commit.  Reject → git restore + clean.
+//
+//   🌿 Worktree (fallback or forced for main branch):
+//     1. POST /api/evolve/local { request, mode: "worktree" }
+//        Isolated git worktree + separate Next.js dev server on a new port.
+//     2. When ready, a preview link opens in a new tab.
+//        Accept/Reject are handled by the AcceptRejectBar on that preview.
 
 import { useState, useRef, useEffect, FormEvent } from "react";
 import Link from "next/link";
@@ -52,6 +59,7 @@ interface EvolveStatus {
 
 interface LocalEvolveSession {
   id: string;
+  mode: "live" | "worktree";
   status: "starting" | "running-claude" | "starting-server" | "ready" | "error";
   progressText: string;
   port: number | null;
@@ -61,7 +69,10 @@ interface LocalEvolveSession {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export default function EvolveForm() {
+export default function EvolveForm({ currentBranch }: { currentBranch: string | null }) {
+  // Live edit is only safe on non-main branches.
+  const isOnMain = currentBranch === "main" || currentBranch === "master";
+
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -74,6 +85,11 @@ export default function EvolveForm() {
   const [localEvolveSession, setLocalEvolveSession] = useState<LocalEvolveSession | null>(null);
   // deployPrBranch is only set on Vercel preview deployments (fetched from /api/deploy-context)
   const [deployPrBranch, setDeployPrBranch] = useState<string | null>(null);
+  // evolveMode: live = edits in place with HMR; worktree = isolated preview server.
+  // Live is unavailable on main/master — default to worktree there.
+  const [evolveMode, setEvolveMode] = useState<"live" | "worktree">(
+    isOnMain ? "worktree" : "live"
+  );
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -176,7 +192,7 @@ export default function EvolveForm() {
       const res = await fetch("/api/evolve/local", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request }),
+        body: JSON.stringify({ request, mode: evolveMode }),
       });
 
       const data = (await res.json()) as { sessionId?: string; error?: string };
@@ -218,25 +234,99 @@ export default function EvolveForm() {
           clearInterval(localPollingRef.current!);
           localPollingRef.current = null;
 
-          if (data.status === "ready" && data.port !== null) {
-            // Build the URL from the browser's own hostname so it works on remote
-            // machines (e.g. primordia.exe.xyz) as well as plain localhost.
-            const previewUrl = `${window.location.protocol}//${window.location.hostname}:${data.port}`;
-            setMessages((prev) => [
-              ...prev,
-              {
-                role: "assistant",
-                content:
-                  `🚀 Preview ready: [${previewUrl}](${previewUrl})\n\n` +
-                  `Open the preview link and use the **Accept** or **Reject** bar there to apply or discard the changes.`,
-              },
-            ]);
+          if (data.status === "ready") {
+            if (data.mode === "live") {
+              // Live mode: changes are already visible via HMR in this tab.
+              // Show Accept/Reject buttons inline (rendered below in the UI).
+              setMessages((prev) => [
+                ...prev,
+                {
+                  role: "assistant",
+                  content:
+                    `⚡ Changes applied via hot reload. Review them in this page, then **Accept** to commit or **Reject** to revert.`,
+                },
+              ]);
+            } else if (data.port !== null) {
+              // Worktree mode: open a preview link in a new tab.
+              const previewUrl = `${window.location.protocol}//${window.location.hostname}:${data.port}`;
+              setMessages((prev) => [
+                ...prev,
+                {
+                  role: "assistant",
+                  content:
+                    `🚀 Preview ready: [${previewUrl}](${previewUrl})\n\n` +
+                    `Open the preview link and use the **Accept** or **Reject** bar there to apply or discard the changes.`,
+                },
+              ]);
+            }
           }
         }
       } catch {
         // Silently ignore transient network errors between polls
       }
     }, 5_000);
+  }
+
+  // ── Live edit accept / reject ──────────────────────────────────────────────
+
+  async function handleLiveAccept() {
+    if (!localEvolveSession || isLoading) return;
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/evolve/local/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "accept",
+          mode: "live",
+          sessionId: localEvolveSession.id,
+        }),
+      });
+      const data = (await res.json()) as { outcome?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "✅ Changes committed to the current branch." },
+      ]);
+      setLocalEvolveSession(null);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Something went wrong.";
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `Failed to accept: ${errorMsg}` },
+      ]);
+    }
+    setIsLoading(false);
+  }
+
+  async function handleLiveReject() {
+    if (!localEvolveSession || isLoading) return;
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/evolve/local/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "reject",
+          mode: "live",
+          sessionId: localEvolveSession.id,
+        }),
+      });
+      const data = (await res.json()) as { outcome?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "🗑️ Changes reverted." },
+      ]);
+      setLocalEvolveSession(null);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Something went wrong.";
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `Failed to reject: ${errorMsg}` },
+      ]);
+    }
+    setIsLoading(false);
   }
 
   // ── GitHub evolve helpers (production) ────────────────────────────────────
@@ -512,6 +602,31 @@ export default function EvolveForm() {
         </div>
       )}
 
+      {/* Live edit Accept / Reject bar — shown when a live session is ready */}
+      {localEvolveSession?.mode === "live" && localEvolveSession.status === "ready" && (
+        <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-amber-700/50 flex items-center justify-between gap-4">
+          <p className="text-sm text-amber-300">
+            Review the changes above, then accept or reject.
+          </p>
+          <div className="flex gap-2 flex-shrink-0">
+            <button
+              onClick={handleLiveReject}
+              disabled={isLoading}
+              className="px-3 py-1.5 text-xs rounded bg-gray-700 hover:bg-gray-600 text-gray-200 disabled:opacity-50"
+            >
+              Reject
+            </button>
+            <button
+              onClick={handleLiveAccept}
+              disabled={isLoading}
+              className="px-3 py-1.5 text-xs rounded bg-green-700 hover:bg-green-600 text-white disabled:opacity-50"
+            >
+              Accept
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Decision card — shown when open evolve issues were found (production only) */}
       {relatedIssues !== null && relatedIssues.length > 0 && pendingRequest && !isLoading && (
         <div className="mb-6 px-4 py-3 rounded-lg bg-amber-900/30 border border-amber-700/40 text-sm space-y-3">
@@ -600,11 +715,41 @@ export default function EvolveForm() {
             disabled={isLoading}
             className="resize-none bg-transparent text-sm text-gray-100 placeholder-gray-600 outline-none max-h-64 leading-relaxed"
           />
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-3">
+            {/* Mode toggle — development only */}
+            {process.env.NODE_ENV === "development" && (
+              <div className="flex items-center gap-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setEvolveMode("live")}
+                  disabled={isOnMain}
+                  title={isOnMain ? "Live edit is not available on the main branch" : "Edit in place — changes appear via hot reload"}
+                  className={`px-2 py-1 rounded transition-colors ${
+                    evolveMode === "live"
+                      ? "bg-amber-700 text-white"
+                      : "bg-gray-800 text-gray-400 hover:text-gray-200"
+                  } disabled:opacity-40 disabled:cursor-not-allowed`}
+                >
+                  ⚡ Live
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEvolveMode("worktree")}
+                  title="Isolated worktree — changes appear in a new tab for review"
+                  className={`px-2 py-1 rounded transition-colors ${
+                    evolveMode === "worktree"
+                      ? "bg-amber-700 text-white"
+                      : "bg-gray-800 text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  🌿 Worktree
+                </button>
+              </div>
+            )}
             <button
               type="submit"
               disabled={isLoading || !input.trim()}
-              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white disabled:cursor-not-allowed"
+              className="ml-auto px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white disabled:cursor-not-allowed"
             >
               {isLoading ? "…" : "Submit Request"}
             </button>

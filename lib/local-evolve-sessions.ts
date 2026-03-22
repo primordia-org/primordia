@@ -17,6 +17,9 @@ export type LocalSessionStatus =
 
 export interface LocalSession {
   id: string;
+  /** 'live' — edits main repo directly, relies on HMR, no new server.
+   *  'worktree' — isolated git worktree with its own dev server. */
+  mode: 'live' | 'worktree';
   branch: string;
   worktreePath: string;
   status: LocalSessionStatus;
@@ -26,6 +29,61 @@ export interface LocalSession {
   previewUrl: string | null;
   /** Spawned dev server process. Null when not running or after cleanup. */
   devServerProcess: ChildProcess | null;
+}
+
+// ─── Live edit safety ─────────────────────────────────────────────────────────
+
+/**
+ * Files / directories that must NOT be edited in live mode.
+ * Editing these requires a worktree because they either:
+ *  - contain module-level singleton state (hot reload would destroy it), or
+ *  - require a server restart to take effect (next.config.ts, package.json, …).
+ *
+ * Paths are relative to the repo root.
+ */
+export const LIVE_EDIT_BLOCKED_PATHS = [
+  'lib/local-evolve-sessions.ts',
+  'app/api/evolve/local',
+  'components/EvolveForm.tsx',
+  'next.config.ts',
+  'postcss.config.mjs',
+  'package.json',
+  'bun.lock',
+  '.env.local',
+  '.env',
+  '.github/workflows',
+] as const;
+
+/**
+ * Returns a PreToolUse hook that blocks Write / Edit operations on files that
+ * are unsafe to modify in live edit mode (see LIVE_EDIT_BLOCKED_PATHS).
+ */
+function makeLiveEditSafetyHook(repoRoot: string): HookCallback {
+  const repoRootNorm = path.resolve(repoRoot);
+
+  return async (input) => {
+    const hook = input as PreToolUseHookInput;
+    const toolInput = hook.tool_input as Record<string, unknown>;
+    const filePath = typeof toolInput.file_path === 'string' ? toolInput.file_path : '';
+    if (!filePath) return {};
+
+    const resolved = path.resolve(repoRootNorm, filePath);
+    const relative = path.relative(repoRootNorm, resolved);
+
+    for (const blocked of LIVE_EDIT_BLOCKED_PATHS) {
+      if (relative === blocked || relative.startsWith(blocked + path.sep)) {
+        return {
+          decision: 'block' as const,
+          reason:
+            `Live edit safety: \`${relative}\` requires a worktree — it either holds ` +
+            `singleton state that hot reload would destroy, or needs a server restart. ` +
+            `Switch to worktree mode (pass mode:"worktree") to modify this file.`,
+        };
+      }
+    }
+
+    return {};
+  };
 }
 
 /** All active local evolve sessions, keyed by session ID. */
@@ -303,6 +361,72 @@ export async function startLocalEvolve(
   });
 
   appendProgress(session, `\n✅ **Ready on port ${session.port}**\n`);
+}
+
+// ─── Live edit flow ───────────────────────────────────────────────────────────
+
+/**
+ * Run Claude Code directly in the main repo (no worktree, no new server).
+ * Changes are visible immediately via Next.js HMR. Claude must NOT commit —
+ * the user reviews and clicks Accept (git commit) or Reject (git restore).
+ *
+ * Only safe on non-main branches; enforced by the caller (route.ts).
+ */
+export async function startLiveEdit(
+  session: LocalSession,
+  taskRequest: string,
+  repoRoot: string,
+): Promise<void> {
+  session.status = 'running-claude';
+  appendProgress(session, `### ⚡ Claude Code (live edit)\n\n`);
+
+  const prompt =
+    `Read PRIMORDIA.md first for architecture context, then implement the following change:\n\n` +
+    `${taskRequest}\n\n` +
+    `After making changes:\n` +
+    `1. Create a new changelog file in the \`changelog/\` directory named ` +
+    `\`YYYY-MM-DD-HH-MM-SS Description of change.md\` (UTC time). ` +
+    `The filename is the short description; the file body is the full what+why detail in markdown.\n` +
+    `2. **Do NOT commit.** The user will review the changes via hot reload and decide to Accept or Reject.\n` +
+    `3. Files that require a worktree (listed in PRIMORDIA.md "Live Edit Safety" section) are ` +
+    `blocked — if your change requires them, explain why and stop gracefully.`;
+
+  const run = query({
+    prompt,
+    options: {
+      cwd: repoRoot,
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: 'Write|Edit',
+            hooks: [makeLiveEditSafetyHook(repoRoot)],
+          },
+        ],
+      },
+    },
+  });
+
+  for await (const message of run) {
+    if (message.type === 'assistant') {
+      for (const block of message.message.content) {
+        if (block.type === 'text' && block.text.trim()) {
+          appendProgress(session, block.text.trimEnd() + '\n\n');
+        } else if (block.type === 'tool_use') {
+          const summary = summarizeToolUse(block.name, block.input as Record<string, unknown>);
+          appendProgress(session, `- 🔧 ${summary}\n`);
+        }
+      }
+    } else if (message.type === 'result') {
+      if (message.subtype !== 'success') {
+        throw new Error(`Claude Code run ended with: ${message.subtype}`);
+      }
+    }
+  }
+
+  session.status = 'ready';
+  appendProgress(session, `\n✅ **Changes applied via hot reload. Accept to commit, Reject to revert.**\n`);
 }
 
 // ─── Kill dev server ──────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@
 // to follow Next.js App Router conventions.
 
 import type { Metadata } from "next";
+import { execSync } from "child_process";
 import EvolveForm from "@/components/EvolveForm";
 
 export const metadata: Metadata = {
@@ -10,6 +11,21 @@ export const metadata: Metadata = {
   description: "Propose a change to this app.",
 };
 
+function getCurrentBranch(): string | null {
+  try {
+    return (
+      execSync("git rev-parse --abbrev-ref HEAD", {
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim() || null
+    );
+  } catch {
+    return null;
+  }
+}
+
 export default function EvolvePage() {
-  return <EvolveForm />;
+  const currentBranch =
+    process.env.VERCEL_GIT_COMMIT_REF ?? getCurrentBranch();
+  return <EvolveForm currentBranch={currentBranch ?? null} />;
 }

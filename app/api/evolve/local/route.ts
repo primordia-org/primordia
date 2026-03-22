@@ -15,6 +15,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   sessions,
   startLocalEvolve,
+  startLiveEdit,
   appendProgress,
   runGit,
   type LocalSession,
@@ -86,19 +87,69 @@ export async function POST(request: Request) {
     );
   }
 
-  const body = (await request.json()) as { request?: string };
+  const body = (await request.json()) as { request?: string; mode?: 'live' | 'worktree' };
   if (!body.request || typeof body.request !== 'string') {
     return Response.json({ error: 'request string required' }, { status: 400 });
   }
 
+  const mode: 'live' | 'worktree' = body.mode === 'worktree' ? 'worktree' : 'live';
   const repoRoot = process.cwd();
+
+  // Live edit is only permitted on non-main branches.
+  if (mode === 'live') {
+    const branchResult = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot);
+    const currentBranch = branchResult.stdout.trim();
+    if (currentBranch === 'main' || currentBranch === 'master') {
+      return Response.json(
+        {
+          error:
+            'Live edit is not allowed on the main branch. ' +
+            'Switch to a feature branch or choose worktree mode.',
+        },
+        { status: 400 },
+      );
+    }
+  }
+
   const slug = await generateSlug(body.request);
   const branch = await findUniqueBranch(slug, repoRoot);
   const sessionId = branch.replace(/^evolve\//, '');
+
+  if (mode === 'live') {
+    // Live edit: no worktree, no new server. Use the current port.
+    const currentPort = parseInt(process.env.PORT ?? '3000', 10);
+
+    const session: LocalSession = {
+      id: sessionId,
+      mode: 'live',
+      branch,
+      worktreePath: '',
+      status: 'starting',
+      progressText: '',
+      port: currentPort,
+      previewUrl: null,
+      devServerProcess: null,
+    };
+
+    sessions.set(sessionId, session);
+
+    startLiveEdit(session, body.request, repoRoot).catch((err) => {
+      session.status = 'error';
+      appendProgress(
+        session,
+        `\n\n❌ **Error**: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    });
+
+    return Response.json({ sessionId });
+  }
+
+  // Worktree mode (original flow).
   const worktreePath = path.join(repoRoot, '..', 'primordia-worktrees', sessionId);
 
   const session: LocalSession = {
     id: sessionId,
+    mode: 'worktree',
     branch,
     worktreePath,
     status: 'starting',
@@ -142,6 +193,7 @@ export async function GET(request: Request) {
 
   return Response.json({
     status: session.status,
+    mode: session.mode,
     progressText: session.progressText,
     port: session.port,
     previewUrl: session.previewUrl,

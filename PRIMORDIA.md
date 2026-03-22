@@ -185,6 +185,52 @@ These must be set in:
 
 ---
 
+## Live Edit Safety
+
+When Primordia edits itself, it can operate in two modes:
+
+- **Live edit** (`mode: 'live'`): Claude Code runs directly in the current repo. Changes appear via Next.js HMR with no new tab or server. Faster, but the working tree is dirty until Accept or Reject.
+- **Worktree** (`mode: 'worktree'`): Claude Code runs in an isolated git worktree with its own dev server. Changes are previewed in a new tab before merging.
+
+**Live edit is disabled on `main`/`master`** — only allowed on feature branches. This protects the primary branch from half-applied changes and ensures the user is already on a branch when iterating.
+
+### Files safe for live edit (HMR handles these cleanly)
+
+| Category | Paths |
+|---|---|
+| UI components | `components/*.tsx` |
+| Pages & layouts | `app/page.tsx`, `app/layout.tsx`, `app/**/page.tsx` |
+| Styles | `app/globals.css`, `tailwind.config.ts` |
+| Stateless API routes | `app/api/chat/`, `app/api/check-keys/`, `app/api/deploy-context/`, `app/api/merge-pr/`, `app/api/close-pr/` |
+| Content & docs | `changelog/*.md`, `PRIMORDIA.md`, `README.md` |
+| New pages / routes | Any new `app/*/page.tsx` or `app/api/*/route.ts` |
+
+### Files that require a worktree
+
+| File / Path | Reason |
+|---|---|
+| `lib/local-evolve-sessions.ts` | Module-level `sessions` singleton — hot reload reinitialises it, killing active sessions |
+| `app/api/evolve/local/**` | Depend on the sessions singleton |
+| `components/EvolveForm.tsx` | Editing mid-session can orphan an in-progress evolve |
+| `next.config.ts` | Not picked up by HMR — requires full server restart |
+| `postcss.config.mjs` | Same: restart required |
+| `package.json`, `bun.lock` | Requires `bun install` + restart |
+| `.env.local` | New env vars not picked up without restart |
+| `.github/workflows/evolve.yml` | CI-only; no HMR benefit; changes need PR review |
+
+### Decision rubric (Claude Code must follow this)
+
+```
+1. Are we on main or master?             → WORKTREE (live edit blocked on main)
+2. Is there an active session running?   → WORKTREE (never edit live mid-session)
+3. Does the change touch a worktree-required file (table above)?  → WORKTREE
+4. Otherwise                             → LIVE EDIT ✓
+```
+
+When Claude Code operates in live edit mode, it **must not commit** — the user reviews via HMR and clicks Accept (which commits) or Reject (which reverts).
+
+---
+
 ## Design Principles for Claude Code
 
 When implementing changes, follow these principles:
