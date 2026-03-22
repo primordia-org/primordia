@@ -305,6 +305,81 @@ export async function startLocalEvolve(
   appendProgress(session, `\n✅ **Ready on port ${session.port}**\n`);
 }
 
+// ─── Auto conflict resolution ─────────────────────────────────────────────────
+
+/**
+ * When `git merge` leaves the repo in a conflicted state, run Claude Code
+ * inside `mergeRoot` to resolve all conflicts and complete the merge commit.
+ *
+ * Returns { success: true } when Claude committed the resolved merge, or
+ * { success: false, log } with a human-readable explanation when it could not.
+ */
+export async function resolveConflictsWithClaude(
+  mergeRoot: string,
+  branch: string,
+  parentBranch: string,
+): Promise<{ success: boolean; log: string }> {
+  let log = '';
+
+  const prompt =
+    `A \`git merge ${branch}\` into \`${parentBranch}\` has produced merge conflicts ` +
+    `in the repository at \`${mergeRoot}\`.\n\n` +
+    `Please resolve all conflicts and complete the merge:\n` +
+    `1. Run \`git status\` to identify every conflicted file.\n` +
+    `2. Read each conflicted file, resolve the conflict markers by intelligently ` +
+    `combining both sides, and write the resolved content back.\n` +
+    `3. Stage each resolved file with \`git add <file>\`.\n` +
+    `4. Finish the merge with \`git commit --no-edit\`.\n\n` +
+    `Work only inside \`${mergeRoot}\`. Do not touch any files outside that directory.`;
+
+  try {
+    const run = query({
+      prompt,
+      options: {
+        cwd: mergeRoot,
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+      },
+    });
+
+    for await (const message of run) {
+      if (message.type === 'assistant') {
+        for (const block of message.message.content) {
+          if (block.type === 'text' && block.text.trim()) {
+            log += block.text.trimEnd() + '\n\n';
+          } else if (block.type === 'tool_use') {
+            const summary = summarizeToolUse(block.name, block.input as Record<string, unknown>);
+            log += `- 🔧 ${summary}\n`;
+          }
+        }
+      } else if (message.type === 'result') {
+        if (message.subtype !== 'success') {
+          return {
+            success: false,
+            log: log + `\nClaude Code ended with subtype: ${message.subtype}`,
+          };
+        }
+      }
+    }
+
+    // Verify the merge was committed: MERGE_HEAD must no longer exist.
+    const mergeHeadResult = await runGit(['rev-parse', '--verify', 'MERGE_HEAD'], mergeRoot);
+    if (mergeHeadResult.code === 0) {
+      return {
+        success: false,
+        log:
+          log +
+          '\nMerge was not committed: MERGE_HEAD still exists after conflict resolution attempt.',
+      };
+    }
+
+    return { success: true, log };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { success: false, log: log + `\nError during conflict resolution: ${msg}` };
+  }
+}
+
 // ─── Kill dev server ──────────────────────────────────────────────────────────
 
 export function killDevServer(session: LocalSession): void {
