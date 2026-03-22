@@ -54,6 +54,10 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
       const data = (await res.json()) as { outcome?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
       setPreviewActionState("accepted");
+      // Focus the parent tab (opened this preview via target="_blank"), then
+      // close this window so the user isn't left on a dead "port unbound" page.
+      try { window.opener?.focus(); } catch { /* ignore cross-origin guard */ }
+      setTimeout(() => { try { window.close(); } catch { /* ignore */ } }, 1500);
     } catch (err) {
       setPreviewActionState("idle");
       setErrorMessage(err instanceof Error ? err.message : String(err));
@@ -73,6 +77,9 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
       const data = (await res.json()) as { outcome?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
       setPreviewActionState("rejected");
+      // Focus the parent tab and close this preview window.
+      try { window.opener?.focus(); } catch { /* ignore cross-origin guard */ }
+      setTimeout(() => { try { window.close(); } catch { /* ignore */ } }, 1500);
     } catch (err) {
       setPreviewActionState("idle");
       setErrorMessage(err instanceof Error ? err.message : String(err));
