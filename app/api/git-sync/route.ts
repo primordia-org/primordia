@@ -9,7 +9,30 @@
 // Final line: data: { done: true, outcome: "success" | "error" }
 
 import { spawn } from 'child_process';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, type SpawnOptions, type SpawnedProcess } from '@anthropic-ai/claude-agent-sdk';
+
+// See spawnClaudeCode in local-evolve-sessions.ts for explanation of why this
+// wrapper is necessary when running under bun's runtime.
+function spawnClaudeCode(options: SpawnOptions): SpawnedProcess {
+  const filteredArgs = options.args.filter((arg: string) => arg !== '');
+  const proc = spawn(options.command, filteredArgs, {
+    cwd: options.cwd,
+    stdio: ['pipe', 'pipe', 'ignore'],
+    signal: options.signal,
+    env: options.env as Record<string, string | undefined>,
+    windowsHide: true,
+  });
+  return {
+    stdin: proc.stdin!,
+    stdout: proc.stdout!,
+    get killed() { return proc.killed; },
+    get exitCode() { return proc.exitCode; },
+    kill: proc.kill.bind(proc) as SpawnedProcess['kill'],
+    on: proc.on.bind(proc) as SpawnedProcess['on'],
+    once: proc.once.bind(proc) as SpawnedProcess['once'],
+    off: proc.off.bind(proc) as SpawnedProcess['off'],
+  };
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -148,6 +171,7 @@ export async function POST() {
                     cwd,
                     permissionMode: 'bypassPermissions',
                     allowDangerouslySkipPermissions: true,
+                    spawnClaudeCodeProcess: spawnClaudeCode,
                   },
                 });
 

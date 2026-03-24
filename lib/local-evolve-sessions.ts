@@ -3,10 +3,43 @@
 // Module-level singleton — shared across all API routes within the same
 // Next.js dev server process. Only used when NODE_ENV=development.
 
-import { query, type HookCallback, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
+import { query, type HookCallback, type PreToolUseHookInput, type SpawnOptions, type SpawnedProcess } from '@anthropic-ai/claude-agent-sdk';
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+
+/**
+ * Custom spawn wrapper passed as `spawnClaudeCodeProcess` to all query() calls.
+ *
+ * When Next.js runs under bun (`bun run --bun next dev`), child_process.spawn
+ * can silently drop empty-string arguments. The Agent SDK passes
+ * `--setting-sources ""` (an empty string, from `[].join(",")`) before
+ * `--permission-mode bypassPermissions`. When bun drops that empty string,
+ * `--permission-mode` becomes the value for `--setting-sources`, producing:
+ *   Error processing --setting-sources: Invalid setting source: --permission-mode
+ *
+ * Filtering empty-string args before spawning prevents the misparse.
+ */
+function spawnClaudeCode(options: SpawnOptions): SpawnedProcess {
+  const filteredArgs = options.args.filter((arg: string) => arg !== '');
+  const proc = spawn(options.command, filteredArgs, {
+    cwd: options.cwd,
+    stdio: ['pipe', 'pipe', 'ignore'],
+    signal: options.signal,
+    env: options.env as Record<string, string | undefined>,
+    windowsHide: true,
+  });
+  return {
+    stdin: proc.stdin!,
+    stdout: proc.stdout!,
+    get killed() { return proc.killed; },
+    get exitCode() { return proc.exitCode; },
+    kill: proc.kill.bind(proc) as SpawnedProcess['kill'],
+    on: proc.on.bind(proc) as SpawnedProcess['on'],
+    once: proc.once.bind(proc) as SpawnedProcess['once'],
+    off: proc.off.bind(proc) as SpawnedProcess['off'],
+  };
+}
 
 export type LocalSessionStatus =
   | 'starting'
@@ -240,6 +273,7 @@ export async function startLocalEvolve(
       cwd: session.worktreePath,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
+      spawnClaudeCodeProcess: spawnClaudeCode,
       // Enforce that Claude can only touch files inside the worktree. Without
       // this, Claude Code could (and occasionally did) write directly into the
       // main repo branch instead of the isolated preview worktree.
@@ -373,6 +407,7 @@ export async function resolveConflictsWithClaude(
         cwd: mergeRoot,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
+        spawnClaudeCodeProcess: spawnClaudeCode,
       },
     });
 
