@@ -113,9 +113,16 @@ export async function POST(request: Request) {
   // Fire-and-forget — run async so POST returns immediately with the session ID.
   startLocalEvolve(session, body.request, repoRoot).catch((err) => {
     session.status = 'error';
+    const msg = err instanceof Error ? err.message : String(err);
+    // Include the cause chain if present (e.g. the original SDK process-exit error
+    // when we've wrapped it with additional stderr context).
+    const causeMsg =
+      err instanceof Error && err.cause instanceof Error
+        ? `\n\n*Caused by*: ${err.cause.message}`
+        : '';
     appendProgress(
       session,
-      `\n\n❌ **Error**: ${err instanceof Error ? err.message : String(err)}\n`,
+      `\n\n❌ **Error**: ${msg}${causeMsg}\n`,
     );
   });
 
