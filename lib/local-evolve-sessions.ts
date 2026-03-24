@@ -234,12 +234,22 @@ export async function startLocalEvolve(
     `1. Create a new changelog file in the \`changelog/\` directory named \`YYYY-MM-DD-HH-MM-SS Description of change.md\` (UTC time, e.g. \`2026-03-16-21-00-00 Fix login bug.md\`). The filename is the short description; the file body is the full "what changed + why" detail in markdown. Do NOT add changelog entries to PRIMORDIA.md itself.\n` +
     `2. Commit all changes with a descriptive message.`;
 
+  // Accumulate stderr lines so they can be surfaced if the process crashes.
+  const stderrLines: string[] = [];
+
   const run = query({
     prompt,
     options: {
       cwd: session.worktreePath,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
+      // Capture stderr from the Claude Code process. Claude Code writes
+      // diagnostic/crash information to stderr before exiting with a non-zero
+      // code, so capturing it gives much better error messages than just the
+      // exit code alone.
+      stderr: (data: string) => {
+        stderrLines.push(data.trimEnd());
+      },
       // Enforce that Claude can only touch files inside the worktree. Without
       // this, Claude Code could (and occasionally did) write directly into the
       // main repo branch instead of the isolated preview worktree.
@@ -254,21 +264,45 @@ export async function startLocalEvolve(
     },
   });
 
-  for await (const message of run) {
-    if (message.type === 'assistant') {
-      for (const block of message.message.content) {
-        if (block.type === 'text' && block.text.trim()) {
-          appendProgress(session, block.text.trimEnd() + '\n\n');
-        } else if (block.type === 'tool_use') {
-          const summary = summarizeToolUse(block.name, block.input as Record<string, unknown>);
-          appendProgress(session, `- 🔧 ${summary}\n`);
+  try {
+    for await (const message of run) {
+      if (message.type === 'assistant') {
+        for (const block of message.message.content) {
+          if (block.type === 'text' && block.text.trim()) {
+            appendProgress(session, block.text.trimEnd() + '\n\n');
+          } else if (block.type === 'tool_use') {
+            const summary = summarizeToolUse(block.name, block.input as Record<string, unknown>);
+            appendProgress(session, `- 🔧 ${summary}\n`);
+          }
+        }
+      } else if (message.type === 'result') {
+        if (message.subtype !== 'success') {
+          // `errors` is populated by the SDK when subtype is e.g. error_during_execution.
+          const sdkErrors = (message as { errors?: string[] }).errors ?? [];
+          const stderrStr = stderrLines.join('\n').trim();
+          const details = [
+            sdkErrors.filter(Boolean).join('\n'),
+            stderrStr,
+          ].filter(Boolean).join('\n');
+          throw new Error(
+            `Claude Code run ended with: ${message.subtype}` +
+            (details ? `\n\nDetails:\n${details}` : ''),
+          );
         }
       }
-    } else if (message.type === 'result') {
-      if (message.subtype !== 'success') {
-        throw new Error(`Claude Code run ended with: ${message.subtype}`);
-      }
     }
+  } catch (err) {
+    // If this is a process-level failure (e.g. "Claude Code process exited with code 1")
+    // rather than the structured error we threw above, enrich it with any captured stderr.
+    const stderrStr = stderrLines.join('\n').trim();
+    if (
+      stderrStr &&
+      err instanceof Error &&
+      !err.message.includes('Details:') // not our own structured error
+    ) {
+      throw new Error(`${err.message}\n\nStderr:\n${stderrStr}`, { cause: err });
+    }
+    throw err;
   }
 
   appendProgress(session, `\n✅ **Claude Code finished.**\n`);
