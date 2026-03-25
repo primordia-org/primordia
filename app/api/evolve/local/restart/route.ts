@@ -36,24 +36,32 @@ export async function POST(request: Request) {
     );
   }
 
-  // Determine the server origin from the incoming request URL so we can call
-  // /__nextjs_restart_dev on the same host:port after bun install finishes.
   const { origin } = new URL(request.url);
+  const diagnostics: string[] = [];
 
-  // Schedule the work after sending the response. This ensures the browser
-  // gets its 200 OK before the dev server potentially restarts mid-flight.
-  setTimeout(async () => {
-    // Install any new/updated packages introduced by the merged changes.
-    await runCommand('bun', ['install'], process.cwd());
+  const log = (msg: string) => {
+    console.log(msg);
+    diagnostics.push(msg);
+  };
 
-    // Ask Next.js to restart the dev server. The response may never arrive if
-    // the server restarts quickly enough — that's expected, so errors are swallowed.
-    try {
-      await fetch(`${origin}/__nextjs_restart_dev`, { method: 'POST' });
-    } catch {
-      // Server restarted before responding — normal behaviour.
-    }
-  }, 200);
+  // Install any new/updated packages introduced by the merged changes.
+  log(`[restart] cwd: ${process.cwd()}`);
+  log(`[restart] Running bun install…`);
+  const install = await runCommand('bun', ['install'], process.cwd());
+  log(`[restart] bun install exit code: ${install.code}`);
+  if (install.stdout.trim()) log(`[restart] bun install stdout:\n${install.stdout.trim()}`);
+  if (install.stderr.trim()) log(`[restart] bun install stderr:\n${install.stderr.trim()}`);
 
-  return Response.json({ ok: true });
+  // Ask Next.js to restart the dev server. The response may never arrive if
+  // the server restarts quickly enough — that's expected, so errors are swallowed.
+  log(`[restart] Calling POST ${origin}/__nextjs_restart_dev`);
+  try {
+    const res = await fetch(`${origin}/__nextjs_restart_dev`, { method: 'POST' });
+    log(`[restart] __nextjs_restart_dev responded: ${res.status}`);
+  } catch (err) {
+    // Server restarted before responding — normal behaviour.
+    log(`[restart] __nextjs_restart_dev error (may be normal if server restarted): ${String(err)}`);
+  }
+
+  return Response.json({ ok: true, diagnostics });
 }
