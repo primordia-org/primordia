@@ -1,0 +1,18 @@
+[Unit]
+Description=Primordia Next.js App
+After=network.target
+
+[Service]
+Type=simple
+User=exedev
+WorkingDirectory=/home/exedev/primordia
+EnvironmentFile=/home/exedev/primordia/.env.local
+Environment=HOSTNAME=0.0.0.0
+ExecStart=/home/exedev/.bun/bin/bun run dev
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
