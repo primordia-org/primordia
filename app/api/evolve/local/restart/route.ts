@@ -36,7 +36,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const { origin } = new URL(request.url);
+  const requestUrl = new URL(request.url);
+  // localhost never runs HTTPS in dev, so force http:// to avoid connection errors.
+  const origin =
+    requestUrl.hostname === 'localhost' || requestUrl.hostname === '127.0.0.1'
+      ? `http://${requestUrl.host}`
+      : requestUrl.origin;
   const diagnostics: string[] = [];
 
   const log = (msg: string) => {
