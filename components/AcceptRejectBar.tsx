@@ -22,19 +22,12 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
   const [previewActionState, setPreviewActionState] = useState<"idle" | "loading" | "accepted" | "rejected">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // In the parent tab: listen for a postMessage from the preview window and
-  // trigger bun install + dev server restart once the preview is accepted.
+  // Listen for a postMessage from a child preview window and trigger bun
+  // install + dev server restart once the preview is accepted.
+  // Runs in any instance (including nested previewInstances acting as parents)
+  // and accepts messages from any origin so it works on all domains.
   useEffect(() => {
-    if (isPreviewInstance) return; // Only run in the parent tab
-
     function handleMessage(event: MessageEvent) {
-      // Only trust messages from localhost (preview runs on a dynamic port).
-      try {
-        const { hostname } = new URL(event.origin);
-        if (hostname !== "localhost" && hostname !== "127.0.0.1") return;
-      } catch {
-        return; // Ignore messages from unknown/null origins
-      }
       if (event.data?.type === "primordia:preview-accepted") {
         fetch("/api/evolve/local/restart", { method: "POST" }).catch(() => {});
       }
@@ -42,7 +35,7 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [isPreviewInstance]);
+  }, []);
 
   // On Vercel preview deployments, fetch PR context for accept/reject.
   useEffect(() => {
