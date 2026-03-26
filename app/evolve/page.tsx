@@ -4,7 +4,9 @@
 
 import { execSync } from "child_process";
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import EvolveForm from "@/components/EvolveForm";
+import { getSessionUser } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "Evolve — Primordia",
@@ -24,7 +26,10 @@ function runGit(cmd: string): string | null {
   }
 }
 
-export default function EvolvePage() {
+export default async function EvolvePage() {
+  const user = await getSessionUser();
+  if (!user) redirect("/login");
+
   const branch =
     process.env.VERCEL_GIT_COMMIT_REF ?? runGit("git branch --show-current");
 

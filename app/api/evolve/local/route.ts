@@ -19,6 +19,7 @@ import {
   runGit,
   type LocalSession,
 } from '../../../../lib/local-evolve-sessions';
+import { getSessionUser } from '../../../../lib/auth';
 
 /** Ask Claude to choose a short, descriptive kebab-case slug for the request.
  *  Falls back to the first-4-words approach if the API call fails. */
@@ -79,6 +80,11 @@ async function findUniqueBranch(slug: string, repoRoot: string): Promise<string>
 }
 
 export async function POST(request: Request) {
+  const user = await getSessionUser();
+  if (!user) {
+    return Response.json({ error: 'Authentication required' }, { status: 401 });
+  }
+
   if (process.env.NODE_ENV !== 'development') {
     return Response.json(
       { error: 'Local evolve is only available in development mode' },
@@ -130,6 +136,11 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
+  const user = await getSessionUser();
+  if (!user) {
+    return Response.json({ error: 'Authentication required' }, { status: 401 });
+  }
+
   if (process.env.NODE_ENV !== 'development') {
     return Response.json(
       { error: 'Local evolve is only available in development mode' },

@@ -6,7 +6,9 @@
 import { execSync } from "child_process";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
+import { redirect } from "next/navigation";
 import ChatInterface from "@/components/ChatInterface";
+import { getSessionUser } from "@/lib/auth";
 
 function runGit(cmd: string): string | null {
   try {
@@ -42,7 +44,10 @@ function getMostRecentChangelogEntry(): string | null {
   }
 }
 
-export default function ChatPage() {
+export default async function ChatPage() {
+  const user = await getSessionUser();
+  if (!user) redirect("/login");
+
   const branch =
     process.env.VERCEL_GIT_COMMIT_REF ?? runGit("git branch --show-current");
 
