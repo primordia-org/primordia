@@ -15,11 +15,35 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db/index";
 import { generateId, createSession, SESSION_COOKIE, SESSION_DURATION_MS } from "@/lib/auth";
 
+/**
+ * Returns the public-facing origin (scheme + host) for this request.
+ *
+ * When the app runs behind exe.dev's reverse proxy, Next.js sees
+ * "localhost" as the host in req.url / req.nextUrl, because the proxy
+ * terminates TLS and forwards traffic internally. The proxy preserves the
+ * original Host header and may also set X-Forwarded-Proto / X-Forwarded-Host,
+ * so we prefer those over the internal URL when building redirect targets.
+ */
+function getPublicOrigin(req: NextRequest): string {
+  const proto =
+    req.headers.get("x-forwarded-proto") ??
+    req.nextUrl.protocol.replace(/:$/, "");
+  const host =
+    req.headers.get("x-forwarded-host") ??
+    req.headers.get("host") ??
+    req.nextUrl.host;
+  return `${proto}://${host}`;
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const next = searchParams.get("next") ?? "/";
 
   const email = req.headers.get("x-exedev-email");
+
+  // Use the public origin so that redirect Location headers contain the
+  // correct external hostname rather than "localhost".
+  const origin = getPublicOrigin(req);
 
   if (!email) {
     // Not authenticated with exe.dev yet — bounce through the exe.dev login page.
@@ -27,7 +51,7 @@ export async function GET(req: NextRequest) {
     const callbackPath =
       "/api/auth/exe-dev?next=" + encodeURIComponent(next);
     const loginUrl = "/__exe.dev/login?redirect=" + encodeURIComponent(callbackPath);
-    return NextResponse.redirect(new URL(loginUrl, req.url));
+    return NextResponse.redirect(new URL(loginUrl, origin));
   }
 
   // Find or create the Primordia user whose username is the exe.dev email.
@@ -44,7 +68,7 @@ export async function GET(req: NextRequest) {
 
   const sessionId = await createSession(user.id);
 
-  const response = NextResponse.redirect(new URL(next, req.url));
+  const response = NextResponse.redirect(new URL(next, origin));
   response.cookies.set(SESSION_COOKIE, sessionId, {
     httpOnly: true,
     sameSite: "lax",
