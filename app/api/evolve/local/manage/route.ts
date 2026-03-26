@@ -22,6 +22,7 @@
 
 import * as path from 'path';
 import { runGit, resolveConflictsWithClaude } from '../../../../../lib/local-evolve-sessions';
+import { getSessionUser } from '../../../../../lib/auth';
 
 /** Read the current git branch and check for a stored parent config entry.
  *  Returns { branch, parentBranch } when this is a preview worktree,
@@ -48,6 +49,11 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const user = await getSessionUser();
+  if (!user) {
+    return Response.json({ error: 'Authentication required' }, { status: 401 });
+  }
+
   if (process.env.NODE_ENV !== 'development') {
     return Response.json(
       { error: 'Local evolve is only available in development mode' },

@@ -14,7 +14,14 @@
 //   GITHUB_TOKEN  — personal access token with repo + issues write access
 //   GITHUB_REPO   — "owner/repo" string, e.g. "alice/primordia"
 
+import { getSessionUser } from "@/lib/auth";
+
 export async function POST(request: Request) {
+  const user = await getSessionUser();
+  if (!user) {
+    return Response.json({ error: "Authentication required" }, { status: 401 });
+  }
+
   const body = (await request.json()) as {
     action?: string;
     request?: string;

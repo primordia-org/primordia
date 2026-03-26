@@ -15,8 +15,17 @@ import Anthropic from "@anthropic-ai/sdk";
 // (run as a prebuild/predev step). It embeds PRIMORDIA.md + the last 30
 // changelog entry filenames so the assistant has accurate self-knowledge.
 import { SYSTEM_PROMPT } from "@/lib/generated/system-prompt";
+import { getSessionUser } from "@/lib/auth";
 
 export async function POST(request: Request) {
+  const user = await getSessionUser();
+  if (!user) {
+    return new Response(JSON.stringify({ error: "Authentication required" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const body = (await request.json()) as {
     messages: Array<{ role: "user" | "assistant"; content: string }>;
     // Optional extra context appended to the system prompt (e.g. deploy preview info).

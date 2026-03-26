@@ -230,7 +230,7 @@ export default function LandingPage() {
             </h2>
             <p className="text-gray-400 max-w-md mx-auto mb-8 leading-relaxed">
               Jump in, have a conversation, and propose your first change.
-              No account needed to start chatting.
+              Sign in with a passkey to start chatting and proposing changes.
             </p>
             <Link
               href="/chat"
