@@ -9,6 +9,13 @@
 //   A stream of SSE lines:
 //     data: {"text": "<token>"}\n\n
 //     data: [DONE]\n\n
+//
+// LLM backend selection:
+//   - When the request carries an X-ExeDev-UserID header (injected by the
+//     exe.dev HTTP proxy for authenticated users), LLM calls are routed to the
+//     exe.dev gateway at http://169.254.169.254/gateway/llm/anthropic, which
+//     draws from the user's own exe.dev subscription credits.
+//   - Otherwise, the ANTHROPIC_API_KEY environment variable is used.
 
 import Anthropic from "@anthropic-ai/sdk";
 // SYSTEM_PROMPT is generated at build time by scripts/generate-changelog.mjs
@@ -16,6 +23,10 @@ import Anthropic from "@anthropic-ai/sdk";
 // changelog entry filenames so the assistant has accurate self-knowledge.
 import { SYSTEM_PROMPT } from "@/lib/generated/system-prompt";
 import { getSessionUser } from "@/lib/auth";
+
+// The exe.dev LLM gateway speaks the standard Anthropic API protocol but
+// requires no API key — authentication is handled by the VM's subscription.
+const EXE_DEV_GATEWAY = "http://169.254.169.254/gateway/llm/anthropic";
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -39,9 +50,15 @@ export async function POST(request: Request) {
     });
   }
 
-  const client = new Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY,
-  });
+  // Use the exe.dev gateway when the request comes from an exe.dev-authenticated
+  // user (header injected by the exe.dev proxy), falling back to the configured
+  // API key when running outside exe.dev (e.g. Vercel, local dev).
+  const isExeDev = !!request.headers.get("X-ExeDev-UserID");
+  const client = new Anthropic(
+    isExeDev
+      ? { baseURL: EXE_DEV_GATEWAY, apiKey: "exe-dev-gateway" }
+      : { apiKey: process.env.ANTHROPIC_API_KEY }
+  );
 
   // Create a ReadableStream that emits SSE chunks
   const stream = new ReadableStream({

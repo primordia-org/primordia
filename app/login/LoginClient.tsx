@@ -11,7 +11,7 @@ import {
   startAuthentication,
 } from "@simplewebauthn/browser";
 
-type Tab = "passkey" | "qr";
+type Tab = "passkey" | "qr" | "exedev";
 
 // --- QR flow state ---
 type QrPhase =
@@ -317,6 +317,17 @@ function LoginPageInner({ initialUser }: LoginClientProps) {
           >
             QR Code
           </button>
+          <button
+            type="button"
+            onClick={() => { stopPolling(); setTab("exedev"); }}
+            className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              tab === "exedev"
+                ? "bg-gray-700 text-white"
+                : "text-gray-400 hover:text-gray-200"
+            }`}
+          >
+            exe.dev
+          </button>
         </div>
 
         {/* Card */}
@@ -490,6 +501,23 @@ function LoginPageInner({ initialUser }: LoginClientProps) {
               )}
             </div>
           )}
+
+          {/* ── exe.dev tab ── */}
+          {tab === "exedev" && (
+            <div className="space-y-4">
+              <p className="text-sm text-gray-300 text-center">
+                Sign in with your exe.dev account. Your API credits will be
+                used for all AI features — no separate API key required.
+              </p>
+              <a
+                href={`/__exe.dev/login?redirect=${encodeURIComponent(`/api/auth/exe-dev/callback?next=${encodeURIComponent(nextUrl)}`)}`}
+                className="w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white transition-colors flex items-center justify-center gap-2"
+              >
+                <ExeDevIcon />
+                Continue with exe.dev
+              </a>
+            </div>
+          )}
         </div>
 
         {/* Back link */}
@@ -519,6 +547,26 @@ function KeyIcon() {
       aria-hidden="true"
     >
       <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+    </svg>
+  );
+}
+
+function ExeDevIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="16 18 22 12 16 6" />
+      <polyline points="8 6 2 12 8 18" />
     </svg>
   );
 }
