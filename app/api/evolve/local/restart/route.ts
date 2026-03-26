@@ -57,6 +57,14 @@ export async function POST(request: Request) {
   if (install.stdout.trim()) log(`[restart] bun install stdout:\n${install.stdout.trim()}`);
   if (install.stderr.trim()) log(`[restart] bun install stderr:\n${install.stderr.trim()}`);
 
+  // Rebuild the changelog (public/changelog.json + lib/generated/system-prompt.ts)
+  // so the restarted dev server picks up any new changelog entries from the merge.
+  log(`[restart] Running bun run predev…`);
+  const predev = await runCommand('bun', ['run', 'predev'], process.cwd());
+  log(`[restart] bun run predev exit code: ${predev.code}`);
+  if (predev.stdout.trim()) log(`[restart] bun run predev stdout:\n${predev.stdout.trim()}`);
+  if (predev.stderr.trim()) log(`[restart] bun run predev stderr:\n${predev.stderr.trim()}`);
+
   // Ask Next.js to restart the dev server. The response may never arrive if
   // the server restarts quickly enough — that's expected, so errors are swallowed.
   log(`[restart] Calling POST ${origin}/__nextjs_restart_dev`);
