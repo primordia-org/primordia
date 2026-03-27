@@ -1,7 +1,7 @@
 // components/NavHeader.tsx
-// Shared nav header used by both /chat and /evolve pages.
+// Shared nav header used by /chat, /evolve, /changelog, and /branches pages.
 // Displays the "Primordia" title (linked to /), optional PR link (Vercel
-// preview deployments), the current git branch name, and a Changelog link.
+// preview deployments), the current git branch name, and nav links.
 
 import Link from "next/link";
 
@@ -10,11 +10,17 @@ interface NavHeaderProps {
   branch?: string | null;
   /** Short page description shown below the title. Defaults to the app tagline. */
   subtitle?: string;
+  /**
+   * Which page we're currently on — used to suppress self-referential nav
+   * links (e.g. don't show "Changelog" link on the changelog page itself).
+   */
+  currentPage?: "changelog" | "branches";
 }
 
 export function NavHeader({
   branch,
   subtitle = "A self-evolving application",
+  currentPage,
 }: NavHeaderProps) {
   return (
     <div>
@@ -40,11 +46,16 @@ export function NavHeader({
         )}
       </h1>
       <p className="text-xs text-gray-400 mt-0.5">
-        {subtitle} ·{" "}
-        <Link href="/changelog" className="text-blue-400 hover:text-blue-300">
-          Changelog
-        </Link>
-        {process.env.NODE_ENV === "development" && (
+        {subtitle}
+        {currentPage !== "changelog" && (
+          <>
+            {" "}·{" "}
+            <Link href="/changelog" className="text-blue-400 hover:text-blue-300">
+              Changelog
+            </Link>
+          </>
+        )}
+        {process.env.NODE_ENV === "development" && currentPage !== "branches" && (
           <>
             {" "}·{" "}
             <Link href="/branches" className="text-blue-400 hover:text-blue-300">

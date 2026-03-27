@@ -7,9 +7,9 @@
 
 import fs from "fs";
 import path from "path";
-import Link from "next/link";
 import type { Metadata } from "next";
 import { MarkdownContent } from "@/components/SimpleMarkdown";
+import { PageNavBar } from "@/components/PageNavBar";
 import { buildPageTitle } from "@/lib/page-title";
 
 export function generateMetadata(): Metadata {
@@ -41,21 +41,8 @@ export default function ChangelogPage() {
 
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-screen">
-      {/* Header */}
-      <header className="flex items-center justify-between mb-8 flex-shrink-0">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-white">
-            Primordia
-          </h1>
-          <p className="text-xs text-gray-400 mt-0.5">Changelog</p>
-        </div>
-        <Link
-          href="/"
-          className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
-        >
-          ← Back to app
-        </Link>
-      </header>
+      {/* Header — uses the shared navbar (hamburger menu shown only when logged in) */}
+      <PageNavBar subtitle="Changelog" currentPage="changelog" />
 
       {/* Entry list */}
       {entries.length === 0 ? (
