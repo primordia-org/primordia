@@ -11,7 +11,7 @@
 
 ## What Is Primordia?
 
-Primordia is a self-modifying web application. Users interact with an AI chat interface. To propose a change to the app, they click the Edit (pencil) icon button in the header to navigate to the `/evolve` page — a dedicated "submit a request" form. Requests are automatically turned into GitHub Pull Requests via a CI pipeline powered by Claude Code CLI.
+Primordia is a self-modifying web application. Users interact with an AI chat interface. To propose a change to the app, they click the Edit (pencil) icon button in the header to navigate to the `/evolve` page — a dedicated "submit a request" form. Requests are automatically built as local git worktree previews, powered by the Claude Agent SDK. Users then accept or reject each preview.
 
 The core idea: **the app becomes whatever its users need it to be**, with no coding or git knowledge required from users.
 
@@ -22,14 +22,13 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 ### Tech Stack
 | Layer | Technology | Why |
 |---|---|---|
-| Frontend framework | Next.js 15 (App Router) | AI models write Next.js well; great Vercel integration |
+| Frontend framework | Next.js 15 (App Router) | AI models write Next.js well |
 | Styling | Tailwind CSS | AI models write Tailwind well; no CSS files to manage |
 | Language | TypeScript | Catches mistakes; Claude Code understands it well |
 | AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Streaming chat via `claude-sonnet-4-6` |
-| Hosting | Vercel | Zero-config deploys; automatic preview URLs per PR |
-| Version control | GitHub | Issues → Actions → PRs pipeline |
-| CI/AI code gen | GitHub Actions + Claude Code CLI | Runs `claude --print --no-interactive` against issues |
-| Local AI code gen | `@anthropic-ai/claude-agent-sdk` | `query()` replaces spawning `claude` CLI in local dev flow |
+| Hosting | exe.dev | Remote dev servers via `bun run dev`; no build step required |
+| AI code gen | `@anthropic-ai/claude-agent-sdk` | `query()` runs Claude Code in git worktrees for evolve requests |
+| Database | bun:sqlite | Local SQLite for passkey auth; same adapter on exe.dev and local dev |
 
 ### File Map
 
@@ -60,10 +59,9 @@ primordia/
 │   ├── auth.ts                    ← Session helpers: createSession, getSessionUser
 │   ├── local-evolve-sessions.ts  ← Shared session state + business logic for local evolve
 │   └── db/
-│       ├── index.ts               ← Factory: getDb() → SQLite (local) or Neon (Vercel)
+│       ├── index.ts               ← Factory: getDb() → SQLite (always)
 │       ├── types.ts               ← Shared DB types: User, Passkey, Challenge, Session, CrossDeviceToken
-│       ├── sqlite.ts              ← bun:sqlite adapter (local dev, no DATABASE_URL)
-│       └── neon.ts                ← Neon adapter (Vercel, DATABASE_URL set)
+│       └── sqlite.ts              ← bun:sqlite adapter
 │
 ├── app/                           ← Next.js App Router
 │   ├── layout.tsx                 ← Root layout (font, metadata, body styling)
@@ -84,10 +82,8 @@ primordia/
 │       │   └── route.ts           ← Streams Claude responses via SSE
 │       ├── check-keys/
 │       │   └── route.ts           ← Returns list of missing required env vars (called on page load)
-│       ├── deploy-context/
-│       │   └── route.ts           ← Returns PR + linked-issue info for preview deploys
-│       ├── merge-pr/
-│       │   └── route.ts           ← Merges a PR via GitHub API (deploy preview only)
+│       ├── git-sync/
+│       │   └── route.ts           ← POST pull + push the current branch (used by GitSyncDialog)
 │       ├── auth/
 │       │   ├── session/
 │       │   │   └── route.ts       ← GET current session user
@@ -106,21 +102,19 @@ primordia/
 │       │       ├── approve/route.ts    ← POST approve a token (requires auth on approver device)
 │       │       └── qr/route.ts         ← GET SVG QR code encoding the approval URL for a tokenId
 │       └── evolve/
-│           ├── route.ts           ← Creates/searches/comments GitHub Issues (production)
-│           ├── status/
-│           │   └── route.ts       ← Polls CI progress for a GitHub issue
 │           └── local/
-│               ├── route.ts       ← POST start session, GET status (development)
-│               └── manage/
-│                   └── route.ts   ← POST accept/reject a local session (development)
+│               ├── route.ts       ← POST start session, GET status
+│               ├── manage/
+│               │   └── route.ts   ← POST accept/reject a local session
+│               └── restart/
+│                   └── route.ts   ← POST bun install + restart dev server (called after accept)
 │
 ├── components/
+│   ├── AcceptRejectBar.tsx        ← Accept/reject bar for local preview worktrees
 │   ├── ChatInterface.tsx          ← Main chat UI (chat only); Edit icon button links to /evolve
-│   └── EvolveForm.tsx             ← "Submit a request" form; handles all evolve logic
-│
-└── .github/
-    └── workflows/
-        └── evolve.yml             ← CI pipeline: issue → Claude Code → PR
+│   ├── EvolveForm.tsx             ← "Submit a request" form; handles local evolve flow
+│   ├── GitSyncDialog.tsx          ← Modal: git pull + push via /api/git-sync
+│   └── NavHeader.tsx              ← Shared nav header (title, branch name, nav links)
 ```
 
 ### Data Flow
@@ -134,23 +128,7 @@ User types message
   → Message appended to chat
 ```
 
-#### Evolve Request (production — NODE_ENV=production)
-```
-User types change request in evolve mode
-  → POST /api/evolve
-  → GitHub API: create Issue labeled "primordia-evolve"
-  → GitHub Actions: evolve.yml triggered
-      → git checkout -b evolve/issue-{N}
-      → claude --print --no-interactive -p "{issue body + PRIMORDIA.md}"
-      → git commit && git push
-      → gh pr create
-      → gh issue comment (PR link)
-  → Vercel: preview deployment auto-created for the PR
-  → Repo owner reviews + merges PR
-  → Vercel: production deployment triggered
-```
-
-#### Evolve Request (local dev — NODE_ENV=development)
+#### Evolve Request (local dev and exe.dev — NODE_ENV=development)
 ```
 User types change request in evolve mode
   → POST /api/evolve/local
@@ -162,7 +140,6 @@ User types change request in evolve mode
   → spawn: bun run dev (PORT=next available ≥ 3001) in worktree
   → UI polls /api/evolve/local?sessionId=... for status + progressText
       → rendered as "**Local Evolve Progress**:\n\n{progressText}"
-         (same format as the GitHub CI comment display)
   → Preview link shown in chat when Next.js prints "Ready"
   → User clicks Accept → POST /api/evolve/local/manage { action: "accept" }
       → git merge preview-{ts} --no-ff
@@ -181,7 +158,7 @@ bun run deploy-to-exe.dev <server-name>
   → ssh: nohup HOSTNAME=0.0.0.0 bun run dev  (NODE_ENV=development)
   → wait for "Ready" signal, tail logs
   → app is reachable at http://<server-name>.exe.xyz:3000
-     (uses the fast local evolve flow — no GitHub/Vercel required)
+     (uses the same local evolve flow — no GitHub/Vercel required)
 ```
 
 ---
@@ -190,28 +167,22 @@ bun run deploy-to-exe.dev <server-name>
 
 These must be set in:
 - **Local development**: `.env.local` (copy from `.env.example`)
-- **Vercel**: Project Settings → Environment Variables
-- **GitHub Actions**: Repository Settings → Secrets and Variables → Actions
+- **exe.dev**: `.env.local` is copied automatically by `scripts/deploy-to-exe-dev.sh`
 
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Yes | Powers the chat interface and Claude Code CLI in CI |
-| `GITHUB_TOKEN` | Yes (app) | Allows the app to create GitHub Issues |
-| `GITHUB_REPO` | Yes (app) | The `owner/repo` the app lives in |
-| `EVOLVE_LABEL` | No (default: `primordia-evolve`) | Issue label that triggers the workflow |
-| `GH_PAT` | Yes (CI) | GitHub PAT for the Actions workflow to open PRs |
-| `DATABASE_URL` | No (local dev uses SQLite) | Neon PostgreSQL connection string for Vercel |
+| `ANTHROPIC_API_KEY` | Yes | Powers the chat interface and Claude Code in the evolve pipeline |
 
 ---
 
 ## Setup Checklist (One-Time)
 
-1. **Fork or clone** this repo to your GitHub account.
-2. **Connect to Vercel**: import the repo at vercel.com/new.
-3. **Set Vercel environment variables**: `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `GITHUB_REPO`.
-4. **Create the GitHub Issue label**: go to `github.com/{owner}/{repo}/labels`, create `primordia-evolve` (color: `#f0a500`).
-5. **Add GitHub Actions secrets**: `ANTHROPIC_API_KEY` and `GH_PAT` in repo Settings → Secrets.
-6. **Deploy**: push to `main` or trigger a Vercel deploy. The app is live.
+1. **Clone** this repo.
+2. **Copy** `.env.example` to `.env.local` and fill in `ANTHROPIC_API_KEY`.
+3. **Run** `bun install && bun run dev`.
+4. The app is live at `http://localhost:3000`.
+
+To deploy to exe.dev: `bun run deploy-to-exe.dev <server-name>`
 
 ---
 
@@ -236,10 +207,10 @@ When implementing changes, follow these principles:
 |---|---|---|
 | Chat interface (streaming) | ✅ Live | Streams from `claude-sonnet-4-6` via SSE |
 | Evolve mode | ✅ Live | Dedicated `/evolve` page; Edit icon in chat header |
-| CI evolve pipeline | ✅ Live | `evolve.yml` → Claude Code → PR |
-| Vercel deploy pipeline | ✅ Live (setup required) | Preview per PR, prod on merge to main |
+| Local evolve pipeline | ✅ Live | git worktree → Claude Agent SDK → local preview → accept/reject |
+| exe.dev deploy | ✅ Live | One-command SSH deploy; identical to local dev flow |
 | Dark theme | ✅ Live | Default dark UI with Tailwind |
-| Passkey authentication | ✅ Live | WebAuthn passkeys via /login; sessions stored in SQLite (local) or Neon (Vercel) |
+| Passkey authentication | ✅ Live | WebAuthn passkeys via /login; sessions stored in SQLite |
 | Cross-device QR sign-in | ✅ Live | Laptop shows QR code; authenticated phone scans it and approves; laptop gets a session |
 
 ---
@@ -248,7 +219,7 @@ When implementing changes, follow these principles:
 
 These were noted at project inception but are explicitly out of scope for the MVP:
 
-- **Fork flow**: one-click fork to user's own GitHub + Vercel
+- **Fork flow**: one-click fork to user's own instance
 - **Voting**: upvote proposed evolve requests before they get built
 - **Rollback**: "go back to before X was added" via natural language
 - **Multi-tenant**: each user gets their own Primordia instance
