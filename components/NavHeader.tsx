@@ -44,6 +44,14 @@ export function NavHeader({
         <Link href="/changelog" className="text-blue-400 hover:text-blue-300">
           Changelog
         </Link>
+        {process.env.NODE_ENV === "development" && (
+          <>
+            {" "}·{" "}
+            <Link href="/branches" className="text-blue-400 hover:text-blue-300">
+              Branches
+            </Link>
+          </>
+        )}
       </p>
     </div>
   );
