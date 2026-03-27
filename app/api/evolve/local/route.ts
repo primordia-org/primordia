@@ -62,10 +62,10 @@ async function generateSlug(text: string): Promise<string> {
     .join('-');
 }
 
-/** Return an `evolve/…` branch name that doesn't already exist in the repo.
- *  Tries `evolve/{slug}` first, then `evolve/{slug}-2`, `-3`, … up to -99. */
+/** Return a branch name that doesn't already exist in the repo.
+ *  Tries `{slug}` first, then `{slug}-2`, `-3`, … up to -99. */
 async function findUniqueBranch(slug: string, repoRoot: string): Promise<string> {
-  const base = `evolve/${slug}`;
+  const base = slug;
   const taken = async (name: string): Promise<boolean> => {
     const r = await runGit(['branch', '--list', name], repoRoot);
     return r.stdout.trim().length > 0;
@@ -100,7 +100,7 @@ export async function POST(request: Request) {
   const repoRoot = process.cwd();
   const slug = await generateSlug(body.request);
   const branch = await findUniqueBranch(slug, repoRoot);
-  const sessionId = branch.replace(/^evolve\//, '');
+  const sessionId = branch;
   const worktreePath = path.join(repoRoot, '..', 'primordia-worktrees', sessionId);
 
   const session: LocalSession = {
