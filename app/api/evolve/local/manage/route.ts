@@ -173,9 +173,11 @@ export async function POST(request: Request) {
       // Remove this worktree, delete the preview branch, and scrub any git
       // config entries that were written for it (e.g. branch.<name>.parent).
       // We run worktree remove first so git no longer considers the branch
-      // "checked out", which allows branch -d to succeed.
+      // "checked out". We force-delete (-D) because the preview branch was
+      // merged into parentBranch, not into the repo's current HEAD, so git's
+      // conservative -d check would refuse to delete it.
       await runGit(['worktree', 'remove', '--force', worktreePath], parentRepoRoot);
-      await runGit(['branch', '-d', branch], parentRepoRoot);
+      await runGit(['branch', '-D', branch], parentRepoRoot);
       // --remove-section exits with code 1 when the section is absent — ignore.
       await runGit(['config', '--remove-section', `branch.${branch}`], parentRepoRoot);
 
