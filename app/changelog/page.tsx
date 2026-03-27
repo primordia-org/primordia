@@ -10,11 +10,14 @@ import path from "path";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { MarkdownContent } from "@/components/SimpleMarkdown";
+import { buildPageTitle } from "@/lib/page-title";
 
-export const metadata: Metadata = {
-  title: "Changelog — Primordia",
-  description: "What changed and why — one entry per change.",
-};
+export function generateMetadata(): Metadata {
+  return {
+    title: buildPageTitle("Changelog"),
+    description: "What changed and why — one entry per change.",
+  };
+}
 
 interface ChangelogEntry {
   filename: string;

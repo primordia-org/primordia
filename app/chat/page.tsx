@@ -7,8 +7,14 @@ import { execSync } from "child_process";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 import ChatInterface from "@/components/ChatInterface";
 import { getSessionUser } from "@/lib/auth";
+import { buildPageTitle } from "@/lib/page-title";
+
+export function generateMetadata(): Metadata {
+  return { title: buildPageTitle("Chat") };
+}
 
 function runGit(cmd: string): string | null {
   try {

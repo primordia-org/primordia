@@ -290,6 +290,11 @@ export async function startLocalEvolve(
       if (message.type === 'assistant') {
         for (const block of message.message.content) {
           if (block.type === 'text' && block.text.trim()) {
+            // If the previous content ended a list (single trailing newline), add
+            // a blank line so the list renders correctly in markdown.
+            if (session.progressText.endsWith('\n') && !session.progressText.endsWith('\n\n')) {
+              appendProgress(session, '\n');
+            }
             appendProgress(session, block.text.trimEnd() + '\n\n');
           } else if (block.type === 'tool_use') {
             const summary = summarizeToolUse(block.name, block.input as Record<string, unknown>, session.worktreePath);
@@ -466,6 +471,11 @@ export async function resolveConflictsWithClaude(
       if (message.type === 'assistant') {
         for (const block of message.message.content) {
           if (block.type === 'text' && block.text.trim()) {
+            // If the previous content ended a list (single trailing newline), add
+            // a blank line so the list renders correctly in markdown.
+            if (log.endsWith('\n') && !log.endsWith('\n\n')) {
+              log += '\n';
+            }
             log += block.text.trimEnd() + '\n\n';
           } else if (block.type === 'tool_use') {
             const summary = summarizeToolUse(block.name, block.input as Record<string, unknown>, mergeRoot);

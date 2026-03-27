@@ -9,9 +9,15 @@
 import { spawnSync } from "child_process";
 import { headers } from "next/headers";
 import Link from "next/link";
+import type { Metadata } from "next";
 import { sessions } from "@/lib/local-evolve-sessions";
+import { buildPageTitle } from "@/lib/page-title";
 
 export const dynamic = "force-dynamic";
+
+export function generateMetadata(): Metadata {
+  return { title: buildPageTitle("Branches") };
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 

@@ -2,8 +2,14 @@
 // passes it to the client component. No API round-trip on the browser side.
 
 import { headers } from "next/headers";
+import type { Metadata } from "next";
 import { getSessionUser } from "@/lib/auth";
 import LoginClient from "./LoginClient";
+import { buildPageTitle } from "@/lib/page-title";
+
+export function generateMetadata(): Metadata {
+  return { title: buildPageTitle("Login") };
+}
 
 export default async function LoginPage() {
   const user = await getSessionUser();

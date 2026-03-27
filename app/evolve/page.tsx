@@ -7,11 +7,14 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import EvolveForm from "@/components/EvolveForm";
 import { getSessionUser } from "@/lib/auth";
+import { buildPageTitle } from "@/lib/page-title";
 
-export const metadata: Metadata = {
-  title: "Evolve — Primordia",
-  description: "Propose a change to this app.",
-};
+export function generateMetadata(): Metadata {
+  return {
+    title: buildPageTitle("Evolve"),
+    description: "Propose a change to this app.",
+  };
+}
 
 function runGit(cmd: string): string | null {
   try {
