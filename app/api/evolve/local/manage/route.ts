@@ -170,9 +170,14 @@ export async function POST(request: Request) {
         }
       }
 
-      // Remove this worktree and delete the preview branch.
+      // Remove this worktree, delete the preview branch, and scrub any git
+      // config entries that were written for it (e.g. branch.<name>.parent).
+      // We run worktree remove first so git no longer considers the branch
+      // "checked out", which allows branch -d to succeed.
       await runGit(['worktree', 'remove', '--force', worktreePath], parentRepoRoot);
       await runGit(['branch', '-d', branch], parentRepoRoot);
+      // --remove-section exits with code 1 when the section is absent — ignore.
+      await runGit(['config', '--remove-section', `branch.${branch}`], parentRepoRoot);
 
       // Shut down the preview server shortly after sending the response.
       setTimeout(() => process.exit(0), 500);
@@ -183,6 +188,9 @@ export async function POST(request: Request) {
     await runGit(['worktree', 'remove', '--force', worktreePath], parentRepoRoot);
     // Force-delete since the branch was never merged.
     await runGit(['branch', '-D', branch], parentRepoRoot);
+    // Clean up the git config section written for this branch (e.g. branch.<name>.parent).
+    // --remove-section exits with code 1 when the section is absent — that is fine.
+    await runGit(['config', '--remove-section', `branch.${branch}`], parentRepoRoot);
 
     setTimeout(() => process.exit(0), 500);
     return Response.json({ outcome: 'rejected' });
