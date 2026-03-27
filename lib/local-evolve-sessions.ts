@@ -164,6 +164,10 @@ export async function startLocalEvolve(
   session: LocalSession,
   taskRequest: string,
   repoRoot: string,
+  /** Public hostname (no port) to use when constructing preview URLs.
+   *  Comes from the x-forwarded-host request header so the URL is correct
+   *  when running behind a reverse proxy (e.g. exe.dev). Defaults to "localhost". */
+  publicHostname: string = "localhost",
 ): Promise<void> {
   // Step 1 — Create a new git worktree on a fresh branch
   appendProgress(session, `- [ ] Creating worktree \`${session.branch}\`…\n`);
@@ -364,7 +368,7 @@ export async function startLocalEvolve(
 
       // Next.js 15 prints "Ready" when the dev server is up
       if (!session.previewUrl && session.port !== null && text.includes('Ready')) {
-        session.previewUrl = `http://localhost:${session.port}`;
+        session.previewUrl = `http://${publicHostname}:${session.port}`;
         session.status = 'ready';
         resolve();
       }

@@ -1,13 +1,13 @@
 // app/branches/page.tsx
-// Shows all local git branches as a tree rooted at `main`, with links to
-// active preview servers. Auto-refreshes every 3 seconds.
-// Only meaningful in development mode.
+// Shows all local git branches as a tree rooted at the current branch, with
+// links to active preview servers. Only meaningful in development mode.
 //
 // Implemented as a React Server Component — data is fetched directly on the
 // server, no separate API route needed. This also makes diagnostics trivial
 // since all git output and process state are available inline.
 
 import { spawnSync } from "child_process";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { sessions } from "@/lib/local-evolve-sessions";
 
@@ -78,10 +78,8 @@ function gitConfigValue(key: string, cwd: string): string | null {
 function getBranchData(): {
   branches: BranchData[];
   diag: DiagnosticInfo;
-  mainServerUrl: string;
 } {
   const cwd = process.cwd();
-  const port = process.env.PORT ?? "3000";
 
   const gitVersion = runGit(["--version"], cwd);
   const branchList = runGit(["branch", "--format=%(refname:short)"], cwd);
@@ -126,8 +124,7 @@ function getBranchData(): {
     return a.name.localeCompare(b.name);
   });
 
-  const mainServerUrl = `http://localhost:${port}`;
-  return { branches, diag, mainServerUrl };
+  return { branches, diag };
 }
 
 // ─── Tree builder ───────────────────────────────────────────────────────────────
@@ -184,13 +181,13 @@ function BranchRow({
   depth,
   linePrefix,
   isLast,
-  mainServerUrl,
+  currentServerUrl,
 }: {
   node: BranchNode;
   depth: number;
   linePrefix: string;
   isLast: boolean;
-  mainServerUrl: string;
+  currentServerUrl: string;
 }) {
   const isRoot = depth === 0;
   const connector = isRoot ? "" : isLast ? "└── " : "├── ";
@@ -198,8 +195,9 @@ function BranchRow({
     ? ""
     : linePrefix + (isLast ? "    " : "│   ");
 
-  const isMain = node.name === "main";
-  const url = isMain ? mainServerUrl : node.previewUrl;
+  // This server instance only knows about sessions it spawned (its own children).
+  // The current branch of this server is shown with the server's own URL.
+  const url = node.isCurrent ? currentServerUrl : node.previewUrl;
   const statusColor = node.sessionStatus
     ? (STATUS_COLOR[node.sessionStatus] ?? "text-gray-400")
     : "";
@@ -224,7 +222,7 @@ function BranchRow({
             <span className="text-gray-500 font-normal ml-1">(current)</span>
           )}
         </span>
-        {statusLabel && !isMain && (
+        {statusLabel && !node.isCurrent && (
           <span className={`text-xs shrink-0 ${statusColor}`}>
             [{statusLabel}]
           </span>
@@ -232,7 +230,7 @@ function BranchRow({
         {url && (
           <a
             href={url}
-            target={isMain ? "_self" : "_blank"}
+            target={node.isCurrent ? "_self" : "_blank"}
             rel="noopener noreferrer"
             className="text-blue-400 hover:text-blue-300 text-xs ml-1 shrink-0"
           >
@@ -247,7 +245,7 @@ function BranchRow({
           depth={depth + 1}
           linePrefix={childLinePrefix}
           isLast={i === node.children.length - 1}
-          mainServerUrl={mainServerUrl}
+          currentServerUrl={currentServerUrl}
         />
       ))}
     </>
@@ -297,7 +295,7 @@ function GitResultRow({
 
 // ─── Page ───────────────────────────────────────────────────────────────────────
 
-export default function BranchesPage() {
+export default async function BranchesPage() {
   if (process.env.NODE_ENV !== "development") {
     return (
       <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-screen">
@@ -308,18 +306,23 @@ export default function BranchesPage() {
     );
   }
 
-  const { branches, diag, mainServerUrl } = getBranchData();
+  const { branches, diag } = getBranchData();
   const tree = buildTree(branches);
+
+  // Compute the public-facing URL for this server instance using forwarded headers,
+  // matching the pattern used in app/api/auth/exe-dev/route.ts (getPublicOrigin).
+  // When running behind exe.dev's proxy, x-forwarded-proto/host give the real URL.
+  // Falls back to http://localhost:PORT for plain local dev.
+  const headerStore = await headers();
+  const proto = headerStore.get("x-forwarded-proto") ?? "http";
+  const host =
+    headerStore.get("x-forwarded-host") ??
+    headerStore.get("host") ??
+    `localhost:${process.env.PORT ?? "3000"}`;
+  const currentServerUrl = `${proto}://${host}`;
 
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-screen">
-      {/* Auto-refresh every 3 seconds (dev tool, no client component needed) */}
-      {/* eslint-disable-next-line @next/next/no-sync-scripts */}
-      <script
-        dangerouslySetInnerHTML={{
-          __html: "setTimeout(()=>location.reload(),3000)",
-        }}
-      />
 
       {/* Header */}
       <header className="flex items-center justify-between mb-8 flex-shrink-0">
@@ -356,7 +359,7 @@ export default function BranchesPage() {
               depth={0}
               linePrefix=""
               isLast={i === tree.length - 1}
-              mainServerUrl={mainServerUrl}
+              currentServerUrl={currentServerUrl}
             />
           ))}
         </div>
@@ -365,13 +368,13 @@ export default function BranchesPage() {
       {/* Legend */}
       <div className="mt-8 border-t border-gray-800 pt-4 text-xs text-gray-600 font-mono space-y-1">
         <p>● green = preview server active · ● dim = no active session</p>
-        <p>Refreshes every 3 s · Development mode only</p>
+        <p>Development mode only</p>
       </div>
 
       {/* Diagnostics — always visible to help debug empty/unexpected output */}
       <details className="mt-6 text-xs font-mono open:ring-1 open:ring-gray-800 open:rounded open:p-3">
         <summary className="text-gray-600 cursor-pointer hover:text-gray-400 select-none py-1">
-          ▶ Diagnostics ({branches.length} branch
+          Diagnostics ({branches.length} branch
           {branches.length === 1 ? "" : "es"} found,{" "}
           {diag.activeSessions} active session
           {diag.activeSessions === 1 ? "" : "s"})

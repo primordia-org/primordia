@@ -116,8 +116,14 @@ export async function POST(request: Request) {
 
   sessions.set(sessionId, session);
 
+  // Determine the public hostname for preview URLs. When running behind exe.dev's
+  // reverse proxy, x-forwarded-host contains the real hostname (e.g. myserver.exe.xyz).
+  // Strip any port that may be included in the header value.
+  const fwdHost = request.headers.get("x-forwarded-host");
+  const publicHostname = fwdHost ? fwdHost.split(":")[0] : "localhost";
+
   // Fire-and-forget — run async so POST returns immediately with the session ID.
-  startLocalEvolve(session, body.request, repoRoot).catch((err) => {
+  startLocalEvolve(session, body.request, repoRoot, publicHostname).catch((err) => {
     session.status = 'error';
     const msg = err instanceof Error ? err.message : String(err);
     // Include the cause chain if present (e.g. the original SDK process-exit error
