@@ -52,9 +52,10 @@ export async function POST() {
         }
 
         // Parse branch names — strip leading whitespace and the "* " current-branch marker
+        // or the "+ " worktree marker (git uses "+" for branches checked out in another worktree)
         const candidates = mergedResult.stdout
           .split('\n')
-          .map((line) => line.replace(/^\*?\s+/, '').trim())
+          .map((line) => line.replace(/^[*+]?\s+/, '').trim())
           .filter(Boolean)
           .filter((name) => name !== 'main');
 
