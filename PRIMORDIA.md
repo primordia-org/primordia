@@ -28,7 +28,7 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 | AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Streaming chat via `claude-sonnet-4-6` |
 | Hosting | exe.dev | Remote dev servers via `bun run dev`; no build step required |
 | AI code gen | `@anthropic-ai/claude-agent-sdk` | `query()` runs Claude Code in git worktrees for evolve requests |
-| Database | bun:sqlite | Local SQLite for passkey auth; same adapter on exe.dev and local dev |
+| Database | bun:sqlite | Local SQLite for passkey auth **and evolve session persistence**; same adapter on exe.dev and local dev |
 
 ### File Map
 
@@ -57,11 +57,11 @@ primordia/
 │   ├── generated/
 │   │   └── system-prompt.ts      ← Build artifact (gitignored); static chat system prompt with PRIMORDIA.md + last 30 changelog filenames baked in
 │   ├── auth.ts                    ← Session helpers: createSession, getSessionUser
-│   ├── local-evolve-sessions.ts  ← Shared session state + business logic for local evolve
+│   ├── local-evolve-sessions.ts  ← Shared session state + business logic for local evolve; persists to SQLite
 │   └── db/
 │       ├── index.ts               ← Factory: getDb() → SQLite (always)
-│       ├── types.ts               ← Shared DB types: User, Passkey, Challenge, Session, CrossDeviceToken
-│       └── sqlite.ts              ← bun:sqlite adapter
+│       ├── types.ts               ← Shared DB types: User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession
+│       └── sqlite.ts              ← bun:sqlite adapter (includes evolve_sessions table)
 │
 ├── app/                           ← Next.js App Router
 │   ├── layout.tsx                 ← Root layout (font, metadata, body styling)
@@ -72,7 +72,10 @@ primordia/
 │   ├── changelog/
 │   │   └── page.tsx               ← Server component: renders auto-generated changelog
 │   ├── evolve/
-│   │   └── page.tsx               ← Dedicated "propose a change" page; renders <EvolveForm>
+│   │   ├── page.tsx               ← Dedicated "propose a change" page; renders <EvolveForm>
+│   │   └── session/
+│   │       └── [id]/
+│   │           └── page.tsx       ← Session-tracking page; reads from SQLite, renders <EvolveSessionView>
 │   ├── login/
 │   │   ├── page.tsx               ← Passkey login/register page + QR cross-device tab
 │   │   └── approve/
@@ -112,7 +115,8 @@ primordia/
 ├── components/
 │   ├── AcceptRejectBar.tsx        ← Accept/reject bar for local preview worktrees
 │   ├── ChatInterface.tsx          ← Main chat UI (chat only); Edit icon button links to /evolve
-│   ├── EvolveForm.tsx             ← "Submit a request" form; handles local evolve flow
+│   ├── EvolveForm.tsx             ← "Submit a request" form; POSTs then redirects to /evolve/session/{id}
+│   ├── EvolveSessionView.tsx      ← Client component for session tracking page; polls for live progress
 │   ├── GitSyncDialog.tsx          ← Modal: git pull + push via /api/git-sync
 │   └── NavHeader.tsx              ← Shared nav header (title, branch name, nav links)
 ```
@@ -130,20 +134,27 @@ User types message
 
 #### Evolve Request (local dev and exe.dev — NODE_ENV=development)
 ```
-User types change request in evolve mode
+User types change request on /evolve page
   → POST /api/evolve/local
-  → git worktree add ../primordia-worktrees/{slug}-{mnemonicId} -b {slug}-{mnemonicId}
-  → symlink node_modules + .env.local into worktree
+      → generates slug via Claude Haiku; finds unique branch name
+      → creates LocalSession in memory (id, branch, worktreePath, request, createdAt, …)
+      → persists EvolveSession record to SQLite (evolve_sessions table)
+      → returns { sessionId }
+  → browser redirects to /evolve/session/{sessionId}
+  → server component reads initial state from SQLite, renders EvolveSessionView
+  → git worktree add ../primordia-worktrees/{slug} -b {slug}
+  → bun install in worktree
+  → copy .primordia-auth.db + symlink .env.local into worktree
   → @anthropic-ai/claude-agent-sdk query() in worktree
-      → streams SDKMessage events → formatted progressText
-      → text blocks + tool_use blocks appended as markdown
-  → spawn: bun run dev (PORT=next available ≥ 3001) in worktree
-  → UI polls /api/evolve/local?sessionId=... for status + progressText
-      → rendered as "**Local Evolve Progress**:\n\n{progressText}"
-  → Preview link shown in chat when Next.js prints "Ready"
+      → streams SDKMessage events → formatted progressText appended in memory
+      → progressText flushed to SQLite (throttled, ≤1 write/2s per session)
+  → spawn: bun run dev in worktree; Next.js picks its own port
+  → EvolveSessionView polls /api/evolve/local?sessionId=... every 5s
+      → GET returns from in-memory map (active) or SQLite (completed/restarted)
+  → Preview link shown when status becomes "ready"
   → User clicks Accept → POST /api/evolve/local/manage { action: "accept" }
-      → git merge preview-{ts} --no-ff
-      → kill dev server, git worktree remove, git branch -d
+      → git merge {branch} --no-ff
+      → kill dev server, git worktree remove, git branch -D
   → User clicks Reject → POST /api/evolve/local/manage { action: "reject" }
       → kill dev server, git worktree remove, git branch -D
 ```

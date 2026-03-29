@@ -1,12 +1,12 @@
 // lib/local-evolve-sessions.ts
-// Shared in-memory state for the local evolve flow.
-// Module-level singleton — shared across all API routes within the same
-// Next.js dev server process. Only used when NODE_ENV=development.
+// Helpers for the local evolve flow.
+// Only used when NODE_ENV=development.
 
 import { query, type HookCallback, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import { getDb } from './db';
 
 export type LocalSessionStatus =
   | 'starting'
@@ -25,12 +25,11 @@ export interface LocalSession {
   progressText: string;
   port: number | null;
   previewUrl: string | null;
-  /** Spawned dev server process. Null when not running or after cleanup. */
-  devServerProcess: ChildProcess | null;
+  /** The original change request text submitted by the user. */
+  request: string;
+  /** Unix timestamp (ms) when the session was created. */
+  createdAt: number;
 }
-
-/** All active local evolve sessions, keyed by session ID. */
-export const sessions = new Map<string, LocalSession>();
 
 // ─── Progress logging ─────────────────────────────────────────────────────────
 
@@ -170,264 +169,325 @@ export async function startLocalEvolve(
    *  when running behind a reverse proxy (e.g. exe.dev). Defaults to "localhost". */
   publicHostname: string = "localhost",
 ): Promise<void> {
-  // Step 1 — Create a new git worktree on a fresh branch
-  appendProgress(session, `- [ ] Creating worktree \`${session.branch}\`…\n`);
+  const db = await getDb();
 
-  // Record the current branch so the preview instance can merge back into it.
-  const parentBranchResult = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot);
-  const parentBranch = parentBranchResult.stdout.trim() || 'main';
-
-  const wtResult = await runGit(
-    ['worktree', 'add', session.worktreePath, '-b', session.branch],
-    repoRoot,
-  );
-  if (wtResult.code !== 0) {
-    throw new Error(`git worktree add failed:\n${wtResult.stderr}`);
-  }
-
-  // Store parent branch in git config so the preview's manage endpoint can find it.
-  await runGit(['config', `branch.${session.branch}.parent`, parentBranch], repoRoot);
-
-  // Mark done by replacing the pending item
-  session.progressText = session.progressText.replace(
-    `- [ ] Creating worktree \`${session.branch}\`…`,
-    `- [x] Worktree created on branch \`${session.branch}\``,
-  );
-
-  // Step 2 — Run bun install in the worktree.
-  // Bun is fast enough that a full install is preferable to a shared symlink,
-  // which can cause subtle dependency issues when the worktree diverges.
-  appendProgress(session, `- [ ] Running \`bun install\`…\n`);
-  await new Promise<void>((resolve, reject) => {
-    const proc = spawn('bun', ['install'], {
-      cwd: session.worktreePath,
-      stdio: ['ignore', 'pipe', 'pipe'],
+  /** Write the current session state to SQLite. */
+  const persist = () =>
+    db.updateEvolveSession(session.id, {
+      status: session.status,
+      progressText: session.progressText,
+      port: session.port,
+      previewUrl: session.previewUrl,
     });
-    proc.on('close', (code) => {
-      if (code === 0) {
-        session.progressText = session.progressText.replace(
-          '- [ ] Running `bun install`…',
-          '- [x] `bun install` complete',
-        );
-        resolve();
-      } else {
-        reject(new Error(`bun install failed with exit code ${code}`));
-      }
-    });
-    proc.on('error', (err) => reject(new Error(`bun install spawn failed: ${err.message}`)));
-  });
 
-  // Step 3 — Copy the SQLite database into the worktree so each branch gets
-  // its own isolated data snapshot — analogous to Neon's database branching.
-  // We copy rather than symlink so changes in the preview don't affect the
-  // main dev instance's auth/session data.
-  const dbName = '.primordia-auth.db';
-  const srcDb = path.join(repoRoot, dbName);
-  const dstDb = path.join(session.worktreePath, dbName);
-  if (fs.existsSync(srcDb) && !fs.existsSync(dstDb)) {
-    fs.copyFileSync(srcDb, dstDb);
-    // Copy WAL and SHM files too if the database is in WAL mode
-    for (const ext of ['-shm', '-wal']) {
-      const srcExtra = srcDb + ext;
-      if (fs.existsSync(srcExtra)) {
-        fs.copyFileSync(srcExtra, dstDb + ext);
-      }
-    }
-    appendProgress(session, `- [x] Copied \`${dbName}\` (isolated data branch)\n`);
-  }
-
-  // Step 4 — Symlink .env.local so the preview server has the same credentials
-  const srcEnv = path.join(repoRoot, '.env.local');
-  const dstEnv = path.join(session.worktreePath, '.env.local');
-  if (fs.existsSync(srcEnv) && !fs.existsSync(dstEnv)) {
-    fs.symlinkSync(srcEnv, dstEnv);
-    appendProgress(session, `- [x] Symlinked \`.env.local\`\n`);
-  }
-
-  // Step 5 — Run Claude Code via the Agent SDK
-  session.status = 'running-claude';
-  appendProgress(session, `\n### 🤖 Claude Code\n\n`);
-
-  const prompt =
-    `Read PRIMORDIA.md first for architecture context, then implement the following change:\n\n` +
-    `${taskRequest}\n\n` +
-    `After making changes:\n` +
-    `1. Create a new changelog file in the \`changelog/\` directory named \`YYYY-MM-DD-HH-MM-SS Description of change.md\` (UTC time, e.g. \`2026-03-16-21-00-00 Fix login bug.md\`). The filename is the short description; the file body is the full "what changed + why" detail in markdown. Do NOT add changelog entries to PRIMORDIA.md itself.\n` +
-    `2. Commit all changes with a descriptive message.`;
-
-  // Accumulate stderr lines so they can be surfaced if the process crashes.
-  const stderrLines: string[] = [];
-
-  const run = query({
-    prompt,
-    options: {
-      cwd: session.worktreePath,
-      permissionMode: 'bypassPermissions',
-      allowDangerouslySkipPermissions: true,
-      // Capture stderr from the Claude Code process. Claude Code writes
-      // diagnostic/crash information to stderr before exiting with a non-zero
-      // code, so capturing it gives much better error messages than just the
-      // exit code alone.
-      stderr: (data: string) => {
-        stderrLines.push(data.trimEnd());
-      },
-      // Enforce that Claude can only touch files inside the worktree. Without
-      // this, Claude Code could (and occasionally did) write directly into the
-      // main repo branch instead of the isolated preview worktree.
-      hooks: {
-        PreToolUse: [
-          {
-            matcher: 'Read|Write|Edit|Glob|Grep|Bash',
-            hooks: [makeWorktreeBoundaryHook(session.worktreePath, repoRoot)],
-          },
-        ],
-      },
-    },
-  });
+  // Holds the spawned dev-server process so the close/cleanup callback can
+  // reference it without exposing it on the session object.
+  let devServerProcess: ChildProcess | null = null;
 
   try {
-    for await (const message of run) {
-      if (message.type === 'assistant') {
-        for (const block of message.message.content) {
-          if (block.type === 'text' && block.text.trim()) {
-            // If the previous content ended a list (single trailing newline), add
-            // a blank line so the list renders correctly in markdown.
-            if (session.progressText.endsWith('\n') && !session.progressText.endsWith('\n\n')) {
-              appendProgress(session, '\n');
-            }
-            appendProgress(session, block.text.trimEnd() + '\n\n');
-          } else if (block.type === 'tool_use') {
-            const summary = summarizeToolUse(block.name, block.input as Record<string, unknown>, session.worktreePath);
-            appendProgress(session, `- 🔧 ${summary}\n`);
-          }
-        }
-      } else if (message.type === 'result') {
-        if (message.subtype !== 'success') {
-          // `errors` is populated by the SDK when subtype is e.g. error_during_execution.
-          const sdkErrors = (message as { errors?: string[] }).errors ?? [];
-          const stderrStr = stderrLines.join('\n').trim();
-          const details = [
-            sdkErrors.filter(Boolean).join('\n'),
-            stderrStr,
-          ].filter(Boolean).join('\n');
-          throw new Error(
-            `Claude Code run ended with: ${message.subtype}` +
-            (details ? `\n\nDetails:\n${details}` : ''),
+    // Step 1 — Create a new git worktree on a fresh branch
+    appendProgress(session, `- [ ] Creating worktree \`${session.branch}\`…\n`);
+
+    // Record the current branch so the preview instance can merge back into it.
+    const parentBranchResult = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot);
+    const parentBranch = parentBranchResult.stdout.trim() || 'main';
+
+    const wtResult = await runGit(
+      ['worktree', 'add', session.worktreePath, '-b', session.branch],
+      repoRoot,
+    );
+    if (wtResult.code !== 0) {
+      throw new Error(`git worktree add failed:\n${wtResult.stderr}`);
+    }
+
+    // Store parent branch in git config so the preview's manage endpoint can find it.
+    await runGit(['config', `branch.${session.branch}.parent`, parentBranch], repoRoot);
+
+    // Mark done by replacing the pending item
+    session.progressText = session.progressText.replace(
+      `- [ ] Creating worktree \`${session.branch}\`…`,
+      `- [x] Worktree created on branch \`${session.branch}\``,
+    );
+    await persist();
+
+    // Step 2 — Run bun install in the worktree.
+    // Bun is fast enough that a full install is preferable to a shared symlink,
+    // which can cause subtle dependency issues when the worktree diverges.
+    appendProgress(session, `- [ ] Running \`bun install\`…\n`);
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn('bun', ['install'], {
+        cwd: session.worktreePath,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      proc.on('close', (code) => {
+        if (code === 0) {
+          session.progressText = session.progressText.replace(
+            '- [ ] Running `bun install`…',
+            '- [x] `bun install` complete',
           );
+          void persist();
+          resolve();
+        } else {
+          reject(new Error(`bun install failed with exit code ${code}`));
         }
-      }
-    }
-  } catch (err) {
-    // If this is a process-level failure (e.g. "Claude Code process exited with code 1")
-    // rather than the structured error we threw above, enrich it with any captured stderr.
-    const stderrStr = stderrLines.join('\n').trim();
-    if (
-      stderrStr &&
-      err instanceof Error &&
-      !err.message.includes('Details:') // not our own structured error
-    ) {
-      throw new Error(`${err.message}\n\nStderr:\n${stderrStr}`, { cause: err });
-    }
-    throw err;
-  }
-
-  appendProgress(session, `\n✅ **Claude Code finished.**\n`);
-
-  // Step 5 — Start Next.js dev server and detect the port from its output.
-  // We let Next.js pick its own port (defaulting to 3000, or the next available
-  // port if 3000 is busy) rather than pre-finding a free port ourselves. This
-  // avoids a race condition between our port check and Next.js binding. We parse
-  // two possible output patterns to discover which port was chosen:
-  //   "- Local:        http://localhost:3002"
-  //   "⚠ Port 3000 is in use by process 85352, using available port 3002 instead."
-  session.status = 'starting-server';
-  appendProgress(session, `\n### 🚀 Starting preview server…\n\n`);
-
-  await new Promise<void>((resolve, reject) => {
-    // omit the PORT env var so Next.js can pick an available port
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { PORT, ...envWithoutPort } = process.env;
-    const proc = spawn('bun', ['run', 'dev'], {
-      cwd: session.worktreePath,
-      env: envWithoutPort,
-      // detached=true creates a new process group so we can kill the entire tree
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      proc.on('error', (err) => reject(new Error(`bun install spawn failed: ${err.message}`)));
     });
-    // unref so this child doesn't prevent the parent event loop from exiting
-    proc.unref();
-    session.devServerProcess = proc;
 
-    const onData = (d: Buffer) => {
-      const text = d.toString();
-      appendProgress(session, text);
-
-      // Parse the port from Next.js output if not yet known.
-      if (session.port === null) {
-        const portMatch =
-          text.match(/localhost:(\d+)/) ??
-          text.match(/using available port (\d+) instead/i);
-        if (portMatch) {
-          session.port = parseInt(portMatch[1], 10);
+    // Step 3 — Copy the SQLite database into the worktree so each branch gets
+    // its own isolated data snapshot — analogous to Neon's database branching.
+    // We copy rather than symlink so changes in the preview don't affect the
+    // main dev instance's auth/session data.
+    const dbName = '.primordia-auth.db';
+    const srcDb = path.join(repoRoot, dbName);
+    const dstDb = path.join(session.worktreePath, dbName);
+    if (fs.existsSync(srcDb) && !fs.existsSync(dstDb)) {
+      fs.copyFileSync(srcDb, dstDb);
+      // Copy WAL and SHM files too if the database is in WAL mode
+      for (const ext of ['-shm', '-wal']) {
+        const srcExtra = srcDb + ext;
+        if (fs.existsSync(srcExtra)) {
+          fs.copyFileSync(srcExtra, dstDb + ext);
         }
       }
 
-      // Next.js 15 prints "Ready" when the dev server is up
-      if (!session.previewUrl && session.port !== null && text.includes('Ready')) {
-        session.previewUrl = `http://${publicHostname}:${session.port}`;
-        session.status = 'ready';
-        resolve();
-      }
-    };
-
-    proc.stdout?.on('data', onData);
-    proc.stderr?.on('data', onData);
-    proc.on('error', (err) => reject(new Error(`Dev server spawn failed: ${err.message}`)));
-    proc.on('close', (code) => {
-      if (session.status !== 'ready') {
-        reject(new Error(`Dev server exited (code ${code ?? 'unknown'}) before becoming ready`));
-        return;
+      // Delete this session from the copied DB so the child worktree doesn't
+      // start with an incomplete in-progress session visible in its history.
+      // The copy was taken mid-session (after "creating worktree" and "bun install"
+      // were already logged), so the row is confusing noise in the child instance.
+      try {
+        const { Database } = await import('bun:sqlite');
+        const childDb = new Database(dstDb);
+        childDb.prepare('DELETE FROM evolve_sessions WHERE id = ?').run(session.id);
+        childDb.close();
+      } catch {
+        // Non-fatal — the child worktree will just have a stale partial session.
       }
 
-      // The dev server has terminated after having been ready. This happens when
-      // the preview was accepted or rejected (manage/route.ts calls process.exit),
-      // when the server was killed manually, or when it crashed.
-      //
-      // Wait a few seconds for any in-flight git cleanup (worktree remove, branch
-      // delete) to complete, then check whether the branch still exists:
-      //   - Branch gone  → normal accept/reject flow; remove session from map.
-      //   - Branch exists → unexpected termination (crashed / killed manually);
-      //                     mark session as disconnected so the UI can inform the user.
-      setTimeout(() => {
-        void (async () => {
-          try {
-            session.devServerProcess = null;
-            const branchCheck = await runGit(['branch', '--list', session.branch], repoRoot);
-            if (branchCheck.stdout.trim() === '') {
-              // Branch was cleaned up → accept/reject completed normally.
-              sessions.delete(session.id);
-            } else {
-              // Branch still exists → server died unexpectedly.
-              session.status = 'disconnected';
+      appendProgress(session, `- [x] Copied \`${dbName}\` (isolated data branch)\n`);
+    }
+
+    // Step 4 — Symlink .env.local so the preview server has the same credentials
+    const srcEnv = path.join(repoRoot, '.env.local');
+    const dstEnv = path.join(session.worktreePath, '.env.local');
+    if (fs.existsSync(srcEnv) && !fs.existsSync(dstEnv)) {
+      fs.symlinkSync(srcEnv, dstEnv);
+      appendProgress(session, `- [x] Symlinked \`.env.local\`\n`);
+    }
+
+    // Step 5 — Run Claude Code via the Agent SDK
+    session.status = 'running-claude';
+    appendProgress(session, `\n### 🤖 Claude Code\n\n`);
+    await persist();
+
+    const prompt =
+      `Read PRIMORDIA.md first for architecture context, then implement the following change:\n\n` +
+      `${taskRequest}\n\n` +
+      `After making changes:\n` +
+      `1. Create a new changelog file in the \`changelog/\` directory named \`YYYY-MM-DD-HH-MM-SS Description of change.md\` (UTC time, e.g. \`2026-03-16-21-00-00 Fix login bug.md\`). The filename is the short description; the file body is the full "what changed + why" detail in markdown. Do NOT add changelog entries to PRIMORDIA.md itself.\n` +
+      `2. Commit all changes with a descriptive message.`;
+
+    // Accumulate stderr lines so they can be surfaced if the process crashes.
+    const stderrLines: string[] = [];
+
+    const run = query({
+      prompt,
+      options: {
+        cwd: session.worktreePath,
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+        // Capture stderr from the Claude Code process. Claude Code writes
+        // diagnostic/crash information to stderr before exiting with a non-zero
+        // code, so capturing it gives much better error messages than just the
+        // exit code alone.
+        stderr: (data: string) => {
+          stderrLines.push(data.trimEnd());
+        },
+        // Enforce that Claude can only touch files inside the worktree. Without
+        // this, Claude Code could (and occasionally did) write directly into the
+        // main repo branch instead of the isolated preview worktree.
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'Read|Write|Edit|Glob|Grep|Bash',
+              hooks: [makeWorktreeBoundaryHook(session.worktreePath, repoRoot)],
+            },
+          ],
+        },
+      },
+    });
+
+    try {
+      for await (const message of run) {
+        if (message.type === 'assistant') {
+          for (const block of message.message.content) {
+            if (block.type === 'text' && block.text.trim()) {
+              // If the previous content ended a list (single trailing newline), add
+              // a blank line so the list renders correctly in markdown.
+              if (session.progressText.endsWith('\n') && !session.progressText.endsWith('\n\n')) {
+                appendProgress(session, '\n');
+              }
+              appendProgress(session, block.text.trimEnd() + '\n\n');
+            } else if (block.type === 'tool_use') {
+              const summary = summarizeToolUse(block.name, block.input as Record<string, unknown>, session.worktreePath);
+              appendProgress(session, `- 🔧 ${summary}\n`);
             }
-          } catch {
-            // If git fails for any reason, fall back to marking disconnected.
-            session.status = 'disconnected';
-            session.devServerProcess = null;
           }
-        })();
-      }, 3_000);
+          // Write live progress to SQLite so the session page stays up to date.
+          await persist();
+        } else if (message.type === 'result') {
+          if (message.subtype !== 'success') {
+            // `errors` is populated by the SDK when subtype is e.g. error_during_execution.
+            const sdkErrors = (message as { errors?: string[] }).errors ?? [];
+            const stderrStr = stderrLines.join('\n').trim();
+            const details = [
+              sdkErrors.filter(Boolean).join('\n'),
+              stderrStr,
+            ].filter(Boolean).join('\n');
+            throw new Error(
+              `Claude Code run ended with: ${message.subtype}` +
+              (details ? `\n\nDetails:\n${details}` : ''),
+            );
+          }
+        }
+      }
+    } catch (err) {
+      // If this is a process-level failure (e.g. "Claude Code process exited with code 1")
+      // rather than the structured error we threw above, enrich it with any captured stderr.
+      const stderrStr = stderrLines.join('\n').trim();
+      if (
+        stderrStr &&
+        err instanceof Error &&
+        !err.message.includes('Details:') // not our own structured error
+      ) {
+        throw new Error(`${err.message}\n\nStderr:\n${stderrStr}`, { cause: err });
+      }
+      throw err;
+    }
+
+    appendProgress(session, `\n✅ **Claude Code finished.**\n`);
+    await persist();
+
+    // Step 6 — Start Next.js dev server and detect the port from its output.
+    // We let Next.js pick its own port (defaulting to 3000, or the next available
+    // port if 3000 is busy) rather than pre-finding a free port ourselves. This
+    // avoids a race condition between our port check and Next.js binding. We parse
+    // two possible output patterns to discover which port was chosen:
+    //   "- Local:        http://localhost:3002"
+    //   "⚠ Port 3000 is in use by process 85352, using available port 3002 instead."
+    session.status = 'starting-server';
+    appendProgress(session, `\n### 🚀 Starting preview server…\n\n`);
+    await persist();
+
+    await new Promise<void>((resolve, reject) => {
+      // omit the PORT env var so Next.js can pick an available port
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { PORT, ...envWithoutPort } = process.env;
+      const proc = spawn('bun', ['run', 'dev'], {
+        cwd: session.worktreePath,
+        env: envWithoutPort,
+        // detached=true creates a new process group so we can kill the entire tree
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      // unref so this child doesn't prevent the parent event loop from exiting
+      proc.unref();
+      devServerProcess = proc;
+
+      const onData = (d: Buffer) => {
+        const text = d.toString();
+        appendProgress(session, text);
+
+        // Parse the port from Next.js output if not yet known.
+        if (session.port === null) {
+          const portMatch =
+            text.match(/localhost:(\d+)/) ??
+            text.match(/using available port (\d+) instead/i);
+          if (portMatch) {
+            session.port = parseInt(portMatch[1], 10);
+          }
+        }
+
+        // Next.js 15 prints "Ready" when the dev server is up
+        if (!session.previewUrl && session.port !== null && text.includes('Ready')) {
+          session.previewUrl = `http://${publicHostname}:${session.port}`;
+          session.status = 'ready';
+          void persist();
+          resolve();
+        }
+      };
+
+      proc.stdout?.on('data', onData);
+      proc.stderr?.on('data', onData);
+      proc.on('error', (err) => reject(new Error(`Dev server spawn failed: ${err.message}`)));
+      proc.on('close', (code) => {
+        if (session.status !== 'ready') {
+          reject(new Error(`Dev server exited (code ${code ?? 'unknown'}) before becoming ready`));
+          return;
+        }
+
+        // The dev server has terminated after having been ready. This happens when
+        // the preview was accepted or rejected (manage/route.ts calls process.exit),
+        // when the server was killed manually, or when it crashed.
+        //
+        // Wait a few seconds for any in-flight git cleanup (worktree remove, branch
+        // delete) to complete, then check whether the branch still exists:
+        //   - Branch gone  → normal accept/reject flow; nothing to update.
+        //   - Branch exists → unexpected termination (crashed / killed manually);
+        //                     mark session as disconnected so the UI can inform the user.
+        setTimeout(() => {
+          void (async () => {
+            try {
+              devServerProcess = null;
+              const branchCheck = await runGit(['branch', '--list', session.branch], repoRoot);
+              if (branchCheck.stdout.trim() !== '') {
+                // Branch still exists → server died unexpectedly.
+                session.status = 'disconnected';
+                await persist().catch(() => {});
+              }
+              // Branch gone → accept/reject completed normally; no update needed.
+            } catch {
+              // If git fails for any reason, fall back to marking disconnected.
+              session.status = 'disconnected';
+              devServerProcess = null;
+            }
+          })();
+        }, 3_000);
+      });
+
+      // Safety timeout: 2 minutes
+      setTimeout(() => {
+        if (session.status !== 'ready') {
+          reject(new Error('Dev server startup timed out (2 min)'));
+        }
+      }, 120_000);
     });
 
-    // Safety timeout: 2 minutes
-    setTimeout(() => {
-      if (session.status !== 'ready') {
-        reject(new Error('Dev server startup timed out (2 min)'));
-      }
-    }, 120_000);
-  });
+    appendProgress(session, `\n✅ **Ready on port ${session.port}**\n`);
+    await persist();
 
-  appendProgress(session, `\n✅ **Ready on port ${session.port}**\n`);
+  } catch (err) {
+    // Write error state to SQLite so the session page shows the failure.
+    session.status = 'error';
+    const msg = err instanceof Error ? err.message : String(err);
+    const causeMsg =
+      err instanceof Error && err.cause instanceof Error
+        ? `\n\n*Caused by*: ${err.cause.message}`
+        : '';
+    appendProgress(session, `\n\n❌ **Error**: ${msg}${causeMsg}\n`);
+    await persist().catch(() => {});
+    // Kill the dev server process if it was spawned before the error.
+    if (devServerProcess && !devServerProcess.killed) {
+      try {
+        if (devServerProcess.pid !== undefined) {
+          process.kill(-devServerProcess.pid, 'SIGTERM');
+        }
+      } catch {
+        devServerProcess.kill('SIGTERM');
+      }
+      devServerProcess = null;
+    }
+  }
 }
 
 // ─── Auto conflict resolution ─────────────────────────────────────────────────
@@ -510,19 +570,3 @@ export async function resolveConflictsWithClaude(
   }
 }
 
-// ─── Kill dev server ──────────────────────────────────────────────────────────
-
-export function killDevServer(session: LocalSession): void {
-  const proc = session.devServerProcess;
-  if (!proc || proc.killed) return;
-  try {
-    // Kill the entire process group (bun + next + its child workers)
-    if (proc.pid !== undefined) {
-      process.kill(-proc.pid, 'SIGTERM');
-    }
-  } catch {
-    // Fallback: kill just the direct child
-    proc.kill('SIGTERM');
-  }
-  session.devServerProcess = null;
-}

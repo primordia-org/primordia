@@ -13,13 +13,12 @@
 import * as path from 'path';
 import Anthropic from '@anthropic-ai/sdk';
 import {
-  sessions,
   startLocalEvolve,
-  appendProgress,
   runGit,
   type LocalSession,
 } from '../../../../lib/local-evolve-sessions';
 import { getSessionUser } from '../../../../lib/auth';
+import { getDb } from '../../../../lib/db';
 
 /** Ask Claude to choose a short, descriptive kebab-case slug for the request.
  *  Falls back to the first-4-words approach if the API call fails. */
@@ -111,10 +110,23 @@ export async function POST(request: Request) {
     progressText: '',
     port: null,
     previewUrl: null,
-    devServerProcess: null,
+    request: body.request,
+    createdAt: Date.now(),
   };
 
-  sessions.set(sessionId, session);
+  // Persist to DB so the session page is reachable immediately after redirect.
+  const db = await getDb();
+  await db.createEvolveSession({
+    id: session.id,
+    branch: session.branch,
+    worktreePath: session.worktreePath,
+    status: session.status,
+    progressText: session.progressText,
+    port: session.port,
+    previewUrl: session.previewUrl,
+    request: session.request,
+    createdAt: session.createdAt,
+  });
 
   // Determine the public hostname for preview URLs. When running behind exe.dev's
   // reverse proxy, x-forwarded-host contains the real hostname (e.g. myserver.exe.xyz).
@@ -123,20 +135,8 @@ export async function POST(request: Request) {
   const publicHostname = fwdHost ? fwdHost.split(":")[0] : "localhost";
 
   // Fire-and-forget — run async so POST returns immediately with the session ID.
-  startLocalEvolve(session, body.request, repoRoot, publicHostname).catch((err) => {
-    session.status = 'error';
-    const msg = err instanceof Error ? err.message : String(err);
-    // Include the cause chain if present (e.g. the original SDK process-exit error
-    // when we've wrapped it with additional stderr context).
-    const causeMsg =
-      err instanceof Error && err.cause instanceof Error
-        ? `\n\n*Caused by*: ${err.cause.message}`
-        : '';
-    appendProgress(
-      session,
-      `\n\n❌ **Error**: ${msg}${causeMsg}\n`,
-    );
-  });
+  // startLocalEvolve handles all error states internally and writes them to SQLite.
+  void startLocalEvolve(session, body.request, repoRoot, publicHostname);
 
   return Response.json({ sessionId });
 }
@@ -159,16 +159,21 @@ export async function GET(request: Request) {
     return Response.json({ error: 'sessionId query param required' }, { status: 400 });
   }
 
-  const session = sessions.get(sessionId);
-  if (!session) {
+  try {
+    const db = await getDb();
+    const session = await db.getEvolveSession(sessionId);
+    if (!session) {
+      return Response.json({ error: 'Session not found' }, { status: 404 });
+    }
+    return Response.json({
+      status: session.status,
+      progressText: session.progressText,
+      port: session.port,
+      previewUrl: session.previewUrl,
+      branch: session.branch,
+      request: session.request,
+    });
+  } catch {
     return Response.json({ error: 'Session not found' }, { status: 404 });
   }
-
-  return Response.json({
-    status: session.status,
-    progressText: session.progressText,
-    port: session.port,
-    previewUrl: session.previewUrl,
-    branch: session.branch,
-  });
 }

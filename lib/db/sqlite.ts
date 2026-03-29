@@ -2,7 +2,7 @@
 // Uses bun:sqlite which is built into Bun and requires no npm package.
 // Only imported when DATABASE_URL is not set (i.e., local dev without Neon).
 
-import type { DbAdapter, User, Passkey, Challenge, Session, CrossDeviceToken } from "./types";
+import type { DbAdapter, User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession } from "./types";
 
 let dbInstance: DbAdapter | null = null;
 
@@ -51,6 +51,17 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       status TEXT NOT NULL DEFAULT 'pending',
       user_id TEXT,
       expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS evolve_sessions (
+      id TEXT PRIMARY KEY,
+      branch TEXT NOT NULL,
+      worktree_path TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'starting',
+      progress_text TEXT NOT NULL DEFAULT '',
+      port INTEGER,
+      preview_url TEXT,
+      request TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL
     );
   `);
 
@@ -244,6 +255,84 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       db.prepare(
         "DELETE FROM cross_device_tokens WHERE expires_at < ?"
       ).run(Date.now());
+    },
+
+    // ── Evolve sessions ──────────────────────────────────────────────────────
+
+    async createEvolveSession(session: EvolveSession) {
+      db.prepare(
+        `INSERT INTO evolve_sessions
+           (id, branch, worktree_path, status, progress_text, port, preview_url, request, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        session.id,
+        session.branch,
+        session.worktreePath,
+        session.status,
+        session.progressText,
+        session.port ?? null,
+        session.previewUrl ?? null,
+        session.request,
+        session.createdAt,
+      );
+    },
+
+    async updateEvolveSession(
+      id: string,
+      updates: Partial<Pick<EvolveSession, "status" | "progressText" | "port" | "previewUrl">>,
+    ) {
+      const sets: string[] = [];
+      const values: unknown[] = [];
+      if (updates.status !== undefined)      { sets.push("status = ?");       values.push(updates.status); }
+      if (updates.progressText !== undefined) { sets.push("progress_text = ?"); values.push(updates.progressText); }
+      if (updates.port !== undefined)         { sets.push("port = ?");          values.push(updates.port); }
+      if (updates.previewUrl !== undefined)   { sets.push("preview_url = ?");   values.push(updates.previewUrl); }
+      if (sets.length === 0) return;
+      values.push(id);
+      db.prepare(`UPDATE evolve_sessions SET ${sets.join(", ")} WHERE id = ?`).run(...values);
+    },
+
+    async getEvolveSession(id: string) {
+      const r = db
+        .prepare("SELECT * FROM evolve_sessions WHERE id = ?")
+        .get(id) as {
+        id: string; branch: string; worktree_path: string; status: string;
+        progress_text: string; port: number | null; preview_url: string | null;
+        request: string; created_at: number;
+      } | null;
+      if (!r) return null;
+      return {
+        id: r.id,
+        branch: r.branch,
+        worktreePath: r.worktree_path,
+        status: r.status,
+        progressText: r.progress_text,
+        port: r.port,
+        previewUrl: r.preview_url,
+        request: r.request,
+        createdAt: r.created_at,
+      };
+    },
+
+    async listEvolveSessions(limit = 50) {
+      const rows = db
+        .prepare("SELECT * FROM evolve_sessions ORDER BY created_at DESC LIMIT ?")
+        .all(limit) as Array<{
+        id: string; branch: string; worktree_path: string; status: string;
+        progress_text: string; port: number | null; preview_url: string | null;
+        request: string; created_at: number;
+      }>;
+      return rows.map((r) => ({
+        id: r.id,
+        branch: r.branch,
+        worktreePath: r.worktree_path,
+        status: r.status,
+        progressText: r.progress_text,
+        port: r.port,
+        previewUrl: r.preview_url,
+        request: r.request,
+        createdAt: r.created_at,
+      }));
     },
   };
 

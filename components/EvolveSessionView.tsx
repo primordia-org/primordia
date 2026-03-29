@@ -1,17 +1,14 @@
 "use client";
 
-// components/EvolveForm.tsx
-// The "submit a request" form for Primordia's evolve pipeline.
-// Rendered at /evolve — a dedicated page, separate from the main chat interface.
-//
-// On submit: POSTs to /api/evolve/local, then redirects to /evolve/session/{id}
-// where live Claude Code progress is tracked.
+// components/EvolveSessionView.tsx
+// Client component rendered by /evolve/session/[id].
+// Polls /api/evolve/local?sessionId=... and displays live Claude Code progress.
 
-import { useState, useRef, useEffect, useCallback, FormEvent } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { GitSyncDialog } from "./GitSyncDialog";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { MarkdownContent } from "./SimpleMarkdown";
 import { NavHeader } from "./NavHeader";
+import { GitSyncDialog } from "./GitSyncDialog";
+import Link from "next/link";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,26 +17,47 @@ interface SessionUser {
   username: string;
 }
 
+interface EvolveSessionData {
+  status: "starting" | "running-claude" | "starting-server" | "ready" | "disconnected" | "error";
+  progressText: string;
+  port: number | null;
+  previewUrl: string | null;
+  branch: string;
+  request: string;
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
-interface EvolveFormProps {
+interface EvolveSessionViewProps {
+  sessionId: string;
+  initialRequest: string;
+  initialProgressText: string;
+  initialStatus: string;
+  initialPreviewUrl: string | null;
   branch?: string | null;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function EvolveForm({ branch }: EvolveFormProps = {}) {
-  const router = useRouter();
-  const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+export default function EvolveSessionView({
+  sessionId,
+  initialRequest,
+  initialProgressText,
+  initialStatus,
+  initialPreviewUrl,
+  branch,
+}: EvolveSessionViewProps) {
+  const [progressText, setProgressText] = useState(initialProgressText);
+  const [status, setStatus] = useState(initialStatus);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl);
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  // Fetch session on mount
+  // Fetch session user on mount
   useEffect(() => {
     fetch("/api/auth/session")
       .then((res) => res.json())
@@ -65,59 +83,51 @@ export default function EvolveForm({ branch }: EvolveFormProps = {}) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [menuOpen, handleClickOutside]);
 
-  // Auto-resize textarea as the user types
+  // Auto-scroll to bottom as progress grows
   useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = "auto";
-    textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [input]);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [progressText]);
 
-  // ── Submit ───────────────────────────────────────────────────────────────────
+  // Cancel polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current !== null) clearInterval(pollingRef.current);
+    };
+  }, []);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    const trimmed = input.trim();
-    if (!trimmed || isLoading) return;
+  // Start polling if the session isn't already in a terminal state
+  useEffect(() => {
+    const terminal = ["ready", "error", "disconnected"];
+    if (terminal.includes(initialStatus)) return;
 
-    setIsLoading(true);
-    setError(null);
+    pollingRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/evolve/local?sessionId=${sessionId}`);
+        if (!res.ok) return;
 
-    try {
-      const res = await fetch("/api/evolve/local", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request: trimmed }),
-      });
+        const data = (await res.json()) as EvolveSessionData;
+        setProgressText(data.progressText || "⏳ Starting…");
+        setStatus(data.status);
+        if (data.previewUrl) setPreviewUrl(data.previewUrl);
 
-      const data = (await res.json()) as { sessionId?: string; error?: string };
-
-      if (!res.ok) {
-        throw new Error(data.error ?? `API error: ${res.statusText}`);
+        if (data.status === "ready" || data.status === "error" || data.status === "disconnected") {
+          clearInterval(pollingRef.current!);
+          pollingRef.current = null;
+        }
+      } catch {
+        // Silently ignore transient network errors
       }
+    }, 5_000);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]); // intentionally omit initialStatus — run once on mount
 
-      // Redirect to the dedicated session page for live progress tracking.
-      router.push(`/evolve/session/${data.sessionId}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
-      setIsLoading(false);
-    }
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e as unknown as FormEvent);
-    }
-  }
-
-  // ── Render ────────────────────────────────────────────────────────────────
+  const isTerminal = status === "ready" || status === "error" || status === "disconnected";
 
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
       {/* Header */}
       <header className="flex items-center justify-between mb-8 flex-shrink-0">
-        <NavHeader branch={branch} subtitle="Propose a change" />
+        <NavHeader branch={branch} subtitle="Session" />
         {/* Hamburger menu */}
         <div className="relative" ref={menuRef}>
           <button
@@ -180,6 +190,17 @@ export default function EvolveForm({ branch }: EvolveFormProps = {}) {
                   Log in
                 </Link>
               )}
+              {/* New evolve request */}
+              <Link
+                href="/evolve"
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-amber-400 hover:bg-gray-800 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 5v14M5 12h14"/>
+                </svg>
+                New request
+              </Link>
               {/* Go to chat */}
               <Link
                 href="/chat"
@@ -213,44 +234,59 @@ export default function EvolveForm({ branch }: EvolveFormProps = {}) {
         )}
       </header>
 
-      {/* Description banner */}
-      <div className="mb-6 px-4 py-3 rounded-lg bg-amber-900/40 border border-amber-700/50 text-amber-300 text-sm">
-        <strong className="font-semibold">Evolve Primordia</strong> —{" "}
-        Describe a change you want to make to this app.
+      {/* Original request */}
+      <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm">
+        <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Your request</p>
+        <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{initialRequest}</p>
       </div>
 
-      {/* Error message */}
-      {error && (
-        <div className="mb-4 px-4 py-3 rounded-lg bg-red-900/40 border border-red-700/50 text-red-300 text-sm">
-          ❌ {error}
+      {/* Progress */}
+      <div className="flex-1 mb-6">
+        <div className="px-4 py-3 rounded-lg bg-gray-800 text-gray-100 text-sm leading-relaxed">
+          <MarkdownContent text={`**Local Evolve Progress**:\n\n${progressText || "⏳ Starting…"}`} />
+        </div>
+
+        {/* Spinner when still running */}
+        {!isTerminal && (
+          <div className="mt-3 text-sm text-gray-500 animate-pulse">Running…</div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Preview link (ready state) */}
+      {status === "ready" && previewUrl && (
+        <div className="mb-6 px-4 py-4 rounded-lg bg-amber-900/40 border border-amber-700/50 text-sm">
+          <p className="text-amber-300 font-semibold mb-1">🚀 Preview ready</p>
+          <a
+            href={previewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-amber-400 hover:text-amber-200 underline break-all"
+          >
+            {previewUrl}
+          </a>
+          <p className="text-amber-400/70 text-xs mt-2">
+            Open the preview link and use the <strong>Accept</strong> or <strong>Reject</strong> bar
+            there to apply or discard the changes.
+          </p>
         </div>
       )}
 
-      {/* Input form */}
-      <form
-        onSubmit={handleSubmit}
-        className="flex flex-col gap-3 border border-gray-800 rounded-xl bg-gray-900 p-4"
-      >
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Describe the change you want to make to this app…"
-          rows={4}
-          disabled={isLoading}
-          className="resize-none bg-transparent text-sm text-gray-100 placeholder-gray-600 outline-none max-h-64 leading-relaxed"
-        />
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={isLoading || !input.trim()}
-            className="px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white disabled:cursor-not-allowed"
-          >
-            {isLoading ? "Submitting…" : "Submit Request"}
-          </button>
+      {/* Disconnected notice */}
+      {status === "disconnected" && (
+        <div className="mb-6 px-4 py-3 rounded-lg bg-yellow-900/40 border border-yellow-700/50 text-yellow-300 text-sm">
+          ⚠️ The preview server disconnected unexpectedly. The branch still exists — you can
+          restart the dev server manually.
         </div>
-      </form>
+      )}
+
+      {/* Footer actions */}
+      <div className="flex gap-4">
+        <Link href="/evolve" className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
+          ← Submit another request
+        </Link>
+      </div>
     </main>
   );
 }
