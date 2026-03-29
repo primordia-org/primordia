@@ -12,6 +12,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { sessions } from "@/lib/local-evolve-sessions";
 import { PageNavBar } from "@/components/PageNavBar";
+import { PruneBranchesButton } from "@/components/PruneBranchesButton";
 import { buildPageTitle } from "@/lib/page-title";
 import { getSessionUser } from "@/lib/auth";
 
@@ -337,6 +338,11 @@ export default async function BranchesPage() {
 
       {/* Header — session resolved server-side so the hamburger is instant */}
       <PageNavBar subtitle="Local Branches" currentPage="branches" initialSession={sessionUser} />
+
+      {/* Actions row */}
+      <div className="flex items-center gap-2 mt-3 mb-4">
+        <PruneBranchesButton />
+      </div>
 
       {/* Branch tree or empty state */}
       {tree.length === 0 ? (
