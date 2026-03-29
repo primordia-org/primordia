@@ -1,7 +1,7 @@
 // components/NavHeader.tsx
 // Shared nav header used by /chat, /evolve, /changelog, and /branches pages.
-// Displays the "Primordia" title (linked to /), optional PR link (Vercel
-// preview deployments), the current git branch name, and nav links.
+// Displays the "Primordia" title (linked to /), the current git branch name,
+// and nav links.
 
 import Link from "next/link";
 
@@ -28,17 +28,6 @@ export function NavHeader({
         <Link href="/" className="text-white no-underline hover:text-gray-300">
           Primordia
         </Link>
-        {process.env.VERCEL_ENV === "preview" &&
-          process.env.VERCEL_GIT_PULL_REQUEST_ID && (
-            <a
-              href={`https://github.com/${process.env.VERCEL_GIT_REPO_OWNER}/${process.env.VERCEL_GIT_REPO_SLUG}/pull/${process.env.VERCEL_GIT_PULL_REQUEST_ID}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm font-normal text-blue-400 hover:text-blue-300"
-            >
-              #{process.env.VERCEL_GIT_PULL_REQUEST_ID}
-            </a>
-          )}
         {branch && (
           <span className="text-sm font-normal text-gray-400 w-full sm:w-auto">
             ({branch})

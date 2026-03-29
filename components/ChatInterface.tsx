@@ -92,8 +92,6 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
   });
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  // Stores deploy preview context string; injected into the system prompt for chat.
-  const [deployContext, setDeployContext] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Holds the active polling interval so we can cancel it on unmount.
@@ -154,28 +152,6 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
       });
   }, []);
 
-  // On preview deployments, fetch PR + issue context and inject it into the chat
-  // so the assistant (and the user) know this is a work-in-progress build.
-  useEffect(() => {
-    if (process.env.VERCEL_ENV !== "preview") return;
-
-    fetch("/api/deploy-context")
-      .then((res) => res.json())
-      .then((data: { context: string | null }) => {
-        if (!data.context) return;
-        setDeployContext(data.context);
-        // Prepend a visible system message so the context is front-and-centre.
-        // Show only a brief notice; the full PR/issue context is sent to Claude via systemContext.
-        setMessages((prev) => [
-          { role: "system" as const, content: "⚠️ This is a **deploy preview** — a work-in-progress build, not the production app." },
-          ...prev,
-        ]);
-      })
-      .catch(() => {
-        // Non-critical — silently ignore network errors
-      });
-  }, []);
-
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   async function handleSubmit(e: FormEvent) {
@@ -210,7 +186,6 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: newMessages.filter((m) => m.role !== "system"),
-          systemContext: deployContext ?? undefined,
         }),
       });
 

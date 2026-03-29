@@ -54,8 +54,7 @@ export default async function ChatPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
 
-  const branch =
-    process.env.VERCEL_GIT_COMMIT_REF ?? runGit("git branch --show-current");
+  const branch = runGit("git branch --show-current");
 
   const commitMessage = getMostRecentChangelogEntry();
 
