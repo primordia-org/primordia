@@ -490,6 +490,120 @@ export async function startLocalEvolve(
   }
 }
 
+// ─── Follow-up request ────────────────────────────────────────────────────────
+
+/**
+ * Runs a follow-up Claude Code pass inside an existing worktree.
+ * The dev server keeps running; this function only re-invokes Claude and
+ * persists the result. Status transitions: ready → running-claude → ready | error.
+ */
+export async function runFollowupInWorktree(
+  session: LocalSession,
+  followupRequest: string,
+  repoRoot: string,
+): Promise<void> {
+  const db = await getDb();
+
+  const persist = () =>
+    db.updateEvolveSession(session.id, {
+      status: session.status,
+      progressText: session.progressText,
+      port: session.port,
+      previewUrl: session.previewUrl,
+    });
+
+  try {
+    appendProgress(
+      session,
+      `\n\n---\n\n### 🔄 Follow-up Request\n\n> ${followupRequest}\n\n### 🤖 Claude Code\n\n`,
+    );
+    session.status = 'running-claude';
+    await persist();
+
+    const prompt =
+      `Read PRIMORDIA.md first for architecture context, then address the following follow-up request:\n\n` +
+      `${followupRequest}\n\n` +
+      `This is a follow-up to changes already made on branch \`${session.branch}\`. Do NOT create a new changelog file. Instead, find the most recent changelog file in \`changelog/\` and update it if your changes invalidate or extend the existing description. Commit all changes with a descriptive message.`;
+
+    const stderrLines: string[] = [];
+
+    const run = query({
+      prompt,
+      options: {
+        cwd: session.worktreePath,
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+        stderr: (data: string) => {
+          stderrLines.push(data.trimEnd());
+        },
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'Read|Write|Edit|Glob|Grep|Bash',
+              hooks: [makeWorktreeBoundaryHook(session.worktreePath, repoRoot)],
+            },
+          ],
+        },
+      },
+    });
+
+    try {
+      for await (const message of run) {
+        if (message.type === 'assistant') {
+          for (const block of message.message.content) {
+            if (block.type === 'text' && block.text.trim()) {
+              if (session.progressText.endsWith('\n') && !session.progressText.endsWith('\n\n')) {
+                appendProgress(session, '\n');
+              }
+              appendProgress(session, block.text.trimEnd() + '\n\n');
+            } else if (block.type === 'tool_use') {
+              const summary = summarizeToolUse(block.name, block.input as Record<string, unknown>, session.worktreePath);
+              appendProgress(session, `- 🔧 ${summary}\n`);
+            }
+          }
+          await persist();
+        } else if (message.type === 'result') {
+          if (message.subtype !== 'success') {
+            const sdkErrors = (message as { errors?: string[] }).errors ?? [];
+            const stderrStr = stderrLines.join('\n').trim();
+            const details = [
+              sdkErrors.filter(Boolean).join('\n'),
+              stderrStr,
+            ].filter(Boolean).join('\n');
+            throw new Error(
+              `Claude Code run ended with: ${message.subtype}` +
+              (details ? `\n\nDetails:\n${details}` : ''),
+            );
+          }
+        }
+      }
+    } catch (err) {
+      const stderrStr = stderrLines.join('\n').trim();
+      if (
+        stderrStr &&
+        err instanceof Error &&
+        !err.message.includes('Details:')
+      ) {
+        throw new Error(`${err.message}\n\nStderr:\n${stderrStr}`, { cause: err });
+      }
+      throw err;
+    }
+
+    appendProgress(session, `\n✅ **Follow-up complete. Preview server will reload automatically.**\n`);
+    session.status = 'ready';
+    await persist();
+  } catch (err) {
+    session.status = 'error';
+    const msg = err instanceof Error ? err.message : String(err);
+    const causeMsg =
+      err instanceof Error && err.cause instanceof Error
+        ? `\n\n*Caused by*: ${err.cause.message}`
+        : '';
+    appendProgress(session, `\n\n❌ **Error**: ${msg}${causeMsg}\n`);
+    await persist().catch(() => {});
+  }
+}
+
 // ─── Auto conflict resolution ─────────────────────────────────────────────────
 
 /**

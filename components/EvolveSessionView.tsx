@@ -53,6 +53,9 @@ export default function EvolveSessionView({
   const [menuOpen, setMenuOpen] = useState(false);
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [followupText, setFollowupText] = useState('');
+  const [isSubmittingFollowup, setIsSubmittingFollowup] = useState(false);
+  const [followupError, setFollowupError] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -95,11 +98,13 @@ export default function EvolveSessionView({
     };
   }, []);
 
-  // Start polling if the session isn't already in a terminal state
-  useEffect(() => {
-    const terminal = ["ready", "error", "disconnected"];
-    if (terminal.includes(initialStatus)) return;
-
+  // Extracted polling logic — can be called from the useEffect below and also
+  // from the follow-up submit handler to resume polling after re-queuing Claude.
+  function startPolling() {
+    if (pollingRef.current !== null) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
     pollingRef.current = setInterval(async () => {
       try {
         const res = await fetch(`/api/evolve/local?sessionId=${sessionId}`);
@@ -118,8 +123,46 @@ export default function EvolveSessionView({
         // Silently ignore transient network errors
       }
     }, 5_000);
+  }
+
+  // Start polling if the session isn't already in a terminal state
+  useEffect(() => {
+    const terminal = ["ready", "error", "disconnected"];
+    if (terminal.includes(initialStatus)) return;
+
+    startPolling();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]); // intentionally omit initialStatus — run once on mount
+
+  async function handleFollowupSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = followupText.trim();
+    if (!trimmed) return;
+
+    setIsSubmittingFollowup(true);
+    setFollowupError(null);
+
+    try {
+      const res = await fetch('/api/evolve/local/followup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, request: trimmed }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error ?? `Server error: ${res.status}`);
+      }
+
+      setFollowupText('');
+      setStatus('running-claude');
+      startPolling();
+    } catch (err) {
+      setFollowupError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSubmittingFollowup(false);
+    }
+  }
 
   const isTerminal = status === "ready" || status === "error" || status === "disconnected";
 
@@ -271,6 +314,33 @@ export default function EvolveSessionView({
             there to apply or discard the changes.
           </p>
         </div>
+      )}
+
+      {/* Follow-up request form (only when ready and preview is available) */}
+      {status === "ready" && previewUrl !== null && (
+        <form onSubmit={handleFollowupSubmit} className="mb-6 px-4 py-4 rounded-lg bg-gray-900 border border-gray-700 text-sm">
+          <p className="text-gray-200 font-semibold mb-1">Submit a follow-up request</p>
+          <p className="text-gray-400 text-xs mb-3">
+            Address feedback on the changes, e.g. &quot;I got this error when using it:&quot; or &quot;please change the design of the button&quot;.
+          </p>
+          <textarea
+            rows={4}
+            value={followupText}
+            onChange={(e) => setFollowupText(e.target.value)}
+            placeholder="Describe what to fix or improve…"
+            className="w-full bg-gray-800 text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 mb-3"
+          />
+          {followupError && (
+            <p className="text-red-400 text-xs mb-2">{followupError}</p>
+          )}
+          <button
+            type="submit"
+            disabled={isSubmittingFollowup || !followupText.trim()}
+            className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium transition-colors"
+          >
+            {isSubmittingFollowup ? "Submitting…" : "Submit follow-up"}
+          </button>
+        </form>
       )}
 
       {/* Disconnected notice */}

@@ -109,6 +109,8 @@ primordia/
 │               ├── route.ts       ← POST start session, GET status
 │               ├── manage/
 │               │   └── route.ts   ← POST accept/reject a local session
+│               ├── followup/
+│               │   └── route.ts   ← POST submit a follow-up request on an existing ready session
 │               └── restart/
 │                   └── route.ts   ← POST bun install + restart dev server (called after accept)
 │
@@ -221,6 +223,7 @@ When implementing changes, follow these principles:
 | Chat interface (streaming) | ✅ Live | Streams from `claude-sonnet-4-6` via SSE |
 | Evolve mode | ✅ Live | Dedicated `/evolve` page; Edit icon in chat header |
 | Local evolve pipeline | ✅ Live | git worktree → Claude Agent SDK → local preview → accept/reject |
+| Evolve follow-up requests | ✅ Live | Chain multiple Claude passes on the same branch; form appears when session is ready |
 | exe.dev deploy | ✅ Live | One-command SSH deploy; identical to local dev flow |
 | Dark theme | ✅ Live | Default dark UI with Tailwind |
 | Passkey authentication | ✅ Live | WebAuthn passkeys via /login; sessions stored in SQLite |
