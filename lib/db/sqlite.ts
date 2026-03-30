@@ -283,10 +283,10 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     ) {
       const sets: string[] = [];
       const values: unknown[] = [];
-      if (updates.status !== undefined)      { sets.push("status = ?");       values.push(updates.status); }
-      if (updates.progressText !== undefined) { sets.push("progress_text = ?"); values.push(updates.progressText); }
-      if (updates.port !== undefined)         { sets.push("port = ?");          values.push(updates.port); }
-      if (updates.previewUrl !== undefined)   { sets.push("preview_url = ?");   values.push(updates.previewUrl); }
+      if (updates.status !== undefined)       { sets.push("status = ?");          values.push(updates.status); }
+      if (updates.progressText !== undefined)  { sets.push("progress_text = ?");   values.push(updates.progressText); }
+      if (updates.port !== undefined)          { sets.push("port = ?");             values.push(updates.port); }
+      if (updates.previewUrl !== undefined)    { sets.push("preview_url = ?");      values.push(updates.previewUrl); }
       if (sets.length === 0) return;
       values.push(id);
       db.prepare(`UPDATE evolve_sessions SET ${sets.join(", ")} WHERE id = ?`).run(...values);

@@ -13,6 +13,8 @@ export type LocalSessionStatus =
   | 'running-claude'
   | 'starting-server'
   | 'ready'
+  | 'accepted'
+  | 'rejected'
   | 'disconnected'
   | 'error';
 
@@ -200,8 +202,11 @@ export async function startLocalEvolve(
       throw new Error(`git worktree add failed:\n${wtResult.stderr}`);
     }
 
-    // Store parent branch in git config so the preview's manage endpoint can find it.
+    // Store parent branch and session ID in git config so the preview's manage
+    // endpoint can find them when logging the accept/reject decision back to the
+    // parent instance's SQLite database.
     await runGit(['config', `branch.${session.branch}.parent`, parentBranch], repoRoot);
+    await runGit(['config', `branch.${session.branch}.sessionId`, session.id], repoRoot);
 
     // Mark done by replacing the pending item
     session.progressText = session.progressText.replace(
@@ -477,13 +482,16 @@ export async function startLocalEvolve(
     appendProgress(session, `\n\n❌ **Error**: ${msg}${causeMsg}\n`);
     await persist().catch(() => {});
     // Kill the dev server process if it was spawned before the error.
-    if (devServerProcess && !devServerProcess.killed) {
+    // Capture in a local const first: TypeScript cannot track the ChildProcess | null
+    // type of devServerProcess across async callbacks, so it narrows to `never` here.
+    const orphanProc = devServerProcess as ChildProcess | null;
+    if (orphanProc && !orphanProc.killed) {
       try {
-        if (devServerProcess.pid !== undefined) {
-          process.kill(-devServerProcess.pid, 'SIGTERM');
+        if (orphanProc.pid !== undefined) {
+          process.kill(-orphanProc.pid, 'SIGTERM');
         }
       } catch {
-        devServerProcess.kill('SIGTERM');
+        orphanProc.kill('SIGTERM');
       }
       devServerProcess = null;
     }

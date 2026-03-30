@@ -32,6 +32,26 @@ function readGitBranch(): string | null {
   }
 }
 
+/**
+ * Returns true if `sessionBranch` was branched directly off `currentBranch`.
+ * Reads the `branch.<name>.parent` git config key that is written when the
+ * worktree is created, so no git-graph traversal is required.
+ */
+function isSessionBranchChildOfCurrent(
+  currentBranch: string,
+  sessionBranch: string,
+): boolean {
+  try {
+    const parent = execSync(
+      `git config branch.${sessionBranch}.parent`,
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+    ).trim();
+    return parent === currentBranch;
+  } catch {
+    return false;
+  }
+}
+
 export default async function EvolveSessionPage({
   params,
 }: {
@@ -48,6 +68,14 @@ export default async function EvolveSessionPage({
 
   const branch = readGitBranch();
 
+  // Only allow accept/reject when the session branch was branched directly off
+  // the currently checked-out branch. Checked via `git config branch.<name>.parent`
+  // which is written at worktree-creation time.
+  const canAcceptReject =
+    branch !== null
+      ? isSessionBranchChildOfCurrent(branch, session.branch)
+      : false;
+
   return (
     <EvolveSessionView
       sessionId={session.id}
@@ -56,6 +84,8 @@ export default async function EvolveSessionPage({
       initialStatus={session.status}
       initialPreviewUrl={session.previewUrl}
       branch={branch}
+      sessionBranch={session.branch}
+      canAcceptReject={canAcceptReject}
     />
   );
 }
