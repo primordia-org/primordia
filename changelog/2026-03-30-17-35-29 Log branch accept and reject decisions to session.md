@@ -48,20 +48,24 @@
   rejected", shown once a decision has been recorded.
 - The preview link and three-action card are hidden once status is `"accepted"` or
   `"rejected"`.
-- **Redesigned decision UX**: the three choices — **Accept Changes**, **Reject Changes**,
-  and **Follow-up Changes** — are presented as equal-weight buttons in a flex row
-  (each `flex-1`, no visual hierarchy favouring one over the others).
+- **Redesigned decision UX**: the three choices — **Follow-up Changes**, **Accept
+  Changes**, and **Reject Changes** — are presented under an **"Available Actions"**
+  header in a flex row (each `flex-1`, no visual hierarchy favouring one over the
+  others). Follow-up is listed first as the least destructive option.
+- Each button is colour-coded by default (amber / green / red). Once any button is
+  clicked, only the active tab retains its colour; the others dim to gray — making it
+  immediately clear which panel is open without visual noise when nothing is selected.
 - Each button behaves like a toggle: clicking it expands a confirmation/input panel
   beneath the row; clicking the same button again collapses the panel. Only one
   panel is open at a time.
-  - **Accept panel**: names the preview branch and target branch, asks "Do you wish
-    to do that?", and shows a **Confirm** button that calls `handleAccept`.
-  - **Reject panel**: names the preview branch, asks "Do you wish to do that?", and
-    shows a **Confirm** button that calls `handleReject`.
   - **Follow-up panel**: shows the description text, a textarea that auto-focuses
     when the panel opens, and a **Submit follow-up** button.
-- The active button is highlighted with a colour tint (green / red / amber) so users
-  can see which panel is open; all three buttons are otherwise visually identical.
+  - **Accept panel**: names the preview branch and target branch, then shows a
+    **Confirm** button that calls `handleAccept`.
+  - **Reject panel**: names the preview branch, then shows a **Confirm** button that
+    calls `handleReject`.
+- Removed the "Do you wish to do that?" confirmation line from both the Accept and
+  Reject panels — the branch names already provide sufficient context.
 - Accept and Reject panels show an "unavailable" message (instead of a Confirm
   button) when `canAcceptReject` is false — i.e. when the session branch is not a
   direct child of the currently checked-out branch.
@@ -110,13 +114,14 @@ the process is always bound to its port while it is running, regardless of wheth
 the parent server restarted or the in-memory Map was reset. One code path — no
 fallbacks that can silently bitrot.
 
-The three choices a user can make — accept, reject, or submit a follow-up — are
-presented as equal-weight buttons. None of them is visually privileged over the others;
-all three are the same size, same weight, same position in the row. Each button opens a
-confirmation panel beneath the row (two-phase interaction): the user has to explicitly
-click Confirm or Submit follow-up, so accidental accept/reject clicks cannot fire
-immediately. The panel also names the exact branch being merged or deleted, giving
-users full context before they commit to the action.
+The three choices a user can make — follow-up, accept, or reject — are presented as
+equal-weight colour-coded buttons under an "Available Actions" header. Follow-up is
+listed first as the least destructive option; accept and reject follow. When no action
+is selected every button shows its accent colour (amber / green / red) so the choices
+are immediately identifiable. Once a tab is opened the inactive buttons dim to gray,
+reducing visual noise and drawing attention to the active panel. The redundant "Do you
+wish to do that?" prompt has been removed — naming the exact branch being merged or
+deleted already provides full context before the user clicks Confirm.
 
 The accept/reject buttons are hidden unless the session branch is a direct child of the
 current branch. The check reads `git config branch.<name>.parent`, which is written at

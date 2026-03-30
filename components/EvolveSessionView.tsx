@@ -331,100 +331,50 @@ export default function EvolveSessionView({
       {status === "ready" && (
         <div className="mb-6 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-hidden">
 
+          {/* ── Header ── */}
+          <div className="px-4 py-2 border-b border-gray-700">
+            <p className="text-gray-500 text-xs font-medium uppercase tracking-wide">Available Actions</p>
+          </div>
+
           {/* ── Button row ── */}
           <div className="flex">
+            <button
+              onClick={() => toggleAction("followup")}
+              className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
+                activeAction === "followup"
+                  ? "bg-amber-900/40 text-amber-200"
+                  : activeAction !== null
+                  ? "text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+                  : "text-amber-300 bg-amber-900/10 hover:bg-amber-900/25"
+              }`}
+            >
+              Follow-up Changes
+            </button>
             <button
               onClick={() => toggleAction("accept")}
               className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
                 activeAction === "accept"
                   ? "bg-green-900/40 text-green-200"
-                  : "text-gray-300 hover:bg-gray-800 hover:text-white"
+                  : activeAction !== null
+                  ? "text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+                  : "text-green-300 bg-green-900/10 hover:bg-green-900/25"
               }`}
             >
               Accept Changes
             </button>
             <button
               onClick={() => toggleAction("reject")}
-              className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
+              className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
                 activeAction === "reject"
                   ? "bg-red-900/40 text-red-200"
-                  : "text-gray-300 hover:bg-gray-800 hover:text-white"
+                  : activeAction !== null
+                  ? "text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+                  : "text-red-300 bg-red-900/10 hover:bg-red-900/25"
               }`}
             >
               Reject Changes
             </button>
-            <button
-              onClick={() => toggleAction("followup")}
-              className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                activeAction === "followup"
-                  ? "bg-amber-900/40 text-amber-200"
-                  : "text-gray-300 hover:bg-gray-800 hover:text-white"
-              }`}
-            >
-              Follow-up Changes
-            </button>
           </div>
-
-          {/* ── Accept panel ── */}
-          {activeAction === "accept" && (
-            <div className="px-4 py-4 border-t border-gray-700">
-              {canAcceptReject ? (
-                <>
-                  <p className="text-gray-300 text-sm mb-1">
-                    Accepting will merge the preview branch{" "}
-                    <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code> into{" "}
-                    <code className="bg-gray-800 px-1 rounded">{branch ?? "main"}</code>.
-                  </p>
-                  <p className="text-gray-400 text-xs mb-4">Do you wish to do that?</p>
-                  <button
-                    onClick={handleAccept}
-                    disabled={acceptRejectLoading}
-                    className="px-4 py-2 rounded-lg bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white text-sm font-medium transition-colors"
-                  >
-                    {acceptRejectLoading ? "Accepting…" : "Confirm"}
-                  </button>
-                  {acceptRejectError && (
-                    <p className="text-red-400 text-xs mt-2 whitespace-pre-wrap">{acceptRejectError}</p>
-                  )}
-                </>
-              ) : (
-                <p className="text-gray-500 text-xs">
-                  Accept is unavailable — this session&apos;s branch is not based on the currently
-                  checked-out branch.
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* ── Reject panel ── */}
-          {activeAction === "reject" && (
-            <div className="px-4 py-4 border-t border-gray-700">
-              {canAcceptReject ? (
-                <>
-                  <p className="text-gray-300 text-sm mb-1">
-                    Rejecting will discard the worktree and delete the{" "}
-                    <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code> branch.
-                  </p>
-                  <p className="text-gray-400 text-xs mb-4">Do you wish to do that?</p>
-                  <button
-                    onClick={handleReject}
-                    disabled={acceptRejectLoading}
-                    className="px-4 py-2 rounded-lg bg-red-800 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
-                  >
-                    {acceptRejectLoading ? "Rejecting…" : "Confirm"}
-                  </button>
-                  {acceptRejectError && (
-                    <p className="text-red-400 text-xs mt-2 whitespace-pre-wrap">{acceptRejectError}</p>
-                  )}
-                </>
-              ) : (
-                <p className="text-gray-500 text-xs">
-                  Reject is unavailable — this session&apos;s branch is not based on the currently
-                  checked-out branch.
-                </p>
-              )}
-            </div>
-          )}
 
           {/* ── Follow-up panel ── */}
           {activeAction === "followup" && (
@@ -451,6 +401,65 @@ export default function EvolveSessionView({
               >
                 {isSubmittingFollowup ? "Submitting…" : "Submit follow-up"}
               </button>
+            </div>
+          )}
+
+          {/* ── Accept panel ── */}
+          {activeAction === "accept" && (
+            <div className="px-4 py-4 border-t border-gray-700">
+              {canAcceptReject ? (
+                <>
+                  <p className="text-gray-300 text-sm mb-4">
+                    Accepting will merge the preview branch{" "}
+                    <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code> into{" "}
+                    <code className="bg-gray-800 px-1 rounded">{branch ?? "main"}</code>.
+                  </p>
+                  <button
+                    onClick={handleAccept}
+                    disabled={acceptRejectLoading}
+                    className="px-4 py-2 rounded-lg bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+                  >
+                    {acceptRejectLoading ? "Accepting…" : "Confirm"}
+                  </button>
+                  {acceptRejectError && (
+                    <p className="text-red-400 text-xs mt-2 whitespace-pre-wrap">{acceptRejectError}</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-gray-500 text-xs">
+                  Accept is unavailable — this session&apos;s branch is not based on the currently
+                  checked-out branch.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* ── Reject panel ── */}
+          {activeAction === "reject" && (
+            <div className="px-4 py-4 border-t border-gray-700">
+              {canAcceptReject ? (
+                <>
+                  <p className="text-gray-300 text-sm mb-4">
+                    Rejecting will discard the worktree and delete the{" "}
+                    <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code> branch.
+                  </p>
+                  <button
+                    onClick={handleReject}
+                    disabled={acceptRejectLoading}
+                    className="px-4 py-2 rounded-lg bg-red-800 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+                  >
+                    {acceptRejectLoading ? "Rejecting…" : "Confirm"}
+                  </button>
+                  {acceptRejectError && (
+                    <p className="text-red-400 text-xs mt-2 whitespace-pre-wrap">{acceptRejectError}</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-gray-500 text-xs">
+                  Reject is unavailable — this session&apos;s branch is not based on the currently
+                  checked-out branch.
+                </p>
+              )}
             </div>
           )}
 
