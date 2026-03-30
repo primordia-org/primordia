@@ -24,22 +24,60 @@ import * as path from 'path';
 import { runGit, resolveConflictsWithClaude } from '../../../../../lib/local-evolve-sessions';
 import { getSessionUser } from '../../../../../lib/auth';
 
-/** Read the current git branch and check for a stored parent config entry.
- *  Returns { branch, parentBranch } when this is a preview worktree,
- *  or { branch: null, parentBranch: null } otherwise. */
+/** Read the current git branch and check for stored git config entries.
+ *  Returns { branch, parentBranch, sessionId } when this is a preview worktree,
+ *  or { branch: null, parentBranch: null, sessionId: null } otherwise. */
 async function getPreviewInfo(
   cwd: string,
-): Promise<{ branch: string | null; parentBranch: string | null }> {
+): Promise<{ branch: string | null; parentBranch: string | null; sessionId: string | null }> {
   const branchResult = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
-  if (branchResult.code !== 0) return { branch: null, parentBranch: null };
+  if (branchResult.code !== 0) return { branch: null, parentBranch: null, sessionId: null };
 
   const branch = branchResult.stdout.trim();
   const parentResult = await runGit(['config', `branch.${branch}.parent`], cwd);
   if (parentResult.code !== 0 || !parentResult.stdout.trim()) {
-    return { branch: null, parentBranch: null };
+    return { branch: null, parentBranch: null, sessionId: null };
   }
 
-  return { branch, parentBranch: parentResult.stdout.trim() };
+  const sessionIdResult = await runGit(['config', `branch.${branch}.sessionId`], cwd);
+  const sessionId = sessionIdResult.code === 0 ? sessionIdResult.stdout.trim() : null;
+
+  return { branch, parentBranch: parentResult.stdout.trim(), sessionId };
+}
+
+/**
+ * Appends an accept/reject log entry to the evolve session record in the
+ * parent instance's SQLite database and marks the session as accepted/rejected.
+ * Non-fatal — errors are silently swallowed so they don't block the response.
+ */
+async function logDecisionToParentDb(
+  parentRepoRoot: string,
+  sessionId: string | null,
+  action: 'accept' | 'reject',
+  parentBranch?: string,
+): Promise<void> {
+  if (!sessionId) return;
+  try {
+    const { Database } = await import('bun:sqlite');
+    const dbPath = path.join(parentRepoRoot, '.primordia-auth.db');
+    const db = new Database(dbPath);
+    const row = db
+      .prepare('SELECT progress_text FROM evolve_sessions WHERE id = ?')
+      .get(sessionId) as { progress_text: string } | null;
+    if (row) {
+      const logEntry =
+        action === 'accept'
+          ? `\n\n---\n\n✅ **Accepted** — merged into \`${parentBranch ?? 'main'}\`\n`
+          : `\n\n---\n\n🗑️ **Rejected** — branch discarded\n`;
+      const newStatus = action === 'accept' ? 'accepted' : 'rejected';
+      db
+        .prepare('UPDATE evolve_sessions SET progress_text = ?, status = ? WHERE id = ?')
+        .run(row.progress_text + logEntry, newStatus, sessionId);
+    }
+    db.close();
+  } catch {
+    // Non-fatal — the session page will still reflect the disconnect state.
+  }
 }
 
 // GET — used by the UI on mount to detect whether this is a preview instance.
@@ -47,6 +85,7 @@ export async function GET() {
   const { branch, parentBranch } = await getPreviewInfo(process.cwd());
   return Response.json({ isPreview: !!branch, branch, parentBranch });
 }
+
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -62,7 +101,7 @@ export async function POST(request: Request) {
   }
 
   const worktreePath = process.cwd();
-  const { branch, parentBranch } = await getPreviewInfo(worktreePath);
+  const { branch, parentBranch, sessionId } = await getPreviewInfo(worktreePath);
 
   if (!branch) {
     return Response.json(
@@ -170,6 +209,10 @@ export async function POST(request: Request) {
         }
       }
 
+      // Log the accept decision to the parent instance's session record so the
+      // session page reflects the outcome and hides the preview/followup UI.
+      await logDecisionToParentDb(parentRepoRoot, sessionId, 'accept', parentBranch!);
+
       // Remove this worktree, delete the preview branch, and scrub any git
       // config entries that were written for it (e.g. branch.<name>.parent).
       // We run worktree remove first so git no longer considers the branch
@@ -187,6 +230,11 @@ export async function POST(request: Request) {
     }
 
     // action === 'reject'
+
+    // Log the reject decision to the parent instance's session record so the
+    // session page reflects the outcome and hides the preview/followup UI.
+    await logDecisionToParentDb(parentRepoRoot, sessionId, 'reject');
+
     await runGit(['worktree', 'remove', '--force', worktreePath], parentRepoRoot);
     // Force-delete since the branch was never merged.
     await runGit(['branch', '-D', branch], parentRepoRoot);

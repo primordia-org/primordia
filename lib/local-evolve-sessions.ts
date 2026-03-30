@@ -13,6 +13,8 @@ export type LocalSessionStatus =
   | 'running-claude'
   | 'starting-server'
   | 'ready'
+  | 'accepted'
+  | 'rejected'
   | 'disconnected'
   | 'error';
 
@@ -200,8 +202,11 @@ export async function startLocalEvolve(
       throw new Error(`git worktree add failed:\n${wtResult.stderr}`);
     }
 
-    // Store parent branch in git config so the preview's manage endpoint can find it.
+    // Store parent branch and session ID in git config so the preview's manage
+    // endpoint can find them when logging the accept/reject decision back to the
+    // parent instance's SQLite database.
     await runGit(['config', `branch.${session.branch}.parent`, parentBranch], repoRoot);
+    await runGit(['config', `branch.${session.branch}.sessionId`, session.id], repoRoot);
 
     // Mark done by replacing the pending item
     session.progressText = session.progressText.replace(

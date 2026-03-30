@@ -15,7 +15,7 @@ import Link from "next/link";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface EvolveSessionData {
-  status: "starting" | "running-claude" | "starting-server" | "ready" | "disconnected" | "error";
+  status: "starting" | "running-claude" | "starting-server" | "ready" | "accepted" | "rejected" | "disconnected" | "error";
   progressText: string;
   port: number | null;
   previewUrl: string | null;
@@ -84,7 +84,13 @@ export default function EvolveSessionView({
         setStatus(data.status);
         if (data.previewUrl) setPreviewUrl(data.previewUrl);
 
-        if (data.status === "ready" || data.status === "error" || data.status === "disconnected") {
+        if (
+          data.status === "ready" ||
+          data.status === "accepted" ||
+          data.status === "rejected" ||
+          data.status === "error" ||
+          data.status === "disconnected"
+        ) {
           clearInterval(pollingRef.current!);
           pollingRef.current = null;
         }
@@ -96,7 +102,7 @@ export default function EvolveSessionView({
 
   // Start polling if the session isn't already in a terminal state
   useEffect(() => {
-    const terminal = ["ready", "error", "disconnected"];
+    const terminal = ["ready", "accepted", "rejected", "error", "disconnected"];
     if (terminal.includes(initialStatus)) return;
 
     startPolling();
@@ -133,7 +139,12 @@ export default function EvolveSessionView({
     }
   }
 
-  const isTerminal = status === "ready" || status === "error" || status === "disconnected";
+  const isTerminal =
+    status === "ready" ||
+    status === "accepted" ||
+    status === "rejected" ||
+    status === "error" ||
+    status === "disconnected";
 
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
@@ -203,7 +214,27 @@ export default function EvolveSessionView({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Preview link (ready state) */}
+      {/* Accepted banner */}
+      {status === "accepted" && (
+        <div className="mb-6 px-4 py-4 rounded-lg bg-green-900/40 border border-green-700/50 text-sm">
+          <p className="text-green-200 font-semibold">✅ Changes accepted</p>
+          <p className="text-green-300/80 text-xs mt-1">
+            The branch was merged and the worktree has been removed.
+          </p>
+        </div>
+      )}
+
+      {/* Rejected banner */}
+      {status === "rejected" && (
+        <div className="mb-6 px-4 py-4 rounded-lg bg-red-900/40 border border-red-700/50 text-sm">
+          <p className="text-red-200 font-semibold">🗑️ Changes rejected</p>
+          <p className="text-red-300/80 text-xs mt-1">
+            The branch and worktree have been discarded.
+          </p>
+        </div>
+      )}
+
+      {/* Preview link (ready state only — hidden once a decision has been made) */}
       {status === "ready" && previewUrl && (
         <div className="mb-6 px-4 py-4 rounded-lg bg-amber-900/40 border border-amber-700/50 text-sm">
           <p className="text-amber-300 font-semibold mb-1">🚀 Preview ready</p>
@@ -222,7 +253,7 @@ export default function EvolveSessionView({
         </div>
       )}
 
-      {/* Follow-up request form (only when ready and preview is available) */}
+      {/* Follow-up request form — only when ready and no decision has been made yet */}
       {status === "ready" && previewUrl !== null && (
         <form onSubmit={handleFollowupSubmit} className="mb-6 px-4 py-4 rounded-lg bg-gray-900 border border-gray-700 text-sm">
           <p className="text-gray-200 font-semibold mb-1">Submit a follow-up request</p>
