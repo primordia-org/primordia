@@ -32,7 +32,7 @@ interface EvolveSessionViewProps {
   initialStatus: string;
   initialPreviewUrl: string | null;
   branch?: string | null;
-  /** True when the session branch is a descendant of the current branch, so Accept/Reject are safe to show. */
+  /** True when the session branch is a direct child of the current branch, so Accept/Reject are safe to show. */
   canAcceptReject: boolean;
 }
 
@@ -289,7 +289,7 @@ export default function EvolveSessionView({
         </div>
       )}
 
-      {/* Preview link + Accept/Reject — shown when ready, hidden once a decision is made */}
+      {/* Preview link — shown when ready */}
       {status === "ready" && (
         <div className="mb-6 px-4 py-4 rounded-lg bg-amber-900/40 border border-amber-700/50 text-sm">
           <p className="text-amber-300 font-semibold mb-2">🚀 Preview ready</p>
@@ -303,9 +303,16 @@ export default function EvolveSessionView({
               {previewUrl}
             </a>
           )}
+        </div>
+      )}
+
+      {/* Accept / Reject — separate section so the three choices are visually distinct */}
+      {status === "ready" && (
+        <div className="mb-6 px-4 py-4 rounded-lg bg-gray-900 border border-gray-700 text-sm">
+          <p className="text-gray-200 font-semibold mb-3">Accept or reject changes</p>
           {canAcceptReject ? (
             <>
-              <div className="flex items-center gap-2 mt-3">
+              <div className="flex items-center gap-2">
                 <button
                   onClick={handleAccept}
                   disabled={acceptRejectLoading}
@@ -326,7 +333,7 @@ export default function EvolveSessionView({
               )}
             </>
           ) : (
-            <p className="text-amber-400/70 text-xs mt-3">
+            <p className="text-gray-500 text-xs">
               Accept and Reject are unavailable — this session&apos;s branch is not based on the
               currently checked-out branch.
             </p>

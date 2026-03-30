@@ -33,20 +33,20 @@ function readGitBranch(): string | null {
 }
 
 /**
- * Returns true if `sessionBranch` is a descendant of `currentBranch`,
- * i.e. `currentBranch` is an ancestor of `sessionBranch`.
- * Uses `git merge-base --is-ancestor` which exits 0 when true, 1 when false.
+ * Returns true if `sessionBranch` was branched directly off `currentBranch`.
+ * Reads the `branch.<name>.parent` git config key that is written when the
+ * worktree is created, so no git-graph traversal is required.
  */
-function isSessionBranchDescendantOfCurrent(
+function isSessionBranchChildOfCurrent(
   currentBranch: string,
   sessionBranch: string,
 ): boolean {
   try {
-    execSync(
-      `git merge-base --is-ancestor ${JSON.stringify(currentBranch)} ${JSON.stringify(sessionBranch)}`,
+    const parent = execSync(
+      `git config branch.${sessionBranch}.parent`,
       { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
-    );
-    return true;
+    ).trim();
+    return parent === currentBranch;
   } catch {
     return false;
   }
@@ -68,12 +68,12 @@ export default async function EvolveSessionPage({
 
   const branch = readGitBranch();
 
-  // Only allow accept/reject when the session branch is a descendant of the
-  // currently checked-out branch. If the current branch has moved ahead or is
-  // unrelated, merging would go to the wrong place, so we hide those buttons.
+  // Only allow accept/reject when the session branch was branched directly off
+  // the currently checked-out branch. Checked via `git config branch.<name>.parent`
+  // which is written at worktree-creation time.
   const canAcceptReject =
     branch !== null
-      ? isSessionBranchDescendantOfCurrent(branch, session.branch)
+      ? isSessionBranchChildOfCurrent(branch, session.branch)
       : false;
 
   return (
