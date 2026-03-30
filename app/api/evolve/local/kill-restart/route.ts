@@ -42,9 +42,9 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Session not found' }, { status: 404 });
   }
 
-  if (record.status !== 'disconnected') {
+  if (record.status !== 'disconnected' && record.status !== 'ready') {
     return Response.json(
-      { error: `Can only restart a disconnected session (current status: ${record.status})` },
+      { error: `Can only restart a disconnected or ready session (current status: ${record.status})` },
       { status: 400 },
     );
   }

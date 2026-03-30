@@ -2,10 +2,13 @@
 
 ## What changed
 
-- **`components/EvolveSessionView.tsx`** — Added a "↺ Restart dev server" button inside the disconnected-state notice. When clicked it calls the new `POST /api/evolve/local/kill-restart` endpoint, immediately optimistically sets the local status to `starting-server`, and resumes the 5-second status poll so the UI reflects live progress.
+- **`components/EvolveSessionView.tsx`** — Added a "↺ Restart dev server" button in two places:
+  - Inside the disconnected-state notice (yellow warning box) for sessions in `disconnected` status.
+  - As a subtle secondary panel ("Preview not loading or responding?") for sessions in `ready` status — because a session can be marked ready even when the dev server isn't actually responding.
+  In both cases, clicking the button calls `POST /api/evolve/local/kill-restart`, optimistically sets local status to `starting-server`, and resumes the 5-second status poll so the UI reflects live progress.
 
 - **`app/api/evolve/local/kill-restart/route.ts`** _(new file)_ — A `POST` handler that:
-  1. Loads the session from SQLite and validates it is in `disconnected` status.
+  1. Loads the session from SQLite and validates it is in `disconnected` **or `ready`** status.
   2. Updates the session status to `starting-server` in SQLite immediately.
   3. Fire-and-forgets `restartDevServerInWorktree()`.
 
@@ -18,4 +21,4 @@
 
 ## Why
 
-When a worktree dev server crashes or is killed outside of the normal accept/reject flow, the session page showed a static warning with no way to recover without SSH access. This change lets users restart the server directly from the browser with one click, without losing the branch or any of Claude's work.
+When a worktree dev server crashes or is killed outside of the normal accept/reject flow, the session page showed a static warning with no way to recover without SSH access. Additionally, sessions can sometimes be marked `ready` in the database even when the dev server isn't actually responding (e.g. it crashed shortly after startup before the close-watcher fired). This change lets users restart the server directly from the browser with one click in both cases, without losing the branch or any of Claude's work.

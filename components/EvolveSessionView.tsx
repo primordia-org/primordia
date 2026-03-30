@@ -390,6 +390,24 @@ export default function EvolveSessionView({
         </div>
       )}
 
+      {/* Restart button for ready state (dev server may be running but not responding) */}
+      {status === "ready" && (
+        <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm">
+          <p className="text-gray-400 text-xs mb-2">Preview not loading or responding?</p>
+          {restartError && (
+            <p className="text-red-400 text-xs mb-2">{restartError}</p>
+          )}
+          <button
+            type="button"
+            onClick={handleRestartServer}
+            disabled={isRestartingServer}
+            className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-gray-300 text-xs font-medium transition-colors"
+          >
+            {isRestartingServer ? "Restarting…" : "↺ Restart dev server"}
+          </button>
+        </div>
+      )}
+
       {/* Footer actions */}
       <div className="flex gap-4">
         <Link href="/evolve" className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
