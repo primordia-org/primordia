@@ -604,6 +604,135 @@ export async function runFollowupInWorktree(
   }
 }
 
+// ─── Restart dev server ───────────────────────────────────────────────────────
+
+/**
+ * Kills any process listening on the session's port (if any), then re-spawns
+ * `bun run dev` in the worktree on the same port.
+ *
+ * Status transitions: (any) → starting-server → ready | error.
+ * Reconnects the close-watcher so the session is marked "disconnected" again
+ * if the restarted server exits unexpectedly.
+ */
+export async function restartDevServerInWorktree(
+  session: LocalSession,
+  repoRoot: string,
+  /** Public hostname (no port) for preview URLs. Defaults to "localhost". */
+  publicHostname: string = "localhost",
+): Promise<void> {
+  const db = await getDb();
+
+  const persist = () =>
+    db.updateEvolveSession(session.id, {
+      status: session.status,
+      progressText: session.progressText,
+      port: session.port,
+      previewUrl: session.previewUrl,
+    });
+
+  try {
+    appendProgress(session, `\n### 🔄 Restarting preview server…\n\n`);
+
+    // Kill any existing process on the port so the new server can bind it.
+    if (session.port !== null) {
+      try {
+        const { execSync } = await import('child_process');
+        const raw = execSync(`lsof -ti :${session.port}`, { encoding: 'utf8' }).trim();
+        const pids = raw.split('\n').map((p) => p.trim()).filter(Boolean);
+        for (const pid of pids) {
+          try { process.kill(parseInt(pid, 10), 'SIGTERM'); } catch { /* already dead */ }
+        }
+        // Give the OS a moment to release the port before rebinding.
+        await new Promise<void>((r) => setTimeout(r, 800));
+      } catch {
+        // lsof not available or no process on port — proceed anyway.
+      }
+    }
+
+    session.status = 'starting-server';
+    await persist();
+
+    await new Promise<void>((resolve, reject) => {
+      // Pass PORT so Next.js reuses the same port rather than hunting for a free one.
+      const { PORT: _omit, ...envWithoutPort } = process.env;
+      const env =
+        session.port !== null
+          ? { ...envWithoutPort, PORT: String(session.port) }
+          : envWithoutPort;
+
+      const proc = spawn('bun', ['run', 'dev'], {
+        cwd: session.worktreePath,
+        env,
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      proc.unref();
+
+      const onData = (d: Buffer) => {
+        const text = d.toString();
+        appendProgress(session, text);
+
+        // Re-detect port in case it changed (e.g. original port was reclaimed).
+        if (session.port === null) {
+          const portMatch =
+            text.match(/localhost:(\d+)/) ??
+            text.match(/using available port (\d+) instead/i);
+          if (portMatch) {
+            session.port = parseInt(portMatch[1], 10);
+          }
+        }
+
+        if (!session.previewUrl && session.port !== null && text.includes('Ready')) {
+          session.previewUrl = `http://${publicHostname}:${session.port}`;
+          session.status = 'ready';
+          void persist();
+          resolve();
+        }
+      };
+
+      proc.stdout?.on('data', onData);
+      proc.stderr?.on('data', onData);
+      proc.on('error', (err) => reject(new Error(`Dev server spawn failed: ${err.message}`)));
+      proc.on('close', (code) => {
+        if (session.status !== 'ready') {
+          reject(new Error(`Dev server exited (code ${code ?? 'unknown'}) before becoming ready`));
+          return;
+        }
+        // Server exited after being ready — same disconnect detection as startLocalEvolve.
+        setTimeout(() => {
+          void (async () => {
+            try {
+              const branchCheck = await runGit(['branch', '--list', session.branch], repoRoot);
+              if (branchCheck.stdout.trim() !== '') {
+                session.status = 'disconnected';
+                await persist().catch(() => {});
+              }
+            } catch {
+              session.status = 'disconnected';
+              await persist().catch(() => {});
+            }
+          })();
+        }, 3_000);
+      });
+
+      // Safety timeout: 2 minutes
+      setTimeout(() => {
+        if (session.status !== 'ready') {
+          reject(new Error('Dev server startup timed out (2 min)'));
+        }
+      }, 120_000);
+    });
+
+    appendProgress(session, `\n✅ **Ready on port ${session.port}**\n`);
+    await persist();
+  } catch (err) {
+    session.status = 'error';
+    const msg = err instanceof Error ? err.message : String(err);
+    appendProgress(session, `\n\n❌ **Error**: ${msg}\n`);
+    await persist().catch(() => {});
+  }
+}
+
 // ─── Auto conflict resolution ─────────────────────────────────────────────────
 
 /**

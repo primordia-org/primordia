@@ -56,6 +56,8 @@ export default function EvolveSessionView({
   const [followupText, setFollowupText] = useState('');
   const [isSubmittingFollowup, setIsSubmittingFollowup] = useState(false);
   const [followupError, setFollowupError] = useState<string | null>(null);
+  const [isRestartingServer, setIsRestartingServer] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -133,6 +135,31 @@ export default function EvolveSessionView({
     startPolling();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]); // intentionally omit initialStatus — run once on mount
+
+  async function handleRestartServer() {
+    setIsRestartingServer(true);
+    setRestartError(null);
+
+    try {
+      const res = await fetch('/api/evolve/local/kill-restart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error ?? `Server error: ${res.status}`);
+      }
+
+      setStatus('starting-server');
+      startPolling();
+    } catch (err) {
+      setRestartError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsRestartingServer(false);
+    }
+  }
 
   async function handleFollowupSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -345,9 +372,21 @@ export default function EvolveSessionView({
 
       {/* Disconnected notice */}
       {status === "disconnected" && (
-        <div className="mb-6 px-4 py-3 rounded-lg bg-yellow-900/40 border border-yellow-700/50 text-yellow-300 text-sm">
-          ⚠️ The preview server disconnected unexpectedly. The branch still exists — you can
-          restart the dev server manually.
+        <div className="mb-6 px-4 py-4 rounded-lg bg-yellow-900/40 border border-yellow-700/50 text-sm">
+          <p className="text-yellow-300 mb-3">
+            ⚠️ The preview server disconnected unexpectedly. The branch still exists.
+          </p>
+          {restartError && (
+            <p className="text-red-400 text-xs mb-2">{restartError}</p>
+          )}
+          <button
+            type="button"
+            onClick={handleRestartServer}
+            disabled={isRestartingServer}
+            className="px-4 py-2 rounded-lg bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium transition-colors"
+          >
+            {isRestartingServer ? "Restarting…" : "↺ Restart dev server"}
+          </button>
         </div>
       )}
 
