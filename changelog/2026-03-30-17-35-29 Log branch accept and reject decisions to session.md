@@ -49,6 +49,16 @@
   rejected", shown once a decision has been recorded.
 - The preview link and follow-up form are hidden once status is `"accepted"` or
   `"rejected"`.
+- Accept and Reject buttons are now hidden (replaced by an explanatory note) when
+  `canAcceptReject` is false — i.e. when the session branch is not a descendant of
+  the currently checked-out branch.
+
+### `app/evolve/session/[id]/page.tsx`
+- Added `isSessionBranchDescendantOfCurrent(currentBranch, sessionBranch)` — runs
+  `git merge-base --is-ancestor` to check ancestry; exits 0 = descendant, non-zero =
+  not a descendant.
+- Computes `canAcceptReject` from the ancestry check and passes it to
+  `EvolveSessionView`. The value is `false` when git branch state cannot be read.
 
 ### `components/AcceptRejectBar.tsx` / `app/layout.tsx`
 - `AcceptRejectBar` is no longer rendered in the root layout — child preview servers
@@ -77,3 +87,9 @@ stored PID or an in-memory Map reference. This is the single, always-valid appro
 the process is always bound to its port while it is running, regardless of whether
 the parent server restarted or the in-memory Map was reset. One code path — no
 fallbacks that can silently bitrot.
+
+The accept/reject buttons are hidden unless the session branch is a descendant of the
+current branch. This guards against branch confusion: if the user has since switched to
+a different branch, the merge would target the wrong base and could produce unexpected
+results. Using `git merge-base --is-ancestor` is the standard git mechanism for this
+check and has no false positives.

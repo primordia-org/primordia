@@ -32,6 +32,8 @@ interface EvolveSessionViewProps {
   initialStatus: string;
   initialPreviewUrl: string | null;
   branch?: string | null;
+  /** True when the session branch is a descendant of the current branch, so Accept/Reject are safe to show. */
+  canAcceptReject: boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -43,6 +45,7 @@ export default function EvolveSessionView({
   initialStatus,
   initialPreviewUrl,
   branch,
+  canAcceptReject,
 }: EvolveSessionViewProps) {
   const [progressText, setProgressText] = useState(initialProgressText);
   const [status, setStatus] = useState(initialStatus);
@@ -300,24 +303,33 @@ export default function EvolveSessionView({
               {previewUrl}
             </a>
           )}
-          <div className="flex items-center gap-2 mt-3">
-            <button
-              onClick={handleAccept}
-              disabled={acceptRejectLoading}
-              className="px-3 py-1.5 text-xs bg-green-700 hover:bg-green-600 rounded text-white disabled:opacity-50"
-            >
-              {acceptRejectLoading ? "…" : "Accept Changes"}
-            </button>
-            <button
-              onClick={handleReject}
-              disabled={acceptRejectLoading}
-              className="px-3 py-1.5 text-xs bg-red-800 hover:bg-red-700 rounded text-white disabled:opacity-50"
-            >
-              {acceptRejectLoading ? "…" : "Reject"}
-            </button>
-          </div>
-          {acceptRejectError && (
-            <p className="text-red-400 text-xs mt-2 whitespace-pre-wrap">{acceptRejectError}</p>
+          {canAcceptReject ? (
+            <>
+              <div className="flex items-center gap-2 mt-3">
+                <button
+                  onClick={handleAccept}
+                  disabled={acceptRejectLoading}
+                  className="px-3 py-1.5 text-xs bg-green-700 hover:bg-green-600 rounded text-white disabled:opacity-50"
+                >
+                  {acceptRejectLoading ? "…" : "Accept Changes"}
+                </button>
+                <button
+                  onClick={handleReject}
+                  disabled={acceptRejectLoading}
+                  className="px-3 py-1.5 text-xs bg-red-800 hover:bg-red-700 rounded text-white disabled:opacity-50"
+                >
+                  {acceptRejectLoading ? "…" : "Reject"}
+                </button>
+              </div>
+              {acceptRejectError && (
+                <p className="text-red-400 text-xs mt-2 whitespace-pre-wrap">{acceptRejectError}</p>
+              )}
+            </>
+          ) : (
+            <p className="text-amber-400/70 text-xs mt-3">
+              Accept and Reject are unavailable — this session&apos;s branch is not based on the
+              currently checked-out branch.
+            </p>
           )}
         </div>
       )}
