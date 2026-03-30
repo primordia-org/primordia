@@ -49,7 +49,14 @@ export async function POST(request: Request) {
   const parentBranchResult = await runGit(['config', `branch.${branch}.parent`], repoRoot);
   const parentBranch = parentBranchResult.stdout.trim() || 'main';
 
-  // Kill the preview dev server if it is still running in memory.
+  // Kill the preview dev server.
+  //
+  // Primary path: use the in-memory ChildProcess reference (fastest, same process).
+  // Fallback path: the parent server may have restarted since the session was
+  // created, in which case devServerProcesses is empty. In that case we read the
+  // dev server PID from SQLite (written there when the process was spawned) and
+  // send SIGTERM to its process group directly. The process was spawned with
+  // detached=true so its PID equals its PGID; negating it kills the whole tree.
   const devProc = devServerProcesses.get(body.sessionId);
   if (devProc && !devProc.killed) {
     try {
@@ -60,6 +67,12 @@ export async function POST(request: Request) {
       devProc.kill('SIGTERM');
     }
     devServerProcesses.delete(body.sessionId);
+  } else if (session.devServerPid) {
+    try {
+      process.kill(-session.devServerPid, 'SIGTERM');
+    } catch {
+      // Process already gone (e.g. crashed before accept/reject) — not an error.
+    }
   }
 
   /** Append a log entry and update the session status in the parent's own DB. */

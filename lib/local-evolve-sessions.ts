@@ -405,6 +405,12 @@ export async function startLocalEvolve(
       devServerProcess = proc;
       devServerProcesses.set(session.id, proc);
 
+      // Persist the PID to SQLite immediately so the manage route can kill this
+      // process even if the parent server restarts and devServerProcesses is reset.
+      if (proc.pid !== undefined) {
+        void db.updateEvolveSession(session.id, { devServerPid: proc.pid });
+      }
+
       const onData = (d: Buffer) => {
         const text = d.toString();
         appendProgress(session, text);
@@ -489,13 +495,16 @@ export async function startLocalEvolve(
     appendProgress(session, `\n\n❌ **Error**: ${msg}${causeMsg}\n`);
     await persist().catch(() => {});
     // Kill the dev server process if it was spawned before the error.
-    if (devServerProcess && !devServerProcess.killed) {
+    // Capture in a local const first: TypeScript cannot track the ChildProcess | null
+    // type of devServerProcess across async callbacks, so it narrows to `never` here.
+    const orphanProc = devServerProcess as ChildProcess | null;
+    if (orphanProc && !orphanProc.killed) {
       try {
-        if (devServerProcess.pid !== undefined) {
-          process.kill(-devServerProcess.pid, 'SIGTERM');
+        if (orphanProc.pid !== undefined) {
+          process.kill(-orphanProc.pid, 'SIGTERM');
         }
       } catch {
-        devServerProcess.kill('SIGTERM');
+        orphanProc.kill('SIGTERM');
       }
       devServerProcess = null;
     }
