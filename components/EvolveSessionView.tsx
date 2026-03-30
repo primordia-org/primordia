@@ -475,10 +475,25 @@ export default function EvolveSessionView({
       )}
 
       {/* Footer actions */}
-      <div className="flex gap-4">
-        <Link href="/evolve" className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
-          ← Submit another request
-        </Link>
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-4">
+          <Link href="/evolve" className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
+            ← Submit another request
+          </Link>
+        </div>
+        <p className="text-xs text-gray-500">
+          <Link href="/changelog" className="text-blue-400 hover:text-blue-300">
+            Changelog
+          </Link>
+          {process.env.NODE_ENV === "development" && (
+            <>
+              {" "}·{" "}
+              <Link href="/branches" className="text-blue-400 hover:text-blue-300">
+                Branches
+              </Link>
+            </>
+          )}
+        </p>
       </div>
     </main>
   );
