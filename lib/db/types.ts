@@ -61,14 +61,6 @@ export interface EvolveSession {
   progressText: string;
   port: number | null;
   previewUrl: string | null;
-  /**
-   * PID of the spawned `bun run dev` preview process (also its process group ID,
-   * since it is spawned with detached=true). Persisted so the manage route can
-   * kill the preview server even after the parent process restarts and the
-   * in-memory devServerProcesses Map has been reset.
-   * Absent on sessions that were created before this field was added.
-   */
-  devServerPid?: number | null;
   /** The original change request submitted by the user. */
   request: string;
   createdAt: number;
@@ -108,7 +100,7 @@ export interface DbAdapter {
   createEvolveSession(session: EvolveSession): Promise<void>;
   updateEvolveSession(
     id: string,
-    updates: Partial<Pick<EvolveSession, "status" | "progressText" | "port" | "previewUrl" | "devServerPid">>,
+    updates: Partial<Pick<EvolveSession, "status" | "progressText" | "port" | "previewUrl">>,
   ): Promise<void>;
   getEvolveSession(id: string): Promise<EvolveSession | null>;
   listEvolveSessions(limit?: number): Promise<EvolveSession[]>;

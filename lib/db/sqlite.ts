@@ -60,18 +60,10 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       progress_text TEXT NOT NULL DEFAULT '',
       port INTEGER,
       preview_url TEXT,
-      dev_server_pid INTEGER,
       request TEXT NOT NULL DEFAULT '',
       created_at INTEGER NOT NULL
     );
   `);
-
-  // Migration: add dev_server_pid to existing databases that pre-date this column.
-  try {
-    db.exec(`ALTER TABLE evolve_sessions ADD COLUMN dev_server_pid INTEGER`);
-  } catch {
-    // Column already exists — this is expected for databases created after the migration.
-  }
 
   const adapter: DbAdapter = {
     async createUser(user: User) {
@@ -270,8 +262,8 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     async createEvolveSession(session: EvolveSession) {
       db.prepare(
         `INSERT INTO evolve_sessions
-           (id, branch, worktree_path, status, progress_text, port, preview_url, dev_server_pid, request, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           (id, branch, worktree_path, status, progress_text, port, preview_url, request, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         session.id,
         session.branch,
@@ -280,7 +272,6 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         session.progressText,
         session.port ?? null,
         session.previewUrl ?? null,
-        session.devServerPid ?? null,
         session.request,
         session.createdAt,
       );
@@ -288,7 +279,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
 
     async updateEvolveSession(
       id: string,
-      updates: Partial<Pick<EvolveSession, "status" | "progressText" | "port" | "previewUrl" | "devServerPid">>,
+      updates: Partial<Pick<EvolveSession, "status" | "progressText" | "port" | "previewUrl">>,
     ) {
       const sets: string[] = [];
       const values: unknown[] = [];
@@ -296,7 +287,6 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       if (updates.progressText !== undefined)  { sets.push("progress_text = ?");   values.push(updates.progressText); }
       if (updates.port !== undefined)          { sets.push("port = ?");             values.push(updates.port); }
       if (updates.previewUrl !== undefined)    { sets.push("preview_url = ?");      values.push(updates.previewUrl); }
-      if (updates.devServerPid !== undefined)  { sets.push("dev_server_pid = ?");   values.push(updates.devServerPid); }
       if (sets.length === 0) return;
       values.push(id);
       db.prepare(`UPDATE evolve_sessions SET ${sets.join(", ")} WHERE id = ?`).run(...values);
@@ -308,7 +298,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         .get(id) as {
         id: string; branch: string; worktree_path: string; status: string;
         progress_text: string; port: number | null; preview_url: string | null;
-        dev_server_pid: number | null; request: string; created_at: number;
+        request: string; created_at: number;
       } | null;
       if (!r) return null;
       return {
@@ -319,7 +309,6 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         progressText: r.progress_text,
         port: r.port,
         previewUrl: r.preview_url,
-        devServerPid: r.dev_server_pid,
         request: r.request,
         createdAt: r.created_at,
       };
@@ -331,7 +320,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         .all(limit) as Array<{
         id: string; branch: string; worktree_path: string; status: string;
         progress_text: string; port: number | null; preview_url: string | null;
-        dev_server_pid: number | null; request: string; created_at: number;
+        request: string; created_at: number;
       }>;
       return rows.map((r) => ({
         id: r.id,
@@ -341,7 +330,6 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         progressText: r.progress_text,
         port: r.port,
         previewUrl: r.preview_url,
-        devServerPid: r.dev_server_pid,
         request: r.request,
         createdAt: r.created_at,
       }));

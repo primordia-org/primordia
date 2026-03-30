@@ -5,13 +5,15 @@
 // POST
 //   Body: { action: "accept" | "reject", sessionId: string }
 //
-//   accept — looks up the session in SQLite, kills the preview dev server,
-//            merges the preview branch into the parent branch, removes the
-//            worktree and branch, and updates the session status to "accepted".
+//   accept — looks up the session in SQLite, kills the preview dev server
+//            (found by its port via lsof), merges the preview branch into the
+//            parent branch, removes the worktree and branch, and updates the
+//            session status to "accepted".
 //   reject — kills the preview dev server, removes the worktree and branch
 //            without merging, updates the session status to "rejected".
 
-import { runGit, resolveConflictsWithClaude, devServerProcesses } from '../../../../../lib/local-evolve-sessions';
+import { execSync } from 'child_process';
+import { runGit, resolveConflictsWithClaude } from '../../../../../lib/local-evolve-sessions';
 import { getSessionUser } from '../../../../../lib/auth';
 import { getDb } from '../../../../../lib/db';
 
@@ -49,29 +51,18 @@ export async function POST(request: Request) {
   const parentBranchResult = await runGit(['config', `branch.${branch}.parent`], repoRoot);
   const parentBranch = parentBranchResult.stdout.trim() || 'main';
 
-  // Kill the preview dev server.
-  //
-  // Primary path: use the in-memory ChildProcess reference (fastest, same process).
-  // Fallback path: the parent server may have restarted since the session was
-  // created, in which case devServerProcesses is empty. In that case we read the
-  // dev server PID from SQLite (written there when the process was spawned) and
-  // send SIGTERM to its process group directly. The process was spawned with
-  // detached=true so its PID equals its PGID; negating it kills the whole tree.
-  const devProc = devServerProcesses.get(body.sessionId);
-  if (devProc && !devProc.killed) {
+  // Kill the preview dev server by finding its process via the port it is bound to.
+  // `lsof -ti tcp:<port>` returns one PID per line; we SIGTERM each one.
+  // If lsof finds nothing (exit code 1), the process is already gone — not an error.
+  if (session.port !== null) {
     try {
-      if (devProc.pid !== undefined) {
-        process.kill(-devProc.pid, 'SIGTERM');
+      const pids = execSync(`lsof -ti tcp:${session.port}`, { encoding: 'utf8' })
+        .trim().split('\n').filter(Boolean).map(Number).filter(Boolean);
+      for (const pid of pids) {
+        try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
       }
     } catch {
-      devProc.kill('SIGTERM');
-    }
-    devServerProcesses.delete(body.sessionId);
-  } else if (session.devServerPid) {
-    try {
-      process.kill(-session.devServerPid, 'SIGTERM');
-    } catch {
-      // Process already gone (e.g. crashed before accept/reject) — not an error.
+      // lsof exited non-zero — no process bound to that port (already gone).
     }
   }
 
