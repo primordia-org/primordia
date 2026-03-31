@@ -126,10 +126,16 @@ function makeWorktreeBoundaryHook(worktreePath: string, repoRoot: string): HookC
       };
     }
 
-    // Bash — block commands that explicitly reference the main repo root
+    // Bash — block commands that explicitly reference the main repo root.
+    // We use a regex with a lookahead instead of a plain `includes()` to avoid
+    // false positives when repoRootNorm is a string prefix of a worktree path
+    // (e.g. `/…/primordia` must not match `/…/primordia-worktrees/…`).
+    // The lookahead requires the match to be followed by /, whitespace, a quote,
+    // or end-of-string — i.e. it must appear as a path component, not a prefix.
     if (toolName === 'Bash') {
       const command = typeof toolInput.command === 'string' ? toolInput.command : '';
-      if (command.includes(repoRootNorm)) {
+      const escaped = repoRootNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(escaped + '(?=[/\\s"\'`]|$)').test(command)) {
         return {
           decision: 'block' as const,
           reason:

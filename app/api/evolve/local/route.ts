@@ -100,7 +100,24 @@ export async function POST(request: Request) {
   const slug = await generateSlug(body.request);
   const branch = await findUniqueBranch(slug, repoRoot);
   const sessionId = branch;
-  const worktreePath = path.join(repoRoot, '..', 'primordia-worktrees', sessionId);
+
+  // Derive the worktree path from the git common dir so it is stable even when
+  // this server is itself running inside a git worktree (which would otherwise
+  // cause unbounded nesting like primordia-worktrees/primordia-worktrees/…).
+  //
+  // In the flat layout ($PRIMORDIA_DIR/main), the common dir resolves to
+  // $PRIMORDIA_DIR/main/.git, so mainRepoRoot = $PRIMORDIA_DIR/main and
+  // worktrees live at $PRIMORDIA_DIR/{branch} — siblings of "main", never nested.
+  //
+  // In the legacy layout (/home/exedev/primordia) we fall back to the classic
+  // ../primordia-worktrees/{branch} path so existing installs keep working.
+  const gitCommonDirResult = await runGit(['rev-parse', '--git-common-dir'], repoRoot);
+  const gitCommonDir = path.resolve(repoRoot, gitCommonDirResult.stdout.trim());
+  const mainRepoRoot = path.dirname(gitCommonDir); // strip trailing /.git
+  const worktreePath =
+    path.basename(mainRepoRoot) === 'main'
+      ? path.join(path.dirname(mainRepoRoot), branch)           // flat layout
+      : path.join(mainRepoRoot, '..', 'primordia-worktrees', branch); // legacy
 
   const session: LocalSession = {
     id: sessionId,
