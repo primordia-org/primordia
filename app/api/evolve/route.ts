@@ -101,7 +101,7 @@ export async function POST(request: Request) {
   const slug = await generateSlug(body.request);
   const branch = await findUniqueBranch(slug, repoRoot);
   const sessionId = branch;
-  const worktreePath = path.join(repoRoot, '..', 'primordia-worktrees', sessionId);
+  const worktreePath = path.join(repoRoot, '..', sessionId);
 
   const session: LocalSession = {
     id: sessionId,
