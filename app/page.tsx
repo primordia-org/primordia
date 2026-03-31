@@ -5,6 +5,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { buildPageTitle } from "@/lib/page-title";
+import { LandingNav } from "@/components/LandingNav";
 
 export function generateMetadata(): Metadata {
   return { title: buildPageTitle() };
@@ -75,29 +76,7 @@ export default function LandingPage() {
     <div className="min-h-dvh bg-gray-950 text-gray-100 overflow-x-hidden">
 
       {/* ── Nav ── */}
-      <nav className="fixed top-0 inset-x-0 z-50 flex items-center justify-between px-6 py-4 bg-gray-950/80 backdrop-blur-md border-b border-white/5">
-        <span className="font-mono font-bold text-white tracking-tight">Primordia</span>
-        <div className="flex items-center gap-1">
-          <Link
-            href="/changelog"
-            className="px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-white/5 transition-colors font-mono"
-          >
-            Changelog
-          </Link>
-          <Link
-            href="/login"
-            className="px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-white/5 transition-colors font-mono"
-          >
-            Login
-          </Link>
-          <Link
-            href="/chat"
-            className="ml-2 px-4 py-1.5 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-colors font-mono"
-          >
-            Open app →
-          </Link>
-        </div>
-      </nav>
+      <LandingNav />
 
       {/* ── Hero ── */}
       <section className="relative flex flex-col items-center justify-center min-h-dvh px-6 text-center overflow-hidden pt-20">
