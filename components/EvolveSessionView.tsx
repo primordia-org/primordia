@@ -351,18 +351,41 @@ export default function EvolveSessionView({
         </div>
       )}
 
-      {/* Preview link — shown when dev server is running */}
-      {devServerStatus === "running" && previewUrl && (
-        <div className="mb-6 px-4 py-4 rounded-lg bg-amber-900/40 border border-amber-700/50 text-sm">
-          <p className="text-amber-300 font-semibold mb-2">🚀 Preview ready</p>
-          <a
-            href={previewUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-amber-400 hover:text-amber-200 underline break-all"
-          >
-            {previewUrl}
-          </a>
+      {/* Preview URL + Restart Dev Server — side by side when both visible, stacked when not */}
+      {((devServerStatus === "running" && previewUrl) || status === "ready") && (
+        <div className="mb-6 flex flex-col sm:flex-row gap-3">
+          {/* Preview link — shown when dev server is running */}
+          {devServerStatus === "running" && previewUrl && (
+            <div className="flex-1 px-4 py-4 rounded-lg bg-amber-900/40 border border-amber-700/50 text-sm">
+              <p className="text-amber-300 font-semibold mb-2">🚀 Preview ready</p>
+              <a
+                href={previewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-amber-400 hover:text-amber-200 underline break-all"
+              >
+                {previewUrl}
+              </a>
+            </div>
+          )}
+
+          {/* Restart button for ready state (dev server may be running but not responding) */}
+          {status === "ready" && (
+            <div className="flex-1 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm">
+              <p className="text-gray-400 text-xs mb-2">Preview not loading or responding?</p>
+              {restartError && (
+                <p className="text-red-400 text-xs mb-2">{restartError}</p>
+              )}
+              <button
+                type="button"
+                onClick={handleRestartServer}
+                disabled={isRestartingServer}
+                className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-gray-300 text-xs font-medium transition-colors"
+              >
+                {isRestartingServer ? "Restarting…" : "↺ Restart dev server"}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -550,24 +573,6 @@ export default function EvolveSessionView({
             onClick={handleRestartServer}
             disabled={isRestartingServer}
             className="px-4 py-2 rounded-lg bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium transition-colors"
-          >
-            {isRestartingServer ? "Restarting…" : "↺ Restart dev server"}
-          </button>
-        </div>
-      )}
-
-      {/* Restart button for ready state (dev server may be running but not responding) */}
-      {status === "ready" && (
-        <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm">
-          <p className="text-gray-400 text-xs mb-2">Preview not loading or responding?</p>
-          {restartError && (
-            <p className="text-red-400 text-xs mb-2">{restartError}</p>
-          )}
-          <button
-            type="button"
-            onClick={handleRestartServer}
-            disabled={isRestartingServer}
-            className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-gray-300 text-xs font-medium transition-colors"
           >
             {isRestartingServer ? "Restarting…" : "↺ Restart dev server"}
           </button>
