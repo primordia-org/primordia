@@ -143,7 +143,7 @@ User types change request on /evolve page
       → returns { sessionId }
   → browser redirects to /evolve/session/{sessionId}
   → server component reads initial state from SQLite, renders EvolveSessionView
-  → git worktree add ../primordia-worktrees/{slug} -b {slug}
+  → git worktree add ../{slug} -b {slug}
   → bun install in worktree
   → copy .primordia-auth.db + symlink .env.local into worktree
   → @anthropic-ai/claude-agent-sdk query() in worktree
