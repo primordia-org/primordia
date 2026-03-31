@@ -11,18 +11,23 @@ import { getDb } from './db';
 export type LocalSessionStatus =
   | 'starting'
   | 'running-claude'
-  | 'starting-server'
   | 'ready'
   | 'accepted'
   | 'rejected'
-  | 'disconnected'
   | 'error';
+
+export type DevServerStatus =
+  | 'none'
+  | 'starting'
+  | 'running'
+  | 'disconnected';
 
 export interface LocalSession {
   id: string;
   branch: string;
   worktreePath: string;
   status: LocalSessionStatus;
+  devServerStatus: DevServerStatus;
   /** Formatted markdown progress string for display in the chat. */
   progressText: string;
   port: number | null;
@@ -177,6 +182,7 @@ export async function startLocalEvolve(
   const persist = () =>
     db.updateEvolveSession(session.id, {
       status: session.status,
+      devServerStatus: session.devServerStatus,
       progressText: session.progressText,
       port: session.port,
       previewUrl: session.previewUrl,
@@ -380,7 +386,8 @@ export async function startLocalEvolve(
     // two possible output patterns to discover which port was chosen:
     //   "- Local:        http://localhost:3002"
     //   "⚠ Port 3000 is in use by process 85352, using available port 3002 instead."
-    session.status = 'starting-server';
+    session.status = 'ready';
+    session.devServerStatus = 'starting';
     appendProgress(session, `\n### 🚀 Starting preview server…\n\n`);
     await persist();
 
@@ -416,7 +423,7 @@ export async function startLocalEvolve(
         // Next.js 15 prints "Ready" when the dev server is up
         if (!session.previewUrl && session.port !== null && text.includes('Ready')) {
           session.previewUrl = `http://${publicHostname}:${session.port}`;
-          session.status = 'ready';
+          session.devServerStatus = 'running';
           void persist();
           resolve();
         }
@@ -426,7 +433,7 @@ export async function startLocalEvolve(
       proc.stderr?.on('data', onData);
       proc.on('error', (err) => reject(new Error(`Dev server spawn failed: ${err.message}`)));
       proc.on('close', (code) => {
-        if (session.status !== 'ready') {
+        if (session.devServerStatus !== 'running') {
           reject(new Error(`Dev server exited (code ${code ?? 'unknown'}) before becoming ready`));
           return;
         }
@@ -447,13 +454,13 @@ export async function startLocalEvolve(
               const branchCheck = await runGit(['branch', '--list', session.branch], repoRoot);
               if (branchCheck.stdout.trim() !== '') {
                 // Branch still exists → server died unexpectedly.
-                session.status = 'disconnected';
+                session.devServerStatus = 'disconnected';
                 await persist().catch(() => {});
               }
               // Branch gone → accept/reject completed normally; no update needed.
             } catch {
               // If git fails for any reason, fall back to marking disconnected.
-              session.status = 'disconnected';
+              session.devServerStatus = 'disconnected';
               devServerProcess = null;
             }
           })();
@@ -462,7 +469,7 @@ export async function startLocalEvolve(
 
       // Safety timeout: 2 minutes
       setTimeout(() => {
-        if (session.status !== 'ready') {
+        if (session.devServerStatus !== 'running') {
           reject(new Error('Dev server startup timed out (2 min)'));
         }
       }, 120_000);
@@ -515,6 +522,7 @@ export async function runFollowupInWorktree(
   const persist = () =>
     db.updateEvolveSession(session.id, {
       status: session.status,
+      devServerStatus: session.devServerStatus,
       progressText: session.progressText,
       port: session.port,
       previewUrl: session.previewUrl,
@@ -633,6 +641,7 @@ export async function restartDevServerInWorktree(
   const persist = () =>
     db.updateEvolveSession(session.id, {
       status: session.status,
+      devServerStatus: session.devServerStatus,
       progressText: session.progressText,
       port: session.port,
       previewUrl: session.previewUrl,
@@ -657,7 +666,7 @@ export async function restartDevServerInWorktree(
       }
     }
 
-    session.status = 'starting-server';
+    session.devServerStatus = 'starting';
     await persist();
 
     await new Promise<void>((resolve, reject) => {
@@ -692,7 +701,7 @@ export async function restartDevServerInWorktree(
 
         if (!session.previewUrl && session.port !== null && text.includes('Ready')) {
           session.previewUrl = `http://${publicHostname}:${session.port}`;
-          session.status = 'ready';
+          session.devServerStatus = 'running';
           void persist();
           resolve();
         }
@@ -702,7 +711,7 @@ export async function restartDevServerInWorktree(
       proc.stderr?.on('data', onData);
       proc.on('error', (err) => reject(new Error(`Dev server spawn failed: ${err.message}`)));
       proc.on('close', (code) => {
-        if (session.status !== 'ready') {
+        if (session.devServerStatus !== 'running') {
           reject(new Error(`Dev server exited (code ${code ?? 'unknown'}) before becoming ready`));
           return;
         }
@@ -712,11 +721,11 @@ export async function restartDevServerInWorktree(
             try {
               const branchCheck = await runGit(['branch', '--list', session.branch], repoRoot);
               if (branchCheck.stdout.trim() !== '') {
-                session.status = 'disconnected';
+                session.devServerStatus = 'disconnected';
                 await persist().catch(() => {});
               }
             } catch {
-              session.status = 'disconnected';
+              session.devServerStatus = 'disconnected';
               await persist().catch(() => {});
             }
           })();
@@ -725,7 +734,7 @@ export async function restartDevServerInWorktree(
 
       // Safety timeout: 2 minutes
       setTimeout(() => {
-        if (session.status !== 'ready') {
+        if (session.devServerStatus !== 'running') {
           reject(new Error('Dev server startup timed out (2 min)'));
         }
       }, 120_000);

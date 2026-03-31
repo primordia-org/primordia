@@ -57,6 +57,8 @@ export interface EvolveSession {
   worktreePath: string;
   /** One of the LocalSessionStatus values serialised as a string. */
   status: string;
+  /** The DevServerStatus serialised as a string; e.g. 'none' | 'starting' | 'running' | 'disconnected'. */
+  devServerStatus: string;
   /** Accumulated markdown progress text shown in the session UI. */
   progressText: string;
   port: number | null;
@@ -100,7 +102,7 @@ export interface DbAdapter {
   createEvolveSession(session: EvolveSession): Promise<void>;
   updateEvolveSession(
     id: string,
-    updates: Partial<Pick<EvolveSession, "status" | "progressText" | "port" | "previewUrl">>,
+    updates: Partial<Pick<EvolveSession, "status" | "devServerStatus" | "progressText" | "port" | "previewUrl">>,
   ): Promise<void>;
   getEvolveSession(id: string): Promise<EvolveSession | null>;
   listEvolveSessions(limit?: number): Promise<EvolveSession[]>;

@@ -82,6 +82,7 @@ export default async function EvolveSessionPage({
       initialRequest={session.request}
       initialProgressText={session.progressText}
       initialStatus={session.status}
+      initialDevServerStatus={session.devServerStatus}
       initialPreviewUrl={session.previewUrl}
       branch={branch}
       sessionBranch={session.branch}

@@ -107,6 +107,7 @@ export async function POST(request: Request) {
     branch,
     worktreePath,
     status: 'starting',
+    devServerStatus: 'none',
     progressText: '',
     port: null,
     previewUrl: null,
@@ -121,6 +122,7 @@ export async function POST(request: Request) {
     branch: session.branch,
     worktreePath: session.worktreePath,
     status: session.status,
+    devServerStatus: session.devServerStatus,
     progressText: session.progressText,
     port: session.port,
     previewUrl: session.previewUrl,
@@ -167,6 +169,7 @@ export async function GET(request: Request) {
     }
     return Response.json({
       status: session.status,
+      devServerStatus: session.devServerStatus,
       progressText: session.progressText,
       port: session.port,
       previewUrl: session.previewUrl,

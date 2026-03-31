@@ -16,6 +16,7 @@ import { getDb } from '../../../../../lib/db';
 import {
   restartDevServerInWorktree,
   type LocalSession,
+  type DevServerStatus,
 } from '../../../../../lib/local-evolve-sessions';
 
 export async function POST(request: Request) {
@@ -42,9 +43,9 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Session not found' }, { status: 404 });
   }
 
-  if (record.status !== 'disconnected' && record.status !== 'ready') {
+  if (record.status !== 'ready') {
     return Response.json(
-      { error: `Can only restart a disconnected or ready session (current status: ${record.status})` },
+      { error: `Can only restart a session that is ready (current status: ${record.status})` },
       { status: 400 },
     );
   }
@@ -55,6 +56,7 @@ export async function POST(request: Request) {
     branch: record.branch,
     worktreePath: record.worktreePath,
     status: record.status as LocalSession['status'],
+    devServerStatus: record.devServerStatus as DevServerStatus,
     progressText: record.progressText,
     port: record.port,
     previewUrl: record.previewUrl,
@@ -67,8 +69,8 @@ export async function POST(request: Request) {
   const publicHostname = fwdHost ? fwdHost.split(':')[0] : 'localhost';
 
   // Update DB status immediately so the UI transitions without waiting.
-  await db.updateEvolveSession(session.id, { status: 'starting-server' });
-  session.status = 'starting-server';
+  await db.updateEvolveSession(session.id, { devServerStatus: 'starting' });
+  session.devServerStatus = 'starting';
 
   // Fire-and-forget — restartDevServerInWorktree handles all state transitions
   // and error cases internally, persisting each change to SQLite.

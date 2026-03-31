@@ -65,6 +65,13 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     );
   `);
 
+  // Migration: add dev_server_status column if it doesn't exist (added in refactor)
+  try {
+    db.exec("ALTER TABLE evolve_sessions ADD COLUMN dev_server_status TEXT NOT NULL DEFAULT 'none'");
+  } catch {
+    // Column already exists — ignore
+  }
+
   const adapter: DbAdapter = {
     async createUser(user: User) {
       db.prepare(
@@ -262,13 +269,14 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     async createEvolveSession(session: EvolveSession) {
       db.prepare(
         `INSERT INTO evolve_sessions
-           (id, branch, worktree_path, status, progress_text, port, preview_url, request, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           (id, branch, worktree_path, status, dev_server_status, progress_text, port, preview_url, request, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         session.id,
         session.branch,
         session.worktreePath,
         session.status,
+        session.devServerStatus,
         session.progressText,
         session.port ?? null,
         session.previewUrl ?? null,
@@ -279,11 +287,12 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
 
     async updateEvolveSession(
       id: string,
-      updates: Partial<Pick<EvolveSession, "status" | "progressText" | "port" | "previewUrl">>,
+      updates: Partial<Pick<EvolveSession, "status" | "devServerStatus" | "progressText" | "port" | "previewUrl">>,
     ) {
       const sets: string[] = [];
       const values: unknown[] = [];
       if (updates.status !== undefined)       { sets.push("status = ?");          values.push(updates.status); }
+      if (updates.devServerStatus !== undefined) { sets.push("dev_server_status = ?"); values.push(updates.devServerStatus); }
       if (updates.progressText !== undefined)  { sets.push("progress_text = ?");   values.push(updates.progressText); }
       if (updates.port !== undefined)          { sets.push("port = ?");             values.push(updates.port); }
       if (updates.previewUrl !== undefined)    { sets.push("preview_url = ?");      values.push(updates.previewUrl); }
@@ -297,6 +306,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         .prepare("SELECT * FROM evolve_sessions WHERE id = ?")
         .get(id) as {
         id: string; branch: string; worktree_path: string; status: string;
+        dev_server_status: string;
         progress_text: string; port: number | null; preview_url: string | null;
         request: string; created_at: number;
       } | null;
@@ -306,6 +316,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         branch: r.branch,
         worktreePath: r.worktree_path,
         status: r.status,
+        devServerStatus: r.dev_server_status,
         progressText: r.progress_text,
         port: r.port,
         previewUrl: r.preview_url,
@@ -319,6 +330,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         .prepare("SELECT * FROM evolve_sessions ORDER BY created_at DESC LIMIT ?")
         .all(limit) as Array<{
         id: string; branch: string; worktree_path: string; status: string;
+        dev_server_status: string;
         progress_text: string; port: number | null; preview_url: string | null;
         request: string; created_at: number;
       }>;
@@ -327,6 +339,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         branch: r.branch,
         worktreePath: r.worktree_path,
         status: r.status,
+        devServerStatus: r.dev_server_status,
         progressText: r.progress_text,
         port: r.port,
         previewUrl: r.preview_url,

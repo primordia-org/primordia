@@ -163,73 +163,107 @@ User types change request on /evolve page
 
 #### Evolve Session State Machine
 
-Each evolve session moves through a well-defined set of states, persisted to SQLite so the UI can poll for live progress. Here is the complete state machine:
+Each evolve session tracks two independent dimensions persisted to SQLite:
+
+- **`LocalSessionStatus`** — the session pipeline lifecycle (what Claude / the worktree is doing)
+- **`DevServerStatus`** — the state of the preview dev server for this session
 
 ```mermaid
 stateDiagram-v2
-    state "starting" as starting
-    state "running-claude" as running_claude
-    state "starting-server" as starting_server
-    state "ready" as ready
+    direction LR
+
+    state "Session Status" as session_group {
+        state "starting" as starting
+        state "running-claude" as running_claude
+        state "ready" as ready
+        state "accepted" as accepted
+        state "rejected" as rejected
+        state "error" as error
+    }
+
+    state "Dev Server Status" as devserver_group {
+        state "none" as ds_none
+        state "starting" as ds_starting
+        state "running" as ds_running
+        state "disconnected" as ds_disconnected
+    }
+```
+
+Since the two dimensions are independent, here are the valid combined states and how the system moves through them:
+
+```mermaid
+stateDiagram-v2
+    state "starting\n[devServer: none]" as S1
+    state "running-claude\n[devServer: none]" as S2
+    state "ready\n[devServer: starting]" as S3
+    state "ready\n[devServer: running]" as S4
+    state "running-claude\n[devServer: running]" as S5
+    state "ready\n[devServer: disconnected]" as S6
     state "accepted" as accepted
     state "rejected" as rejected
-    state "disconnected" as disconnected
     state "error" as error
 
-    [*] --> starting : POST /api/evolve/local\n(session created in DB)
+    [*] --> S1 : POST /api/evolve/local
 
-    starting --> running_claude : worktree created\nbun install done\ndb copied · .env symlinked
+    S1 --> S2 : worktree created\nbun install done
 
-    running_claude --> starting_server : Claude Code finished
+    S2 --> S3 : Claude Code finished
 
-    starting_server --> ready : Next.js printed "Ready"
+    S3 --> S4 : Next.js printed "Ready"
 
-    ready --> running_claude : POST /api/evolve/local/followup\n(follow-up request)
-    running_claude --> ready : follow-up Claude Code done
+    S4 --> S5 : POST /api/evolve/local/followup
+    S5 --> S4 : follow-up Claude Code done
 
-    error --> running_claude : POST /api/evolve/local/followup\n(retry from error state)
+    error --> S5 : POST /api/evolve/local/followup\n(retry from error)
 
-    ready --> accepted : POST /api/evolve/local/manage\n{ action: "accept" }\n→ git merge + worktree remove
-    ready --> rejected : POST /api/evolve/local/manage\n{ action: "reject" }\n→ worktree remove, branch -D
+    S4 --> accepted : POST /api/evolve/local/manage { accept }
+    S4 --> rejected : POST /api/evolve/local/manage { reject }
 
-    ready --> disconnected : dev server exits unexpectedly\n(branch still present after 3 s)
-    disconnected --> starting_server : restartDevServerInWorktree()\n(kills old process, re-spawns bun run dev)
+    S4 --> S6 : dev server exits unexpectedly
+    S6 --> S3 : POST /api/evolve/local/kill-restart
 
-    starting --> error : exception in setup
-    running_claude --> error : Claude Code error / non-success subtype
-    starting_server --> error : spawn failure or 2-min timeout
+    S1 --> error : exception in setup
+    S2 --> error : Claude Code error
+    S3 --> error : spawn failure or 2-min timeout
 
     accepted --> [*]
     rejected --> [*]
     error --> [*]
 ```
 
-**State reference**
+**Session status reference**
 
-| State | Meaning |
+| `LocalSessionStatus` | Meaning |
 |---|---|
 | `starting` | Session created; git worktree + `bun install` in progress |
 | `running-claude` | Claude Agent SDK `query()` is streaming tool calls into the worktree |
-| `starting-server` | Claude Code finished; `bun run dev` spawning in the worktree |
-| `ready` | Preview dev server is up; `previewUrl` is set and clickable |
+| `ready` | Claude Code finished; worktree is live and interactive |
 | `accepted` | User clicked Accept; branch merged into parent, worktree deleted |
 | `rejected` | User clicked Reject; worktree and branch discarded without merging |
-| `disconnected` | Server was ready, then exited unexpectedly (branch still exists) |
-| `error` | An exception was thrown during `starting`, `running-claude`, or `starting-server` |
+| `error` | An exception was thrown during `starting` or `running-claude` |
+
+**Dev server status reference**
+
+| `DevServerStatus` | Meaning |
+|---|---|
+| `none` | Dev server not yet started (session is `starting` or `running-claude`) |
+| `starting` | `bun run dev` has been spawned; waiting for Next.js "Ready" signal |
+| `running` | Dev server is up; `previewUrl` is set and the preview is accessible |
+| `disconnected` | Server was running, then exited unexpectedly (branch still exists) |
 
 **Key transition triggers**
 
 | Transition | Triggered by |
 |---|---|
 | `[new]` → `starting` | `POST /api/evolve/local` |
-| `starting` → `running-claude` | `startLocalEvolve()` in `lib/local-evolve-sessions.ts` after worktree setup |
-| `running-claude` → `starting-server` | `startLocalEvolve()` after `query()` stream completes |
-| `starting-server` → `ready` | Next.js "Ready" string detected in dev server output |
-| `ready` / `error` → `running-claude` | `POST /api/evolve/local/followup` |
-| `running-claude` → `ready` | `runFollowupInWorktree()` on success |
+| `starting` → `running-claude` | `startLocalEvolve()` after worktree setup |
+| `running-claude` → `ready` + devServer `none→starting` | `startLocalEvolve()` after `query()` completes |
+| devServer `starting` → `running` | Next.js "Ready" string detected in dev server output |
+| `ready` → `running-claude` (devServer stays `running`) | `POST /api/evolve/local/followup` |
+| `running-claude` → `ready` (devServer stays `running`) | `runFollowupInWorktree()` on success |
 | `ready` → `accepted` / `rejected` | `POST /api/evolve/local/manage` |
-| `ready` → `disconnected` | Dev server `close` event + branch still present (3 s later) |
-| `disconnected` → `starting-server` | `restartDevServerInWorktree()` |
+| devServer `running` → `disconnected` | Dev server `close` event + branch still present (3 s later) |
+| devServer `disconnected` → `starting` | `POST /api/evolve/local/kill-restart` |
 | any → `error` | Uncaught exception inside the respective async helper |
 
 ---
