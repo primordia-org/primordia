@@ -55,7 +55,11 @@ export function SimpleMarkdown({ text }: { text: string }) {
         </code>
       );
     } else {
-      rendered.push(<span key={key++}>{part}</span>);
+      // suppressHydrationWarning: emojis can encode differently between Node.js
+      // (server) and the browser, causing a spurious hydration mismatch error.
+      // The content is always correct on the client, so we suppress the warning
+      // and let React use the client-rendered text.
+      rendered.push(<span key={key++} suppressHydrationWarning>{part}</span>);
     }
     i++;
   }
