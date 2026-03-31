@@ -15,6 +15,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   startLocalEvolve,
   runGit,
+  inferDevServerStatus,
   type LocalSession,
 } from '../../../../lib/local-evolve-sessions';
 import { getSessionUser } from '../../../../lib/auth';
@@ -107,6 +108,7 @@ export async function POST(request: Request) {
     branch,
     worktreePath,
     status: 'starting',
+    devServerStatus: 'none',
     progressText: '',
     port: null,
     previewUrl: null,
@@ -167,6 +169,7 @@ export async function GET(request: Request) {
     }
     return Response.json({
       status: session.status,
+      devServerStatus: inferDevServerStatus(sessionId, session.port),
       progressText: session.progressText,
       port: session.port,
       previewUrl: session.previewUrl,

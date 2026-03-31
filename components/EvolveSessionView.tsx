@@ -15,7 +15,8 @@ import Link from "next/link";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface EvolveSessionData {
-  status: "starting" | "running-claude" | "starting-server" | "ready" | "accepted" | "rejected" | "disconnected" | "error";
+  status: "starting" | "running-claude" | "ready" | "accepted" | "rejected" | "error";
+  devServerStatus: "none" | "starting" | "running" | "disconnected";
   progressText: string;
   port: number | null;
   previewUrl: string | null;
@@ -30,6 +31,8 @@ interface EvolveSessionViewProps {
   initialRequest: string;
   initialProgressText: string;
   initialStatus: string;
+  /** The initial devServerStatus from the DB. */
+  initialDevServerStatus: string;
   initialPreviewUrl: string | null;
   /** The currently checked-out branch (parent). Used in confirmation copy and NavHeader. */
   branch?: string | null;
@@ -46,6 +49,7 @@ export default function EvolveSessionView({
   initialRequest,
   initialProgressText,
   initialStatus,
+  initialDevServerStatus,
   initialPreviewUrl,
   branch,
   sessionBranch,
@@ -53,6 +57,7 @@ export default function EvolveSessionView({
 }: EvolveSessionViewProps) {
   const [progressText, setProgressText] = useState(initialProgressText);
   const [status, setStatus] = useState(initialStatus);
+  const [devServerStatus, setDevServerStatus] = useState(initialDevServerStatus);
   const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl);
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const { sessionUser, handleLogout } = useSessionUser();
@@ -96,14 +101,14 @@ export default function EvolveSessionView({
         const data = (await res.json()) as EvolveSessionData;
         setProgressText(data.progressText || "⏳ Starting…");
         setStatus(data.status);
+        setDevServerStatus(data.devServerStatus);
         if (data.previewUrl) setPreviewUrl(data.previewUrl);
 
         if (
-          data.status === "ready" ||
           data.status === "accepted" ||
           data.status === "rejected" ||
           data.status === "error" ||
-          data.status === "disconnected"
+          (data.status === "ready" && (data.devServerStatus === "running" || data.devServerStatus === "disconnected"))
         ) {
           clearInterval(pollingRef.current!);
           pollingRef.current = null;
@@ -116,8 +121,12 @@ export default function EvolveSessionView({
 
   // Start polling if the session isn't already in a terminal state
   useEffect(() => {
-    const terminal = ["ready", "accepted", "rejected", "error", "disconnected"];
-    if (terminal.includes(initialStatus)) return;
+    const alreadyTerminal =
+      initialStatus === "accepted" ||
+      initialStatus === "rejected" ||
+      initialStatus === "error" ||
+      (initialStatus === "ready" && (initialDevServerStatus === "running" || initialDevServerStatus === "disconnected"));
+    if (alreadyTerminal) return;
 
     startPolling();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -147,7 +156,7 @@ export default function EvolveSessionView({
         throw new Error(data.error ?? `Server error: ${res.status}`);
       }
 
-      setStatus('starting-server');
+      setDevServerStatus('starting');
       startPolling();
     } catch (err) {
       setRestartError(err instanceof Error ? err.message : String(err));
@@ -243,11 +252,10 @@ export default function EvolveSessionView({
   }, []);
 
   const isTerminal =
-    status === "ready" ||
     status === "accepted" ||
     status === "rejected" ||
     status === "error" ||
-    status === "disconnected";
+    (status === "ready" && (devServerStatus === "running" || devServerStatus === "disconnected"));
 
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
@@ -315,6 +323,11 @@ export default function EvolveSessionView({
           <div className="mt-3 text-sm text-gray-500 animate-pulse">Running…</div>
         )}
 
+        {/* Dev server starting indicator */}
+        {status === "ready" && devServerStatus === "starting" && (
+          <div className="mt-3 text-sm text-gray-500 animate-pulse">Starting preview server…</div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -338,20 +351,18 @@ export default function EvolveSessionView({
         </div>
       )}
 
-      {/* Preview link — shown when ready */}
-      {status === "ready" && (
+      {/* Preview link — shown when dev server is running */}
+      {devServerStatus === "running" && previewUrl && (
         <div className="mb-6 px-4 py-4 rounded-lg bg-amber-900/40 border border-amber-700/50 text-sm">
           <p className="text-amber-300 font-semibold mb-2">🚀 Preview ready</p>
-          {previewUrl && (
-            <a
-              href={previewUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-amber-400 hover:text-amber-200 underline break-all"
-            >
-              {previewUrl}
-            </a>
-          )}
+          <a
+            href={previewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-amber-400 hover:text-amber-200 underline break-all"
+          >
+            {previewUrl}
+          </a>
         </div>
       )}
 
@@ -526,7 +537,7 @@ export default function EvolveSessionView({
       )}
 
       {/* Disconnected notice */}
-      {status === "disconnected" && (
+      {devServerStatus === "disconnected" && (
         <div className="mb-6 px-4 py-4 rounded-lg bg-yellow-900/40 border border-yellow-700/50 text-sm">
           <p className="text-yellow-300 mb-3">
             ⚠️ The preview server disconnected unexpectedly. The branch still exists.

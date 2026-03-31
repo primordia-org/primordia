@@ -161,6 +161,50 @@ User types change request on /evolve page
       → kill dev server, git worktree remove, git branch -D
 ```
 
+#### Evolve Session State Machine
+
+Each evolve session tracks two independent dimensions persisted to SQLite:
+
+- **`LocalSessionStatus`** — the session pipeline lifecycle (what Claude / the worktree is doing)
+- **`DevServerStatus`** — the state of the preview dev server for this session
+
+**Session status reference**
+
+| `LocalSessionStatus` | Meaning |
+|---|---|
+| `starting` | Session created; git worktree + `bun install` in progress |
+| `running-claude` | Claude Agent SDK `query()` is streaming tool calls into the worktree |
+| `ready` | Claude Code finished; worktree is live and interactive |
+| `accepted` | User clicked Accept; branch merged into parent, worktree deleted |
+| `rejected` | User clicked Reject; worktree and branch discarded without merging |
+| `error` | An exception was thrown during `starting` or `running-claude` |
+
+**Dev server status reference**
+
+| `DevServerStatus` | Meaning |
+|---|---|
+| `none` | Dev server not yet started (session is `starting` or `running-claude`) |
+| `starting` | `bun run dev` has been spawned; waiting for Next.js "Ready" signal |
+| `running` | Dev server is up; `previewUrl` is set and the preview is accessible |
+| `disconnected` | Server was running, then exited unexpectedly (branch still exists) |
+
+**Key transition triggers**
+
+| Transition | Triggered by |
+|---|---|
+| `[new]` → `starting` | `POST /api/evolve/local` |
+| `starting` → `running-claude` | `startLocalEvolve()` after worktree setup |
+| `running-claude` → `ready` + devServer `none→starting` | `startLocalEvolve()` after `query()` completes |
+| devServer `starting` → `running` | Next.js "Ready" string detected in dev server output |
+| `ready` → `running-claude` (devServer stays `running`) | `POST /api/evolve/local/followup` |
+| `running-claude` → `ready` (devServer stays `running`) | `runFollowupInWorktree()` on success |
+| `ready` → `accepted` / `rejected` | `POST /api/evolve/local/manage` |
+| devServer `running` → `disconnected` | Dev server `close` event + branch still present (3 s later) |
+| devServer `disconnected` → `starting` | `POST /api/evolve/local/kill-restart` |
+| any → `error` | Uncaught exception inside the respective async helper |
+
+---
+
 #### Deploy to exe.dev (one-command remote dev server)
 ```
 bun run deploy-to-exe.dev <server-name>

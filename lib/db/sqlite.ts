@@ -65,6 +65,13 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     );
   `);
 
+  // Migration: add dev_server_status column if it doesn't exist (added in refactor)
+  try {
+    db.exec("ALTER TABLE evolve_sessions ADD COLUMN dev_server_status TEXT NOT NULL DEFAULT 'none'");
+  } catch {
+    // Column already exists — ignore
+  }
+
   const adapter: DbAdapter = {
     async createUser(user: User) {
       db.prepare(

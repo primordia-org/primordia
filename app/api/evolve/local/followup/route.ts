@@ -53,6 +53,7 @@ export async function POST(request: Request) {
     branch: record.branch,
     worktreePath: record.worktreePath,
     status: record.status as LocalSession['status'],
+    devServerStatus: 'running',
     progressText: record.progressText,
     port: record.port,
     previewUrl: record.previewUrl,
