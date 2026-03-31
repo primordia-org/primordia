@@ -110,8 +110,6 @@ primordia/
 │               │   └── route.ts   ← POST accept/reject a local session
 │               ├── followup/
 │               │   └── route.ts   ← POST submit a follow-up request on an existing ready session
-│               ├── restart/
-│               │   └── route.ts   ← POST bun install + restart dev server (called after accept)
 │               └── kill-restart/
 │                   └── route.ts   ← POST kill dev server process + restart it in the worktree
 │

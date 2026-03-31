@@ -5,7 +5,7 @@
 // Rendered in the root layout, below the main app content (below the fold).
 // Users scroll down to reveal it — the main app stays at 100dvh.
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 interface Props {
   /** True when this instance is running as a local preview worktree. */
@@ -17,28 +17,6 @@ interface Props {
 export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch }: Props) {
   const [previewActionState, setPreviewActionState] = useState<"idle" | "loading" | "accepted" | "rejected">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Listen for a postMessage from a child preview window and trigger bun
-  // install + dev server restart once the preview is accepted.
-  // Runs in any instance (including nested previewInstances acting as parents).
-  //
-  // Security: we only act on messages whose sender's opener is this window.
-  // The child always sends via `window.opener?.postMessage(...)`, so
-  // `event.source.opener === window` is true only for a direct child preview.
-  // `window.opener` is accessible cross-origin per the WindowProxy spec, so
-  // this works on any domain (e.g. primordia.exe.xyz) without origin allow-lists.
-  useEffect(() => {
-    function handleMessage(event: MessageEvent) {
-      if (event.data?.type !== "primordia:preview-accepted") return;
-      // Verify the message came from a window that this window opened.
-      const source = event.source as Window | null;
-      if (!source || source.opener !== window) return;
-      fetch("/api/evolve/restart", { method: "POST" }).catch(() => {});
-    }
-
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, []);
 
   // Don't render anything if not a local preview instance.
   if (!isPreviewInstance) return null;
