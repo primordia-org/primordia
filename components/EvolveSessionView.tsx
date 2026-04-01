@@ -130,7 +130,14 @@ function LogSection({
     const headingClass = isTypeFixSection ? "text-orange-300" : "text-blue-300";
     const doneTitle = isTypeFixSection ? "🔧 Type errors fixed" : "🤖 Claude Code finished";
 
-    if (isActive) {
+    // Treat the section as finished if the content already contains an end marker,
+    // even if the status update hasn't arrived in the same SSE tick yet.
+    const hasFinishMarker =
+      content.includes("✅ **Claude Code finished.**") ||
+      content.includes("✅ **Follow-up complete. Preview server will reload automatically.**");
+    const isRunning = isActive && !hasFinishMarker;
+
+    if (isRunning) {
       return (
         <div className={`rounded-lg border ${borderClass} bg-gray-900 text-sm overflow-hidden`}>
           <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
