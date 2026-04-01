@@ -343,6 +343,11 @@ export async function startLocalEvolve(
       prompt,
       options: {
         cwd: session.worktreePath,
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append: `The current working directory is: ${session.worktreePath}`,
+        },
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         // Capture stderr from the Claude Code process. Claude Code writes
@@ -585,6 +590,11 @@ export async function runFollowupInWorktree(
       prompt,
       options: {
         cwd: session.worktreePath,
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append: `The current working directory is: ${session.worktreePath}`,
+        },
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         stderr: (data: string) => {
@@ -826,6 +836,11 @@ export async function resolveConflictsWithClaude(
       prompt,
       options: {
         cwd: mergeRoot,
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append: `The current working directory is: ${mergeRoot}`,
+        },
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
       },
