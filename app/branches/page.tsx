@@ -11,6 +11,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { getDb } from "@/lib/db";
+import type { EvolveSession } from "@/lib/db/types";
 import { PageNavBar } from "@/components/PageNavBar";
 import { PruneBranchesButton } from "@/components/PruneBranchesButton";
 import { buildPageTitle } from "@/lib/page-title";
@@ -56,6 +57,7 @@ interface DiagnosticInfo {
   branchList: GitResult;
   currentBranch: GitResult;
   activeSessions: number;
+  sessions: EvolveSession[];
 }
 
 // ─── Git helpers ───────────────────────────────────────────────────────────────
@@ -113,6 +115,7 @@ async function getBranchData(): Promise<{
     branchList,
     currentBranch: currentBranchResult,
     activeSessions: dbSessions.length,
+    sessions: dbSessions,
   };
 
   const branches: BranchData[] = allBranchNames.map((name) => {
@@ -411,6 +414,37 @@ export default async function BranchesPage() {
             label="git branch --show-current"
             result={diag.currentBranch}
           />
+          <div>
+            <p className="text-gray-400">
+              evolve sessions ({diag.sessions.length})
+            </p>
+            {diag.sessions.length === 0 ? (
+              <pre className="text-gray-700 pl-2">(none)</pre>
+            ) : (
+              <table className="mt-1 pl-2 w-full border-collapse">
+                <thead>
+                  <tr className="text-gray-500">
+                    <th className="text-left pr-4 font-normal">id</th>
+                    <th className="text-left pr-4 font-normal">branch</th>
+                    <th className="text-left pr-4 font-normal">status</th>
+                    <th className="text-left font-normal">port</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {diag.sessions.map((s) => (
+                    <tr key={s.id} className="text-gray-400">
+                      <td className="pr-4 text-gray-600">{s.id.slice(0, 8)}…</td>
+                      <td className="pr-4">{s.branch}</td>
+                      <td className={`pr-4 ${STATUS_COLOR[s.status] ?? "text-gray-400"}`}>
+                        {s.status}
+                      </td>
+                      <td>{s.port ?? <span className="text-gray-700">—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       </details>
     </main>
