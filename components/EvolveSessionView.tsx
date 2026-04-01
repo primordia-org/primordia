@@ -300,6 +300,9 @@ export default function EvolveSessionView({
     status === "error" ||
     (status === "ready" && (devServerStatus === "running" || devServerStatus === "disconnected"));
 
+  /** True while the session pipeline is actively running (not yet ready for action). */
+  const isClaudeRunning = status === "starting" || status === "running-claude";
+
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
       {/* Header */}
@@ -494,13 +497,16 @@ export default function EvolveSessionView({
         </div>
       )}
 
-      {/* Three-action panel — shown when the preview is ready or while fixing type errors */}
-      {(status === "ready" || status === "fixing-types") && (
+      {/* Three-action panel — shown as soon as Claude starts so you can compose a follow-up early */}
+      {status !== "accepted" && status !== "rejected" && status !== "error" && (
         <div className="mb-6 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-hidden">
 
           {/* ── Header ── */}
-          <div className="px-4 py-2 border-b border-gray-700">
+          <div className="px-4 py-2 border-b border-gray-700 flex items-center justify-between">
             <p className="text-gray-500 text-xs font-medium uppercase tracking-wide">Available Actions</p>
+            {isClaudeRunning && (
+              <p className="text-gray-500 text-xs">Accept &amp; Reject available once Claude finishes</p>
+            )}
           </div>
 
           {/* ── Button row (or fixing-types indicator) ── */}
@@ -524,9 +530,12 @@ export default function EvolveSessionView({
                 Follow-up Changes
               </button>
               <button
-                onClick={() => toggleAction("accept")}
+                onClick={isClaudeRunning ? undefined : () => toggleAction("accept")}
+                disabled={isClaudeRunning}
                 className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
-                  activeAction === "accept"
+                  isClaudeRunning
+                    ? "text-gray-600 cursor-not-allowed"
+                    : activeAction === "accept"
                     ? "bg-green-900/40 text-green-200"
                     : activeAction !== null
                     ? "text-gray-500 hover:bg-gray-800 hover:text-gray-300"
@@ -536,9 +545,12 @@ export default function EvolveSessionView({
                 Accept Changes
               </button>
               <button
-                onClick={() => toggleAction("reject")}
+                onClick={isClaudeRunning ? undefined : () => toggleAction("reject")}
+                disabled={isClaudeRunning}
                 className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                  activeAction === "reject"
+                  isClaudeRunning
+                    ? "text-gray-600 cursor-not-allowed"
+                    : activeAction === "reject"
                     ? "bg-red-900/40 text-red-200"
                     : activeAction !== null
                     ? "text-gray-500 hover:bg-gray-800 hover:text-gray-300"
@@ -570,10 +582,10 @@ export default function EvolveSessionView({
               )}
               <button
                 onClick={handleFollowupSubmit}
-                disabled={isSubmittingFollowup || !followupText.trim()}
+                disabled={isClaudeRunning || isSubmittingFollowup || !followupText.trim()}
                 className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium transition-colors"
               >
-                {isSubmittingFollowup ? "Submitting…" : "Submit follow-up"}
+                {isSubmittingFollowup ? "Submitting…" : isClaudeRunning ? "Waiting for Claude to finish…" : "Submit follow-up"}
               </button>
             </div>
           )}
