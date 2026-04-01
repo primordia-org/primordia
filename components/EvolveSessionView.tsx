@@ -65,7 +65,10 @@ function splitClaudeContent(content: string): {
   finalItem: string;
   toolCallCount: number;
 } {
+  // Strip any decision log entry (---\n\n✅ **Accepted**… or 🗑️ **Rejected**…) that may
+  // have been appended after the finish marker by logDecision() in manage/route.ts.
   const stripped = content
+    .replace(/\n*---\n+(?:✅ \*\*Accepted\*\*|🗑️ \*\*Rejected\*\*)[^\n]*\n?$/, "")
     .replace(/\n?✅ \*\*Claude Code finished\.\*\*\s*$/, "")
     .replace(/\n?✅ \*\*Follow-up complete\. Preview server will reload automatically\.\*\*\s*$/, "")
     .trim();
@@ -680,9 +683,7 @@ export default function EvolveSessionView({
           <div className="px-4 py-4 rounded-lg bg-green-900/40 border border-green-700/50 text-sm">
             <p className="text-green-200 font-semibold">✅ Changes accepted</p>
             <p className="text-green-300/80 text-xs mt-1">
-              The branch was merged into{" "}
-              <code className="bg-green-900/60 px-1 rounded">{branch ?? "main"}</code> and the
-              worktree has been removed.
+              The branch was merged and the worktree has been removed.
             </p>
           </div>
         )}

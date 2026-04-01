@@ -12,6 +12,10 @@
 
 - Fixed `LogSection` in `EvolveSessionView.tsx`: a Claude Code section now detects the end-of-section markers (`✅ **Claude Code finished.**` and `✅ **Follow-up complete. Preview server will reload automatically.**`) directly in the content and switches to the "finished" title immediately, rather than waiting for the `status`/`devServerStatus` fields to arrive in the same SSE tick. The "Follow-up complete" message itself is not rendered — it is only used as the signal.
 
+- Fixed `splitClaudeContent` in `EvolveSessionView.tsx`: the decision log entry appended by `logDecision()` in `manage/route.ts` (`---\n\n✅ **Accepted** — merged into…` or `---\n\n🗑️ **Rejected**…`) is now stripped before the finish marker is removed. Previously, when a follow-up was accepted, the decision log followed the finish marker, causing the `\s*$` regex to miss it and leak the `---\n\nAccepted` block into the visible `finalItem` of the Claude Code section.
+
+- Fixed the "✅ Changes accepted" banner in `EvolveSessionView.tsx`: the subtitle no longer claims to know which branch the session was merged into. The `branch` prop reflects the server's current git checkout, not the actual merge target, so it was unreliable. The text now reads "The branch was merged and the worktree has been removed."
+
 ## Why
 
 The "Claude Code finished" and "🚀 Preview ready" cards had only 8px of breathing room between them (Tailwind `gap-2`), while the "Created branch" card had 24px (`mb-6`) below it. The inconsistency made the log feel cramped mid-way through. Unifying to `gap-6` gives each section room to read clearly.
@@ -23,3 +27,7 @@ The previous `splitClaudeContent` paragraph-split approach could truncate Claude
 Claude Code sometimes uses markdown headings like `### Changes made` in its closing summary. Because all real section delimiters use emoji-prefixed headings (e.g. `### 🤖 Claude Code`), restricting the split regex to non-ASCII leading characters cleanly distinguishes them.
 
 The "Running…" badge on a follow-up Claude Code section could persist briefly even after the follow-up completed, because the SSE stream delivers progress text and status in the same payload but the component only checked the `status` prop. Detecting the end marker in the content directly closes that window and also avoids rendering the noisy "Follow-up complete. Preview server will reload automatically." message in the UI.
+
+When a follow-up is accepted, `logDecision('accept')` in `manage/route.ts` appends a decision log entry to `progressText` immediately after the finish marker. The previous `splitClaudeContent` stripping used `\s*$` anchors, which only matched when the finish marker was the last thing in the string. With the decision log following it, the strip silently failed, and the `---\n\nAccepted` block appeared in the visible summary area of the Claude Code section.
+
+The "Changes accepted" banner previously used `{branch ?? "main"}` to display the merge target. `branch` is `readGitBranch()` from the server component — the server's current checkout, not the session's parent branch. After the worktree is deleted and the merge completes, the two may differ (e.g. `session-log-sections` vs `main`). Rather than attempt to infer the correct branch from the log, the banner now uses generic copy.
