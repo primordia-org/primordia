@@ -703,6 +703,7 @@ export async function restartDevServerInWorktree(
     // than 'disconnected' (via lsof) during the restart window.
     const oldPort = session.port;
     session.port = null;
+    session.previewUrl = null;
     await persist();
 
     // Kill any existing process on the port so the new server can bind it.
