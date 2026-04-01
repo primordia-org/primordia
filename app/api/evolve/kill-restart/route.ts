@@ -42,13 +42,6 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Session not found' }, { status: 404 });
   }
 
-  if (record.status !== 'ready') {
-    return Response.json(
-      { error: `Can only restart a session that is ready (current status: ${record.status})` },
-      { status: 400 },
-    );
-  }
-
   // Build the LocalSession object from the DB record.
   const session: LocalSession = {
     id: record.id,
