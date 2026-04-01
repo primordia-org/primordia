@@ -638,7 +638,7 @@ export default function EvolveSessionView({
       </div>
 
       {/* Progress sections */}
-      <div className="flex-1 mb-6 flex flex-col gap-2">
+      <div className="mb-6 flex flex-col gap-6">
         {contentSections.map((section, i) => {
           const isSectionActive = i === contentSections.length - 1 && !isTerminal;
           const isServer =
@@ -653,30 +653,31 @@ export default function EvolveSessionView({
             />
           );
         })}
+
+        {/* Accepted banner — inline with other sections */}
+        {status === "accepted" && (
+          <div className="px-4 py-4 rounded-lg bg-green-900/40 border border-green-700/50 text-sm">
+            <p className="text-green-200 font-semibold">✅ Changes accepted</p>
+            <p className="text-green-300/80 text-xs mt-1">
+              The branch was merged into{" "}
+              <code className="bg-green-900/60 px-1 rounded">{branch ?? "main"}</code> and the
+              worktree has been removed.
+            </p>
+          </div>
+        )}
+
+        {/* Rejected banner — inline with other sections */}
+        {status === "rejected" && (
+          <div className="px-4 py-4 rounded-lg bg-red-900/40 border border-red-700/50 text-sm">
+            <p className="text-red-200 font-semibold">🗑️ Changes rejected</p>
+            <p className="text-red-300/80 text-xs mt-1">
+              The branch and worktree have been discarded.
+            </p>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
-
-      {/* Accepted banner */}
-      {status === "accepted" && (
-        <div className="mb-6 px-4 py-4 rounded-lg bg-green-900/40 border border-green-700/50 text-sm">
-          <p className="text-green-200 font-semibold">✅ Changes accepted</p>
-          <p className="text-green-300/80 text-xs mt-1">
-            The branch was merged into{" "}
-            <code className="bg-green-900/60 px-1 rounded">{branch ?? "main"}</code> and the
-            worktree has been removed.
-          </p>
-        </div>
-      )}
-
-      {/* Rejected banner */}
-      {status === "rejected" && (
-        <div className="mb-6 px-4 py-4 rounded-lg bg-red-900/40 border border-red-700/50 text-sm">
-          <p className="text-red-200 font-semibold">🗑️ Changes rejected</p>
-          <p className="text-red-300/80 text-xs mt-1">
-            The branch and worktree have been discarded.
-          </p>
-        </div>
-      )}
 
       {/* Upstream Changes — shown when the parent branch has commits not yet in the session branch */}
       {remainingUpstream > 0 && status !== "accepted" && status !== "rejected" && (
