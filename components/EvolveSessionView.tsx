@@ -67,10 +67,6 @@ export default function EvolveSessionView({
   const abortControllerRef = useRef<AbortController | null>(null);
   /** Tracks how many characters of progressText the client has received, for SSE reconnection. */
   const progressLengthRef = useRef(initialProgressText.length);
-  /** Tracks the previous status value so we can detect fixing-types → ready transition. */
-  const prevStatusRef = useRef(initialStatus);
-  /** Stable ref to handleAccept so it can be called from inside the streaming loop. */
-  const handleAcceptRef = useRef<() => Promise<void>>(async () => {});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const followupTextareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -130,13 +126,7 @@ export default function EvolveSessionView({
               });
             }
             if (parsed.status != null) {
-              const prev = prevStatusRef.current;
-              prevStatusRef.current = parsed.status;
               setStatus(parsed.status);
-              // When a type-fix run completes, automatically retry the accept.
-              if (prev === 'fixing-types' && parsed.status === 'ready') {
-                void handleAcceptRef.current();
-              }
             }
             if (parsed.devServerStatus != null) setDevServerStatus(parsed.devServerStatus);
             if ("previewUrl" in parsed) setPreviewUrl(parsed.previewUrl ?? null);
@@ -258,9 +248,8 @@ export default function EvolveSessionView({
       const data = (await res.json()) as { outcome?: string; error?: string; stashWarning?: string };
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
       if (data.outcome === 'auto-fixing-types') {
-        // Type check failed — a follow-up was automatically started to fix the errors.
-        // Use the dedicated 'fixing-types' status so the Available Actions panel stays visible.
-        prevStatusRef.current = 'fixing-types';
+        // Type check failed — the server automatically started a fix run and will
+        // retry Accept when done. Stream the progress; the server handles the rest.
         setStatus('fixing-types');
         setActiveAction(null);
         void startStreaming();
@@ -276,11 +265,6 @@ export default function EvolveSessionView({
       setAcceptRejectLoading(false);
     }
   }
-
-  // Keep handleAcceptRef pointing at the latest handleAccept so the auto-retry
-  // inside startStreaming always calls the current closure.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { handleAcceptRef.current = handleAccept; });
 
   async function handleReject() {
     if (acceptRejectLoading) return;

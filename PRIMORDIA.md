@@ -204,7 +204,7 @@ Each evolve session tracks two independent dimensions persisted to SQLite:
 |---|---|
 | `starting` | Session created; git worktree + `bun install` in progress |
 | `running-claude` | Claude Agent SDK `query()` is streaming tool calls into the worktree |
-| `fixing-types` | TypeScript gate failed on Accept; Claude is auto-fixing type errors; session page keeps Available Actions panel visible and auto-retries Accept when done |
+| `fixing-types` | TypeScript gate failed on Accept; Claude is auto-fixing type errors; session page keeps Available Actions panel visible; server retries Accept when done (client tab does not need to be open) |
 | `ready` | Claude Code finished; worktree is live and interactive |
 | `accepted` | User clicked Accept; branch merged into parent, worktree deleted |
 | `rejected` | User clicked Reject; worktree and branch discarded without merging |
@@ -230,7 +230,8 @@ Each evolve session tracks two independent dimensions persisted to SQLite:
 | `ready` → `running-claude` (devServer stays `running`) | `POST /api/evolve/followup` |
 | `running-claude` → `ready` (devServer stays `running`) | `runFollowupInWorktree()` on success |
 | `ready` → `fixing-types` (devServer stays `running`) | `POST /api/evolve/manage` when TypeScript gate fails |
-| `fixing-types` → `ready` (devServer stays `running`) | `runFollowupInWorktree()` on success; session page auto-retries Accept |
+| `fixing-types` → `accepted` | `runFollowupInWorktree()` success + re-typecheck passes; server merges without client |
+| `fixing-types` → `error` | `runFollowupInWorktree()` success but type errors persist after fix, or merge fails |
 | `ready` → `accepted` / `rejected` | `POST /api/evolve/manage` |
 | devServer `running` → `disconnected` | Dev server `close` event + branch still present (3 s later) |
 | devServer `disconnected` → `starting` | `POST /api/evolve/kill-restart` |

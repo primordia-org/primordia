@@ -556,6 +556,10 @@ export async function startLocalEvolve(
  * Runs a follow-up Claude Code pass inside an existing worktree.
  * The dev server keeps running; this function only re-invokes Claude and
  * persists the result. Status transitions: ready → running-claude → ready | error.
+ *
+ * @param onSuccess - Optional callback invoked (instead of setting status to 'ready') when Claude
+ *   finishes successfully. The callback is responsible for persisting the final session status.
+ *   Used by the type-fix flow to retry Accept server-side without requiring the client tab to be open.
  */
 export async function runFollowupInWorktree(
   session: LocalSession,
@@ -563,6 +567,7 @@ export async function runFollowupInWorktree(
   repoRoot: string,
   /** Status to persist while Claude is running. Defaults to 'running-claude'. */
   inProgressStatus: LocalSessionStatus = 'running-claude',
+  onSuccess?: (session: LocalSession) => Promise<void>,
 ): Promise<void> {
   const db = await getDb();
 
@@ -656,9 +661,13 @@ export async function runFollowupInWorktree(
       throw err;
     }
 
-    appendProgress(session, `\n✅ **Follow-up complete. Preview server will reload automatically.**\n`);
-    session.status = 'ready';
-    await persist();
+    if (onSuccess) {
+      await onSuccess(session);
+    } else {
+      appendProgress(session, `\n✅ **Follow-up complete. Preview server will reload automatically.**\n`);
+      session.status = 'ready';
+      await persist();
+    }
   } catch (err) {
     session.status = 'error';
     const msg = err instanceof Error ? err.message : String(err);
