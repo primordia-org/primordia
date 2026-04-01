@@ -543,6 +543,22 @@ export default function EvolveSessionView({
             <p className="text-red-400 text-xs font-medium uppercase tracking-wide">Claude encountered an error</p>
           </div>
           <div className="px-4 py-4">
+            {(devServerStatus === "running" || devServerStatus === "starting") && (
+              <div className="mb-4 pb-4 border-b border-red-800/30">
+                <p className="text-gray-500 text-xs mb-2">Dev server is {devServerStatus}. You can restart it to recover.</p>
+                {restartError && (
+                  <p className="text-red-400 text-xs mb-2">{restartError}</p>
+                )}
+                <button
+                  type="button"
+                  onClick={handleRestartServer}
+                  disabled={isRestartingServer}
+                  className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-gray-300 text-xs font-medium transition-colors"
+                >
+                  {isRestartingServer ? "Restarting…" : "↺ Restart dev server"}
+                </button>
+              </div>
+            )}
             <p className="text-gray-400 text-xs mb-3">
               You can submit a follow-up request to retry or provide additional guidance.
             </p>
