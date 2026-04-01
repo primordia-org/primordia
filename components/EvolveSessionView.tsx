@@ -686,7 +686,7 @@ export default function EvolveSessionView({
       )}
 
       {/* Disconnected notice */}
-      {devServerStatus === "disconnected" && (
+      {devServerStatus === "disconnected" && status !== "accepted" && status !== "rejected" && (
         <div className="mb-6 px-4 py-4 rounded-lg bg-yellow-900/40 border border-yellow-700/50 text-sm">
           <p className="text-yellow-300 mb-3">
             ⚠️ The preview server disconnected unexpectedly. The branch still exists.
