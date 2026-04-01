@@ -12,10 +12,27 @@
 //   reject — kills the preview dev server, removes the worktree and branch
 //            without merging, updates the session status to "rejected".
 
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import { runGit, resolveConflictsWithClaude } from '../../../../lib/evolve-sessions';
 import { getSessionUser } from '../../../../lib/auth';
 import { getDb } from '../../../../lib/db';
+
+/** Run an arbitrary command; resolves with stdout, stderr, and exit code. */
+function runCmd(
+  cmd: string,
+  args: string[],
+  cwd: string,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  return new Promise((resolve) => {
+    const proc = spawn(cmd, args, { cwd });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    proc.on('close', (code) => resolve({ stdout, stderr, code: code ?? 1 }));
+    proc.on('error', (err) => resolve({ stdout: '', stderr: err.message, code: 1 }));
+  });
+}
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -84,6 +101,55 @@ export async function POST(request: Request) {
 
   try {
     if (body.action === 'accept') {
+      // ── Pre-accept gates ────────────────────────────────────────────────────
+
+      // Gate 1: session branch must have all parent commits merged in.
+      // `git merge-base --is-ancestor A B` exits 0 when A is an ancestor of B.
+      const ancestorCheck = await runGit(
+        ['merge-base', '--is-ancestor', parentBranch, 'HEAD'],
+        worktreePath,
+      );
+      if (ancestorCheck.code !== 0) {
+        return Response.json(
+          {
+            error:
+              `Cannot accept: session branch "${branch}" is not up-to-date with "${parentBranch}". ` +
+              `Please use the Merge (or Rebase) button on the session page to bring the session branch ` +
+              `up-to-date before accepting.`,
+          },
+          { status: 400 },
+        );
+      }
+
+      // Gate 2: worktree must have no uncommitted changes.
+      const worktreeStatus = await runGit(['status', '--porcelain'], worktreePath);
+      if (worktreeStatus.stdout.trim()) {
+        return Response.json(
+          {
+            error:
+              `Cannot accept: session worktree has uncommitted changes:\n\n` +
+              `${worktreeStatus.stdout.trim()}\n\n` +
+              `All changes must be committed before the session can be accepted.`,
+          },
+          { status: 400 },
+        );
+      }
+
+      // Gate 3: TypeScript must compile without errors.
+      const tscResult = await runCmd('bun', ['run', 'typecheck'], worktreePath);
+      if (tscResult.code !== 0) {
+        return Response.json(
+          {
+            error:
+              `Cannot accept: TypeScript type check failed in the session worktree.\n\n` +
+              (tscResult.stdout + tscResult.stderr).trim(),
+          },
+          { status: 400 },
+        );
+      }
+
+      // ── End pre-accept gates ────────────────────────────────────────────────
+
       // Checkout the parent branch so the merge lands on the right branch.
       const checkoutResult = await runGit(['checkout', parentBranch], repoRoot);
       let mergeRoot = repoRoot;
