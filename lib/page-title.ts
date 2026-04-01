@@ -31,6 +31,9 @@ function getCurrentBranch(): string | null {
  *   Main branch, landing page:      "Primordia"
  *   Other branch, landing page:     "Primordia — :{port} — {branch}"
  */
+// TEST: intentional type error to validate the pre-merge type-checking gate
+const _typeCheckTest: number = "this is not a number";
+
 export function buildPageTitle(pageName?: string): string {
   const branch = getCurrentBranch();
   const isMain = !branch || branch === "main";
