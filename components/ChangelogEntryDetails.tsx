@@ -19,15 +19,18 @@ interface Props {
 
 export function ChangelogEntryDetails({ filename, date, title, dateLabel }: Props) {
   const [content, setContent] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const fetchedRef = useRef(false);
 
   function handleToggle(e: React.SyntheticEvent<HTMLDetailsElement>) {
     if (!e.currentTarget.open || fetchedRef.current) return;
     fetchedRef.current = true;
+    setLoading(true);
     fetch(`/api/changelog?filename=${encodeURIComponent(filename)}`)
       .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
       .then((text) => setContent(text.trim()))
-      .catch(() => setContent("*(Failed to load content.)*"));
+      .catch(() => setContent("*(Failed to load content.)*"))
+      .finally(() => setLoading(false));
   }
 
   return (
@@ -37,9 +40,13 @@ export function ChangelogEntryDetails({ filename, date, title, dateLabel }: Prop
     >
       <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none hover:bg-gray-800/50 transition-colors list-none">
         {/* Expand indicator */}
-        <span className="text-gray-500 group-open:rotate-90 transition-transform flex-shrink-0 text-xs">
-          ▶
-        </span>
+        {loading ? (
+          <span className="flex-shrink-0 w-3 h-3 border border-gray-500 border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <span className="text-gray-500 group-open:rotate-90 transition-transform flex-shrink-0 text-xs">
+            ▶
+          </span>
+        )}
         {/* Date */}
         <time dateTime={date} className="text-xs text-gray-500 w-24 flex-shrink-0">
           {dateLabel}
