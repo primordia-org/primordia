@@ -433,7 +433,14 @@ export default async function BranchesPage() {
                 <tbody>
                   {diag.sessions.map((s) => (
                     <tr key={s.id} className="text-gray-400">
-                      <td className="pr-4 text-gray-600">{s.id.slice(0, 8)}…</td>
+                      <td className="pr-4">
+                        <Link
+                          href={`/evolve/session/${s.id}`}
+                          className="text-purple-400 hover:text-purple-300"
+                        >
+                          {s.id.slice(0, 8)}…
+                        </Link>
+                      </td>
                       <td className="pr-4">{s.branch}</td>
                       <td className={`pr-4 ${STATUS_COLOR[s.status] ?? "text-gray-400"}`}>
                         {s.status}
