@@ -1,14 +1,14 @@
 // app/changelog/page.tsx
 //
-// Server Component — reads public/changelog.json (generated at build time by
-// scripts/generate-changelog.mjs) and renders a list of changelog entries as
-// <details>/<summary> disclosure widgets.
-// No client-side JS needed.
+// Server Component — reads changelog/*.md filenames at runtime (no pre-build
+// step required) and renders a list of <details> disclosure widgets.
+// File contents are NOT read here; they are lazy-loaded by the
+// ChangelogEntryDetails client component when the user expands an entry.
 
 import fs from "fs";
 import path from "path";
 import type { Metadata } from "next";
-import { MarkdownContent } from "@/components/SimpleMarkdown";
+import { ChangelogEntryDetails } from "@/components/ChangelogEntryDetails";
 import { PageNavBar } from "@/components/PageNavBar";
 import { buildPageTitle } from "@/lib/page-title";
 import { getSessionUser } from "@/lib/auth";
@@ -20,18 +20,30 @@ export function generateMetadata(): Metadata {
   };
 }
 
-interface ChangelogEntry {
+// Matches: YYYY-MM-DD-HH-MM-SS Description of change.md
+const FILENAME_RE = /^(\d{4}-\d{2}-\d{2})-(\d{2}-\d{2}-\d{2}) (.+)\.md$/;
+
+interface ChangelogSummary {
   filename: string;
-  date: string;  // ISO 8601
+  date: string;   // ISO 8601, e.g. "2026-03-16T00:03:00"
   title: string;
-  content: string;
 }
 
-function loadEntries(): ChangelogEntry[] {
+function loadSummaries(): ChangelogSummary[] {
   try {
-    const filePath = path.join(process.cwd(), "public", "changelog.json");
-    const raw = fs.readFileSync(filePath, "utf-8");
-    return JSON.parse(raw) as ChangelogEntry[];
+    const changelogDir = path.join(process.cwd(), "changelog");
+    const files = fs
+      .readdirSync(changelogDir)
+      .filter((f) => FILENAME_RE.test(f))
+      .sort()
+      .reverse(); // newest first
+
+    return files.map((file) => {
+      const m = file.match(FILENAME_RE)!;
+      const [, datePart, timePart, title] = m;
+      const date = `${datePart}T${timePart.replace(/-/g, ":")}`;
+      return { filename: file, date, title };
+    });
   } catch {
     return [];
   }
@@ -39,7 +51,7 @@ function loadEntries(): ChangelogEntry[] {
 
 export default async function ChangelogPage() {
   const [entries, sessionUser] = await Promise.all([
-    Promise.resolve(loadEntries()),
+    Promise.resolve(loadSummaries()),
     getSessionUser(),
   ]);
 
@@ -64,39 +76,20 @@ export default async function ChangelogPage() {
           </p>
           <ol className="space-y-2">
             {entries.map((entry) => {
-              const dateLabel = new Date(entry.date).toLocaleDateString(
-                "en-US",
-                { year: "numeric", month: "short", day: "numeric" }
-              );
+              const dateLabel = new Date(entry.date).toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+              });
 
               return (
                 <li key={entry.filename}>
-                  <details className="group border border-gray-800 rounded-lg overflow-hidden">
-                    <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none hover:bg-gray-800/50 transition-colors list-none">
-                      {/* Expand indicator */}
-                      <span className="text-gray-500 group-open:rotate-90 transition-transform flex-shrink-0 text-xs">
-                        ▶
-                      </span>
-                      {/* Date */}
-                      <time
-                        dateTime={entry.date}
-                        className="text-xs text-gray-500 w-24 flex-shrink-0"
-                      >
-                        {dateLabel}
-                      </time>
-                      {/* Title */}
-                      <span className="text-sm text-gray-100 leading-snug">
-                        {entry.title}
-                      </span>
-                    </summary>
-
-                    {/* Full content */}
-                    {entry.content && (
-                      <div className="px-4 pb-4 pt-2 border-t border-gray-800">
-                        <MarkdownContent text={entry.content} />
-                      </div>
-                    )}
-                  </details>
+                  <ChangelogEntryDetails
+                    filename={entry.filename}
+                    date={entry.date}
+                    title={entry.title}
+                    dateLabel={dateLabel}
+                  />
                 </li>
               );
             })}

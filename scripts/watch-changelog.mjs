@@ -2,9 +2,8 @@
 // scripts/watch-changelog.mjs
 //
 // Dev-mode watcher: watches changelog/ for new or changed .md files and
-// re-runs generate-changelog.mjs so public/changelog.json and
-// lib/generated/system-prompt.ts stay up to date without restarting the
-// dev server.
+// re-runs generate-changelog.mjs so lib/generated/system-prompt.ts stays
+// up to date without restarting the dev server.
 //
 // Started automatically by the "dev" script in package.json alongside
 // `next dev`.  Uses only Node built-ins — no extra dependencies.

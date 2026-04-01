@@ -2,7 +2,7 @@
 
 // components/EvolveSessionView.tsx
 // Client component rendered by /evolve/session/[id].
-// Polls /api/evolve?sessionId=... and displays live Claude Code progress.
+// Streams live Claude Code progress via SSE from /api/evolve/stream.
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { MarkdownContent } from "./SimpleMarkdown";
@@ -11,18 +11,6 @@ import { GitSyncDialog } from "./GitSyncDialog";
 import { HamburgerMenu } from "./HamburgerMenu";
 import { useSessionUser } from "../lib/hooks";
 import Link from "next/link";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface EvolveSessionData {
-  status: "starting" | "running-claude" | "ready" | "accepted" | "rejected" | "error";
-  devServerStatus: "none" | "starting" | "running" | "disconnected";
-  progressText: string;
-  port: number | null;
-  previewUrl: string | null;
-  branch: string;
-  request: string;
-}
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -76,7 +64,9 @@ export default function EvolveSessionView({
   const [remainingUpstream, setRemainingUpstream] = useState(upstreamCommitCount);
   const [upstreamSyncLoading, setUpstreamSyncLoading] = useState<"merge" | "rebase" | null>(null);
   const [upstreamSyncError, setUpstreamSyncError] = useState<string | null>(null);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  /** Tracks how many characters of progressText the client has received, for SSE reconnection. */
+  const progressLengthRef = useRef(initialProgressText.length);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const followupTextareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -85,47 +75,71 @@ export default function EvolveSessionView({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [progressText]);
 
-  // Cancel polling on unmount
+  // Stop the SSE stream on unmount
   useEffect(() => {
     return () => {
-      if (pollingRef.current !== null) clearInterval(pollingRef.current);
+      abortControllerRef.current?.abort();
     };
   }, []);
 
-  // Extracted polling logic — can be called from the useEffect below and also
-  // from the follow-up submit handler to resume polling after re-queuing Claude.
-  function startPolling() {
-    if (pollingRef.current !== null) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-    pollingRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/evolve?sessionId=${sessionId}`);
-        if (!res.ok) return;
+  // Extracted streaming logic — can be called on mount and after follow-up / restart.
+  async function startStreaming() {
+    // Abort any in-flight stream before opening a new one.
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const offset = progressLengthRef.current;
 
-        const data = (await res.json()) as EvolveSessionData;
-        setProgressText(data.progressText || "⏳ Starting…");
-        setStatus(data.status);
-        setDevServerStatus(data.devServerStatus);
-        if (data.previewUrl) setPreviewUrl(data.previewUrl);
+    try {
+      const response = await fetch(
+        `/api/evolve/stream?sessionId=${sessionId}&offset=${offset}`,
+        { signal: controller.signal },
+      );
+      if (!response.ok || !response.body) return;
 
-        if (
-          data.status === "accepted" ||
-          data.status === "rejected" ||
-          data.status === "error" ||
-          (data.status === "ready" && (data.devServerStatus === "running" || data.devServerStatus === "disconnected"))
-        ) {
-          clearInterval(pollingRef.current!);
-          pollingRef.current = null;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          const raw = line.slice(6).trim();
+          if (!raw) continue;
+          try {
+            const parsed = JSON.parse(raw) as {
+              progressDelta?: string;
+              status?: string;
+              devServerStatus?: string;
+              previewUrl?: string | null;
+              done?: boolean;
+            };
+
+            if (parsed.progressDelta) {
+              setProgressText((prev) => {
+                const next = prev + parsed.progressDelta!;
+                progressLengthRef.current = next.length;
+                return next;
+              });
+            }
+            if (parsed.status != null) setStatus(parsed.status);
+            if (parsed.devServerStatus != null) setDevServerStatus(parsed.devServerStatus);
+            if ("previewUrl" in parsed) setPreviewUrl(parsed.previewUrl ?? null);
+          } catch {
+            // Ignore malformed SSE lines
+          }
         }
-      } catch {
-        // Silently ignore transient network errors
       }
-    }, 5_000);
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      // Network error — leave the UI in its last known state
+    }
   }
 
-  // Start polling if the session isn't already in a terminal state
+  // Start streaming if the session isn't already in a terminal state
   useEffect(() => {
     const alreadyTerminal =
       initialStatus === "accepted" ||
@@ -134,7 +148,7 @@ export default function EvolveSessionView({
       (initialStatus === "ready" && (initialDevServerStatus === "running" || initialDevServerStatus === "disconnected"));
     if (alreadyTerminal) return;
 
-    startPolling();
+    void startStreaming();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]); // intentionally omit initialStatus — run once on mount
 
@@ -163,7 +177,7 @@ export default function EvolveSessionView({
       }
 
       setDevServerStatus('starting');
-      startPolling();
+      void startStreaming();
     } catch (err) {
       setRestartError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -211,7 +225,7 @@ export default function EvolveSessionView({
 
       setFollowupText('');
       setStatus('running-claude');
-      startPolling();
+      void startStreaming();
     } catch (err) {
       setFollowupError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -232,10 +246,7 @@ export default function EvolveSessionView({
       const data = (await res.json()) as { outcome?: string; error?: string; stashWarning?: string };
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
       setStatus('accepted');
-      if (pollingRef.current !== null) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
+      abortControllerRef.current?.abort();
       // Trigger bun install + dev server restart to pick up the merged changes.
       fetch('/api/evolve/restart', { method: 'POST' }).catch(() => {});
     } catch (err) {
@@ -258,10 +269,7 @@ export default function EvolveSessionView({
       const data = (await res.json()) as { outcome?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
       setStatus('rejected');
-      if (pollingRef.current !== null) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
+      abortControllerRef.current?.abort();
     } catch (err) {
       setAcceptRejectError(err instanceof Error ? err.message : String(err));
     } finally {
