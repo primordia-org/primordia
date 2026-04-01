@@ -40,6 +40,8 @@ interface EvolveSessionViewProps {
   sessionBranch: string;
   /** True when the session branch is a direct child of the current branch, so Accept/Reject are safe to show. */
   canAcceptReject: boolean;
+  /** Number of commits on the parent branch not yet in the session branch. */
+  upstreamCommitCount: number;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -54,6 +56,7 @@ export default function EvolveSessionView({
   branch,
   sessionBranch,
   canAcceptReject,
+  upstreamCommitCount,
 }: EvolveSessionViewProps) {
   const [progressText, setProgressText] = useState(initialProgressText);
   const [status, setStatus] = useState(initialStatus);
@@ -70,6 +73,9 @@ export default function EvolveSessionView({
   const [activeAction, setActiveAction] = useState<"accept" | "reject" | "followup" | null>(null);
   const [isRestartingServer, setIsRestartingServer] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
+  const [remainingUpstream, setRemainingUpstream] = useState(upstreamCommitCount);
+  const [upstreamSyncLoading, setUpstreamSyncLoading] = useState<"merge" | "rebase" | null>(null);
+  const [upstreamSyncError, setUpstreamSyncError] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const followupTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -162,6 +168,25 @@ export default function EvolveSessionView({
       setRestartError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsRestartingServer(false);
+    }
+  }
+
+  async function handleUpstreamSync(action: "merge" | "rebase") {
+    setUpstreamSyncLoading(action);
+    setUpstreamSyncError(null);
+    try {
+      const res = await fetch('/api/evolve/upstream-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, action }),
+      });
+      const data = (await res.json()) as { outcome?: string; log?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `Server error: ${res.status}`);
+      setRemainingUpstream(0);
+    } catch (err) {
+      setUpstreamSyncError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUpstreamSyncLoading(null);
     }
   }
 
@@ -394,6 +419,46 @@ export default function EvolveSessionView({
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Upstream Changes — shown when the parent branch has commits not yet in the session branch */}
+      {remainingUpstream > 0 && status !== "accepted" && status !== "rejected" && (
+        <div className="mb-6 rounded-lg bg-blue-950/40 border border-blue-700/50 text-sm overflow-hidden">
+          <div className="px-4 py-3 flex items-start justify-between gap-4">
+            <div>
+              <p className="text-blue-300 font-semibold mb-1">
+                ⬆ Upstream Changes
+              </p>
+              <p className="text-blue-200/70 text-xs">
+                <code className="bg-blue-950/60 px-1 rounded">{branch ?? "parent"}</code> is{" "}
+                <strong>{remainingUpstream}</strong> commit{remainingUpstream === 1 ? "" : "s"} ahead
+                of <code className="bg-blue-950/60 px-1 rounded">{sessionBranch}</code>.
+                Bring those changes into the session branch before accepting.
+              </p>
+              {upstreamSyncError && (
+                <p className="text-red-400 text-xs mt-2 whitespace-pre-wrap">{upstreamSyncError}</p>
+              )}
+            </div>
+            <div className="flex gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => handleUpstreamSync("merge")}
+                disabled={upstreamSyncLoading !== null}
+                className="px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-medium transition-colors"
+              >
+                {upstreamSyncLoading === "merge" ? "Merging…" : "Merge"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleUpstreamSync("rebase")}
+                disabled={upstreamSyncLoading !== null}
+                className="px-3 py-1.5 rounded-lg bg-blue-800 hover:bg-blue-700 disabled:bg-gray-800 disabled:text-gray-600 text-blue-200 text-xs font-medium transition-colors"
+              >
+                {upstreamSyncLoading === "rebase" ? "Rebasing…" : "Rebase"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

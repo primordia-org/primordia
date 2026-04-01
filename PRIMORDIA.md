@@ -125,8 +125,10 @@ primordia/
 │               │   └── route.ts   ← POST accept/reject a local session
 │               ├── followup/
 │               │   └── route.ts   ← POST submit a follow-up request on an existing ready session
-│               └── kill-restart/
-│                   └── route.ts   ← POST kill dev server process + restart it in the worktree
+│               ├── kill-restart/
+│               │   └── route.ts   ← POST kill dev server process + restart it in the worktree
+│               └── upstream-sync/
+│                   └── route.ts   ← POST merge or rebase parent branch into session worktree
 │
 ├── components/
 │   ├── AcceptRejectBar.tsx        ← Accept/reject bar for local preview worktrees
@@ -291,6 +293,7 @@ When implementing changes, follow these principles:
 | Evolve mode | ✅ Live | Dedicated `/evolve` page; Edit icon in chat header |
 | Local evolve pipeline | ✅ Live | git worktree → Claude Agent SDK → local preview → accept/reject |
 | Evolve follow-up requests | ✅ Live | Chain multiple Claude passes on the same branch; form appears when session is ready |
+| Upstream changes indicator | ✅ Live | Session page shows how many commits the parent branch is ahead of the session branch, with Merge and Rebase buttons |
 | exe.dev deploy | ✅ Live | One-command SSH deploy; identical to local dev flow |
 | Dark theme | ✅ Live | Default dark UI with Tailwind |
 | Passkey authentication | ✅ Live | WebAuthn passkeys via /login; sessions stored in SQLite |

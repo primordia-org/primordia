@@ -53,6 +53,27 @@ function isSessionBranchChildOfCurrent(
   }
 }
 
+/**
+ * Returns the number of commits on the parent branch that are not yet in
+ * the session branch (i.e. how far ahead the parent is).
+ */
+function getUpstreamCommitCount(sessionBranch: string): number {
+  try {
+    const parentBranch = execSync(
+      `git config branch.${sessionBranch}.parent`,
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+    ).trim();
+    if (!parentBranch) return 0;
+    const count = execSync(
+      `git rev-list ${sessionBranch}..${parentBranch} --count`,
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+    ).trim();
+    return parseInt(count, 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
 export default async function EvolveSessionPage({
   params,
 }: {
@@ -77,6 +98,8 @@ export default async function EvolveSessionPage({
       ? isSessionBranchChildOfCurrent(branch, session.branch)
       : false;
 
+  const upstreamCommitCount = getUpstreamCommitCount(session.branch);
+
   return (
     <EvolveSessionView
       sessionId={session.id}
@@ -88,6 +111,7 @@ export default async function EvolveSessionPage({
       branch={branch}
       sessionBranch={session.branch}
       canAcceptReject={canAcceptReject}
+      upstreamCommitCount={upstreamCommitCount}
     />
   );
 }
