@@ -50,10 +50,17 @@ async function retryAcceptAfterFix(
   repoRoot: string,
   parentBranch: string,
 ): Promise<void> {
+  console.log(`[retryAcceptAfterFix] starting for session ${sessionId}, parentBranch=${parentBranch}`);
   const db = await getDb();
   const current = await db.getEvolveSession(sessionId);
-  // If the fix itself failed (status = error), do nothing.
-  if (!current || current.status !== 'ready') return;
+  console.log(`[retryAcceptAfterFix] session status=${current?.status ?? 'not found'}`);
+  // If the fix itself failed (status = error) or session is missing, do nothing.
+  // The expected status at this point is 'fixing-types'; runFollowupInWorktree does NOT
+  // transition to 'ready' when an onSuccess callback is provided.
+  if (!current || current.status !== 'fixing-types') {
+    console.log(`[retryAcceptAfterFix] aborting — expected 'fixing-types', got '${current?.status ?? 'not found'}'`);
+    return;
+  }
 
   const { branch, worktreePath, port } = current;
 
@@ -69,9 +76,12 @@ async function retryAcceptAfterFix(
   }
 
   // Re-run the TypeScript check to verify the fix worked.
+  console.log(`[retryAcceptAfterFix] re-running typecheck in ${worktreePath}`);
   const tscResult = await runCmd('bun', ['run', 'typecheck'], worktreePath);
+  console.log(`[retryAcceptAfterFix] typecheck exit code=${tscResult.code}`);
   if (tscResult.code !== 0) {
     const typeErrors = (tscResult.stdout + tscResult.stderr).trim();
+    console.log(`[retryAcceptAfterFix] typecheck still failing:\n${typeErrors}`);
     await failWithError(
       `\n\n❌ **Auto-fix failed**: TypeScript errors remain after the fix attempt.\n\n\`\`\`\n${typeErrors}\n\`\`\`\n`,
     );
@@ -79,11 +89,13 @@ async function retryAcceptAfterFix(
   }
 
   // Type check passed — kill the preview dev server.
+  console.log(`[retryAcceptAfterFix] typecheck passed, killing dev server on port ${port}`);
   if (port !== null) {
     try {
       const { execSync: execSyncLocal } = require('child_process') as typeof import('child_process');
       const pids = execSyncLocal(`lsof -ti tcp:${port}`, { encoding: 'utf8' })
         .trim().split('\n').filter(Boolean).map(Number).filter(Boolean);
+      console.log(`[retryAcceptAfterFix] killing pids ${pids.join(', ')}`);
       for (const pid of pids) {
         try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
       }
@@ -91,7 +103,9 @@ async function retryAcceptAfterFix(
   }
 
   // Checkout the parent branch so the merge lands on the right branch.
+  console.log(`[retryAcceptAfterFix] checking out parent branch ${parentBranch} in ${repoRoot}`);
   const checkoutResult = await runGit(['checkout', parentBranch], repoRoot);
+  console.log(`[retryAcceptAfterFix] checkout exit code=${checkoutResult.code}${checkoutResult.code !== 0 ? ` stderr=${checkoutResult.stderr}` : ''}`);
   let mergeRoot = repoRoot;
   if (checkoutResult.code !== 0) {
     const alreadyCheckedOutMatch = checkoutResult.stderr.match(
@@ -99,6 +113,7 @@ async function retryAcceptAfterFix(
     );
     if (alreadyCheckedOutMatch) {
       mergeRoot = alreadyCheckedOutMatch[1];
+      console.log(`[retryAcceptAfterFix] parent branch already checked out at ${mergeRoot}`);
     } else {
       await failWithError(
         `\n\n❌ **Accept failed**: \`git checkout ${parentBranch}\` failed:\n${checkoutResult.stderr}\n`,
@@ -111,21 +126,26 @@ async function retryAcceptAfterFix(
   let stashed = false;
   const statusResult = await runGit(['status', '--porcelain'], mergeRoot);
   if (statusResult.stdout.trim()) {
+    console.log(`[retryAcceptAfterFix] stashing uncommitted changes in ${mergeRoot}`);
     const stashResult = await runGit(
       ['stash', 'push', '-u', '-m', 'primordia-auto-stash-before-merge'],
       mergeRoot,
     );
     stashed = stashResult.code === 0 && !stashResult.stdout.includes('No local changes');
+    console.log(`[retryAcceptAfterFix] stash result: stashed=${stashed}`);
   }
 
   // Merge the preview branch.
+  console.log(`[retryAcceptAfterFix] merging branch ${branch} into ${parentBranch} at ${mergeRoot}`);
   const mergeResult = await runGit(
     ['merge', branch, '--no-ff', '-m', `chore: merge ${branch}`],
     mergeRoot,
   );
+  console.log(`[retryAcceptAfterFix] merge exit code=${mergeResult.code}${mergeResult.code !== 0 ? ` stderr=${mergeResult.stderr}` : ''}`);
 
   if (mergeResult.code !== 0) {
     const resolution = await resolveConflictsWithClaude(mergeRoot, branch, parentBranch);
+    console.log(`[retryAcceptAfterFix] conflict resolution success=${resolution.success}`);
     if (!resolution.success) {
       await runGit(['merge', '--abort'], mergeRoot);
       if (stashed) await runGit(['stash', 'pop'], mergeRoot);
@@ -140,6 +160,7 @@ async function retryAcceptAfterFix(
   if (stashed) await runGit(['stash', 'pop'], mergeRoot);
 
   // Mark as accepted and log the decision.
+  console.log(`[retryAcceptAfterFix] merge complete, marking session ${sessionId} as accepted`);
   const row = await db.getEvolveSession(sessionId);
   await db.updateEvolveSession(sessionId, {
     status: 'accepted',
@@ -276,10 +297,12 @@ export async function POST(request: Request) {
           request: session.request,
           createdAt: session.createdAt,
         };
+        console.log(`[manage/accept] type errors detected for session ${session.id}, starting auto-fix`);
         await db.updateEvolveSession(session.id, { status: 'fixing-types' });
         void runFollowupInWorktree(
           autoFixSession, fixPrompt, repoRoot, 'fixing-types',
           (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch),
+          /* skipChangelog */ true,
         );
         return Response.json({ outcome: 'auto-fixing-types' });
       }

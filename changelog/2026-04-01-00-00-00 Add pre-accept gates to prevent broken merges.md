@@ -22,6 +22,18 @@ The auto-accept retry runs entirely on the server via an `onSuccess` callback pa
 - If type errors survive the fix, the session goes to `error` (with the remaining compiler output) rather than triggering another fix cycle.
 - The client no longer drives the retry; it simply streams progress and reacts to whatever terminal state the server reaches (`accepted` or `error`).
 
+### Bug fix: fixing-types flow was hanging
+
+`retryAcceptAfterFix` had an incorrect status guard (`current.status !== 'ready'`). Because `runFollowupInWorktree` skips the `ready` transition when an `onSuccess` callback is provided, the session status is still `fixing-types` when `retryAcceptAfterFix` is invoked — so the guard always fired and the retry immediately returned without doing anything. Fixed to check `!== 'fixing-types'`.
+
+### Diagnostics
+
+`console.log` calls were added throughout `retryAcceptAfterFix` so the server logs show each step: status check, typecheck result, dev-server kill, git checkout, stash, merge, and final accepted write.
+
+### Type-fix prompt: no changelog
+
+The auto-fix follow-up prompt now instructs Claude not to create or update changelog files (`skipChangelog: true` passed to `runFollowupInWorktree`). The type fix is internal plumbing for the merge pipeline and should not produce a user-facing changelog entry.
+
 ## Why
 
 Two concurrent evolve sessions were merged into `main` without conflict markers, but one session had renamed a file while the other added an import using the old filename. Git detected no merge conflict (it was a rename vs. a new import in different files), so the broken code reached production and required a manual SSH fix.
