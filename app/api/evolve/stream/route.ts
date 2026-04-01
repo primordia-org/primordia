@@ -13,7 +13,7 @@
 
 import { getSessionUser } from '../../../../lib/auth';
 import { getDb } from '../../../../lib/db';
-import { inferDevServerStatus } from '../../../../lib/local-evolve-sessions';
+import { inferDevServerStatus } from '../../../../lib/evolve-sessions';
 
 const POLL_INTERVAL_MS = 500;
 
