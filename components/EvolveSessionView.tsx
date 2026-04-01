@@ -369,21 +369,29 @@ export default function EvolveSessionView({
             </div>
           )}
 
-          {/* Restart button for ready state (dev server may be running but not responding) */}
+          {/* Dev server status + restart button — shown when session is ready */}
           {status === "ready" && (
             <div className="flex-1 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm">
-              <p className="text-gray-400 text-xs mb-2">Preview not loading or responding?</p>
-              {restartError && (
-                <p className="text-red-400 text-xs mb-2">{restartError}</p>
+              <p className="text-gray-400 text-xs mb-2">
+                Dev server:{" "}
+                <span className="font-mono text-gray-300">{devServerStatus}</span>
+              </p>
+              {devServerStatus !== "starting" && (
+                <>
+                  <p className="text-gray-500 text-xs mb-2">Preview not loading or responding?</p>
+                  {restartError && (
+                    <p className="text-red-400 text-xs mb-2">{restartError}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleRestartServer}
+                    disabled={isRestartingServer}
+                    className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-gray-300 text-xs font-medium transition-colors"
+                  >
+                    {isRestartingServer ? "Restarting…" : "↺ Restart dev server"}
+                  </button>
+                </>
               )}
-              <button
-                type="button"
-                onClick={handleRestartServer}
-                disabled={isRestartingServer}
-                className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-gray-300 text-xs font-medium transition-colors"
-              >
-                {isRestartingServer ? "Restarting…" : "↺ Restart dev server"}
-              </button>
             </div>
           )}
         </div>
