@@ -11,6 +11,7 @@ import { getDb } from './db';
 export type LocalSessionStatus =
   | 'starting'
   | 'running-claude'
+  | 'fixing-types'
   | 'ready'
   | 'accepted'
   | 'rejected'
@@ -560,6 +561,8 @@ export async function runFollowupInWorktree(
   session: LocalSession,
   followupRequest: string,
   repoRoot: string,
+  /** Status to persist while Claude is running. Defaults to 'running-claude'. */
+  inProgressStatus: LocalSessionStatus = 'running-claude',
 ): Promise<void> {
   const db = await getDb();
 
@@ -576,7 +579,7 @@ export async function runFollowupInWorktree(
       session,
       `\n\n---\n\n### 🔄 Follow-up Request\n\n> ${followupRequest}\n\n### 🤖 Claude Code\n\n`,
     );
-    session.status = 'running-claude';
+    session.status = inProgressStatus;
     await persist();
 
     const prompt =

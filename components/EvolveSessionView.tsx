@@ -67,6 +67,10 @@ export default function EvolveSessionView({
   const abortControllerRef = useRef<AbortController | null>(null);
   /** Tracks how many characters of progressText the client has received, for SSE reconnection. */
   const progressLengthRef = useRef(initialProgressText.length);
+  /** Tracks the previous status value so we can detect fixing-types → ready transition. */
+  const prevStatusRef = useRef(initialStatus);
+  /** Stable ref to handleAccept so it can be called from inside the streaming loop. */
+  const handleAcceptRef = useRef<() => Promise<void>>(async () => {});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const followupTextareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -125,7 +129,15 @@ export default function EvolveSessionView({
                 return next;
               });
             }
-            if (parsed.status != null) setStatus(parsed.status);
+            if (parsed.status != null) {
+              const prev = prevStatusRef.current;
+              prevStatusRef.current = parsed.status;
+              setStatus(parsed.status);
+              // When a type-fix run completes, automatically retry the accept.
+              if (prev === 'fixing-types' && parsed.status === 'ready') {
+                void handleAcceptRef.current();
+              }
+            }
             if (parsed.devServerStatus != null) setDevServerStatus(parsed.devServerStatus);
             if ("previewUrl" in parsed) setPreviewUrl(parsed.previewUrl ?? null);
           } catch {
@@ -247,7 +259,9 @@ export default function EvolveSessionView({
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
       if (data.outcome === 'auto-fixing-types') {
         // Type check failed — a follow-up was automatically started to fix the errors.
-        setStatus('running-claude');
+        // Use the dedicated 'fixing-types' status so the Available Actions panel stays visible.
+        prevStatusRef.current = 'fixing-types';
+        setStatus('fixing-types');
         setActiveAction(null);
         void startStreaming();
         return;
@@ -262,6 +276,11 @@ export default function EvolveSessionView({
       setAcceptRejectLoading(false);
     }
   }
+
+  // Keep handleAcceptRef pointing at the latest handleAccept so the auto-retry
+  // inside startStreaming always calls the current closure.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { handleAcceptRef.current = handleAccept; });
 
   async function handleReject() {
     if (acceptRejectLoading) return;
@@ -491,8 +510,8 @@ export default function EvolveSessionView({
         </div>
       )}
 
-      {/* Three-action panel — shown when the preview is ready */}
-      {status === "ready" && (
+      {/* Three-action panel — shown when the preview is ready or while fixing type errors */}
+      {(status === "ready" || status === "fixing-types") && (
         <div className="mb-6 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-hidden">
 
           {/* ── Header ── */}
@@ -500,45 +519,52 @@ export default function EvolveSessionView({
             <p className="text-gray-500 text-xs font-medium uppercase tracking-wide">Available Actions</p>
           </div>
 
-          {/* ── Button row ── */}
-          <div className="flex">
-            <button
-              onClick={() => toggleAction("followup")}
-              className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
-                activeAction === "followup"
-                  ? "bg-amber-900/40 text-amber-200"
-                  : activeAction !== null
-                  ? "text-gray-500 hover:bg-gray-800 hover:text-gray-300"
-                  : "text-amber-300 bg-amber-900/10 hover:bg-amber-900/25"
-              }`}
-            >
-              Follow-up Changes
-            </button>
-            <button
-              onClick={() => toggleAction("accept")}
-              className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
-                activeAction === "accept"
-                  ? "bg-green-900/40 text-green-200"
-                  : activeAction !== null
-                  ? "text-gray-500 hover:bg-gray-800 hover:text-gray-300"
-                  : "text-green-300 bg-green-900/10 hover:bg-green-900/25"
-              }`}
-            >
-              Accept Changes
-            </button>
-            <button
-              onClick={() => toggleAction("reject")}
-              className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                activeAction === "reject"
-                  ? "bg-red-900/40 text-red-200"
-                  : activeAction !== null
-                  ? "text-gray-500 hover:bg-gray-800 hover:text-gray-300"
-                  : "text-red-300 bg-red-900/10 hover:bg-red-900/25"
-              }`}
-            >
-              Reject Changes
-            </button>
-          </div>
+          {/* ── Button row (or fixing-types indicator) ── */}
+          {status === "fixing-types" ? (
+            <div className="px-4 py-3 flex items-center gap-2 text-sm text-amber-300">
+              <span className="animate-spin inline-block">⟳</span>
+              Fixing type errors… will auto-accept when complete.
+            </div>
+          ) : (
+            <div className="flex">
+              <button
+                onClick={() => toggleAction("followup")}
+                className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
+                  activeAction === "followup"
+                    ? "bg-amber-900/40 text-amber-200"
+                    : activeAction !== null
+                    ? "text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+                    : "text-amber-300 bg-amber-900/10 hover:bg-amber-900/25"
+                }`}
+              >
+                Follow-up Changes
+              </button>
+              <button
+                onClick={() => toggleAction("accept")}
+                className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
+                  activeAction === "accept"
+                    ? "bg-green-900/40 text-green-200"
+                    : activeAction !== null
+                    ? "text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+                    : "text-green-300 bg-green-900/10 hover:bg-green-900/25"
+                }`}
+              >
+                Accept Changes
+              </button>
+              <button
+                onClick={() => toggleAction("reject")}
+                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                  activeAction === "reject"
+                    ? "bg-red-900/40 text-red-200"
+                    : activeAction !== null
+                    ? "text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+                    : "text-red-300 bg-red-900/10 hover:bg-red-900/25"
+                }`}
+              >
+                Reject Changes
+              </button>
+            </div>
+          )}
 
           {/* ── Follow-up panel ── */}
           {activeAction === "followup" && (

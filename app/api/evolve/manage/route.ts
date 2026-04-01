@@ -161,8 +161,8 @@ export async function POST(request: Request) {
           request: session.request,
           createdAt: session.createdAt,
         };
-        await db.updateEvolveSession(session.id, { status: 'running-claude' });
-        void runFollowupInWorktree(autoFixSession, fixPrompt, repoRoot);
+        await db.updateEvolveSession(session.id, { status: 'fixing-types' });
+        void runFollowupInWorktree(autoFixSession, fixPrompt, repoRoot, 'fixing-types');
         return Response.json({ outcome: 'auto-fixing-types' });
       }
 
