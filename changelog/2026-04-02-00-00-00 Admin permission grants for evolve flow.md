@@ -37,7 +37,13 @@ This pattern is documented in PRIMORDIA.md as a design principle: unauthenticate
 
 ### Admin link in hamburger menu
 
-The hamburger menu (☰) in the header now shows an **Admin** link for users who have the `admin` role. The link is hidden for non-admin users. It appears on all pages that use the hamburger menu: chat, evolve form, evolve session, changelog, and branches.
+The hamburger menu (☰) in the header now shows an **Admin** link for users who have the `admin` role. The link is hidden for non-admin users. It appears on all pages that use the hamburger menu: chat, evolve form, evolve session, changelog, branches, and **the admin page itself**.
+
+The admin page (`/admin`) now uses `PageNavBar` for its header, giving it the same hamburger menu as other pages. The Admin link is suppressed in the dropdown when already on the admin page (via a new `excludeAdmin` option in `buildStandardMenuItems`).
+
+### DRY: shared menu item helper
+
+The four standard hamburger items (Go to chat, Propose a change, Sync with GitHub, Admin) were duplicated verbatim across four components (`ChatInterface`, `EvolveForm`, `EvolveSessionView`, `PageNavBar`). Extracted into a single `buildStandardMenuItems({ onSyncClick, isAdmin, excludeAdmin? })` helper exported from `HamburgerMenu.tsx`. All four components now call this helper instead of inlining the item arrays.
 
 To support this, `SessionUser` (the client-side session type returned by `/api/auth/session`) now includes an `isAdmin: boolean` field so client components can conditionally render admin-only UI without a separate API call.
 

@@ -4,6 +4,10 @@
 // Reusable hamburger menu button + dropdown. Used by ChatInterface, EvolveForm,
 // EvolveSessionView, and PageNavBar. Manages open/close state and click-outside
 // behaviour internally; callers pass the session user and page-specific items.
+//
+// buildStandardMenuItems() returns the shared navigation items (Go to chat,
+// Propose a change, Sync with GitHub, Admin) used by every primary app page,
+// so callers don't have to duplicate the icon JSX.
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
@@ -26,6 +30,71 @@ interface HamburgerMenuProps {
   onLogout: () => void;
   /** Page-specific items rendered below the built-in auth section. */
   items: MenuItem[];
+}
+
+/**
+ * Returns the standard set of navigation items (Go to chat, Propose a change,
+ * Sync with GitHub, Admin) shared by all primary app pages. Pass
+ * `excludeAdmin: true` when already on the admin page to suppress the
+ * self-referential Admin link.
+ */
+export function buildStandardMenuItems({
+  onSyncClick,
+  isAdmin,
+  excludeAdmin = false,
+}: {
+  onSyncClick: () => void;
+  isAdmin: boolean;
+  excludeAdmin?: boolean;
+}): MenuItem[] {
+  const items: MenuItem[] = [
+    {
+      label: "Go to chat",
+      hoverColor: "hover:text-blue-400",
+      href: "/chat",
+      icon: (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+      ),
+    },
+    {
+      label: "Propose a change",
+      hoverColor: "hover:text-amber-400",
+      href: "/evolve",
+      icon: (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+        </svg>
+      ),
+    },
+    {
+      label: "Sync with GitHub",
+      hoverColor: "hover:text-green-400",
+      onClick: onSyncClick,
+      icon: (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="16 16 12 12 8 16"/>
+          <line x1="12" y1="12" x2="12" y2="21"/>
+          <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+        </svg>
+      ),
+    },
+  ];
+  if (isAdmin && !excludeAdmin) {
+    items.push({
+      label: "Admin",
+      hoverColor: "hover:text-purple-400",
+      href: "/admin",
+      icon: (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      ),
+    });
+  }
+  return items;
 }
 
 export function HamburgerMenu({ sessionUser, onLogout, items }: HamburgerMenuProps) {

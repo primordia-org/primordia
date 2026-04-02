@@ -1,5 +1,5 @@
 // app/admin/page.tsx — Admin panel for managing user permissions.
-// Only accessible to the first (owner) user. Others are redirected.
+// Only accessible to users with the admin role.
 
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
@@ -8,6 +8,7 @@ import { getDb } from "@/lib/db";
 import { buildPageTitle } from "@/lib/page-title";
 import AdminPermissionsClient, { type AdminUser } from "@/components/AdminPermissionsClient";
 import ForbiddenPage from "@/components/ForbiddenPage";
+import { PageNavBar } from "@/components/PageNavBar";
 
 export function generateMetadata(): Metadata {
   return {
@@ -59,22 +60,11 @@ export default async function AdminPage() {
     canEvolve: evolveSet.has(u.id),
   }));
 
+  const sessionUser = { id: user.id, username: user.username, isAdmin: true };
+
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
-      <header className="mb-8">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-gray-100">Admin</h1>
-          <a
-            href="/chat"
-            className="text-sm text-gray-400 hover:text-gray-200 transition-colors"
-          >
-            ← Back to chat
-          </a>
-        </div>
-        <p className="mt-1 text-sm text-gray-500">
-          Logged in as <span className="text-gray-300 font-mono">{user.username}</span> ({adminRoleName})
-        </p>
-      </header>
+      <PageNavBar subtitle="Admin" currentPage="admin" initialSession={sessionUser} />
 
       <section>
         <h2 className="text-base font-medium text-gray-200 mb-3">Evolve permissions</h2>
