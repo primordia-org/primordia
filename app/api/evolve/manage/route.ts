@@ -159,6 +159,20 @@ async function retryAcceptAfterFix(
 
   if (stashed) await runGit(['stash', 'pop'], mergeRoot);
 
+  // Sync dependencies after merge so the running server reflects any
+  // package.json changes that came in from the accepted branch.
+  console.log(`[retryAcceptAfterFix] running bun install --frozen-lockfile in ${mergeRoot}`);
+  const installResult = await runCmd('bun', ['install', '--frozen-lockfile'], mergeRoot);
+  console.log(`[retryAcceptAfterFix] bun install exit code=${installResult.code}`);
+  if (installResult.code !== 0) {
+    await failWithError(
+      `\n\n❌ **Accept failed**: \`bun install --frozen-lockfile\` failed after merge. ` +
+      `The lockfile may be out of sync with package.json.\n\n` +
+      `\`\`\`\n${(installResult.stdout + installResult.stderr).trim()}\n\`\`\`\n`,
+    );
+    return;
+  }
+
   // Mark as accepted and log the decision.
   console.log(`[retryAcceptAfterFix] merge complete, marking session ${sessionId} as accepted`);
   const row = await db.getEvolveSession(sessionId);
@@ -369,6 +383,21 @@ export async function POST(request: Request) {
             `Merge succeeded but restoring your stashed changes produced a conflict. ` +
             `Run \`git stash pop\` manually to resolve:\n${popResult.stderr}`;
         }
+      }
+
+      // Sync dependencies after merge so the running server reflects any
+      // package.json changes that came in from the accepted branch.
+      const installResult = await runCmd('bun', ['install', '--frozen-lockfile'], mergeRoot);
+      if (installResult.code !== 0) {
+        return Response.json(
+          {
+            error:
+              `Merge succeeded but \`bun install --frozen-lockfile\` failed. ` +
+              `The lockfile may be out of sync with package.json.\n\n` +
+              `${(installResult.stdout + installResult.stderr).trim()}`,
+          },
+          { status: 500 },
+        );
       }
 
       // Write the accepted status to the parent's own SQLite DB.
