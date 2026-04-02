@@ -50,18 +50,15 @@ primordia/
 │   └── *.md                       ← Filename = short description; body = full what+why detail
 │
 ├── scripts/
-│   ├── generate-changelog.mjs    ← Prebuild: reads changelog/ filenames → lib/generated/system-prompt.ts (no longer writes changelog.json)
-│   ├── watch-changelog.mjs       ← Dev-mode watcher: re-runs generate-changelog.mjs on changelog/ changes
 │   ├── deploy-to-exe-dev.sh      ← `bun run deploy-to-exe.dev <server>`: SSH deploy to <server>.exe.xyz
 │   ├── install-service.sh        ← Installs/re-installs the Primordia systemd service via symlink
 │   └── primordia.service         ← systemd service unit file for running Primordia as a background service
 │
 ├── public/
-│   (no generated files — changelog.json removed; changelog page reads the filesystem at runtime)
+│   (no generated files)
 │
 ├── lib/
-│   ├── generated/
-│   │   └── system-prompt.ts      ← Build artifact (gitignored); static chat system prompt with PRIMORDIA.md + last 30 changelog filenames baked in
+│   ├── system-prompt.ts           ← Builds chat system prompt at runtime: reads PRIMORDIA.md + last 30 changelog filenames on each request
 │   ├── auth.ts                    ← Session helpers: createSession, getSessionUser
 │   ├── hooks.ts                   ← Shared React hooks: useSessionUser (fetches session on mount, provides logout)
 │   ├── evolve-sessions.ts         ← Shared session state + business logic for local evolve; persists to SQLite
@@ -324,5 +321,5 @@ These were noted at project inception but are explicitly out of scope for the MV
 > **Changelog entries are stored exclusively in `changelog/`** — never in this file.
 > Each file is named `YYYY-MM-DD-HH-MM-SS Description.md`; the filename is the short description and the body has the full what+why detail.
 > **One PR = one changelog entry.** Do not create multiple changelog files for a single pull request — consolidate all changes into one entry.
-> `lib/generated/system-prompt.ts` is built from these filenames at build time via `scripts/generate-changelog.mjs`. The `/changelog` page reads `changelog/` directly at runtime — no pre-build step needed for the page. Having each entry as a separate timestamped file prevents merge conflicts.
-> Do **not** add changelog bullets here. The prebuild step reads the `changelog/` filenames and bakes the last 30 into the static chat system prompt automatically.
+> The chat system prompt is built at runtime by `lib/system-prompt.ts`, which reads `PRIMORDIA.md` and the last 30 `changelog/` filenames on each request — no prebuild or codegen step needed. The `/changelog` page also reads `changelog/` directly at runtime. Having each entry as a separate timestamped file prevents merge conflicts.
+> Do **not** add changelog bullets here.

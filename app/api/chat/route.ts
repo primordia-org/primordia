@@ -11,10 +11,7 @@
 //     data: [DONE]\n\n
 
 import Anthropic from "@anthropic-ai/sdk";
-// SYSTEM_PROMPT is generated at build time by scripts/generate-changelog.mjs
-// (run as a prebuild/predev step). It embeds PRIMORDIA.md + the last 30
-// changelog entry filenames so the assistant has accurate self-knowledge.
-import { SYSTEM_PROMPT } from "@/lib/generated/system-prompt";
+import { buildSystemPrompt } from "@/lib/system-prompt";
 import { getSessionUser } from "@/lib/auth";
 
 export async function POST(request: Request) {
@@ -55,12 +52,13 @@ export async function POST(request: Request) {
       }
 
       try {
+        const systemPrompt = buildSystemPrompt();
         const anthropicStream = await client.messages.stream({
           model: "claude-sonnet-4-6",
           max_tokens: 1024,
           system: body.systemContext
-            ? `${SYSTEM_PROMPT}\n\n${body.systemContext}`
-            : SYSTEM_PROMPT,
+            ? `${systemPrompt}\n\n${body.systemContext}`
+            : systemPrompt,
           messages: body.messages,
         });
 
