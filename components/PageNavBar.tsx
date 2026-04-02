@@ -33,7 +33,7 @@ interface PageNavBarProps {
    * Which page we're on — suppresses the self-referential nav link in
    * NavHeader's subtitle and the corresponding dropdown item.
    */
-  currentPage?: "changelog" | "branches" | "admin";
+  currentPage?: "changelog" | "branches" | "admin" | "oops";
   /**
    * Session user resolved server-side and passed as a prop, so the
    * hamburger menu appears immediately without a client-side fetch.

@@ -80,6 +80,8 @@ primordia/
 │   │   └── page.tsx               ← Server component: chat interface; redirects to /login if unauthenticated
 │   ├── admin/
 │   │   └── page.tsx               ← Admin panel: owner-only; grant/revoke evolve access per user
+│   ├── oops/
+│   │   └── page.tsx               ← Owner-only mobile shell: run occasional system commands without SSH
 │   ├── evolve/
 │   │   ├── page.tsx               ← Dedicated "propose a change" page; renders <EvolveForm>; requires evolve permission
 │   │   └── session/
@@ -120,6 +122,8 @@ primordia/
 │       │       ├── poll/route.ts       ← GET poll token status; sets session cookie on approval
 │       │       ├── approve/route.ts    ← POST approve a token (requires auth on approver device)
 │       │       └── qr/route.ts         ← GET SVG QR code encoding the approval URL for a tokenId
+│       ├── oops/
+│       │   └── route.ts           ← POST run shell command (streams SSE stdout+stderr); admin only
 │       ├── admin/
 │       │   └── permissions/
 │       │       └── route.ts       ← POST grant/revoke grantable roles (can_evolve); admin only
@@ -147,6 +151,7 @@ primordia/
 │   ├── GitSyncDialog.tsx          ← Modal: git pull + push via /api/git-sync (wraps StreamingDialog)
 │   ├── HamburgerMenu.tsx          ← Reusable hamburger button + dropdown; used by ChatInterface, EvolveForm, EvolveSessionView, PageNavBar
 │   ├── LandingNav.tsx             ← Landing page navbar with mobile hamburger collapse
+│   ├── OopsShell.tsx              ← Client component: mobile-friendly shell for /oops; streams command output via SSE
 │   ├── NavHeader.tsx              ← Shared nav header (title, branch name, nav links)
 │   ├── PageNavBar.tsx             ← Shared nav header + hamburger for /changelog and /branches pages
 │   ├── PruneBranchesButton.tsx    ← Client-side trigger button for PruneBranchesDialog
@@ -337,6 +342,7 @@ When implementing changes, follow these principles:
 | Passkey authentication | ✅ Live | WebAuthn passkeys via /login; sessions stored in SQLite |
 | Cross-device QR sign-in | ✅ Live | Laptop shows QR code; authenticated phone scans it and approves; laptop gets a session |
 | RBAC (roles) | ✅ Live | Simple role system: `admin` (auto-granted to first user) and `can_evolve`; /admin page lets admin grant/revoke roles; protected pages show informative 403 instead of redirecting |
+| Owner shell (/oops) | ✅ Live | Mobile-friendly shell at `/oops`; admin-only; run system commands (e.g. `sudo systemctl restart primordia`) without SSH; streams stdout+stderr via SSE |
 
 ---
 
