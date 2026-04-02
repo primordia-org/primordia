@@ -15,7 +15,7 @@ import type { EvolveSession } from "@/lib/db/types";
 import { PageNavBar } from "@/components/PageNavBar";
 import { PruneBranchesButton } from "@/components/PruneBranchesButton";
 import { buildPageTitle } from "@/lib/page-title";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, isAdmin } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -339,10 +339,13 @@ export default async function BranchesPage() {
   // matching the pattern used in app/api/auth/exe-dev/route.ts (getPublicOrigin).
   // When running behind exe.dev's proxy, x-forwarded-proto/host give the real URL.
   // Falls back to http://localhost:PORT for plain local dev.
-  const [headerStore, sessionUser] = await Promise.all([
+  const [headerStore, user] = await Promise.all([
     headers(),
     getSessionUser(),
   ]);
+  const sessionUser = user
+    ? { id: user.id, username: user.username, isAdmin: await isAdmin(user.id) }
+    : null;
   const proto = headerStore.get("x-forwarded-proto") ?? "http";
   const host =
     headerStore.get("x-forwarded-host") ??

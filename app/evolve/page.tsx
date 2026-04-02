@@ -6,7 +6,9 @@ import { execSync } from "child_process";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import EvolveForm from "@/components/EvolveForm";
-import { getSessionUser } from "@/lib/auth";
+import ForbiddenPage from "@/components/ForbiddenPage";
+import { getSessionUser, hasEvolvePermission } from "@/lib/auth";
+import { getDb } from "@/lib/db";
 import { buildPageTitle } from "@/lib/page-title";
 
 export function generateMetadata(): Metadata {
@@ -32,6 +34,32 @@ function runGit(cmd: string): string | null {
 export default async function EvolvePage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
+
+  const db = await getDb();
+  const [canEvolve, allRoles] = await Promise.all([
+    hasEvolvePermission(user.id),
+    db.getAllRoles(),
+  ]);
+
+  const adminRoleName = allRoles.find((r) => r.name === "admin")?.displayName ?? "admin";
+  const evolveRoleName = allRoles.find((r) => r.name === "can_evolve")?.displayName ?? "Evolver";
+
+  if (!canEvolve) {
+    return (
+      <ForbiddenPage
+        pageDescription="This page lets you evolve the app by submitting change requests to Claude Code. It creates a live preview of your changes that you can accept or reject."
+        requiredConditions={[
+          "Be logged in",
+          `Have the "${adminRoleName}" role or the "${evolveRoleName}" role`,
+        ]}
+        metConditions={["You are logged in"]}
+        unmetConditions={[`You don't have the "${adminRoleName}" or "${evolveRoleName}" role`]}
+        howToFix={[
+          `Ask a user with the "${adminRoleName}" role to grant you the "${evolveRoleName}" role via the Admin page (/admin).`,
+        ]}
+      />
+    );
+  }
 
   const branch = runGit("git branch --show-current");
 

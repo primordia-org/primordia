@@ -59,14 +59,14 @@ primordia/
 │
 ├── lib/
 │   ├── system-prompt.ts           ← Builds chat system prompt at runtime: reads PRIMORDIA.md + last 30 changelog filenames on each request
-│   ├── auth.ts                    ← Session helpers: createSession, getSessionUser
+│   ├── auth.ts                    ← Session helpers: createSession, getSessionUser, isAdmin (admin role check), hasEvolvePermission (admin or can_evolve role)
 │   ├── hooks.ts                   ← Shared React hooks: useSessionUser (fetches session on mount, provides logout)
 │   ├── evolve-sessions.ts         ← Shared session state + business logic for local evolve; persists to SQLite
 │   ├── page-title.ts              ← Utility: buildPageTitle() — formats <title> with branch/port suffix on non-main branches
 │   └── db/
 │       ├── index.ts               ← Factory: getDb() → SQLite (always)
-│       ├── types.ts               ← Shared DB types: User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession
-│       └── sqlite.ts              ← bun:sqlite adapter (includes evolve_sessions table)
+│       ├── types.ts               ← Shared DB types: User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession, Role; DbAdapter includes role methods
+│       └── sqlite.ts              ← bun:sqlite adapter (includes evolve_sessions, roles, user_roles tables; seeds built-in roles on boot)
 │
 ├── app/                           ← Next.js App Router
 │   ├── layout.tsx                 ← Root layout (font, metadata, body styling)
@@ -78,8 +78,10 @@ primordia/
 │   │   └── page.tsx               ← Server component: reads changelog/ filenames at runtime; lazy-loads body via /api/changelog
 │   ├── chat/
 │   │   └── page.tsx               ← Server component: chat interface; redirects to /login if unauthenticated
+│   ├── admin/
+│   │   └── page.tsx               ← Admin panel: owner-only; grant/revoke evolve access per user
 │   ├── evolve/
-│   │   ├── page.tsx               ← Dedicated "propose a change" page; renders <EvolveForm>
+│   │   ├── page.tsx               ← Dedicated "propose a change" page; renders <EvolveForm>; requires evolve permission
 │   │   └── session/
 │   │       └── [id]/
 │   │           └── page.tsx       ← Session-tracking page; reads from SQLite, renders <EvolveSessionView>
@@ -118,8 +120,11 @@ primordia/
 │       │       ├── poll/route.ts       ← GET poll token status; sets session cookie on approval
 │       │       ├── approve/route.ts    ← POST approve a token (requires auth on approver device)
 │       │       └── qr/route.ts         ← GET SVG QR code encoding the approval URL for a tokenId
+│       ├── admin/
+│       │   └── permissions/
+│       │       └── route.ts       ← POST grant/revoke grantable roles (can_evolve); admin only
 │       └── evolve/
-│               ├── route.ts       ← POST start session, GET status (legacy poll)
+│               ├── route.ts       ← POST start session (requires can_evolve permission), GET status (legacy poll)
 │               ├── stream/
 │               │   └── route.ts   ← GET SSE stream of live session progress
 │               ├── manage/
@@ -133,6 +138,8 @@ primordia/
 │
 ├── components/
 │   ├── AcceptRejectBar.tsx        ← Accept/reject bar for local preview worktrees
+│   ├── AdminPermissionsClient.tsx ← Client component: grant/revoke 'can_evolve' role per user (used by /admin)
+│   ├── ForbiddenPage.tsx          ← Server component: 403 access-denied page with page description, required/met/unmet conditions, and how-to-fix
 │   ├── ChatInterface.tsx          ← Main chat UI (chat only); Edit icon button links to /evolve
 │   ├── ChangelogEntryDetails.tsx  ← Client component: single changelog <details> widget; lazy-loads body from /api/changelog on first open
 │   ├── EvolveForm.tsx             ← "Submit a request" form; POSTs then redirects to /evolve/session/{id}
@@ -236,6 +243,29 @@ Each evolve session tracks two independent dimensions persisted to SQLite:
 
 ---
 
+#### RBAC (Roles and Permissions)
+
+Primordia uses a simple role-based access control system stored in SQLite.
+
+**Roles** (seeded at boot, stored in the `roles` table):
+
+| Role (internal name) | Default display name | Description |
+|---|---|---|
+| `admin` | Prime | Full system access. Automatically granted to the first user who registers. Cannot be granted via the API. |
+| `can_evolve` | Evolver | Allows the user to access `/evolve` and submit change requests to Claude Code. Granted/revoked by admins via `/admin`. |
+
+**Tables:**
+- `roles` — catalog of all roles (name, id UUID, display_name, description, created_at). `name` is the immutable internal slug used in code and FK references; `display_name` is a customizable human-readable label shown in the UI.
+- `user_roles` — maps users to roles (user_id, role_name, granted_by, granted_at)
+
+**Key auth helpers in `lib/auth.ts`:**
+- `isAdmin(userId)` — true if user has the `admin` role
+- `hasEvolvePermission(userId)` — true if user has `admin` or `can_evolve` role
+
+**Bootstrap:** The first user to register (via passkey or exe.dev login) is automatically granted the `admin` role. On DB startup, any existing first user without the role is backfilled. The `admin` role cannot be granted or revoked via the API — only via direct DB access.
+
+---
+
 #### Deploy to exe.dev (one-command remote dev server)
 ```
 bun run deploy-to-exe.dev <server-name>
@@ -287,7 +317,8 @@ When implementing changes, follow these principles:
 5. **TypeScript everywhere.** Explicit types make the codebase more navigable for AI models.
 6. **Tailwind for styling.** Do not add CSS files or CSS-in-JS libraries.
 7. **App Router conventions.** Follow Next.js App Router patterns: `page.tsx`, `layout.tsx`, `route.ts`.
-8. **Add exactly one changelog file per pull request.** After every set of changes, create a single new file in `changelog/` named `YYYY-MM-DD-HH-MM-SS Description of change.md` (UTC time, e.g. `2026-03-16-21-00-00 Fix login bug.md`). The filename is the short description; the file body is the full "what changed + why" detail in markdown. One PR = one changelog entry, even if the PR went through multiple iterations.
+8. **Protected routes show a 403 page, not a redirect.** When a logged-in user visits a page they lack permission for, render `<ForbiddenPage>` in place of the normal page content. The 403 page must include: (a) a brief description of what the page does, (b) the full list of conditions required, (c) which conditions the user meets and doesn't meet, and (d) how they can gain access. Unauthenticated users (no session at all) may still be redirected to `/login` — that is a different case. Only use `redirect()` for the auth-absent case; use `<ForbiddenPage>` for the permission-absent case.
+9. **Add exactly one changelog file per pull request.** After every set of changes, create a single new file in `changelog/` named `YYYY-MM-DD-HH-MM-SS Description of change.md` (UTC time, e.g. `2026-03-16-21-00-00 Fix login bug.md`). The filename is the short description; the file body is the full "what changed + why" detail in markdown. One PR = one changelog entry, even if the PR went through multiple iterations.
 
 ---
 
@@ -304,6 +335,7 @@ When implementing changes, follow these principles:
 | Dark theme | ✅ Live | Default dark UI with Tailwind |
 | Passkey authentication | ✅ Live | WebAuthn passkeys via /login; sessions stored in SQLite |
 | Cross-device QR sign-in | ✅ Live | Laptop shows QR code; authenticated phone scans it and approves; laptop gets a session |
+| RBAC (roles) | ✅ Live | Simple role system: `admin` (auto-granted to first user) and `can_evolve`; /admin page lets admin grant/revoke roles; protected pages show informative 403 instead of redirecting |
 
 ---
 

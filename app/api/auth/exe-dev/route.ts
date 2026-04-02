@@ -58,12 +58,16 @@ export async function GET(req: NextRequest) {
   const db = await getDb();
   let user = await db.getUserByUsername(email);
   if (!user) {
+    const isFirstUser = (await db.getAllUsers()).length === 0;
     user = {
       id: generateId(),
       username: email,
       createdAt: Date.now(),
     };
     await db.createUser(user);
+    if (isFirstUser) {
+      await db.grantRole(user.id, "admin", "system");
+    }
   }
 
   const sessionId = await createSession(user.id);

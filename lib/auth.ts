@@ -26,6 +26,23 @@ export async function createSession(userId: string): Promise<string> {
   return sessionId;
 }
 
+/** Returns true if the given userId has the "admin" role. */
+export async function isAdmin(userId: string): Promise<boolean> {
+  const db = await getDb();
+  const roles = await db.getUserRoles(userId);
+  return roles.includes("admin");
+}
+
+/**
+ * Returns true if the user may use the evolve flow.
+ * Users with the "admin" role always have access; others need the "can_evolve" role.
+ */
+export async function hasEvolvePermission(userId: string): Promise<boolean> {
+  const db = await getDb();
+  const roles = await db.getUserRoles(userId);
+  return roles.includes("admin") || roles.includes("can_evolve");
+}
+
 /**
  * Read the session cookie, look up the session in the DB, and return the
  * associated user — or null if there is no valid session.

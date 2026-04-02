@@ -53,11 +53,15 @@ export async function POST(request: NextRequest) {
 
     // Create user and save passkey
     const userId = generateId();
+    const isFirstUser = (await db.getAllUsers()).length === 0;
     await db.createUser({
       id: userId,
       username: challengeRecord.username,
       createdAt: Date.now(),
     });
+    if (isFirstUser) {
+      await db.grantRole(userId, "admin", "system");
+    }
     await db.savePasskey({
       id: generateId(),
       userId,

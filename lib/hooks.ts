@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 export interface SessionUser {
   id: string;
   username: string;
+  isAdmin: boolean;
 }
 
 // ─── Hooks ──────────────────────────────────────────────────────────────────

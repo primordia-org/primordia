@@ -11,7 +11,7 @@ import type { Metadata } from "next";
 import { ChangelogEntryDetails } from "@/components/ChangelogEntryDetails";
 import { PageNavBar } from "@/components/PageNavBar";
 import { buildPageTitle } from "@/lib/page-title";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, isAdmin } from "@/lib/auth";
 
 export function generateMetadata(): Metadata {
   return {
@@ -50,10 +50,13 @@ function loadSummaries(): ChangelogSummary[] {
 }
 
 export default async function ChangelogPage() {
-  const [entries, sessionUser] = await Promise.all([
+  const [entries, user] = await Promise.all([
     Promise.resolve(loadSummaries()),
     getSessionUser(),
   ]);
+  const sessionUser = user
+    ? { id: user.id, username: user.username, isAdmin: await isAdmin(user.id) }
+    : null;
 
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-screen">

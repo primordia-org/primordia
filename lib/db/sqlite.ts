@@ -2,7 +2,7 @@
 // Uses bun:sqlite which is built into Bun and requires no npm package.
 // Only imported when DATABASE_URL is not set (i.e., local dev without Neon).
 
-import type { DbAdapter, User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession } from "./types";
+import type { DbAdapter, Role, User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession } from "./types";
 
 let dbInstance: DbAdapter | null = null;
 
@@ -52,6 +52,20 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       user_id TEXT,
       expires_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS roles (
+      name TEXT PRIMARY KEY,
+      id TEXT NOT NULL DEFAULT '',
+      display_name TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS user_roles (
+      user_id TEXT NOT NULL REFERENCES users(id),
+      role_name TEXT NOT NULL REFERENCES roles(name),
+      granted_by TEXT NOT NULL,
+      granted_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, role_name)
+    );
     CREATE TABLE IF NOT EXISTS evolve_sessions (
       id TEXT PRIMARY KEY,
       branch TEXT NOT NULL,
@@ -70,6 +84,68 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     db.exec("ALTER TABLE evolve_sessions ADD COLUMN dev_server_status TEXT NOT NULL DEFAULT 'none'");
   } catch {
     // Column already exists — ignore
+  }
+
+  // Migration: add id and display_name columns to roles (added when roles got UUIDs + customizable names)
+  // Must run before the seed inserts below so existing DBs have the columns ready.
+  try {
+    db.exec("ALTER TABLE roles ADD COLUMN id TEXT NOT NULL DEFAULT ''");
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    db.exec("ALTER TABLE roles ADD COLUMN display_name TEXT NOT NULL DEFAULT ''");
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Seed built-in roles
+  const now = Date.now();
+  db.prepare(
+    "INSERT OR IGNORE INTO roles (name, id, display_name, description, created_at) VALUES (?, ?, ?, ?, ?)"
+  ).run("admin", crypto.randomUUID(), "Prime", "Owner/admin role with full system access", now);
+  db.prepare(
+    "INSERT OR IGNORE INTO roles (name, id, display_name, description, created_at) VALUES (?, ?, ?, ?, ?)"
+  ).run("can_evolve", crypto.randomUUID(), "Evolver", "Permission to propose changes to the app via the evolve flow", now);
+
+  // Migration: grant admin role to first user if they don't have it yet
+  try {
+    db.exec(`
+      INSERT OR IGNORE INTO user_roles (user_id, role_name, granted_by, granted_at)
+      SELECT u.id, 'admin', 'system', ${now}
+      FROM users u
+      ORDER BY u.created_at ASC
+      LIMIT 1
+    `);
+  } catch {
+    // First user doesn't exist yet — ignore
+  }
+
+  // Migration: port existing user_permissions rows to user_roles (one-time, idempotent)
+  try {
+    db.exec(`
+      INSERT OR IGNORE INTO user_roles (user_id, role_name, granted_by, granted_at)
+      SELECT user_id, permission, granted_by, granted_at FROM user_permissions
+    `);
+  } catch {
+    // user_permissions table may not exist on fresh installs — ignore
+  }
+  // Backfill: assign UUIDs and display names to existing built-in roles that are missing them
+  const adminRole = db.prepare("SELECT id, display_name FROM roles WHERE name = 'admin'").get() as
+    | { id: string; display_name: string } | null;
+  if (adminRole && (!adminRole.id || adminRole.id === '')) {
+    db.prepare("UPDATE roles SET id = ? WHERE name = 'admin'").run(crypto.randomUUID());
+  }
+  if (adminRole && (!adminRole.display_name || adminRole.display_name === '')) {
+    db.prepare("UPDATE roles SET display_name = ? WHERE name = 'admin'").run("Prime");
+  }
+  const evolveRole = db.prepare("SELECT id, display_name FROM roles WHERE name = 'can_evolve'").get() as
+    | { id: string; display_name: string } | null;
+  if (evolveRole && (!evolveRole.id || evolveRole.id === '')) {
+    db.prepare("UPDATE roles SET id = ? WHERE name = 'can_evolve'").run(crypto.randomUUID());
+  }
+  if (evolveRole && (!evolveRole.display_name || evolveRole.display_name === '')) {
+    db.prepare("UPDATE roles SET display_name = ? WHERE name = 'can_evolve'").run("Evolver");
   }
 
   const adapter: DbAdapter = {
@@ -93,6 +169,19 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       const row = db
         .prepare("SELECT * FROM users WHERE id = ?")
         .get(id) as { id: string; username: string; created_at: number } | null;
+      if (!row) return null;
+      return { id: row.id, username: row.username, createdAt: row.created_at };
+    },
+    async getAllUsers() {
+      const rows = db
+        .prepare("SELECT * FROM users ORDER BY created_at ASC")
+        .all() as Array<{ id: string; username: string; created_at: number }>;
+      return rows.map((r) => ({ id: r.id, username: r.username, createdAt: r.created_at }));
+    },
+    async getFirstUser() {
+      const row = db
+        .prepare("SELECT * FROM users ORDER BY created_at ASC LIMIT 1")
+        .get() as { id: string; username: string; created_at: number } | null;
       if (!row) return null;
       return { id: row.id, username: row.username, createdAt: row.created_at };
     },
@@ -262,6 +351,44 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       db.prepare(
         "DELETE FROM cross_device_tokens WHERE expires_at < ?"
       ).run(Date.now());
+    },
+
+    // ── Roles (RBAC) ─────────────────────────────────────────────────────────
+
+    async getAllRoles() {
+      const rows = db
+        .prepare("SELECT name, id, display_name, description, created_at FROM roles ORDER BY created_at ASC")
+        .all() as Array<{ name: string; id: string; display_name: string; description: string; created_at: number }>;
+      return rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        displayName: r.display_name,
+        description: r.description,
+        createdAt: r.created_at,
+      }));
+    },
+    async grantRole(userId: string, roleName: string, grantedBy: string) {
+      db.prepare(
+        `INSERT OR REPLACE INTO user_roles (user_id, role_name, granted_by, granted_at)
+         VALUES (?, ?, ?, ?)`
+      ).run(userId, roleName, grantedBy, Date.now());
+    },
+    async revokeRole(userId: string, roleName: string) {
+      db.prepare(
+        "DELETE FROM user_roles WHERE user_id = ? AND role_name = ?"
+      ).run(userId, roleName);
+    },
+    async getUserRoles(userId: string) {
+      const rows = db
+        .prepare("SELECT role_name FROM user_roles WHERE user_id = ?")
+        .all(userId) as Array<{ role_name: string }>;
+      return rows.map((r) => r.role_name);
+    },
+    async getUsersWithRole(roleName: string) {
+      const rows = db
+        .prepare("SELECT user_id FROM user_roles WHERE role_name = ?")
+        .all(roleName) as Array<{ user_id: string }>;
+      return rows.map((r) => r.user_id);
     },
 
     // ── Evolve sessions ──────────────────────────────────────────────────────

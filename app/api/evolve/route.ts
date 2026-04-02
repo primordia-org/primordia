@@ -18,7 +18,7 @@ import {
   inferDevServerStatus,
   type LocalSession,
 } from '../../../lib/evolve-sessions';
-import { getSessionUser } from '../../../lib/auth';
+import { getSessionUser, hasEvolvePermission } from '../../../lib/auth';
 import { getDb } from '../../../lib/db';
 
 /** Ask Claude to choose a short, descriptive kebab-case slug for the request.
@@ -83,6 +83,10 @@ export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
+  }
+
+  if (!(await hasEvolvePermission(user.id))) {
+    return Response.json({ error: 'You do not have permission to use the evolve flow' }, { status: 403 });
   }
 
   if (process.env.NODE_ENV !== 'development') {
