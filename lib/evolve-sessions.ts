@@ -110,11 +110,7 @@ function summarizeToolUse(
     case 'Edit':      return `Edit \`${filePath}\``;
     case 'Glob':      return `Glob \`${pattern}\``;
     case 'Grep':      return `Grep \`${pattern}\``;
-    case 'Bash': {
-      const nlIdx = command.indexOf('\n');
-      const display = nlIdx !== -1 ? command.slice(0, nlIdx) + '…' : command;
-      return `Bash \`${display.slice(0, 80)}\``;
-    }
+    case 'Bash':      return `Bash \`${command.replace(/\r?\n/g, ' ')}\``;
     case 'TodoWrite': return `Update todo list`;
     case 'Agent':     return `Spawn sub-agent`;
     default:          return name;

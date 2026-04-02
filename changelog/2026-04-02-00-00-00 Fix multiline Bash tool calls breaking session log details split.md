@@ -3,7 +3,7 @@
 ## What changed
 
 In `lib/evolve-sessions.ts`, the `summarizeToolUse` function for `Bash` commands now
-strips newlines from the command before building the summary line.
+replaces newlines with spaces and removes the 80-character truncation.
 
 Previously it did:
 ```ts
@@ -12,11 +12,7 @@ case 'Bash': return `Bash \`${command.slice(0, 80)}\``;
 
 Now it does:
 ```ts
-case 'Bash': {
-  const nlIdx = command.indexOf('\n');
-  const display = nlIdx !== -1 ? command.slice(0, nlIdx) + '…' : command;
-  return `Bash \`${display.slice(0, 80)}\``;
-}
+case 'Bash': return `Bash \`${command.replace(/\r?\n/g, ' ')}\``;
 ```
 
 ## Why
@@ -39,6 +35,6 @@ of the multiline command, and then treats all the continuation lines
 the `<details>` block — displaying raw heredoc fragments to the user instead
 of Claude's actual summary.
 
-The fix truncates at the first newline and appends `…`, keeping every
-`- 🔧 ` log entry as a single line and ensuring the details/final-message
-split works correctly.
+The fix replaces all newlines with spaces, keeping every `- 🔧 ` log entry as
+a single line while preserving the full command text. The previous 80-character
+hard truncation is also removed — it was hiding useful command context.
