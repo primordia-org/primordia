@@ -11,7 +11,7 @@
 
 ## What Is Primordia?
 
-Primordia is a self-modifying web application. Users interact with an AI chat interface. To propose a change to the app, they click the Edit (pencil) icon button in the header to navigate to the `/evolve` page — a dedicated "submit a request" form. Requests are automatically built as local git worktree previews, powered by the Claude Agent SDK. Users then accept or reject each preview.
+Primordia is a self-modifying web application. Users interact with an AI chat interface. To propose a change to the app, they open the hamburger (☰) menu in the header and choose "Propose a change" to navigate to the `/evolve` page — a dedicated "submit a request" form. Requests are automatically built as local git worktree previews, powered by the Claude Agent SDK. Users then accept or reject each preview.
 
 The core idea: **the app becomes whatever its users need it to be**, with no coding or git knowledge required from users.
 
@@ -140,7 +140,7 @@ primordia/
 │   ├── AcceptRejectBar.tsx        ← Accept/reject bar for local preview worktrees
 │   ├── AdminPermissionsClient.tsx ← Client component: grant/revoke 'can_evolve' role per user (used by /admin)
 │   ├── ForbiddenPage.tsx          ← Server component: 403 access-denied page with page description, required/met/unmet conditions, and how-to-fix
-│   ├── ChatInterface.tsx          ← Main chat UI (chat only); Edit icon button links to /evolve
+│   ├── ChatInterface.tsx          ← Main chat UI (chat only); hamburger menu "Propose a change" links to /evolve
 │   ├── ChangelogEntryDetails.tsx  ← Client component: single changelog <details> widget; lazy-loads body from /api/changelog on first open
 │   ├── EvolveForm.tsx             ← "Submit a request" form; POSTs then redirects to /evolve/session/{id}
 │   ├── EvolveSessionView.tsx      ← Client component for session tracking page; streams live progress via SSE
@@ -327,7 +327,7 @@ When implementing changes, follow these principles:
 | Feature | Status | Notes |
 |---|---|---|
 | Chat interface (streaming) | ✅ Live | Streams from `claude-sonnet-4-6` via SSE |
-| Evolve mode | ✅ Live | Dedicated `/evolve` page; Edit icon in chat header |
+| Evolve mode | ✅ Live | Dedicated `/evolve` page; accessible via "Propose a change" in the hamburger menu |
 | Local evolve pipeline | ✅ Live | git worktree → Claude Agent SDK → local preview → accept/reject |
 | Evolve follow-up requests | ✅ Live | Chain multiple Claude passes on the same branch; form appears when session is ready |
 | File attachments in evolve | ✅ Live | Attach images/files to initial and follow-up requests; files are copied into `worktree/attachments/` so Claude can read and use them |
