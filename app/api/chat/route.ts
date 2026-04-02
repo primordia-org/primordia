@@ -15,12 +15,9 @@
 //   to process.cwd(). Dotfiles are blocked to protect .env and .primordia-auth.db.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { buildSystemPrompt } from "@/lib/system-prompt";
 import fs from "fs";
 import path from "path";
-// SYSTEM_PROMPT is generated at build time by scripts/generate-changelog.mjs
-// (run as a prebuild/predev step). It embeds PRIMORDIA.md + the last 30
-// changelog entry filenames so the assistant has accurate self-knowledge.
-import { SYSTEM_PROMPT } from "@/lib/generated/system-prompt";
 import { getSessionUser } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
@@ -157,9 +154,10 @@ export async function POST(request: Request) {
     apiKey: process.env.ANTHROPIC_API_KEY,
   });
 
+  const basePrompt = buildSystemPrompt();
   const systemPrompt = body.systemContext
-    ? `${SYSTEM_PROMPT}\n\n${body.systemContext}`
-    : SYSTEM_PROMPT;
+    ? `${basePrompt}\n\n${body.systemContext}`
+    : basePrompt;
 
   // Create a ReadableStream that emits SSE chunks
   const stream = new ReadableStream({

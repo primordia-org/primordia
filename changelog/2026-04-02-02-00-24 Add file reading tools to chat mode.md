@@ -15,7 +15,7 @@ The chat route now runs an agentic loop: after each Claude turn, if the stop rea
 
 `max_tokens` was raised from 1024 to 4096 to accommodate tool-augmented responses.
 
-The system prompt template in `scripts/generate-changelog.mjs` was updated to briefly describe the two new tools so Claude knows when to use them.
+The system prompt in `lib/system-prompt.ts` was updated to briefly describe the two new tools so Claude knows when to use them.
 
 ## Why
 

@@ -4,9 +4,7 @@
   "private": true,
   "packageManager": "bun@1.2.0",
   "scripts": {
-    "predev": "bun scripts/generate-changelog.mjs",
-    "dev": "bun scripts/watch-changelog.mjs & bun run --bun next dev --turbopack",
-    "prebuild": "bun scripts/generate-changelog.mjs",
+    "dev": "bun run --bun next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
