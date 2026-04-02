@@ -55,6 +55,7 @@ export default function AdminPermissionsClient({ users: initial, adminRoleName, 
       )}
 
       <div className="rounded-xl border border-gray-800 overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-800 bg-gray-900/60">
@@ -118,6 +119,7 @@ export default function AdminPermissionsClient({ users: initial, adminRoleName, 
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
