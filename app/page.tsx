@@ -102,7 +102,7 @@ export default function LandingPage() {
         </div>
 
         {/* Logo */}
-        <div className="animate-fade-up relative mb-3">
+        <div className="animate-fade-up relative mb-0">
           <Image
             src="/primordia-logo.png"
             alt="Primordia logo"
