@@ -16,6 +16,13 @@ Specific changes:
 - **Features** table added listing all current live features (file attachments, cross-device QR sign-in, RBAC, follow-up requests, upstream sync, etc.)
 - **Hosting on exe.dev** section added: explains the three exe.dev capabilities Primordia uses (persistent dev server, built-in LLM gateway, SSO login via injected `X-ExeDev-Email` header) and provides a step-by-step guide for deploying your own Primordia instance on exe.dev
 
+Also fixed outdated copy in the landing page (`app/page.tsx`):
+
+- **Self-Evolving feature card**: "opens a pull request" → "spins up a live preview"
+- **Open Source feature card**: "deploy to Vercel in minutes" → "deploy to exe.dev in minutes"
+- **How it works — step 3**: "opens a PR — preview it live on Vercel" → "spins up a live preview — inspect it in your browser"
+- **How it works — step 4**: "Approve, merge" → "Accept the change" (matches the actual accept/reject UI)
+
 ## Why
 
-The README was dreadfully out of date and would mislead anyone trying to set up or understand the project. The exe.dev section was added because exe.dev is the intended hosting target and the integration (no API key, SSO login, one-command deploy) is not obvious from the code alone.
+The README and landing page were dreadfully out of date and would mislead anyone trying to set up or understand the project. The exe.dev section was added because exe.dev is the intended hosting target and the integration (no API key, SSO login, one-command deploy) is not obvious from the code alone.

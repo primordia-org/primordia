@@ -41,7 +41,7 @@ const FEATURES = [
     bg: "bg-violet-500/5",
     title: "Self-Evolving",
     description:
-      "Don't like something? Describe the change you want in plain English. Claude Code rewrites the app and opens a pull request — no coding required.",
+      "Don't like something? Describe the change you want in plain English. Claude Code rewrites the app and spins up a live preview — no coding required.",
   },
   {
     icon: (
@@ -57,7 +57,7 @@ const FEATURES = [
     bg: "bg-fuchsia-500/5",
     title: "Open Source",
     description:
-      "Fork the repo, deploy to Vercel in minutes, and own your instance entirely. Every change is tracked in git — full history, full control.",
+      "Fork the repo, deploy to exe.dev in minutes, and own your instance entirely. Every change is tracked in git — full history, full control.",
   },
 ];
 
@@ -66,8 +66,8 @@ const FEATURES = [
 const STEPS = [
   { n: "01", label: "Chat", detail: "Ask Primordia anything using the built-in AI chat." },
   { n: "02", label: "Propose", detail: "See something you'd like to change? Open the menu and propose it." },
-  { n: "03", label: "Review", detail: "Claude Code writes the code and opens a PR — preview it live on Vercel." },
-  { n: "04", label: "Merge", detail: "Approve, merge, and the production app updates itself — instantly." },
+  { n: "03", label: "Review", detail: "Claude Code writes the code and spins up a live preview — inspect it in your browser." },
+  { n: "04", label: "Accept", detail: "Accept the change, and your app updates itself — instantly." },
 ];
 
 // ── Page ─────────────────────────────────────────────────────────────────────
