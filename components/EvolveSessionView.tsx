@@ -564,8 +564,6 @@ export default function EvolveSessionView({
       }
       setStatus('accepted');
       abortControllerRef.current?.abort();
-      // Trigger bun install + dev server restart to pick up the merged changes.
-      fetch('/api/evolve/restart', { method: 'POST' }).catch(() => {});
     } catch (err) {
       setAcceptRejectError(err instanceof Error ? err.message : String(err));
     } finally {

@@ -22,7 +22,7 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 ### Tech Stack
 | Layer | Technology | Why |
 |---|---|---|
-| Frontend framework | Next.js 15 (App Router) | AI models write Next.js well |
+| Frontend framework | Next.js 16 (App Router) | AI models write Next.js well |
 | Styling | Tailwind CSS | AI models write Tailwind well; no CSS files to manage |
 | Language | TypeScript | Catches mistakes; Claude Code understands it well |
 | AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Streaming chat via `claude-sonnet-4-6`; prefers exe.dev LLM gateway, falls back to `ANTHROPIC_API_KEY` |
