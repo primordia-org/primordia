@@ -35,6 +35,10 @@ This pattern is documented in PRIMORDIA.md as a design principle: unauthenticate
 - `app/evolve/page.tsx` — renders ForbiddenPage for users without `admin` or `can_evolve` role
 - `app/admin/page.tsx` — renders ForbiddenPage for users without `admin` role
 
+### Fix: roles seed inserts failed on existing databases
+
+On databases created before the `id` and `display_name` columns were added to the `roles` table, startup crashed with `SQLiteError: table roles has no column named id`. The column migrations (`ALTER TABLE roles ADD COLUMN id/display_name`) were running **after** the seed `INSERT OR IGNORE` statements that reference those columns. Fixed by reordering: column migrations now run before the seed inserts.
+
 ## Why
 
 The flat `user_permissions` approach worked for a single permission but didn't scale cleanly to multiple access levels. A roles table is the standard pattern and makes the system easier to extend (e.g., adding a `can_chat` role later). The silent redirect to `/chat` was also confusing — users had no idea why they were bounced or what they'd need to do to get access.

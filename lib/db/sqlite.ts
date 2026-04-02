@@ -79,6 +79,26 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     );
   `);
 
+  // Migration: add dev_server_status column if it doesn't exist (added in refactor)
+  try {
+    db.exec("ALTER TABLE evolve_sessions ADD COLUMN dev_server_status TEXT NOT NULL DEFAULT 'none'");
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Migration: add id and display_name columns to roles (added when roles got UUIDs + customizable names)
+  // Must run before the seed inserts below so existing DBs have the columns ready.
+  try {
+    db.exec("ALTER TABLE roles ADD COLUMN id TEXT NOT NULL DEFAULT ''");
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    db.exec("ALTER TABLE roles ADD COLUMN display_name TEXT NOT NULL DEFAULT ''");
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Seed built-in roles
   const now = Date.now();
   db.prepare(
@@ -109,25 +129,6 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     `);
   } catch {
     // user_permissions table may not exist on fresh installs — ignore
-  }
-
-  // Migration: add dev_server_status column if it doesn't exist (added in refactor)
-  try {
-    db.exec("ALTER TABLE evolve_sessions ADD COLUMN dev_server_status TEXT NOT NULL DEFAULT 'none'");
-  } catch {
-    // Column already exists — ignore
-  }
-
-  // Migration: add id and display_name columns to roles (added when roles got UUIDs + customizable names)
-  try {
-    db.exec("ALTER TABLE roles ADD COLUMN id TEXT NOT NULL DEFAULT ''");
-  } catch {
-    // Column already exists — ignore
-  }
-  try {
-    db.exec("ALTER TABLE roles ADD COLUMN display_name TEXT NOT NULL DEFAULT ''");
-  } catch {
-    // Column already exists — ignore
   }
   // Backfill: assign UUIDs and display names to existing built-in roles that are missing them
   const adminRole = db.prepare("SELECT id, display_name FROM roles WHERE name = 'admin'").get() as
