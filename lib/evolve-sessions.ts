@@ -237,7 +237,7 @@ export async function startLocalEvolve(
     const usingGateway = await isGatewayAvailable();
     appendProgress(
       session,
-      `> LLM backend: ${usingGateway ? 'exe.dev gateway' : 'ANTHROPIC_API_KEY'}\n\n`,
+      `- [x] Determine LLM source: ${usingGateway ? 'exe.dev gateway' : 'ANTHROPIC_API_KEY'}\n`,
     );
 
     // Step 1 — Create a new git worktree on a fresh branch
