@@ -6,6 +6,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 
 export function LandingNav() {
@@ -18,8 +19,9 @@ export function LandingNav() {
         {/* Brand */}
         <Link
           href="/"
-          className="font-mono font-bold text-white tracking-tight hover:text-gray-300 transition-colors"
+          className="flex items-center gap-2 font-mono font-bold text-white tracking-tight hover:text-gray-300 transition-colors"
         >
+          <Image src="/primordia-logo.png" alt="" width={28} height={28} className="rounded-sm" aria-hidden="true" />
           Primordia
         </Link>
 

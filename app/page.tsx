@@ -3,6 +3,7 @@
 // The actual chat lives at /chat.
 
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { buildPageTitle } from "@/lib/page-title";
 import { LandingNav } from "@/components/LandingNav";
@@ -97,6 +98,18 @@ export default function LandingPage() {
                 "linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)",
               backgroundSize: "40px 40px",
             }}
+          />
+        </div>
+
+        {/* Logo */}
+        <div className="animate-fade-up relative mb-0">
+          <Image
+            src="/primordia-logo.png"
+            alt="Primordia logo"
+            width={180}
+            height={180}
+            priority
+            className="drop-shadow-[0_0_32px_rgba(34,197,94,0.4)]"
           />
         </div>
 

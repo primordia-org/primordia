@@ -1,5 +1,9 @@
 # Primordia
 
+<p align="center">
+  <img src="public/primordia-logo.png" alt="Primordia logo" width="120" />
+</p>
+
 > A self-modifying web application. Describe changes in plain English — Primordia builds them for you.
 
 Primordia is a chat interface powered by Claude. Users can switch into **evolve mode** to describe changes they want made to the app itself. Those requests are automatically turned into GitHub Pull Requests via a CI pipeline — no coding or git knowledge required.
