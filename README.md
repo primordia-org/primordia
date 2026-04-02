@@ -62,7 +62,38 @@ The first user to register is automatically granted the `admin` role.
 bun run deploy-to-exe.dev <server-name>
 ```
 
-This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts the app. No `ANTHROPIC_API_KEY` needed — the exe.dev LLM gateway is used automatically.
+This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts Primordia as a systemd service. No `ANTHROPIC_API_KEY` needed — the exe.dev LLM gateway is used automatically.
+
+## Hosting on exe.dev
+
+[exe.dev](https://exe.dev) provides persistent remote development servers. Primordia is built to run there — it uses the built-in LLM gateway (no API key needed) and supports one-click sign-in via your exe.dev account.
+
+| Capability | How Primordia uses it |
+|---|---|
+| Persistent remote dev server | Runs `bun run dev` as a `systemd` service (`NODE_ENV=development`) |
+| Built-in LLM gateway | Chat and evolve code-gen are routed through the exe.dev proxy — `ANTHROPIC_API_KEY` not required |
+| SSO login | The proxy injects an `X-ExeDev-Email` header; Primordia finds or creates a user automatically |
+
+### Create your own Primordia on exe.dev
+
+1. **Fork** this repo to your GitHub account.
+2. **Create a server** on [exe.dev](https://exe.dev). Note the server name (e.g. `myapp` → `myapp.exe.xyz`).
+3. **Configure `.env.local`** — copy `.env.example` and set at minimum:
+   - `GITHUB_REPO=your-username/primordia` — used by the deploy script to clone your fork onto the server
+   - `GITHUB_TOKEN` (optional) — PAT with `repo` scope; enables git pull/push from the server via the Git Sync dialog
+4. **Deploy:**
+   ```bash
+   bun run deploy-to-exe.dev <server-name>
+   ```
+   The script will:
+   - Copy your `.env.local` to the server via `scp`
+   - Install `git` and `bun` if missing
+   - Clone your repo and install dependencies
+   - Start Primordia as a `systemd` service and wait for it to be ready
+5. **Open** `http://<server-name>.exe.xyz:3000`.
+6. **Sign in** — click *Login with exe.dev* on the login page. The first user to sign in is automatically granted the `admin` role.
+
+> No `ANTHROPIC_API_KEY` is needed on exe.dev. The built-in gateway handles both the chat interface and the evolve pipeline.
 
 ## Environment Variables
 
