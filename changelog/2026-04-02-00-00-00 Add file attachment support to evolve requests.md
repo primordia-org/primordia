@@ -23,6 +23,10 @@ Users can now attach files and images when submitting an evolve request (initial
   - The Claude prompt is augmented with a list of the attached file paths so Claude knows to read and use them.
   - A progress log entry is appended when attachments are copied (e.g. "Copied 2 attachment(s) into worktree").
 
+### Gitignore
+
+- **`.gitignore`** — Added `/attachments/` so uploaded files copied into worktrees are never accidentally committed.
+
 ## Why
 
-Users often want to hand Claude a screenshot, mockup image, design spec, or data file as context for a change request. Without this feature, they had to describe the files in words or find another way to get the content into the worktree. Now they can attach the files directly and Claude will have access to them.
+Users often want to hand Claude a screenshot, mockup image, design spec, or data file as context for a change request. Without this feature, they had to describe the files in words or find another way to get the content into the worktree. Now they can attach the files directly and Claude will have access to them. The `attachments/` directory is gitignored because these files are transient user uploads, not project source code.

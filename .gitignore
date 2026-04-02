@@ -37,3 +37,6 @@ next-env.d.ts
 *.db
 *.db-shm
 *.db-wal
+
+# Uploaded attachments copied into worktrees (transient, not part of the project)
+/attachments/
