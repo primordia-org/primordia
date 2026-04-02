@@ -25,7 +25,7 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 | Frontend framework | Next.js 15 (App Router) | AI models write Next.js well |
 | Styling | Tailwind CSS | AI models write Tailwind well; no CSS files to manage |
 | Language | TypeScript | Catches mistakes; Claude Code understands it well |
-| AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Streaming chat via `claude-sonnet-4-6` |
+| AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Streaming chat via `claude-sonnet-4-6`; prefers exe.dev LLM gateway, falls back to `ANTHROPIC_API_KEY` |
 | Hosting | exe.dev | Remote dev servers via `bun run dev`; no build step required |
 | AI code gen | `@anthropic-ai/claude-agent-sdk` | `query()` runs Claude Code in git worktrees for evolve requests |
 | Database | bun:sqlite | Local SQLite for passkey auth **and evolve session persistence**; same adapter on exe.dev and local dev |
@@ -259,7 +259,7 @@ These must be set in:
 
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Yes | Powers the chat interface and Claude Code in the evolve pipeline |
+| `ANTHROPIC_API_KEY` | Conditional | Powers the chat interface. **Not required on exe.dev** — the built-in LLM gateway is used instead (no key needed). Required when running outside exe.dev as a fallback. |
 | `GITHUB_TOKEN` | No | Personal access token (repo scope) — enables authenticated git pull/push in GitSyncDialog; falls back to `origin` remote if unset |
 | `GITHUB_REPO` | No | `owner/repo` slug (e.g. `primordia-org/primordia`) — used alongside `GITHUB_TOKEN` to build the authenticated remote URL |
 
@@ -268,7 +268,7 @@ These must be set in:
 ## Setup Checklist (One-Time)
 
 1. **Clone** this repo.
-2. **Copy** `.env.example` to `.env.local` and fill in `ANTHROPIC_API_KEY`.
+2. **Copy** `.env.example` to `.env.local` and fill in `ANTHROPIC_API_KEY` (not needed on exe.dev — the built-in gateway is used automatically).
 3. **Run** `bun install && bun run dev`.
 4. The app is live at `http://localhost:3000`.
 

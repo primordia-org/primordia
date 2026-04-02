@@ -11,7 +11,7 @@
 //   Returns: { status, progressText, port, previewUrl, branch }
 
 import * as path from 'path';
-import Anthropic from '@anthropic-ai/sdk';
+import { getLlmClient } from '../../../lib/llm-client';
 import {
   startLocalEvolve,
   runGit,
@@ -25,7 +25,7 @@ import { getDb } from '../../../lib/db';
  *  Falls back to the first-4-words approach if the API call fails. */
 async function generateSlug(text: string): Promise<string> {
   try {
-    const client = new Anthropic();
+    const { client } = await getLlmClient();
     const response = await client.messages.create({
       model: 'claude-haiku-4-5',
       max_tokens: 32,

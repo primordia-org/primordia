@@ -16,6 +16,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt } from "@/lib/system-prompt";
+import { getLlmClient } from "@/lib/llm-client";
 import fs from "fs";
 import path from "path";
 import { getSessionUser } from "@/lib/auth";
@@ -150,9 +151,7 @@ export async function POST(request: Request) {
     });
   }
 
-  const client = new Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY,
-  });
+  const { client } = await getLlmClient();
 
   const basePrompt = buildSystemPrompt();
   const systemPrompt = body.systemContext
