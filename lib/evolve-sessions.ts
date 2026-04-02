@@ -340,6 +340,14 @@ export async function startLocalEvolve(
     // Accumulate stderr lines so they can be surfaced if the process crashes.
     const stderrLines: string[] = [];
 
+    // 20-minute timeout: abort Claude Code and fall through to "ready" state.
+    const claudeAbortController = new AbortController();
+    let claudeTimedOut = false;
+    const claudeTimeoutId = setTimeout(() => {
+      claudeTimedOut = true;
+      claudeAbortController.abort();
+    }, 20 * 60 * 1000);
+
     const run = query({
       prompt,
       options: {
@@ -351,6 +359,7 @@ export async function startLocalEvolve(
         },
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
+        abortController: claudeAbortController,
         // Capture stderr from the Claude Code process. Claude Code writes
         // diagnostic/crash information to stderr before exiting with a non-zero
         // code, so capturing it gives much better error messages than just the
@@ -407,21 +416,32 @@ export async function startLocalEvolve(
         }
       }
     } catch (err) {
-      // If this is a process-level failure (e.g. "Claude Code process exited with code 1")
-      // rather than the structured error we threw above, enrich it with any captured stderr.
-      const stderrStr = stderrLines.join('\n').trim();
-      if (
-        stderrStr &&
-        err instanceof Error &&
-        !err.message.includes('Details:') // not our own structured error
-      ) {
-        throw new Error(`${err.message}\n\nStderr:\n${stderrStr}`, { cause: err });
+      // If the abort was triggered by our timeout, swallow the error and fall
+      // through to start the dev server with whatever work was completed.
+      if (claudeTimedOut) {
+        appendProgress(session, `\n\n⏱️ **Claude Code timed out after 20 minutes.** Moving to ready state with work completed so far.\n`);
+        await persist();
+      } else {
+        // If this is a process-level failure (e.g. "Claude Code process exited with code 1")
+        // rather than the structured error we threw above, enrich it with any captured stderr.
+        const stderrStr = stderrLines.join('\n').trim();
+        if (
+          stderrStr &&
+          err instanceof Error &&
+          !err.message.includes('Details:') // not our own structured error
+        ) {
+          throw new Error(`${err.message}\n\nStderr:\n${stderrStr}`, { cause: err });
+        }
+        throw err;
       }
-      throw err;
+    } finally {
+      clearTimeout(claudeTimeoutId);
     }
 
-    appendProgress(session, `\n✅ **Claude Code finished.**\n`);
-    await persist();
+    if (!claudeTimedOut) {
+      appendProgress(session, `\n✅ **Claude Code finished.**\n`);
+      await persist();
+    }
 
     // Step 6 — Start Next.js dev server and detect the port from its output.
     // We let Next.js pick its own port (defaulting to 3000, or the next available
@@ -607,6 +627,14 @@ export async function runFollowupInWorktree(
 
     const stderrLines: string[] = [];
 
+    // 20-minute timeout: abort Claude Code and fall through to "ready" state.
+    const claudeAbortController = new AbortController();
+    let claudeTimedOut = false;
+    const claudeTimeoutId = setTimeout(() => {
+      claudeTimedOut = true;
+      claudeAbortController.abort();
+    }, 20 * 60 * 1000);
+
     const run = query({
       prompt,
       options: {
@@ -618,6 +646,7 @@ export async function runFollowupInWorktree(
         },
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
+        abortController: claudeAbortController,
         stderr: (data: string) => {
           stderrLines.push(data.trimEnd());
         },
@@ -663,6 +692,12 @@ export async function runFollowupInWorktree(
         }
       }
     } catch (err) {
+      if (claudeTimedOut) {
+        appendProgress(session, `\n\n⏱️ **Claude Code timed out after 20 minutes.** Moving to ready state with work completed so far.\n`);
+        session.status = 'ready';
+        await persist();
+        return;
+      }
       const stderrStr = stderrLines.join('\n').trim();
       if (
         stderrStr &&
@@ -672,6 +707,8 @@ export async function runFollowupInWorktree(
         throw new Error(`${err.message}\n\nStderr:\n${stderrStr}`, { cause: err });
       }
       throw err;
+    } finally {
+      clearTimeout(claudeTimeoutId);
     }
 
     if (onSuccess) {
