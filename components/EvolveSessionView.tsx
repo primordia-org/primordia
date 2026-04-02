@@ -328,10 +328,37 @@ export default function EvolveSessionView({
   const progressLengthRef = useRef(initialProgressText.length);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const followupTextareaRef = useRef<HTMLTextAreaElement>(null);
+  /**
+   * True when the user is scrolled to (or near) the bottom.
+   * Updated by a scroll listener so we capture position *before* new content
+   * is rendered — checking scrollHeight inside the progressText effect would
+   * be wrong because the DOM has already grown by then.
+   */
+  const wasAtBottomRef = useRef(true);
 
-  // Auto-scroll to bottom as progress grows
+  // Track scroll position so we know whether to auto-scroll on new content.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    function onScroll() {
+      // Use clientHeight (layout viewport) rather than window.innerHeight
+      // (visual viewport) so mobile address-bar hide/show doesn't cause
+      // false "not at bottom" readings.
+      wasAtBottomRef.current =
+        window.scrollY + document.documentElement.clientHeight >=
+        document.documentElement.scrollHeight - 40;
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, []);
+
+  // Auto-scroll to bottom as progress grows, but only if the user is already at the bottom.
+  useEffect(() => {
+    if (wasAtBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+    }
   }, [progressText]);
 
   // Stop the SSE stream on unmount
