@@ -26,6 +26,25 @@ export async function createSession(userId: string): Promise<string> {
   return sessionId;
 }
 
+/** Returns true if the given userId is the first (admin/owner) user. */
+export async function isAdmin(userId: string): Promise<boolean> {
+  const db = await getDb();
+  const first = await db.getFirstUser();
+  return first?.id === userId;
+}
+
+/**
+ * Returns true if the user may use the evolve flow.
+ * The first user (owner/admin) always has access; other users need the
+ * "can_evolve" permission explicitly granted by the admin.
+ */
+export async function hasEvolvePermission(userId: string): Promise<boolean> {
+  if (await isAdmin(userId)) return true;
+  const db = await getDb();
+  const perms = await db.getUserPermissions(userId);
+  return perms.includes("can_evolve");
+}
+
 /**
  * Read the session cookie, look up the session in the DB, and return the
  * associated user — or null if there is no valid session.

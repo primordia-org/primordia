@@ -52,6 +52,13 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       user_id TEXT,
       expires_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS user_permissions (
+      user_id TEXT NOT NULL REFERENCES users(id),
+      permission TEXT NOT NULL,
+      granted_by TEXT NOT NULL,
+      granted_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, permission)
+    );
     CREATE TABLE IF NOT EXISTS evolve_sessions (
       id TEXT PRIMARY KEY,
       branch TEXT NOT NULL,
@@ -93,6 +100,19 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       const row = db
         .prepare("SELECT * FROM users WHERE id = ?")
         .get(id) as { id: string; username: string; created_at: number } | null;
+      if (!row) return null;
+      return { id: row.id, username: row.username, createdAt: row.created_at };
+    },
+    async getAllUsers() {
+      const rows = db
+        .prepare("SELECT * FROM users ORDER BY created_at ASC")
+        .all() as Array<{ id: string; username: string; created_at: number }>;
+      return rows.map((r) => ({ id: r.id, username: r.username, createdAt: r.created_at }));
+    },
+    async getFirstUser() {
+      const row = db
+        .prepare("SELECT * FROM users ORDER BY created_at ASC LIMIT 1")
+        .get() as { id: string; username: string; created_at: number } | null;
       if (!row) return null;
       return { id: row.id, username: row.username, createdAt: row.created_at };
     },
@@ -262,6 +282,32 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       db.prepare(
         "DELETE FROM cross_device_tokens WHERE expires_at < ?"
       ).run(Date.now());
+    },
+
+    // ── User permissions ─────────────────────────────────────────────────────
+
+    async grantPermission(userId: string, permission: string, grantedBy: string) {
+      db.prepare(
+        `INSERT OR REPLACE INTO user_permissions (user_id, permission, granted_by, granted_at)
+         VALUES (?, ?, ?, ?)`
+      ).run(userId, permission, grantedBy, Date.now());
+    },
+    async revokePermission(userId: string, permission: string) {
+      db.prepare(
+        "DELETE FROM user_permissions WHERE user_id = ? AND permission = ?"
+      ).run(userId, permission);
+    },
+    async getUserPermissions(userId: string) {
+      const rows = db
+        .prepare("SELECT permission FROM user_permissions WHERE user_id = ?")
+        .all(userId) as Array<{ permission: string }>;
+      return rows.map((r) => r.permission);
+    },
+    async getUsersWithPermission(permission: string) {
+      const rows = db
+        .prepare("SELECT user_id FROM user_permissions WHERE permission = ?")
+        .all(permission) as Array<{ user_id: string }>;
+      return rows.map((r) => r.user_id);
     },
 
     // ── Evolve sessions ──────────────────────────────────────────────────────

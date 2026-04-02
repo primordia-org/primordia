@@ -71,6 +71,8 @@ export interface DbAdapter {
   createUser(user: User): Promise<void>;
   getUserByUsername(username: string): Promise<User | null>;
   getUserById(id: string): Promise<User | null>;
+  getAllUsers(): Promise<User[]>;
+  getFirstUser(): Promise<User | null>;
 
   // Passkeys
   savePasskey(passkey: Passkey): Promise<void>;
@@ -95,6 +97,12 @@ export interface DbAdapter {
   approveCrossDeviceToken(id: string, userId: string): Promise<void>;
   deleteCrossDeviceToken(id: string): Promise<void>;
   deleteExpiredCrossDeviceTokens(): Promise<void>;
+
+  // User permissions
+  grantPermission(userId: string, permission: string, grantedBy: string): Promise<void>;
+  revokePermission(userId: string, permission: string): Promise<void>;
+  getUserPermissions(userId: string): Promise<string[]>;
+  getUsersWithPermission(permission: string): Promise<string[]>;
 
   // Evolve sessions
   createEvolveSession(session: EvolveSession): Promise<void>;

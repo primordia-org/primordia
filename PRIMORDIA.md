@@ -59,14 +59,14 @@ primordia/
 │
 ├── lib/
 │   ├── system-prompt.ts           ← Builds chat system prompt at runtime: reads PRIMORDIA.md + last 30 changelog filenames on each request
-│   ├── auth.ts                    ← Session helpers: createSession, getSessionUser
+│   ├── auth.ts                    ← Session helpers: createSession, getSessionUser, isAdmin, hasEvolvePermission
 │   ├── hooks.ts                   ← Shared React hooks: useSessionUser (fetches session on mount, provides logout)
 │   ├── evolve-sessions.ts         ← Shared session state + business logic for local evolve; persists to SQLite
 │   ├── page-title.ts              ← Utility: buildPageTitle() — formats <title> with branch/port suffix on non-main branches
 │   └── db/
 │       ├── index.ts               ← Factory: getDb() → SQLite (always)
-│       ├── types.ts               ← Shared DB types: User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession
-│       └── sqlite.ts              ← bun:sqlite adapter (includes evolve_sessions table)
+│       ├── types.ts               ← Shared DB types: User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession; DbAdapter includes permission methods
+│       └── sqlite.ts              ← bun:sqlite adapter (includes evolve_sessions + user_permissions tables)
 │
 ├── app/                           ← Next.js App Router
 │   ├── layout.tsx                 ← Root layout (font, metadata, body styling)
@@ -78,8 +78,10 @@ primordia/
 │   │   └── page.tsx               ← Server component: reads changelog/ filenames at runtime; lazy-loads body via /api/changelog
 │   ├── chat/
 │   │   └── page.tsx               ← Server component: chat interface; redirects to /login if unauthenticated
+│   ├── admin/
+│   │   └── page.tsx               ← Admin panel: owner-only; grant/revoke evolve access per user
 │   ├── evolve/
-│   │   ├── page.tsx               ← Dedicated "propose a change" page; renders <EvolveForm>
+│   │   ├── page.tsx               ← Dedicated "propose a change" page; renders <EvolveForm>; requires evolve permission
 │   │   └── session/
 │   │       └── [id]/
 │   │           └── page.tsx       ← Session-tracking page; reads from SQLite, renders <EvolveSessionView>
@@ -118,8 +120,11 @@ primordia/
 │       │       ├── poll/route.ts       ← GET poll token status; sets session cookie on approval
 │       │       ├── approve/route.ts    ← POST approve a token (requires auth on approver device)
 │       │       └── qr/route.ts         ← GET SVG QR code encoding the approval URL for a tokenId
+│       ├── admin/
+│       │   └── permissions/
+│       │       └── route.ts       ← POST grant/revoke user permissions (admin only)
 │       └── evolve/
-│               ├── route.ts       ← POST start session, GET status (legacy poll)
+│               ├── route.ts       ← POST start session (requires can_evolve permission), GET status (legacy poll)
 │               ├── stream/
 │               │   └── route.ts   ← GET SSE stream of live session progress
 │               ├── manage/
@@ -133,6 +138,7 @@ primordia/
 │
 ├── components/
 │   ├── AcceptRejectBar.tsx        ← Accept/reject bar for local preview worktrees
+│   ├── AdminPermissionsClient.tsx ← Client component: grant/revoke evolve access table (used by /admin)
 │   ├── ChatInterface.tsx          ← Main chat UI (chat only); Edit icon button links to /evolve
 │   ├── ChangelogEntryDetails.tsx  ← Client component: single changelog <details> widget; lazy-loads body from /api/changelog on first open
 │   ├── EvolveForm.tsx             ← "Submit a request" form; POSTs then redirects to /evolve/session/{id}
@@ -304,6 +310,7 @@ When implementing changes, follow these principles:
 | Dark theme | ✅ Live | Default dark UI with Tailwind |
 | Passkey authentication | ✅ Live | WebAuthn passkeys via /login; sessions stored in SQLite |
 | Cross-device QR sign-in | ✅ Live | Laptop shows QR code; authenticated phone scans it and approves; laptop gets a session |
+| Admin permission grants | ✅ Live | First user is owner/admin; /admin page lets admin grant/revoke evolve access per user; evolve restricted to permitted users |
 
 ---
 

@@ -6,7 +6,7 @@ import { execSync } from "child_process";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import EvolveForm from "@/components/EvolveForm";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, hasEvolvePermission } from "@/lib/auth";
 import { buildPageTitle } from "@/lib/page-title";
 
 export function generateMetadata(): Metadata {
@@ -32,6 +32,9 @@ function runGit(cmd: string): string | null {
 export default async function EvolvePage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
+
+  const canEvolve = await hasEvolvePermission(user.id);
+  if (!canEvolve) redirect("/chat");
 
   const branch = runGit("git branch --show-current");
 
