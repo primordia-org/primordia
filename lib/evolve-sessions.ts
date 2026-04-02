@@ -520,7 +520,7 @@ export async function startLocalEvolve(
           }
         }
 
-        // Next.js 15 prints "Ready" when the dev server is up
+        // Next.js 16 prints "Ready" when the dev server is up
         if (!session.previewUrl && session.port !== null && text.includes('Ready')) {
           session.previewUrl = `http://${publicHostname}:${session.port}`;
           session.devServerStatus = 'running';
@@ -829,7 +829,19 @@ export async function restartDevServerInWorktree(
     session.previewUrl = null;
     await persist();
 
-    // Kill any existing process on the port so the new server can bind it.
+    // Kill the existing dev server process group. Turbopack spawns worker processes
+    // that don't bind to the port, so killing by port alone (lsof) leaves orphans
+    // that block a clean restart. Killing the process group via the negative PID
+    // takes down the entire tree in one shot.
+    const existingProc = activeDevServerProcesses.get(session.id);
+    if (existingProc && !existingProc.killed && existingProc.pid !== undefined) {
+      try { process.kill(-existingProc.pid, 'SIGTERM'); } catch { /* already dead */ }
+      activeDevServerProcesses.delete(session.id);
+    }
+
+    // Belt-and-suspenders: also kill any process still binding to the port in case
+    // the in-memory reference is stale (e.g. the parent server restarted since the
+    // worktree was spawned).
     if (oldPort !== null) {
       try {
         const { execSync } = await import('child_process');
@@ -838,11 +850,14 @@ export async function restartDevServerInWorktree(
         for (const pid of pids) {
           try { process.kill(parseInt(pid, 10), 'SIGTERM'); } catch { /* already dead */ }
         }
-        // Give the OS a moment to release the port before rebinding.
-        await new Promise<void>((r) => setTimeout(r, 800));
       } catch {
         // lsof not available or no process on port — proceed anyway.
       }
+    }
+
+    // Give the OS a moment to release the port before rebinding.
+    if (existingProc || oldPort !== null) {
+      await new Promise<void>((r) => setTimeout(r, 800));
     }
 
     session.devServerStatus = 'starting';
