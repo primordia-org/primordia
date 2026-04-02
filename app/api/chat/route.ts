@@ -9,13 +9,127 @@
 //   A stream of SSE lines:
 //     data: {"text": "<token>"}\n\n
 //     data: [DONE]\n\n
+//
+// Tools:
+//   Claude has access to read_file and list_directory tools, both sandboxed
+//   to process.cwd(). Dotfiles are blocked to protect .env and .primordia-auth.db.
 
 import Anthropic from "@anthropic-ai/sdk";
+import fs from "fs";
+import path from "path";
 // SYSTEM_PROMPT is generated at build time by scripts/generate-changelog.mjs
 // (run as a prebuild/predev step). It embeds PRIMORDIA.md + the last 30
 // changelog entry filenames so the assistant has accurate self-knowledge.
 import { SYSTEM_PROMPT } from "@/lib/generated/system-prompt";
 import { getSessionUser } from "@/lib/auth";
+
+// ---------------------------------------------------------------------------
+// File access sandbox
+// ---------------------------------------------------------------------------
+
+const PROJECT_ROOT = process.cwd();
+
+/**
+ * Resolves a user-supplied path relative to PROJECT_ROOT and validates it:
+ *   - Must stay within PROJECT_ROOT (no directory traversal)
+ *   - No path component may start with "." (blocks dotfiles like .env, .primordia-auth.db)
+ *
+ * Returns { safe: true, absolute } or { safe: false, absolute }.
+ */
+function resolveSafePath(userPath: string): { safe: boolean; absolute: string } {
+  const absolute = path.resolve(PROJECT_ROOT, userPath);
+
+  // Must be inside the project root
+  const isInRoot =
+    absolute === PROJECT_ROOT ||
+    absolute.startsWith(PROJECT_ROOT + path.sep);
+  if (!isInRoot) return { safe: false, absolute };
+
+  // No component of the relative path may start with "."
+  const relative = path.relative(PROJECT_ROOT, absolute);
+  if (relative !== "") {
+    const parts = relative.split(path.sep);
+    if (parts.some((p) => p.startsWith("."))) return { safe: false, absolute };
+  }
+
+  return { safe: true, absolute };
+}
+
+const ACCESS_DENIED =
+  "Error: Access denied. Path is outside the project directory or references a dotfile.";
+
+function toolReadFile(input: Record<string, unknown>): string {
+  const { safe, absolute } = resolveSafePath(String(input.path ?? ""));
+  if (!safe) return ACCESS_DENIED;
+  try {
+    return fs.readFileSync(absolute, "utf-8");
+  } catch (e) {
+    return `Error reading file: ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+
+function toolListDirectory(input: Record<string, unknown>): string {
+  const { safe, absolute } = resolveSafePath(String(input.path ?? "."));
+  if (!safe) return ACCESS_DENIED;
+  try {
+    const entries = fs.readdirSync(absolute, { withFileTypes: true });
+    const lines = entries
+      .filter((e) => !e.name.startsWith("."))
+      .map((e) => `${e.name}${e.isDirectory() ? "/" : ""}`);
+    return lines.length > 0 ? lines.join("\n") : "(empty directory)";
+  } catch (e) {
+    return `Error listing directory: ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+
+function executeTool(name: string, input: Record<string, unknown>): string {
+  if (name === "read_file") return toolReadFile(input);
+  if (name === "list_directory") return toolListDirectory(input);
+  return `Error: Unknown tool "${name}"`;
+}
+
+// ---------------------------------------------------------------------------
+// Tool definitions sent to Claude
+// ---------------------------------------------------------------------------
+
+const TOOLS: Anthropic.Tool[] = [
+  {
+    name: "read_file",
+    description:
+      "Read the text contents of a file in the project. Only files within the project root are accessible; dotfiles (e.g. .env, .primordia-auth.db) are blocked.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Path to the file, relative to the project root (e.g. 'app/api/chat/route.ts').",
+        },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "list_directory",
+    description:
+      "List the files and subdirectories inside a project directory. Dotfiles are excluded. Only paths within the project root are accessible.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Path to the directory, relative to the project root. Use '.' for the root.",
+        },
+      },
+      required: ["path"],
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Route handler
+// ---------------------------------------------------------------------------
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -43,6 +157,10 @@ export async function POST(request: Request) {
     apiKey: process.env.ANTHROPIC_API_KEY,
   });
 
+  const systemPrompt = body.systemContext
+    ? `${SYSTEM_PROMPT}\n\n${body.systemContext}`
+    : SYSTEM_PROMPT;
+
   // Create a ReadableStream that emits SSE chunks
   const stream = new ReadableStream({
     async start(controller) {
@@ -55,22 +173,56 @@ export async function POST(request: Request) {
       }
 
       try {
-        const anthropicStream = await client.messages.stream({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1024,
-          system: body.systemContext
-            ? `${SYSTEM_PROMPT}\n\n${body.systemContext}`
-            : SYSTEM_PROMPT,
-          messages: body.messages,
-        });
+        // messages is mutated when tools are used (Claude turn + tool result turn).
+        // The input messages use simple string content; tool turns use block arrays.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const messages: any[] = [...body.messages];
 
-        for await (const event of anthropicStream) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            send(event.delta.text);
+        // Agentic loop: keep calling Claude until it stops requesting tools.
+        while (true) {
+          const anthropicStream = client.messages.stream({
+            model: "claude-sonnet-4-6",
+            max_tokens: 4096,
+            system: systemPrompt,
+            tools: TOOLS,
+            messages,
+          });
+
+          // Stream text tokens to the client as they arrive.
+          for await (const event of anthropicStream) {
+            if (
+              event.type === "content_block_delta" &&
+              event.delta.type === "text_delta"
+            ) {
+              send(event.delta.text);
+            }
           }
+
+          const finalMsg = await anthropicStream.finalMessage();
+
+          if (finalMsg.stop_reason !== "tool_use") {
+            // No more tool calls — we're done.
+            break;
+          }
+
+          // Execute every tool the model requested and collect results.
+          const toolResults: Anthropic.ToolResultBlockParam[] = [];
+          for (const block of finalMsg.content) {
+            if (block.type !== "tool_use") continue;
+            const result = executeTool(
+              block.name,
+              block.input as Record<string, unknown>
+            );
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: block.id,
+              content: result,
+            });
+          }
+
+          // Append Claude's turn (with tool_use blocks) and our tool results turn.
+          messages.push({ role: "assistant", content: finalMsg.content });
+          messages.push({ role: "user", content: toolResults });
         }
 
         controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
@@ -79,7 +231,9 @@ export async function POST(request: Request) {
         const msg =
           err instanceof Error ? err.message : "Unknown error from Anthropic API";
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ text: `\n\nError: ${msg}` })}\n\n`)
+          encoder.encode(
+            `data: ${JSON.stringify({ text: `\n\nError: ${msg}` })}\n\n`
+          )
         );
         controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
         controller.close();
