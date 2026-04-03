@@ -239,6 +239,14 @@ export async function startLocalEvolve(
   publicHostname: string = "localhost",
   /** Temporary file paths for user-uploaded attachments. Copied into worktree/attachments/ and deleted from /tmp. */
   attachmentPaths: string[] = [],
+  /** Extra options for advanced use cases. */
+  options: {
+    /**
+     * When true, skip `git worktree add -b <branch>` (branch already exists).
+     * Instead runs `git worktree add <path> <branch>` to check out the existing branch.
+     */
+    skipBranchCreation?: boolean;
+  } = {},
 ): Promise<void> {
   const db = await getDb();
 
@@ -263,17 +271,20 @@ export async function startLocalEvolve(
       `- [x] Determine LLM source: ${usingGateway ? 'exe.dev gateway' : 'ANTHROPIC_API_KEY'}\n`,
     );
 
-    // Step 1 — Create a new git worktree on a fresh branch
-    appendProgress(session, `- [ ] Creating worktree \`${session.branch}\`…\n`);
+    // Step 1 — Create a new git worktree (on a fresh branch, or from an existing one)
+    const worktreeLabel = options.skipBranchCreation
+      ? `Checking out existing branch \`${session.branch}\` into worktree`
+      : `Creating worktree \`${session.branch}\``;
+    appendProgress(session, `- [ ] ${worktreeLabel}…\n`);
 
     // Record the current branch so the preview instance can merge back into it.
     const parentBranchResult = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot);
     const parentBranch = parentBranchResult.stdout.trim() || 'main';
 
-    const wtResult = await runGit(
-      ['worktree', 'add', session.worktreePath, '-b', session.branch],
-      repoRoot,
-    );
+    const wtArgs = options.skipBranchCreation
+      ? ['worktree', 'add', session.worktreePath, session.branch]
+      : ['worktree', 'add', session.worktreePath, '-b', session.branch];
+    const wtResult = await runGit(wtArgs, repoRoot);
     if (wtResult.code !== 0) {
       throw new Error(`git worktree add failed:\n${wtResult.stderr}`);
     }
@@ -286,8 +297,8 @@ export async function startLocalEvolve(
 
     // Mark done by replacing the pending item
     session.progressText = session.progressText.replace(
-      `- [ ] Creating worktree \`${session.branch}\`…`,
-      `- [x] Worktree created on branch \`${session.branch}\``,
+      `- [ ] ${worktreeLabel}…`,
+      `- [x] ${worktreeLabel}`,
     );
     await persist();
 

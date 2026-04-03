@@ -14,8 +14,9 @@ import { getDb } from "@/lib/db";
 import type { EvolveSession } from "@/lib/db/types";
 import { PageNavBar } from "@/components/PageNavBar";
 import { PruneBranchesButton } from "@/components/PruneBranchesButton";
+import { CreateSessionFromBranchButton } from "@/components/CreateSessionFromBranchButton";
 import { buildPageTitle } from "@/lib/page-title";
-import { getSessionUser, isAdmin } from "@/lib/auth";
+import { getSessionUser, isAdmin, hasEvolvePermission } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -200,12 +201,15 @@ function BranchRow({
   linePrefix,
   isLast,
   currentServerUrl,
+  canCreateSession,
 }: {
   node: BranchNode;
   depth: number;
   linePrefix: string;
   isLast: boolean;
   currentServerUrl: string;
+  /** Whether to show the "+ session" button for branches without sessions. */
+  canCreateSession: boolean;
 }) {
   const isRoot = depth === 0;
   const connector = isRoot ? "" : isLast ? "└── " : "├── ";
@@ -253,6 +257,11 @@ function BranchRow({
             session ↗
           </Link>
         )}
+        {/* Show "+ session" for branches that have no session and are not the
+            current branch or main — only visible to users with evolve permission. */}
+        {canCreateSession && !node.sessionId && !node.isCurrent && node.name !== "main" && (
+          <CreateSessionFromBranchButton branchName={node.name} />
+        )}
         {url && (
           <a
             href={url}
@@ -272,6 +281,7 @@ function BranchRow({
           linePrefix={childLinePrefix}
           isLast={i === node.children.length - 1}
           currentServerUrl={currentServerUrl}
+          canCreateSession={canCreateSession}
         />
       ))}
     </>
@@ -323,7 +333,9 @@ function GitResultRow({
 
 export default async function BranchesPage() {
   const user = await getSessionUser();
-  const userIsAdmin = user ? await isAdmin(user.id) : false;
+  const [userIsAdmin, userCanEvolve] = user
+    ? await Promise.all([isAdmin(user.id), hasEvolvePermission(user.id)])
+    : [false, false];
 
   const { branches, diag } = await getBranchData();
   const tree = buildTree(branches);
@@ -371,6 +383,7 @@ export default async function BranchesPage() {
               linePrefix=""
               isLast={i === tree.length - 1}
               currentServerUrl={currentServerUrl}
+              canCreateSession={userCanEvolve}
             />
           ))}
         </div>
@@ -378,7 +391,7 @@ export default async function BranchesPage() {
 
       {/* Legend */}
       <div className="mt-8 border-t border-gray-800 pt-4 text-xs text-gray-600 font-mono space-y-1">
-        <p>● green = preview server active · ● dim = no active session · <span className="text-purple-400">session ↗</span> = view evolve session</p>
+        <p>● green = preview server active · ● dim = no active session · <span className="text-purple-400">session ↗</span> = view evolve session · <span className="text-purple-500">+ session</span> = start session on existing branch</p>
       </div>
 
       {/* Diagnostics — only shown to admins */}
