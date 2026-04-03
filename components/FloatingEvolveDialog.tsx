@@ -197,7 +197,7 @@ export function FloatingEvolveDialog({
     <div
       ref={dialogRef}
       style={{ ...positionStyle, zIndex: 50 }}
-      className="rounded-xl border border-gray-700 bg-gray-950 shadow-2xl flex flex-col overflow-hidden resize w-[420px] min-w-[280px]"
+      className="rounded-xl border border-gray-700 bg-gray-950 shadow-2xl flex flex-col overflow-hidden resize w-[420px] min-w-[280px] max-w-[calc(100vw-32px)]"
     >
       {/* Title bar / drag handle */}
       <div
