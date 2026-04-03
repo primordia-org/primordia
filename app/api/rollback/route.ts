@@ -5,7 +5,7 @@
 // GET  — returns { hasPrevious: boolean } so the UI can show/hide the rollback option.
 // POST — performs the rollback; returns { outcome: 'rolled-back' } or { error }.
 
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Database } from 'bun:sqlite';
@@ -103,6 +103,22 @@ export async function POST() {
   const tmpPrevious = previousSymlink + '.tmp';
   fs.symlinkSync(currentTarget, tmpPrevious);
   fs.renameSync(tmpPrevious, previousSymlink);
+
+  // Re-attach HEAD: after the accept flow, the new-current (previousTarget) has a
+  // detached HEAD, while the new-previous (currentTarget) has the branch checked out.
+  // Git forbids two worktrees on the same branch, so detach the new-previous first,
+  // then check out the branch in the new-current.
+  try {
+    const branchRes = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+      cwd: currentTarget,
+      encoding: 'utf8',
+    });
+    const checkedOutBranch = branchRes.stdout.trim();
+    if (checkedOutBranch) {
+      spawnSync('git', ['checkout', '--detach'], { cwd: currentTarget });
+      spawnSync('git', ['checkout', checkedOutBranch], { cwd: previousTarget });
+    }
+  } catch { /* best-effort — branch detection is non-critical */ }
 
   // Restart the service on the now-active (rolled-back) slot.
   // Fire-and-forget with a short delay so the HTTP response flushes first.

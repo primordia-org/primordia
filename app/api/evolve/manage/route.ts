@@ -310,8 +310,9 @@ async function blueGreenAccept(
 
   // Step 7b: re-attach the new slot's HEAD to the parent branch so that
   // branch-detection logic (e.g. page-title.ts, /branches) works correctly
-  // in production. The session branch has just been deleted, so we can now
-  // check out the parent branch (e.g. 'main') in the new worktree.
+  // in production. Git forbids two worktrees from having the same branch
+  // checked out simultaneously, so we must detach HEAD in the old slot first.
+  await runGit(['checkout', '--detach'], oldSlot);
   await runGit(['checkout', parentBranch], worktreePath);
 
   // Step 8: schedule the systemd service restart fire-and-forget.
