@@ -104,6 +104,26 @@ export function appendProgress(session: LocalSession, text: string): void {
   }
 }
 
+// ─── Session context extractor ────────────────────────────────────────────────
+
+/**
+ * Parses accumulated progressText to extract the text of every previous
+ * follow-up request. Returned in submission order so the follow-up prompt
+ * can list them as numbered prior requests.
+ *
+ * Matches the literal format written by runFollowupInWorktree:
+ *   ### 🔄 Follow-up Request\n\n> {request}\n\n### 🤖 Claude Code
+ */
+function extractPriorFollowupRequests(progressText: string): string[] {
+  const results: string[] = [];
+  const regex = /### 🔄 Follow-up Request\n\n> ([\s\S]*?)\n\n### 🤖 Claude Code/g;
+  let match;
+  while ((match = regex.exec(progressText)) !== null) {
+    results.push(match[1].trim());
+  }
+  return results;
+}
+
 // ─── Tool use summarizer ──────────────────────────────────────────────────────
 
 function summarizeToolUse(
@@ -710,9 +730,55 @@ export async function runFollowupInWorktree(
         `\n\nRead and use these files as needed. If they are images or assets that should be added to the project, copy them to an appropriate location (e.g., \`public/\`) with a descriptive filename.`
       : '';
 
+    // Build a session context block so Claude knows the original request, any
+    // prior follow-ups, and what has already been committed. Without this,
+    // short follow-ups like "retry" give Claude no way to know what to retry.
+    // Skip for skipChangelog (type-fix) passes — they don't need this context.
+    let sessionContextSection = '';
+    if (!skipChangelog) {
+      const priorFollowups = extractPriorFollowupRequests(session.progressText);
+
+      // Commits made so far in this session only (exclude parent-branch history).
+      const parentConfigResult = await runGit(
+        ['config', `branch.${session.branch}.parent`],
+        session.worktreePath,
+      );
+      const parentBranch = parentConfigResult.stdout.trim();
+      const logArgs = parentBranch
+        ? ['log', '--oneline', `${parentBranch}..HEAD`]
+        : ['log', '--oneline', '-10'];
+      const logResult = await runGit(logArgs, session.worktreePath);
+      const gitLog = logResult.stdout.trim() || '(no commits yet in this session)';
+
+      const contextLines: string[] = [
+        '---',
+        '',
+        '**Context from this evolve session:**',
+        '',
+        `**Original request:** ${session.request}`,
+        '',
+      ];
+      if (priorFollowups.length > 0) {
+        contextLines.push('**Previous follow-up requests in this session:**');
+        priorFollowups.forEach((req, i) => {
+          contextLines.push(`${i + 1}. ${req}`);
+        });
+        contextLines.push('');
+      }
+      contextLines.push('**Commits made so far in this session:**');
+      contextLines.push('```');
+      contextLines.push(gitLog);
+      contextLines.push('```');
+      contextLines.push('');
+      contextLines.push('---');
+      contextLines.push('');
+      sessionContextSection = contextLines.join('\n');
+    }
+
     const prompt =
       `Read PRIMORDIA.md first for architecture context, then address the following follow-up request:\n\n` +
-      `${followupRequest}${attachmentSection}\n\n` +
+      `${sessionContextSection}` +
+      `**Follow-up request:**\n\n${followupRequest}${attachmentSection}\n\n` +
       `${changelogInstruction} Commit all changes with a descriptive message.`;
 
     const stderrLines: string[] = [];
