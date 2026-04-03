@@ -21,7 +21,6 @@ async function getGatewayEnv(): Promise<Record<string, string>> {
   if (await isGatewayAvailable()) {
     return {
       ANTHROPIC_BASE_URL: GATEWAY_BASE_URL,
-      ANTHROPIC_API_KEY: 'gateway',
     };
   }
   return {};
