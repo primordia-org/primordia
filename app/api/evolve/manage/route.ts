@@ -7,7 +7,7 @@
 //   accept — looks up the session in SQLite, kills the preview dev server
 //            (found by its port via lsof), then performs one of two merge paths:
 //
-//            BLUE/GREEN (production, when primordia-worktrees/current symlink exists):
+//            BLUE/GREEN (production, when NODE_ENV === 'production'):
 //              1. bun install --frozen-lockfile in the session worktree
 //              2. Create merge commit via git plumbing (no working-tree writes)
 //              3. Detach the session worktree HEAD onto the merge commit
@@ -18,7 +18,7 @@
 //              8. Clean up old production slot (if it was a worktree, not the main repo)
 //              9. Delete the now-orphaned branch ref
 //
-//            LEGACY (local dev, no systemd 'current' symlink):
+//            LEGACY (local dev, NODE_ENV !== 'production'):
 //              git checkout → stash → merge → stash-pop → bun install → worktree remove
 //
 //   reject — kills the preview dev server, removes the worktree and branch
@@ -61,22 +61,6 @@ async function appendToProgress(sessionId: string, text: string): Promise<void> 
   const row = await db.getEvolveSession(sessionId);
   if (!row) return;
   await db.updateEvolveSession(sessionId, { progressText: row.progressText + text });
-}
-
-/**
- * Returns the path of the blue/green 'current' symlink if the infrastructure
- * is set up (i.e. primordia-worktrees/current exists as a symlink), else null.
- *
- * The symlink lives in the same directory as the session worktrees so its
- * parent directory can be inferred from any session's worktreePath.
- */
-function findCurrentSymlink(worktreePath: string): string | null {
-  const candidate = path.join(path.dirname(worktreePath), 'current');
-  try {
-    return fs.lstatSync(candidate).isSymbolicLink() ? candidate : null;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -321,9 +305,9 @@ async function blueGreenAccept(
   await runGit(['config', '--remove-section', `branch.${branch}`], repoRoot);
 
   // Step 7b: re-attach the new slot's HEAD to the parent branch so that
-  // branch-detection logic (e.g. page-title.ts, /branches) works correctly
-  // in production. Git forbids two worktrees from having the same branch
-  // checked out simultaneously, so we must detach HEAD in the old slot first.
+  // branch-detection logic (e.g. /branches page) works correctly in production.
+  // Git forbids two worktrees from having the same branch checked out
+  // simultaneously, so we must detach HEAD in the old slot first.
   await runGit(['checkout', '--detach'], oldSlot);
   await runGit(['checkout', parentBranch], worktreePath);
 
@@ -412,9 +396,10 @@ async function retryAcceptAfterFix(
 
   // ── Merge: blue/green or legacy ────────────────────────────────────────────
 
-  const currentSymlink = findCurrentSymlink(worktreePath);
+  const isProduction = process.env.NODE_ENV === 'production';
+  const currentSymlink = path.join(path.dirname(worktreePath), 'current');
 
-  if (currentSymlink) {
+  if (isProduction) {
     // Blue/green path: build is already done in the worktree, swap the slot.
     console.log(`[retryAcceptAfterFix] blue/green accept for session ${sessionId}`);
     const err = await blueGreenAccept(currentSymlink, worktreePath, branch, parentBranch, repoRoot, (text) => appendToProgress(sessionId, text));
@@ -605,9 +590,10 @@ async function runAcceptAsync(
 
     // ── Merge: blue/green or legacy ──────────────────────────────────────────
 
-    const currentSymlink = findCurrentSymlink(worktreePath);
+    const isProduction = process.env.NODE_ENV === 'production';
+    const currentSymlink = path.join(path.dirname(worktreePath), 'current');
 
-    if (currentSymlink) {
+    if (isProduction) {
       // Blue/green path: build is already done in the worktree, swap the slot.
       const err = await blueGreenAccept(currentSymlink, worktreePath, branch, parentBranch, repoRoot, step);
       if (err) {
