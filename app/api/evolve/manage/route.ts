@@ -308,6 +308,12 @@ async function blueGreenAccept(
   await runGit(['branch', '-D', branch], repoRoot);
   await runGit(['config', '--remove-section', `branch.${branch}`], repoRoot);
 
+  // Step 7b: re-attach the new slot's HEAD to the parent branch so that
+  // branch-detection logic (e.g. page-title.ts, /branches) works correctly
+  // in production. The session branch has just been deleted, so we can now
+  // check out the parent branch (e.g. 'main') in the new worktree.
+  await runGit(['checkout', parentBranch], worktreePath);
+
   // Step 8: schedule the systemd service restart fire-and-forget.
   // The 500 ms delay gives the HTTP response time to flush before the process dies.
   setTimeout(() => {
