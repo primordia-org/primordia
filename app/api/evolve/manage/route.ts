@@ -152,8 +152,48 @@ async function blueGreenAccept(
   // Detaching from the named branch ref allows us to delete the branch afterwards.
   await runGit(['checkout', '--detach', mergeCommit], worktreePath);
 
-  // Step 4: read the current slot before swapping so we can clean it up afterwards.
+  // Step 4: read the current slot before swapping so we can handle it afterwards.
   const oldSlot = path.resolve(fs.readlinkSync(currentSymlink));
+
+  // Resolve the main git repo root so we never accidentally remove it.
+  // 'git rev-parse --git-common-dir' in any worktree returns the shared .git path;
+  // dirname of that is the main repo directory, which is stable and never deleted.
+  const gitCommonResult = await runGit(['rev-parse', '--git-common-dir'], worktreePath);
+  const mainRepoRoot = gitCommonResult.code === 0
+    ? path.dirname(path.resolve(worktreePath, gitCommonResult.stdout.trim()))
+    : path.resolve(repoRoot); // fallback: assume repoRoot is the main repo
+
+  // Step 4a: Copy the production database from the old slot into the new slot.
+  // The session worktree was initialised with a point-in-time snapshot of the DB;
+  // by accept time that copy is stale. Overwriting it here ensures all auth data,
+  // passkeys, user sessions, etc. survive the slot swap.
+  const dbName = '.primordia-auth.db';
+  const oldDb = path.join(oldSlot, dbName);
+  const newDb = path.join(path.resolve(worktreePath), dbName);
+  if (fs.existsSync(oldDb)) {
+    fs.copyFileSync(oldDb, newDb);
+    for (const ext of ['-wal', '-shm']) {
+      const srcExtra = oldDb + ext;
+      const dstExtra = newDb + ext;
+      if (fs.existsSync(srcExtra)) {
+        fs.copyFileSync(srcExtra, dstExtra);
+      } else {
+        // Remove any stale companion file so SQLite isn't confused after the copy.
+        fs.rmSync(dstExtra, { force: true });
+      }
+    }
+  }
+
+  // Step 4b: Fix the .env.local symlink in the new slot so it always points
+  // directly to the main repo's copy — which is never deleted. Without this,
+  // the symlink would point to the old slot's .env.local, which gets cleaned up
+  // on the next accept, leaving a dangling link.
+  const mainEnvPath = path.join(mainRepoRoot, '.env.local');
+  const worktreeEnvPath = path.join(path.resolve(worktreePath), '.env.local');
+  if (fs.existsSync(mainEnvPath)) {
+    fs.rmSync(worktreeEnvPath, { force: true });
+    fs.symlinkSync(mainEnvPath, worktreeEnvPath);
+  }
 
   // Step 5: atomically swap the symlink.
   // ln -sfn creates the new symlink at a temp path; renameSync replaces the
@@ -162,11 +202,30 @@ async function blueGreenAccept(
   fs.symlinkSync(path.resolve(worktreePath), tmpLink);
   fs.renameSync(tmpLink, currentSymlink);
 
-  // Step 6: clean up the old production slot if it was a worktree, not the
-  // main git repository (which must never be removed).
-  const mainRepoRoot = path.resolve(repoRoot);
+  // Step 6: Preserve the old slot as 'previous' for fast rollback, and clean up
+  // whatever was 'previous' before (two accepts ago).
+  const previousSymlink = path.join(path.dirname(currentSymlink), 'previous');
+
+  // Read the slot that was 'previous' before this accept so we can remove it.
+  let veryOldSlot: string | null = null;
+  try {
+    const prevTarget = fs.readlinkSync(previousSymlink);
+    veryOldSlot = path.resolve(prevTarget);
+  } catch { /* no previous slot yet — first or second accept */ }
+
+  // Atomically move 'previous' to point at the slot we just retired.
+  const tmpPrev = previousSymlink + '.tmp';
   if (oldSlot !== mainRepoRoot) {
-    await runGit(['worktree', 'remove', '--force', oldSlot], repoRoot);
+    // Only create a 'previous' symlink when the old slot is a worktree (not main).
+    // If old slot IS the main repo it will stick around forever anyway.
+    fs.symlinkSync(oldSlot, tmpPrev);
+    fs.renameSync(tmpPrev, previousSymlink);
+  }
+
+  // Remove the slot that was 'previous' before this accept (two accepts ago),
+  // unless it is the main git repository, which must never be removed.
+  if (veryOldSlot && veryOldSlot !== mainRepoRoot) {
+    await runGit(['worktree', 'remove', '--force', veryOldSlot], repoRoot);
   }
 
   // Step 7: delete the now-orphaned branch ref (HEAD is detached, so this succeeds).

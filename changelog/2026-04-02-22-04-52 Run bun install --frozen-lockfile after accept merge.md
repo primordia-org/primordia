@@ -1,4 +1,4 @@
-# Accept flow hardening: bun install, build gate, and always-on evolve
+# Accept flow hardening: blue/green deploy, rollback, DB/env preservation
 
 ## What changed
 
@@ -17,10 +17,19 @@ After all gates pass, the accept flow takes one of two paths depending on whethe
 1. `bun install --frozen-lockfile` in the session worktree (not the production directory)
 2. Create a merge commit via git plumbing (`git commit-tree` + `git update-ref`) — no working-tree writes to the production directory
 3. Detach the session worktree HEAD onto the merge commit
-4. Atomically swap the `current` symlink from the old production slot to the session worktree
-5. Clean up the old production slot (if it was a worktree, not the main git repo)
-6. Delete the session branch ref
-7. Fire-and-forget `sudo systemctl restart primordia` (500 ms delay to flush HTTP response)
+4. Copy the production database from the old slot into the new slot (overwrites the stale point-in-time copy made at session creation; preserves all auth data and user sessions)
+5. Fix the `.env.local` symlink in the new slot to point directly to the main repo's copy (which is never deleted), preventing a broken symlink chain after the old slot is cleaned up
+6. Atomically swap the `current` symlink from the old production slot to the session worktree
+7. Keep the old slot as a `previous` symlink for fast rollback; clean up the slot from two accepts ago (if it was a worktree)
+8. Delete the session branch ref
+9. Fire-and-forget `sudo systemctl restart primordia` (500 ms delay to flush HTTP response)
+
+### Fast rollback (`app/api/rollback/route.ts`) *(new)*
+
+New admin-only endpoint:
+
+- `GET /api/rollback` — returns `{ hasPrevious: boolean }` so a UI can show/hide a rollback button.
+- `POST /api/rollback` — swaps `current` ↔ `previous` atomically, copies the production DB into the rollback target to preserve auth data, then fires `sudo systemctl restart primordia`. Returns `{ outcome: 'rolled-back' }` or an error object.
 
 **Legacy path** (local dev — no `current` symlink):
 git merge → stash/pop → `bun install --frozen-lockfile` → worktree remove (unchanged from before)
@@ -56,3 +65,9 @@ Also removed: `PRIMORDIA_EVOLVE=true` from `.env.example`, `scripts/deploy-to-ex
 **`bun install --frozen-lockfile` in the worktree:** When an evolve branch adds or upgrades packages, the worktree's `node_modules` needs to be current before the service restarts onto it. Running install in the worktree (not production) ensures the new slot is self-contained.
 
 **Remove PRIMORDIA_EVOLVE:** The production instance always runs with the evolve feature active. The env var gate was originally introduced to prevent the evolve routes from being accessible in environments where Claude Code wasn't available, but since RBAC already enforces who can call those routes, the extra env var was redundant operational friction.
+
+**DB preservation:** The session worktree is created with a point-in-time snapshot of the production database. By the time the user accepts, the live DB may have accumulated new passkeys, user sessions, or other auth data. Without copying the latest DB into the new slot before the swap, that data would be lost the moment the service restarted on the new slot.
+
+**`.env.local` preservation:** The session worktree's `.env.local` is a symlink pointing to the *currently active* slot's copy. After the old slot is cleaned up (on the next accept), that symlink becomes dangling. Repointing it to the main repo's `.env.local` (which is never deleted) before the swap breaks the chain permanently.
+
+**Fast rollback:** If an accepted change causes unexpected issues in production, being able to instantly revert to the previous build is critical. The `previous` symlink gives a one-API-call rollback path without needing git revert, rebuild, or SSH access — the prior slot's `.next/` bundle is still on disk and ready to serve immediately.

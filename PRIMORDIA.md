@@ -101,6 +101,8 @@ primordia/
 │       │   └── route.ts           ← Returns list of missing required env vars (called on page load)
 │       ├── git-sync/
 │       │   └── route.ts           ← POST pull + push the current branch (used by GitSyncDialog)
+│       ├── rollback/
+│       │   └── route.ts           ← GET hasPrevious check; POST swap current↔previous + systemd restart (admin only)
 │       ├── prune-branches/
 │       │   └── route.ts           ← POST delete all local branches merged into main; streams SSE progress
 │       ├── auth/
@@ -196,9 +198,12 @@ User types change request on /evolve page
   → User clicks Accept → POST /api/evolve/manage { action: "accept" }
       → pre-accept gates: ancestor check, clean worktree, bun run typecheck, bun run build (all in session worktree)
       → blue/green deploy (production): bun install in worktree → git commit-tree + update-ref (no production dir writes)
+          → copy prod DB from old slot into new slot (preserves auth data)
+          → fix .env.local symlink in new slot to point to main repo (prevents dangling link)
           → atomic symlink swap: primordia-worktrees/current → session worktree
+          → keep old slot as primordia-worktrees/previous (enables fast rollback via POST /api/rollback)
+          → delete slot from two accepts ago (if worktree), delete session branch
           → sudo systemctl restart primordia (fire-and-forget)
-          → delete old production slot (if worktree), delete session branch
       → legacy deploy (local dev, no systemd): git merge in production dir → bun install → worktree remove
   → User clicks Reject → POST /api/evolve/manage { action: "reject" }
       → kill dev server, git worktree remove, git branch -D
@@ -356,7 +361,8 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 - **Fork flow**: one-click fork to user's own instance
 - **Voting**: upvote proposed evolve requests before they get built
-- **Rollback**: "go back to before X was added" via natural language
+- **Rollback UI**: A dedicated UI for the `POST /api/rollback` endpoint (endpoint exists; no UI yet)
+- **Deep rollback**: "go back to before X was added" via natural language (only one level of rollback is available today via `previous`)
 - **Multi-tenant**: each user gets their own Primordia instance
 
 ## Changelog
