@@ -55,6 +55,14 @@ function runCmd(
   });
 }
 
+/** Append text to a session's progressText without modifying any other field. */
+async function appendToProgress(sessionId: string, text: string): Promise<void> {
+  const db = await getDb();
+  const row = await db.getEvolveSession(sessionId);
+  if (!row) return;
+  await db.updateEvolveSession(sessionId, { progressText: row.progressText + text });
+}
+
 /**
  * Returns the path of the blue/green 'current' symlink if the infrastructure
  * is set up (i.e. primordia-worktrees/current exists as a symlink), else null.
@@ -210,9 +218,11 @@ async function blueGreenAccept(
   branch: string,
   parentBranch: string,
   repoRoot: string,
+  onStep: (text: string) => Promise<void> = async () => {},
 ): Promise<string | null> {
   // Step 1: ensure node_modules are up to date in the session worktree.
   // This is the only bun install that runs, and it runs in the worktree (not production).
+  await onStep('- Installing dependencies…\n');
   const installResult = await runCmd('bun', ['install', '--frozen-lockfile'], worktreePath);
   if (installResult.code !== 0) {
     return (
@@ -247,6 +257,7 @@ async function blueGreenAccept(
 
   // Step 4a: Health-check the new slot before committing to the swap.
   // Starts the production server on a temporary free port and verifies it serves HTTP.
+  await onStep('- Health-checking new slot…\n');
   const healthCheck = await healthCheckSlot(path.resolve(worktreePath));
   if (!healthCheck.ok) {
     return `New slot failed health check: ${healthCheck.error ?? 'server did not respond'}`;
@@ -274,6 +285,7 @@ async function blueGreenAccept(
   // Step 5: atomically swap the symlink.
   // ln -sfn creates the new symlink at a temp path; renameSync replaces the
   // old symlink in a single atomic rename(2) syscall.
+  await onStep('- Activating new slot…\n');
   const tmpLink = currentSymlink + '.tmp';
   fs.symlinkSync(path.resolve(worktreePath), tmpLink);
   fs.renameSync(tmpLink, currentSymlink);
@@ -317,6 +329,7 @@ async function blueGreenAccept(
 
   // Step 8: schedule the systemd service restart fire-and-forget.
   // The 500 ms delay gives the HTTP response time to flush before the process dies.
+  await onStep('- Restarting service…\n');
   setTimeout(() => {
     try { execSync('sudo systemctl restart primordia', { stdio: 'ignore' }); } catch { /* best-effort */ }
   }, 500);
@@ -351,16 +364,12 @@ async function retryAcceptAfterFix(
 
   /** Append text and persist session to error. */
   async function failWithError(msg: string): Promise<void> {
-    const row = await db.getEvolveSession(sessionId);
-    await db.updateEvolveSession(sessionId, {
-      status: 'error',
-      progressText: (row?.progressText ?? '') + msg,
-      port: row?.port ?? null,
-      previewUrl: row?.previewUrl ?? null,
-    });
+    await appendToProgress(sessionId, msg);
+    await db.updateEvolveSession(sessionId, { status: 'error' });
   }
 
   // Re-run the TypeScript check to verify the fix worked.
+  await appendToProgress(sessionId, '- Re-checking TypeScript types…\n');
   console.log(`[retryAcceptAfterFix] re-running typecheck in ${worktreePath}`);
   const tscResult = await runCmd('bun', ['run', 'typecheck'], worktreePath);
   console.log(`[retryAcceptAfterFix] typecheck exit code=${tscResult.code}`);
@@ -374,6 +383,7 @@ async function retryAcceptAfterFix(
   }
 
   // Also verify the production build succeeds.
+  await appendToProgress(sessionId, '- Re-building for production…\n');
   console.log(`[retryAcceptAfterFix] re-running build in ${worktreePath}`);
   const buildResult = await runCmd('bun', ['run', 'build'], worktreePath);
   console.log(`[retryAcceptAfterFix] build exit code=${buildResult.code}`);
@@ -407,7 +417,7 @@ async function retryAcceptAfterFix(
   if (currentSymlink) {
     // Blue/green path: build is already done in the worktree, swap the slot.
     console.log(`[retryAcceptAfterFix] blue/green accept for session ${sessionId}`);
-    const err = await blueGreenAccept(currentSymlink, worktreePath, branch, parentBranch, repoRoot);
+    const err = await blueGreenAccept(currentSymlink, worktreePath, branch, parentBranch, repoRoot, (text) => appendToProgress(sessionId, text));
     if (err) {
       console.log(`[retryAcceptAfterFix] blue/green accept failed: ${err}`);
       await failWithError(`\n\n❌ **Accept failed**: ${err}\n`);
@@ -450,6 +460,7 @@ async function retryAcceptAfterFix(
     }
 
     // Merge the preview branch.
+    await appendToProgress(sessionId, '- Merging branch…\n');
     console.log(`[retryAcceptAfterFix] merging branch ${branch} into ${parentBranch} at ${mergeRoot}`);
     const mergeResult = await runGit(
       ['merge', branch, '--no-ff', '-m', `chore: merge ${branch}`],
@@ -475,6 +486,7 @@ async function retryAcceptAfterFix(
 
     // Sync dependencies after merge so the running server reflects any
     // package.json changes that came in from the accepted branch.
+    await appendToProgress(sessionId, '- Installing dependencies…\n');
     console.log(`[retryAcceptAfterFix] running bun install --frozen-lockfile in ${mergeRoot}`);
     const installResult = await runCmd('bun', ['install', '--frozen-lockfile'], mergeRoot);
     console.log(`[retryAcceptAfterFix] bun install exit code=${installResult.code}`);
@@ -495,13 +507,196 @@ async function retryAcceptAfterFix(
 
   // Mark as accepted and log the decision.
   console.log(`[retryAcceptAfterFix] merge complete, marking session ${sessionId} as accepted`);
-  const row = await db.getEvolveSession(sessionId);
-  await db.updateEvolveSession(sessionId, {
-    status: 'accepted',
-    progressText: (row?.progressText ?? '') + `\n\n---\n\n✅ **Accepted** — merged into \`${parentBranch}\`\n`,
-    port: row?.port ?? null,
-    previewUrl: row?.previewUrl ?? null,
-  });
+  await appendToProgress(sessionId, `\n\n---\n\n✅ **Accepted** — merged into \`${parentBranch}\`\n`);
+  await db.updateEvolveSession(sessionId, { status: 'accepted' });
+}
+
+/**
+ * Runs the long accept steps (type-check, build, merge) asynchronously so
+ * the POST handler can return immediately and the client can stream progress
+ * via the existing SSE endpoint.
+ *
+ * Writes step labels to progressText as each stage begins, and sets the
+ * session status to "accepted" or "error" when done.
+ */
+async function runAcceptAsync(
+  sessionId: string,
+  worktreePath: string,
+  branch: string,
+  parentBranch: string,
+  repoRoot: string,
+): Promise<void> {
+  const step = (text: string) => appendToProgress(sessionId, text);
+
+  async function failWithError(msg: string): Promise<void> {
+    await appendToProgress(sessionId, msg);
+    const db = await getDb();
+    await db.updateEvolveSession(sessionId, { status: 'error' });
+  }
+
+  try {
+    const db = await getDb();
+
+    // Gate 3: TypeScript must compile without errors.
+    await step('- Type-checking…\n');
+    const tscResult = await runCmd('bun', ['run', 'typecheck'], worktreePath);
+    if (tscResult.code !== 0) {
+      const typeErrors = (tscResult.stdout + tscResult.stderr).trim();
+      const fixPrompt =
+        `The TypeScript type check failed. Fix all type errors so the code compiles ` +
+        `without errors. Do not change any runtime behaviour — only fix the type issues.\n\n` +
+        `TypeScript compiler output:\n\`\`\`\n${typeErrors}\n\`\`\``;
+      const session = await db.getEvolveSession(sessionId);
+      if (!session) return;
+      const autoFixSession: LocalSession = {
+        id: session.id,
+        branch: session.branch,
+        worktreePath: session.worktreePath,
+        status: session.status as LocalSession['status'],
+        devServerStatus: 'running',
+        progressText: session.progressText,
+        port: session.port,
+        previewUrl: session.previewUrl,
+        request: session.request,
+        createdAt: session.createdAt,
+      };
+      console.log(`[runAcceptAsync] type errors for session ${sessionId}, starting auto-fix`);
+      await db.updateEvolveSession(sessionId, { status: 'fixing-types' });
+      void runFollowupInWorktree(
+        autoFixSession, fixPrompt, repoRoot, 'fixing-types',
+        (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch),
+        /* skipChangelog */ true,
+      );
+      return;
+    }
+
+    // Gate 4: production build must succeed.
+    await step('- Building for production…\n');
+    const buildResult = await runCmd('bun', ['run', 'build'], worktreePath);
+    if (buildResult.code !== 0) {
+      const buildErrors = (buildResult.stdout + buildResult.stderr).trim();
+      const buildFixPrompt =
+        `The production build failed (\`bun run build\`). Fix all build errors so the build ` +
+        `completes successfully. Do not change any runtime behaviour — only fix the build issues.\n\n` +
+        `Build output:\n\`\`\`\n${buildErrors}\n\`\`\``;
+      const session = await db.getEvolveSession(sessionId);
+      if (!session) return;
+      const autoFixSession: LocalSession = {
+        id: session.id,
+        branch: session.branch,
+        worktreePath: session.worktreePath,
+        status: session.status as LocalSession['status'],
+        devServerStatus: 'running',
+        progressText: session.progressText,
+        port: session.port,
+        previewUrl: session.previewUrl,
+        request: session.request,
+        createdAt: session.createdAt,
+      };
+      console.log(`[runAcceptAsync] build errors for session ${sessionId}, starting auto-fix`);
+      await db.updateEvolveSession(sessionId, { status: 'fixing-types' });
+      void runFollowupInWorktree(
+        autoFixSession, buildFixPrompt, repoRoot, 'fixing-types',
+        (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch),
+        /* skipChangelog */ true,
+      );
+      return;
+    }
+
+    // ── Merge: blue/green or legacy ──────────────────────────────────────────
+
+    const currentSymlink = findCurrentSymlink(worktreePath);
+
+    if (currentSymlink) {
+      // Blue/green path: build is already done in the worktree, swap the slot.
+      const err = await blueGreenAccept(currentSymlink, worktreePath, branch, parentBranch, repoRoot, step);
+      if (err) {
+        await failWithError(`\n\n❌ **Accept failed**: ${err}\n`);
+        return;
+      }
+    } else {
+      // Legacy path (local dev without systemd).
+      const checkoutResult = await runGit(['checkout', parentBranch], repoRoot);
+      let mergeRoot = repoRoot;
+      if (checkoutResult.code !== 0) {
+        const alreadyCheckedOutMatch = checkoutResult.stderr.match(
+          /(?:already checked out at|already used by worktree at) '([^']+)'/,
+        );
+        if (alreadyCheckedOutMatch) {
+          mergeRoot = alreadyCheckedOutMatch[1];
+        } else {
+          await failWithError(
+            `\n\n❌ **Accept failed**: \`git checkout ${parentBranch}\` failed:\n${checkoutResult.stderr}\n`,
+          );
+          return;
+        }
+      }
+
+      // Stash any uncommitted local changes so they don't block the merge.
+      let stashed = false;
+      const statusResult = await runGit(['status', '--porcelain'], mergeRoot);
+      if (statusResult.stdout.trim()) {
+        const stashResult = await runGit(
+          ['stash', 'push', '-u', '-m', 'primordia-auto-stash-before-merge'],
+          mergeRoot,
+        );
+        stashed = stashResult.code === 0 && !stashResult.stdout.includes('No local changes');
+      }
+
+      // Merge the preview branch into the parent branch.
+      await step('- Merging branch…\n');
+      const mergeResult = await runGit(
+        ['merge', branch, '--no-ff', '-m', `chore: merge ${branch}`],
+        mergeRoot,
+      );
+
+      if (mergeResult.code !== 0) {
+        const resolution = await resolveConflictsWithClaude(mergeRoot, branch, parentBranch);
+        if (!resolution.success) {
+          await runGit(['merge', '--abort'], mergeRoot);
+          if (stashed) await runGit(['stash', 'pop'], mergeRoot);
+          await failWithError(
+            `\n\n❌ **Accept failed**: merge failed and automatic conflict resolution also failed.\n\n` +
+            `Merge error:\n${mergeResult.stderr}\n\nAuto-resolution log:\n${resolution.log}\n`,
+          );
+          return;
+        }
+      }
+
+      if (stashed) {
+        const popResult = await runGit(['stash', 'pop'], mergeRoot);
+        if (popResult.code !== 0) {
+          // Non-fatal — log the warning but continue. The merge succeeded.
+          await step(`\n⚠️ Merge succeeded but restoring stashed changes produced a conflict. Run \`git stash pop\` manually to resolve.\n\n`);
+        }
+      }
+
+      // Sync dependencies after merge.
+      await step('- Installing dependencies…\n');
+      const installResult = await runCmd('bun', ['install', '--frozen-lockfile'], mergeRoot);
+      if (installResult.code !== 0) {
+        await failWithError(
+          `\n\n❌ **Accept failed**: \`bun install --frozen-lockfile\` failed after merge. ` +
+          `The lockfile may be out of sync with package.json.\n\n` +
+          `\`\`\`\n${(installResult.stdout + installResult.stderr).trim()}\n\`\`\`\n`,
+        );
+        return;
+      }
+
+      // Cleanup.
+      await runGit(['worktree', 'remove', '--force', worktreePath], repoRoot);
+      await runGit(['branch', '-D', branch], repoRoot);
+      await runGit(['config', '--remove-section', `branch.${branch}`], repoRoot);
+    }
+
+    // Mark as accepted.
+    await appendToProgress(sessionId, `\n\n---\n\n✅ **Accepted** — merged into \`${parentBranch}\`\n`);
+    await db.updateEvolveSession(sessionId, { status: 'accepted' });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[runAcceptAsync] unexpected error for session ${sessionId}:`, err);
+    await failWithError(`\n\n❌ **Accept failed** (unexpected error): ${msg}\n`).catch(() => {});
+  }
 }
 
 export async function POST(request: Request) {
@@ -598,175 +793,21 @@ export async function POST(request: Request) {
         );
       }
 
-      // Gate 3: TypeScript must compile without errors.
-      const tscResult = await runCmd('bun', ['run', 'typecheck'], worktreePath);
-      if (tscResult.code !== 0) {
-        const typeErrors = (tscResult.stdout + tscResult.stderr).trim();
-        // Automatically start a follow-up pass to fix the type errors.
-        const fixPrompt =
-          `The TypeScript type check failed. Fix all type errors so the code compiles ` +
-          `without errors. Do not change any runtime behaviour — only fix the type issues.\n\n` +
-          `TypeScript compiler output:\n\`\`\`\n${typeErrors}\n\`\`\``;
-        const autoFixSession: LocalSession = {
-          id: session.id,
-          branch: session.branch,
-          worktreePath: session.worktreePath,
-          status: session.status as LocalSession['status'],
-          devServerStatus: 'running',
-          progressText: session.progressText,
-          port: session.port,
-          previewUrl: session.previewUrl,
-          request: session.request,
-          createdAt: session.createdAt,
-        };
-        console.log(`[manage/accept] type errors detected for session ${session.id}, starting auto-fix`);
-        await db.updateEvolveSession(session.id, { status: 'fixing-types' });
-        void runFollowupInWorktree(
-          autoFixSession, fixPrompt, repoRoot, 'fixing-types',
-          (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch),
-          /* skipChangelog */ true,
-        );
-        return Response.json({ outcome: 'auto-fixing-types' });
+      // ── Kick off async accept ──────────────────────────────────────────────
+      // Gates 1+2 pass synchronously. The remaining work (type-check, build,
+      // merge) runs fire-and-forget so the client receives a response immediately
+      // and can stream progress via SSE.
+      const acceptingRow = await db.getEvolveSession(body.sessionId);
+      if (acceptingRow) {
+        await db.updateEvolveSession(body.sessionId, {
+          status: 'accepting',
+          progressText: acceptingRow.progressText + `\n\n### 🚀 Merging into ${parentBranch}\n\n`,
+          port: acceptingRow.port,
+          previewUrl: acceptingRow.previewUrl,
+        });
       }
-
-      // Gate 4: production build must succeed.
-      const buildResult = await runCmd('bun', ['run', 'build'], worktreePath);
-      if (buildResult.code !== 0) {
-        const buildErrors = (buildResult.stdout + buildResult.stderr).trim();
-        // Automatically start a follow-up pass to fix the build errors.
-        const buildFixPrompt =
-          `The production build failed (\`bun run build\`). Fix all build errors so the build ` +
-          `completes successfully. Do not change any runtime behaviour — only fix the build issues.\n\n` +
-          `Build output:\n\`\`\`\n${buildErrors}\n\`\`\``;
-        const autoFixSession: LocalSession = {
-          id: session.id,
-          branch: session.branch,
-          worktreePath: session.worktreePath,
-          status: session.status as LocalSession['status'],
-          devServerStatus: 'running',
-          progressText: session.progressText,
-          port: session.port,
-          previewUrl: session.previewUrl,
-          request: session.request,
-          createdAt: session.createdAt,
-        };
-        console.log(`[manage/accept] build errors detected for session ${session.id}, starting auto-fix`);
-        await db.updateEvolveSession(session.id, { status: 'fixing-types' });
-        void runFollowupInWorktree(
-          autoFixSession, buildFixPrompt, repoRoot, 'fixing-types',
-          (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch),
-          /* skipChangelog */ true,
-        );
-        return Response.json({ outcome: 'auto-fixing-build' });
-      }
-
-      // ── End pre-accept gates ────────────────────────────────────────────────
-
-      // ── Merge: blue/green or legacy ─────────────────────────────────────────
-
-      const currentSymlink = findCurrentSymlink(worktreePath);
-
-      if (currentSymlink) {
-        // ── Blue/green path ────────────────────────────────────────────────────
-        // The session worktree already has a passing build (.next/ from Gate 4).
-        // Swap it in as the new production slot without touching the live directory.
-        const err = await blueGreenAccept(currentSymlink, worktreePath, branch, parentBranch, repoRoot);
-        if (err) {
-          return Response.json({ error: err }, { status: 500 });
-        }
-        await logDecision('accept');
-        return Response.json({ outcome: 'accepted', branch, parentBranch });
-      }
-
-      // ── Legacy path (local dev, no systemd) ────────────────────────────────
-
-      // Checkout the parent branch so the merge lands on the right branch.
-      const checkoutResult = await runGit(['checkout', parentBranch], repoRoot);
-      let mergeRoot = repoRoot;
-      if (checkoutResult.code !== 0) {
-        const alreadyCheckedOutMatch = checkoutResult.stderr.match(
-          /(?:already checked out at|already used by worktree at) '([^']+)'/,
-        );
-        if (alreadyCheckedOutMatch) {
-          mergeRoot = alreadyCheckedOutMatch[1];
-        } else {
-          return Response.json(
-            { error: `git checkout ${parentBranch} failed:\n${checkoutResult.stderr}` },
-            { status: 500 },
-          );
-        }
-      }
-
-      // Stash any uncommitted local changes so they don't block the merge.
-      let stashed = false;
-      const statusResult = await runGit(['status', '--porcelain'], mergeRoot);
-      if (statusResult.stdout.trim()) {
-        const stashResult = await runGit(
-          ['stash', 'push', '-u', '-m', 'primordia-auto-stash-before-merge'],
-          mergeRoot,
-        );
-        stashed = stashResult.code === 0 && !stashResult.stdout.includes('No local changes');
-      }
-
-      // Merge the preview branch into the parent branch.
-      const mergeResult = await runGit(
-        ['merge', branch, '--no-ff', '-m', `chore: merge ${branch}`],
-        mergeRoot,
-      );
-
-      if (mergeResult.code !== 0) {
-        const resolution = await resolveConflictsWithClaude(mergeRoot, branch, parentBranch);
-        if (!resolution.success) {
-          await runGit(['merge', '--abort'], mergeRoot);
-          if (stashed) await runGit(['stash', 'pop'], mergeRoot);
-          return Response.json(
-            {
-              error:
-                `git merge failed and automatic conflict resolution also failed.\n\n` +
-                `Merge error:\n${mergeResult.stderr}\n\n` +
-                `Auto-resolution log:\n${resolution.log}`,
-            },
-            { status: 500 },
-          );
-        }
-      }
-
-      // Restore stashed changes on top of the merge result.
-      let stashWarning: string | undefined;
-      if (stashed) {
-        const popResult = await runGit(['stash', 'pop'], mergeRoot);
-        if (popResult.code !== 0) {
-          stashWarning =
-            `Merge succeeded but restoring your stashed changes produced a conflict. ` +
-            `Run \`git stash pop\` manually to resolve:\n${popResult.stderr}`;
-        }
-      }
-
-      // Sync dependencies after merge so the running server reflects any
-      // package.json changes that came in from the accepted branch.
-      const installResult = await runCmd('bun', ['install', '--frozen-lockfile'], mergeRoot);
-      if (installResult.code !== 0) {
-        return Response.json(
-          {
-            error:
-              `Merge succeeded but \`bun install --frozen-lockfile\` failed. ` +
-              `The lockfile may be out of sync with package.json.\n\n` +
-              `${(installResult.stdout + installResult.stderr).trim()}`,
-          },
-          { status: 500 },
-        );
-      }
-
-      // Write the accepted status to the parent's own SQLite DB.
-      await logDecision('accept');
-
-      // Remove the worktree, delete the preview branch, clean up git config.
-      await runGit(['worktree', 'remove', '--force', worktreePath], repoRoot);
-      await runGit(['branch', '-D', branch], repoRoot);
-      // --remove-section exits with code 1 when the section is absent — ignore.
-      await runGit(['config', '--remove-section', `branch.${branch}`], repoRoot);
-
-      return Response.json({ outcome: 'accepted', branch, parentBranch, stashWarning });
+      void runAcceptAsync(body.sessionId, worktreePath, branch, parentBranch, repoRoot);
+      return Response.json({ outcome: 'accepting' });
     }
 
     // action === 'reject'
