@@ -215,7 +215,7 @@ function LogSection({
           <details className="group border-b border-gray-800">
             <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
               <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
-              <span className="text-gray-500">📋 Server logs</span>
+              <span className="text-gray-500">🪵 Server logs</span>
             </summary>
             <div className="px-4 py-3 border-t border-gray-800">
               <MarkdownContent text={content} />
@@ -825,7 +825,7 @@ export default function EvolveSessionView({
               >
                 {isRestartingServer
                   ? (devServerStatus === "none" ? "Starting…" : "Restarting…")
-                  : (devServerStatus === "none" ? "▶ Start dev server" : "↺ Restart preview")}
+                  : (devServerStatus === "none" ? "▶ Start preview" : "↺ Restart preview")}
               </button>
             ) : null}
           </div>
@@ -1035,7 +1035,7 @@ export default function EvolveSessionView({
                 disabled={isRestartingServer}
                 className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-gray-300 text-xs font-medium transition-colors"
               >
-                {isRestartingServer ? "Restarting…" : "↺ Restart dev server"}
+                {isRestartingServer ? "Restarting…" : "↺ Restart preview"}
               </button>
             </div>
             <p className="text-gray-400 text-xs mb-3">
@@ -1102,7 +1102,7 @@ export default function EvolveSessionView({
               disabled={isRestartingServer}
               className="px-4 py-2 rounded-lg bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium transition-colors"
             >
-              {isRestartingServer ? "Restarting…" : "↺ Restart dev server"}
+              {isRestartingServer ? "Restarting…" : "↺ Restart preview"}
             </button>
           )}
         </div>

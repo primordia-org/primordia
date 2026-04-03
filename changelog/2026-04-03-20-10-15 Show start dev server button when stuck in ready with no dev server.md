@@ -1,4 +1,4 @@
-# Show "Start dev server" button when stuck in ready with no dev server
+# Show "Start preview" button when stuck in ready with no dev server
 
 ## What changed
 
@@ -9,8 +9,11 @@ In `EvolveSessionView.tsx`, the "Restart preview" button was only shown when
 
 The condition is now relaxed to show the button whenever `status === "ready"`
 and `devServerStatus !== "starting"`. When `devServerStatus === "none"` the
-button label reads **"▶ Start dev server"** (spinner text: "Starting…");
+button label reads **"▶ Start preview"** (spinner text: "Starting…");
 otherwise it keeps the existing **"↺ Restart preview"** / "Restarting…" labels.
+
+All "Restart dev server" button labels were also renamed to "Restart preview" for
+consistency. The server logs disclosure triangle icon was changed from 📋 to 🪵.
 
 ## Why
 
