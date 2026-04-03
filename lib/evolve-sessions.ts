@@ -545,7 +545,7 @@ export async function startLocalEvolve(
       const { PORT, ...envWithoutPort } = process.env;
       const proc = spawn('bun', ['run', 'dev'], {
         cwd: session.worktreePath,
-        env: envWithoutPort,
+        env: { ...envWithoutPort, NODE_ENV: 'development' },
         // detached=true creates a new process group so we can kill the entire tree
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -973,8 +973,8 @@ export async function restartDevServerInWorktree(
       const { PORT: _omit, ...envWithoutPort } = process.env;
       const env =
         oldPort !== null
-          ? { ...envWithoutPort, PORT: String(oldPort) }
-          : envWithoutPort;
+          ? { ...envWithoutPort, NODE_ENV: 'development', PORT: String(oldPort) }
+          : { ...envWithoutPort, NODE_ENV: 'development' };
 
       const proc = spawn('bun', ['run', 'dev'], {
         cwd: session.worktreePath,
