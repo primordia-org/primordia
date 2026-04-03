@@ -49,6 +49,27 @@ export interface LocalSession {
  */
 const activeDevServerProcesses = new Map<string, ChildProcess>();
 
+// ─── In-memory Claude abort controller registry ───────────────────────────────
+
+/**
+ * Maps session IDs to the AbortController for any currently-running Claude
+ * Code query() call. Populated by startLocalEvolve / runFollowupInWorktree
+ * and cleared when the query finishes (normally, timeout, or abort).
+ */
+const activeClaudeAbortControllers = new Map<string, AbortController>();
+
+/**
+ * Signals the running Claude Code instance for the given session to stop.
+ * Returns true if an active controller was found and aborted, false if the
+ * session has no running Claude Code instance.
+ */
+export function abortClaudeRun(sessionId: string): boolean {
+  const controller = activeClaudeAbortControllers.get(sessionId);
+  if (!controller) return false;
+  controller.abort();
+  return true;
+}
+
 /**
  * Infers the current DevServerStatus without reading it from SQLite.
  *
@@ -378,10 +399,13 @@ export async function startLocalEvolve(
     // 20-minute timeout: abort Claude Code and fall through to "ready" state.
     const claudeAbortController = new AbortController();
     let claudeTimedOut = false;
+    let claudeUserAborted = false;
     const claudeTimeoutId = setTimeout(() => {
       claudeTimedOut = true;
       claudeAbortController.abort();
     }, 20 * 60 * 1000);
+
+    activeClaudeAbortControllers.set(session.id, claudeAbortController);
 
     const run = query({
       prompt,
@@ -451,10 +475,14 @@ export async function startLocalEvolve(
         }
       }
     } catch (err) {
-      // If the abort was triggered by our timeout, swallow the error and fall
-      // through to start the dev server with whatever work was completed.
+      // If the abort was triggered by our timeout or by the user, swallow the
+      // error and fall through to start the dev server with whatever work was completed.
+      claudeUserAborted = !claudeTimedOut && claudeAbortController.signal.aborted;
       if (claudeTimedOut) {
         appendProgress(session, `\n\n⏱️ **Claude Code timed out after 20 minutes.** Moving to ready state with work completed so far.\n`);
+        await persist();
+      } else if (claudeUserAborted) {
+        appendProgress(session, `\n\n🛑 **Claude Code was aborted.** Moving to ready state with work completed so far.\n`);
         await persist();
       } else {
         // If this is a process-level failure (e.g. "Claude Code process exited with code 1")
@@ -471,9 +499,10 @@ export async function startLocalEvolve(
       }
     } finally {
       clearTimeout(claudeTimeoutId);
+      activeClaudeAbortControllers.delete(session.id);
     }
 
-    if (!claudeTimedOut) {
+    if (!claudeTimedOut && !claudeUserAborted) {
       appendProgress(session, `\n✅ **Claude Code finished.**\n`);
       await persist();
     }
@@ -691,10 +720,13 @@ export async function runFollowupInWorktree(
     // 20-minute timeout: abort Claude Code and fall through to "ready" state.
     const claudeAbortController = new AbortController();
     let claudeTimedOut = false;
+    let claudeUserAborted = false;
     const claudeTimeoutId = setTimeout(() => {
       claudeTimedOut = true;
       claudeAbortController.abort();
     }, 20 * 60 * 1000);
+
+    activeClaudeAbortControllers.set(session.id, claudeAbortController);
 
     const run = query({
       prompt,
@@ -753,8 +785,15 @@ export async function runFollowupInWorktree(
         }
       }
     } catch (err) {
+      claudeUserAborted = !claudeTimedOut && claudeAbortController.signal.aborted;
       if (claudeTimedOut) {
         appendProgress(session, `\n\n⏱️ **Claude Code timed out after 20 minutes.** Moving to ready state with work completed so far.\n`);
+        session.status = 'ready';
+        await persist();
+        return;
+      }
+      if (claudeUserAborted) {
+        appendProgress(session, `\n\n🛑 **Claude Code was aborted.** Moving to ready state with work completed so far.\n`);
         session.status = 'ready';
         await persist();
         return;
@@ -770,6 +809,7 @@ export async function runFollowupInWorktree(
       throw err;
     } finally {
       clearTimeout(claudeTimeoutId);
+      activeClaudeAbortControllers.delete(session.id);
     }
 
     if (onSuccess) {

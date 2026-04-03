@@ -137,6 +137,8 @@ primordia/
 │               │   └── route.ts   ← POST accept/reject a local session
 │               ├── followup/
 │               │   └── route.ts   ← POST submit a follow-up request on an existing ready session
+│               ├── abort/
+│               │   └── route.ts   ← POST abort the running Claude Code instance; transitions session to ready
 │               ├── kill-restart/
 │               │   └── route.ts   ← POST kill dev server process + restart it in the worktree
 │               └── upstream-sync/
@@ -245,6 +247,7 @@ Each evolve session tracks two independent dimensions persisted to SQLite:
 | `starting` → `running-claude` | `startLocalEvolve()` after worktree setup |
 | `running-claude` → `ready` + devServer `none→starting` | `startLocalEvolve()` after `query()` completes |
 | devServer `starting` → `running` | Next.js "Ready" string detected in dev server output |
+| `running-claude` → `ready` (devServer `none→starting`) | `POST /api/evolve/abort` — user aborts; dev server starts with partial work |
 | `ready` → `running-claude` (devServer stays `running`) | `POST /api/evolve/followup` |
 | `running-claude` → `ready` (devServer stays `running`) | `runFollowupInWorktree()` on success |
 | `ready` → `fixing-types` (devServer stays `running`) | `POST /api/evolve/manage` when TypeScript or build gate fails |

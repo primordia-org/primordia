@@ -321,6 +321,8 @@ export default function EvolveSessionView({
   const [activeAction, setActiveAction] = useState<"accept" | "reject" | "followup" | null>(null);
   const [isRestartingServer, setIsRestartingServer] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
+  const [isAborting, setIsAborting] = useState(false);
+  const [abortError, setAbortError] = useState<string | null>(null);
   const [remainingUpstream, setRemainingUpstream] = useState(upstreamCommitCount);
   const [upstreamSyncLoading, setUpstreamSyncLoading] = useState<"merge" | "rebase" | null>(null);
   const [upstreamSyncError, setUpstreamSyncError] = useState<string | null>(null);
@@ -472,6 +474,31 @@ export default function EvolveSessionView({
       setRestartError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsRestartingServer(false);
+    }
+  }
+
+  async function handleAbort() {
+    setIsAborting(true);
+    setAbortError(null);
+
+    try {
+      const res = await fetch('/api/evolve/abort', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error ?? `Server error: ${res.status}`);
+      }
+
+      // The server will transition the session to ready; keep streaming to catch the update.
+      void startStreaming();
+    } catch (err) {
+      setAbortError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsAborting(false);
     }
   }
 
@@ -778,7 +805,14 @@ export default function EvolveSessionView({
           <div className="px-4 py-2 border-b border-gray-700 flex items-center justify-between">
             <p className="text-gray-500 text-xs font-medium uppercase tracking-wide">Available Actions</p>
             {isClaudeRunning ? (
-              <p className="text-gray-500 text-xs">Accept &amp; Reject available once Claude finishes</p>
+              <button
+                type="button"
+                onClick={handleAbort}
+                disabled={isAborting}
+                className="text-xs text-red-400 hover:text-red-200 disabled:text-gray-600 transition-colors"
+              >
+                {isAborting ? "Aborting…" : "⏹ Abort"}
+              </button>
             ) : status === "ready" && devServerStatus !== "none" && devServerStatus !== "starting" ? (
               <button
                 type="button"
@@ -791,6 +825,9 @@ export default function EvolveSessionView({
             ) : null}
           </div>
 
+          {abortError && (
+            <p className="px-4 py-2 text-red-400 text-xs border-b border-gray-700">{abortError}</p>
+          )}
           {restartError && (
             <p className="px-4 py-2 text-red-400 text-xs border-b border-gray-700">{restartError}</p>
           )}
