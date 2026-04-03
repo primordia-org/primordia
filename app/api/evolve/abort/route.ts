@@ -27,7 +27,11 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Session not found' }, { status: 404 });
   }
 
-  if (record.status !== 'running-claude' && record.status !== 'starting') {
+  if (
+    record.status !== 'running-claude' &&
+    record.status !== 'starting' &&
+    record.status !== 'fixing-types'
+  ) {
     return Response.json(
       { error: `Session is not running (status: ${record.status})` },
       { status: 409 },
@@ -46,7 +50,8 @@ export async function POST(request: Request) {
       progressText:
         record.progressText +
         '\n\n🛑 **Session recovered.** The server restarted while Claude Code was running. ' +
-        'Moving to ready state with work completed so far.\n',
+        'Moving to ready state with work completed so far.\n' +
+        (record.status === 'fixing-types' ? '_(Auto-accept was cancelled — you can accept or reject manually.)_\n' : ''),
       port: record.port,
       previewUrl: record.previewUrl,
     });

@@ -643,7 +643,7 @@ export default function EvolveSessionView({
     (status === "ready" && (devServerStatus === "running" || devServerStatus === "disconnected"));
 
   /** True while the session pipeline is actively running (not yet ready for action). */
-  const isClaudeRunning = status === "starting" || status === "running-claude";
+  const isClaudeRunning = status === "starting" || status === "running-claude" || status === "fixing-types";
 
   // Extract the branch name from the "✅ **Accepted** — merged into `foo`" decision log line.
   const mergedIntoBranch = progressText
