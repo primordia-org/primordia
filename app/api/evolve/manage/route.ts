@@ -168,13 +168,16 @@ async function healthCheckSlot(slotPath: string): Promise<{ ok: boolean; error?:
   });
 
   let spawnError: string | undefined;
+  let exitCode: number | null = null;
   server.on('error', (err: Error) => { spawnError = err.message; });
+  server.on('exit', (code) => { exitCode = code ?? 1; });
 
   try {
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 1_000));
       if (spawnError) return { ok: false, error: `Server process error: ${spawnError}` };
+      if (exitCode !== null) return { ok: false, error: `Server exited early with code ${exitCode}` };
       try {
         await fetch(`http://localhost:${port}/`, {
           signal: AbortSignal.timeout(3_000),

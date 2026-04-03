@@ -56,7 +56,11 @@ The `PRIMORDIA_EVOLVE=true` environment-variable guard has been removed from all
 
 **`bun install --frozen-lockfile` in the worktree:** Ensures the new slot is self-contained when an evolve branch adds or upgrades packages.
 
-**Health check before swap:** Even though the build gate passes, a server might fail to start due to runtime issues (missing env var, port conflict, startup crash). The health check catches these before the swap so a bad deploy never goes live. The accept is aborted cleanly if the new slot doesn't serve HTTP within 30 s.
+**Health check before swap:** Even though the build gate passes, a server might fail to start due to runtime issues (missing env var, startup crash, etc.). The health check catches these before the swap so a bad deploy never goes live. The accept is aborted cleanly if the new slot doesn't serve HTTP within 30 s.
+
+The health check runs the new server on a **temporary free port** — the live production server on port 3000 keeps serving traffic throughout. The only downtime is the brief systemd restart at the end (~1–5 s). Zero-downtime would require a reverse proxy (nginx/caddy) in front of Next.js; that is overkill for this use case.
+
+The health check also detects **early process exit**: if `bun run start` crashes immediately (exit code before any HTTP response), the check returns an error right away instead of waiting the full 30 s timeout.
 
 **Atomic DB copy via VACUUM INTO:** The previous `copyFileSync` approach copied `.db`, `-wal`, and `-shm` files in three separate syscalls. Between those copies, the running server could write a new WAL entry, leaving the destination with a `.db` that was inconsistent with its `-wal` file. SQLite's `VACUUM INTO` takes a single read snapshot inside a transaction, producing a fully-checkpointed database file with no WAL companion — consistent regardless of concurrent writes.
 
