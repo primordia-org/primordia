@@ -44,7 +44,7 @@ export function NavHeader({
             </Link>
           </>
         )}
-        {process.env.NODE_ENV === "development" && currentPage !== "branches" && (
+        {currentPage !== "branches" && (
           <>
             {" "}·{" "}
             <Link href="/branches" className="text-blue-400 hover:text-blue-300">

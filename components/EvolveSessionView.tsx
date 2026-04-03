@@ -289,6 +289,8 @@ interface EvolveSessionViewProps {
   canAcceptReject: boolean;
   /** Number of commits on the parent branch not yet in the session branch. */
   upstreamCommitCount: number;
+  /** True when the current user has the can_evolve (or admin) permission. Actions are hidden when false. */
+  canEvolve: boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -304,6 +306,7 @@ export default function EvolveSessionView({
   sessionBranch,
   canAcceptReject,
   upstreamCommitCount,
+  canEvolve,
 }: EvolveSessionViewProps) {
   const [progressText, setProgressText] = useState(initialProgressText);
   const [status, setStatus] = useState(initialStatus);
@@ -757,8 +760,8 @@ export default function EvolveSessionView({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Upstream Changes — shown when the parent branch has commits not yet in the session branch */}
-      {remainingUpstream > 0 && status !== "accepted" && status !== "rejected" && (
+      {/* Upstream Changes — shown when the parent branch has commits not yet in the session branch; hidden for non-evolvers */}
+      {canEvolve && remainingUpstream > 0 && status !== "accepted" && status !== "rejected" && (
         <div className="mb-6 rounded-lg bg-blue-950/40 border border-blue-700/50 text-sm overflow-hidden">
           <div className="px-4 py-3 flex items-start justify-between gap-4">
             <div>
@@ -797,8 +800,8 @@ export default function EvolveSessionView({
         </div>
       )}
 
-      {/* Three-action panel — shown as soon as Claude starts so you can compose a follow-up early */}
-      {status !== "accepted" && status !== "rejected" && status !== "error" && (
+      {/* Three-action panel — shown to users with can_evolve permission; hidden for public viewers */}
+      {canEvolve && status !== "accepted" && status !== "rejected" && status !== "error" && (
         <div className="mb-6 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-hidden">
 
           {/* ── Header ── */}
@@ -1012,8 +1015,8 @@ export default function EvolveSessionView({
         </div>
       )}
 
-      {/* Error state — allow follow-up requests to retry or recover */}
-      {status === "error" && (
+      {/* Error state — allow follow-up requests to retry or recover; hidden for non-evolvers */}
+      {canEvolve && status === "error" && (
         <div className="mb-6 rounded-lg bg-gray-900 border border-red-800/50 text-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-red-800/30">
             <p className="text-red-400 text-xs font-medium uppercase tracking-wide">Claude encountered an error</p>
@@ -1081,46 +1084,48 @@ export default function EvolveSessionView({
         </div>
       )}
 
-      {/* Disconnected notice */}
+      {/* Disconnected notice — restart action hidden for non-evolvers */}
       {devServerStatus === "disconnected" && status !== "accepted" && status !== "rejected" && (
         <div className="mb-6 px-4 py-4 rounded-lg bg-yellow-900/40 border border-yellow-700/50 text-sm">
           <p className="text-yellow-300 mb-3">
             ⚠️ The preview server disconnected unexpectedly. The branch still exists.
           </p>
-          {restartError && (
+          {canEvolve && restartError && (
             <p className="text-red-400 text-xs mb-2">{restartError}</p>
           )}
-          <button
-            type="button"
-            onClick={handleRestartServer}
-            disabled={isRestartingServer}
-            className="px-4 py-2 rounded-lg bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium transition-colors"
-          >
-            {isRestartingServer ? "Restarting…" : "↺ Restart dev server"}
-          </button>
+          {canEvolve && (
+            <button
+              type="button"
+              onClick={handleRestartServer}
+              disabled={isRestartingServer}
+              className="px-4 py-2 rounded-lg bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium transition-colors"
+            >
+              {isRestartingServer ? "Restarting…" : "↺ Restart dev server"}
+            </button>
+          )}
         </div>
       )}
 
       {/* Footer actions */}
       <div className="flex flex-col gap-2">
-        <div className="flex gap-4">
-          <Link href="/evolve" className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
-            ← Submit another request
-          </Link>
-        </div>
+        {canEvolve && (
+          <div className="flex gap-4">
+            <Link href="/evolve" className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
+              ← Submit another request
+            </Link>
+          </div>
+        )}
         <div className="flex items-center justify-between text-xs text-gray-500">
           <span>
             <Link href="/changelog" className="text-blue-400 hover:text-blue-300">
               Changelog
             </Link>
-            {process.env.NODE_ENV === "development" && (
-              <>
-                {" "}·{" "}
-                <Link href="/branches" className="text-blue-400 hover:text-blue-300">
-                  Branches
-                </Link>
-              </>
-            )}
+            <>
+              {" "}·{" "}
+              <Link href="/branches" className="text-blue-400 hover:text-blue-300">
+                Branches
+              </Link>
+            </>
           </span>
           <code className="font-mono text-amber-300/60">{sessionBranch}</code>
         </div>

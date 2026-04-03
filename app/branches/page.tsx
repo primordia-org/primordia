@@ -16,8 +16,6 @@ import { PageNavBar } from "@/components/PageNavBar";
 import { PruneBranchesButton } from "@/components/PruneBranchesButton";
 import { buildPageTitle } from "@/lib/page-title";
 import { getSessionUser, isAdmin } from "@/lib/auth";
-import ForbiddenPage from "@/components/ForbiddenPage";
-import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -325,24 +323,7 @@ function GitResultRow({
 
 export default async function BranchesPage() {
   const user = await getSessionUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  const userIsAdmin = await isAdmin(user.id);
-
-  if (!userIsAdmin) {
-    return (
-      <ForbiddenPage
-        pageDescription="The Branches page shows all local git branches, their evolve session statuses, and links to active preview servers."
-        requiredConditions={["Must be logged in", "Must have the Prime (admin) role"]}
-        metConditions={["Logged in"]}
-        unmetConditions={["Prime (admin) role"]}
-        howToFix={["Ask an existing Prime to grant you the admin role via direct database access."]}
-      />
-    );
-  }
+  const userIsAdmin = user ? await isAdmin(user.id) : false;
 
   const { branches, diag } = await getBranchData();
   const tree = buildTree(branches);
@@ -354,7 +335,7 @@ export default async function BranchesPage() {
   const [headerStore] = await Promise.all([
     headers(),
   ]);
-  const sessionUser = { id: user.id, username: user.username, isAdmin: userIsAdmin };
+  const sessionUser = user ? { id: user.id, username: user.username, isAdmin: userIsAdmin } : null;
   const proto = headerStore.get("x-forwarded-proto") ?? "http";
   const host =
     headerStore.get("x-forwarded-host") ??
@@ -368,10 +349,12 @@ export default async function BranchesPage() {
       {/* Header — session resolved server-side so the hamburger is instant */}
       <PageNavBar subtitle="Local Branches" currentPage="branches" initialSession={sessionUser} />
 
-      {/* Actions row */}
-      <div className="flex items-center gap-2 mt-3 mb-4">
-        <PruneBranchesButton />
-      </div>
+      {/* Actions row — only shown to admins */}
+      {userIsAdmin && (
+        <div className="flex items-center gap-2 mt-3 mb-4">
+          <PruneBranchesButton />
+        </div>
+      )}
 
       {/* Branch tree or empty state */}
       {tree.length === 0 ? (
@@ -396,10 +379,10 @@ export default async function BranchesPage() {
       {/* Legend */}
       <div className="mt-8 border-t border-gray-800 pt-4 text-xs text-gray-600 font-mono space-y-1">
         <p>● green = preview server active · ● dim = no active session · <span className="text-purple-400">session ↗</span> = view evolve session</p>
-        <p>Admin only</p>
       </div>
 
-      {/* Diagnostics — always visible to help debug empty/unexpected output */}
+      {/* Diagnostics — only shown to admins */}
+      {userIsAdmin && (
       <details className="mt-6 text-xs font-mono open:ring-1 open:ring-gray-800 open:rounded open:p-3">
         <summary className="text-gray-600 cursor-pointer hover:text-gray-400 select-none py-1">
           Diagnostics ({branches.length} branch
@@ -466,6 +449,7 @@ export default async function BranchesPage() {
           </div>
         </div>
       </details>
+      )}
     </main>
   );
 }

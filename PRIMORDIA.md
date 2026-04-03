@@ -73,7 +73,7 @@ primordia/
 │   ├── page.tsx                   ← Landing page — marketing/feature overview; links to /chat and /evolve
 │   ├── globals.css                ← Tailwind base imports only
 │   ├── branches/
-│   │   └── page.tsx               ← Server component: git branch tree with diagnostics (admin only; all environments)
+│   │   └── page.tsx               ← Server component: git branch tree; publicly viewable; admin-only actions (prune, diagnostics) conditionally hidden
 │   ├── changelog/
 │   │   └── page.tsx               ← Server component: reads changelog/ filenames at runtime; lazy-loads body via /api/changelog
 │   ├── chat/
@@ -86,7 +86,7 @@ primordia/
 │   │   ├── page.tsx               ← Dedicated "propose a change" page; renders <EvolveForm>; requires evolve permission
 │   │   └── session/
 │   │       └── [id]/
-│   │           └── page.tsx       ← Session-tracking page; reads from SQLite, renders <EvolveSessionView>
+│   │           └── page.tsx       ← Session-tracking page; publicly viewable; passes canEvolve to hide actions for non-evolvers
 │   ├── login/
 │   │   ├── page.tsx               ← Passkey login/register page + QR cross-device tab (server shell)
 │   │   ├── LoginClient.tsx        ← Client component: passkey register/login UI + QR polling

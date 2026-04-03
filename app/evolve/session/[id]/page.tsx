@@ -4,10 +4,10 @@
 // The server component reads the initial session state from SQLite and passes
 // it to the EvolveSessionView client component, which polls for live updates.
 
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { execSync } from "child_process";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, hasEvolvePermission } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { buildPageTitle } from "@/lib/page-title";
 import EvolveSessionView from "@/components/EvolveSessionView";
@@ -80,7 +80,7 @@ export default async function EvolveSessionPage({
   params: Promise<{ id: string }>;
 }) {
   const user = await getSessionUser();
-  if (!user) redirect("/login");
+  const canEvolve = user ? await hasEvolvePermission(user.id) : false;
 
   const { id } = await params;
 
@@ -112,6 +112,7 @@ export default async function EvolveSessionPage({
       sessionBranch={session.branch}
       canAcceptReject={canAcceptReject}
       upstreamCommitCount={upstreamCommitCount}
+      canEvolve={canEvolve}
     />
   );
 }
