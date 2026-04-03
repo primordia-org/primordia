@@ -4,7 +4,7 @@
 
 - **`lib/page-title.ts`**: The logic that decides whether to include the port and branch name in page titles now hinges on `NODE_ENV === "production"` instead of checking `branch === "main"`. Running `bun run build` (and `bun run start`) sets `NODE_ENV=production`, so any production build gets clean titles (`Primordia`, `Chat — Primordia`, etc.) regardless of which branch it was built from. Development mode (`bun run dev`) always includes the diagnostic port and branch suffix, again regardless of branch name.
 
-- **`app/api/evolve/manage/route.ts`**: Updated the comment on step 7b of `blueGreenAccept` — it previously cited `page-title.ts` as a reason to re-attach HEAD to the parent branch after a slot swap. Since page-title.ts no longer reads the git branch in production, only the `/branches` page still benefits from that HEAD attachment.
+- **`app/api/evolve/manage/route.ts`**: The decision between blue/green and legacy accept now hinges on `NODE_ENV === 'production'` instead of checking whether a `primordia-worktrees/current` symlink exists. The old `findCurrentSymlink` helper is removed. The `currentSymlink` path is now constructed directly from `worktreePath` when in production mode, rather than being discovered via filesystem probe. Also updated a comment on step 7b of `blueGreenAccept` — it previously cited `page-title.ts` as a reason to re-attach HEAD; since page-title.ts no longer reads the git branch in production, only the `/branches` page still benefits from that HEAD attachment.
 
 - **`PRIMORDIA.md`**: Updated the file-map description for `page-title.ts` to reflect the new production/development distinction.
 
