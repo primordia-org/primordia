@@ -36,10 +36,21 @@ export async function POST(request: Request) {
 
   const aborted = abortClaudeRun(body.sessionId);
   if (!aborted) {
-    return Response.json(
-      { error: 'No active Claude Code instance found for this session' },
-      { status: 409 },
-    );
+    // No in-memory abort controller found — the server likely restarted while the
+    // Claude Code process was running, wiping in-memory state but leaving the session
+    // stuck in 'running-claude' or 'starting' in SQLite.
+    // Recover by transitioning the session to 'ready' directly so the user can
+    // accept, reject, or submit a follow-up on whatever work was completed.
+    await db.updateEvolveSession(body.sessionId, {
+      status: 'ready',
+      progressText:
+        record.progressText +
+        '\n\n🛑 **Session recovered.** The server restarted while Claude Code was running. ' +
+        'Moving to ready state with work completed so far.\n',
+      port: record.port,
+      previewUrl: record.previewUrl,
+    });
+    return Response.json({ ok: true });
   }
 
   return Response.json({ ok: true });
