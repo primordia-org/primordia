@@ -57,13 +57,6 @@ export function FloatingEvolveDialog({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // intentionally only on mount
 
-  // Auto-resize textarea
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [input]);
 
   // ── Dragging ──────────────────────────────────────────────────────────────
 
@@ -229,7 +222,7 @@ export function FloatingEvolveDialog({
 
         <form
           onSubmit={handleSubmit}
-          className="flex flex-col gap-3 border border-gray-800 rounded-xl bg-gray-900 p-3"
+          className="flex flex-col gap-3 border border-gray-800 rounded-xl bg-gray-900 p-3 flex-1 min-h-0"
         >
           <textarea
             ref={textareaRef}
@@ -237,9 +230,8 @@ export function FloatingEvolveDialog({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Describe the change you want to make to this app…"
-            rows={4}
             disabled={isLoading}
-            className="resize-none bg-transparent text-sm text-gray-100 placeholder-gray-600 outline-none max-h-48 leading-relaxed"
+            className="resize-none bg-transparent text-sm text-gray-100 placeholder-gray-600 outline-none leading-relaxed flex-1 min-h-0"
           />
 
           {attachedFiles.length > 0 && (

@@ -2,7 +2,7 @@
 
 ## What changed
 
-- **`FloatingEvolveDialog`**: The dialog is now resizable via a native browser resize handle (CSS `resize: both`). Width is set to 420 px by default with a 280 px minimum; the user can drag the bottom-right corner to make it wider or taller. The form body gains `overflow-y: auto` so content scrolls rather than clips if the dialog is made very small.
+- **`FloatingEvolveDialog`**: The dialog is now resizable via a native browser resize handle (CSS `resize: both`). Width is set to 420 px by default with a 280 px minimum; the user can drag the bottom-right corner to make it wider or taller. The textarea uses `flex-1` to fill all available vertical space as the dialog grows, rather than being capped at a fixed height. The form body gains `overflow-y: auto` so content scrolls rather than clips if the dialog is made very small.
 
 - **Anchor positioning**: `FloatingEvolveDialog` now accepts an optional `anchorRect` prop (`DOMRect | null`). When provided, a `useLayoutEffect` on mount positions the dialog so its top-right corner sits 8 px below the bottom-right of the anchor rect — i.e. directly under the hamburger button that opened it. Dragging or docking still works normally after the initial placement.
 
