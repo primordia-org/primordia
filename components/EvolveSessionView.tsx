@@ -8,6 +8,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { MarkdownContent } from "./SimpleMarkdown";
 import { NavHeader } from "./NavHeader";
 import { GitSyncDialog } from "./GitSyncDialog";
+import { FloatingEvolveDialog } from "./FloatingEvolveDialog";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import { useSessionUser } from "../lib/hooks";
 import Link from "next/link";
@@ -313,6 +314,9 @@ export default function EvolveSessionView({
   const [devServerStatus, setDevServerStatus] = useState(initialDevServerStatus);
   const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl);
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
+  const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
+  const hamburgerRef = useRef<HTMLDivElement>(null);
   const { sessionUser, handleLogout } = useSessionUser();
   const [followupText, setFollowupText] = useState('');
   const [followupFiles, setFollowupFiles] = useState<File[]>([]);
@@ -695,13 +699,24 @@ export default function EvolveSessionView({
         <HamburgerMenu
           sessionUser={sessionUser}
           onLogout={handleLogout}
+          containerRef={hamburgerRef}
           items={buildStandardMenuItems({
             onSyncClick: () => setSyncDialogOpen(true),
+            onEvolveClick: () => {
+              setEvolveAnchorRect(hamburgerRef.current?.getBoundingClientRect() ?? null);
+              setEvolveDialogOpen(true);
+            },
             isAdmin: sessionUser?.isAdmin ?? false,
           })}
         />
         {syncDialogOpen && (
           <GitSyncDialog onClose={() => setSyncDialogOpen(false)} />
+        )}
+        {evolveDialogOpen && (
+          <FloatingEvolveDialog
+            onClose={() => setEvolveDialogOpen(false)}
+            anchorRect={evolveAnchorRect}
+          />
         )}
       </header>
 
