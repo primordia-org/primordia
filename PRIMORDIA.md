@@ -62,7 +62,7 @@ primordia/
 │   ├── auth.ts                    ← Session helpers: createSession, getSessionUser, isAdmin (admin role check), hasEvolvePermission (admin or can_evolve role)
 │   ├── hooks.ts                   ← Shared React hooks: useSessionUser (fetches session on mount, provides logout)
 │   ├── evolve-sessions.ts         ← Shared session state + business logic for local evolve; persists to SQLite
-│   ├── page-title.ts              ← Utility: buildPageTitle() — formats <title> with branch/port suffix on non-main branches
+│   ├── page-title.ts              ← Utility: buildPageTitle() — formats <title> with port/branch suffix in development mode; clean title in production
 │   └── db/
 │       ├── index.ts               ← Factory: getDb() → SQLite (always)
 │       ├── types.ts               ← Shared DB types: User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession, Role; DbAdapter includes role methods

@@ -321,9 +321,9 @@ async function blueGreenAccept(
   await runGit(['config', '--remove-section', `branch.${branch}`], repoRoot);
 
   // Step 7b: re-attach the new slot's HEAD to the parent branch so that
-  // branch-detection logic (e.g. page-title.ts, /branches) works correctly
-  // in production. Git forbids two worktrees from having the same branch
-  // checked out simultaneously, so we must detach HEAD in the old slot first.
+  // branch-detection logic (e.g. /branches page) works correctly in production.
+  // Git forbids two worktrees from having the same branch checked out
+  // simultaneously, so we must detach HEAD in the old slot first.
   await runGit(['checkout', '--detach'], oldSlot);
   await runGit(['checkout', parentBranch], worktreePath);
 
