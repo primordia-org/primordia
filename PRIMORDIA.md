@@ -309,7 +309,7 @@ These must be set in:
 
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Conditional | Powers the chat interface. **Not required on exe.dev** — the built-in LLM gateway is used instead (no key needed). Required when running outside exe.dev as a fallback. |
+| `ANTHROPIC_API_KEY` | Required for evolve | Required for the evolve pipeline (`@anthropic-ai/claude-agent-sdk`) in **all environments**. Not required for chat on exe.dev — the built-in LLM gateway is used instead. Required for chat outside exe.dev. |
 | `GITHUB_TOKEN` | No | Personal access token (repo scope) — enables authenticated git pull/push in GitSyncDialog; falls back to `origin` remote if unset |
 | `GITHUB_REPO` | No | `owner/repo` slug (e.g. `primordia-org/primordia`) — used alongside `GITHUB_TOKEN` to build the authenticated remote URL |
 
@@ -318,7 +318,7 @@ These must be set in:
 ## Setup Checklist (One-Time)
 
 1. **Clone** this repo.
-2. **Copy** `.env.example` to `.env.local` and fill in `ANTHROPIC_API_KEY` (not needed on exe.dev — the built-in gateway is used automatically).
+2. **Copy** `.env.example` to `.env.local` and fill in `ANTHROPIC_API_KEY` (required for the evolve pipeline in all environments; chat on exe.dev uses the built-in gateway instead).
 3. **Run** `bun install && bun run dev`.
 4. The app is live at `http://localhost:3000`.
 

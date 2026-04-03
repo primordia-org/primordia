@@ -40,7 +40,7 @@ You can attach images or files to any request. Follow-up requests on the same br
 
 ### Prerequisites
 - [Bun](https://bun.sh) runtime
-- An Anthropic API key (not required on exe.dev — the built-in LLM gateway is used automatically)
+- An Anthropic API key — required for the evolve (Claude Code) pipeline in all environments. The chat interface can use the exe.dev LLM gateway instead when running on exe.dev.
 
 ### Local Development
 
@@ -62,7 +62,7 @@ The first user to register is automatically granted the `admin` role.
 bun run deploy-to-exe.dev <server-name>
 ```
 
-This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts Primordia as a systemd service. No `ANTHROPIC_API_KEY` needed — the exe.dev LLM gateway is used automatically.
+This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts Primordia as a systemd service. The exe.dev LLM gateway handles the chat interface without an `ANTHROPIC_API_KEY`, but the evolve pipeline (Claude Code) still requires one.
 
 ## Hosting on exe.dev
 
@@ -71,7 +71,7 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 | Capability | How Primordia uses it |
 |---|---|
 | Persistent remote dev server | Runs `bun run dev` as a `systemd` service (`NODE_ENV=development`) |
-| Built-in LLM gateway | Chat and evolve code-gen are routed through the exe.dev proxy — `ANTHROPIC_API_KEY` not required |
+| Built-in LLM gateway | Chat is routed through the exe.dev proxy — no `ANTHROPIC_API_KEY` needed for chat. The evolve pipeline (Claude Code) still requires `ANTHROPIC_API_KEY`. |
 | SSO login | The proxy injects an `X-ExeDev-Email` header; Primordia finds or creates a user automatically |
 
 ### Create your own Primordia on exe.dev
@@ -79,6 +79,7 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 1. **Fork** this repo to your GitHub account.
 2. **Create a server** on [exe.dev](https://exe.dev). Note the server name (e.g. `myapp` → `myapp.exe.xyz`).
 3. **Configure `.env.local`** — copy `.env.example` and set at minimum:
+   - `ANTHROPIC_API_KEY` — required for the evolve (Claude Code) pipeline
    - `GITHUB_REPO=your-username/primordia` — used by the deploy script to clone your fork onto the server
    - `GITHUB_TOKEN` (optional) — PAT with `repo` scope; enables git pull/push from the server via the Git Sync dialog
 4. **Deploy:**
@@ -93,13 +94,13 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 5. **Open** `http://<server-name>.exe.xyz:3000`.
 6. **Sign in** — click *Login with exe.dev* on the login page. The first user to sign in is automatically granted the `admin` role.
 
-> No `ANTHROPIC_API_KEY` is needed on exe.dev. The built-in gateway handles both the chat interface and the evolve pipeline.
+> The chat interface works on exe.dev without an `ANTHROPIC_API_KEY` — the built-in gateway handles it. However, the evolve pipeline (Claude Code via `@anthropic-ai/claude-agent-sdk`) always requires `ANTHROPIC_API_KEY`.
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Conditional | Powers the chat interface. Not required on exe.dev (built-in gateway). Required outside exe.dev. |
+| `ANTHROPIC_API_KEY` | Required for evolve | Required for the evolve pipeline (Claude Code) in all environments. Not required for chat on exe.dev — the built-in gateway is used instead. |
 | `GITHUB_TOKEN` | No | PAT (repo scope) — enables authenticated git pull/push in the Git Sync dialog. |
 | `GITHUB_REPO` | No | `owner/repo` slug — used with `GITHUB_TOKEN` to build the authenticated remote URL. |
 
