@@ -554,6 +554,13 @@ export default function EvolveSessionView({
       });
       const data = (await res.json()) as { outcome?: string; error?: string; stashWarning?: string };
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
+      if (data.outcome === 'accepting') {
+        // Accept is running async on the server — stream its progress via SSE.
+        setStatus('accepting');
+        setActiveAction(null);
+        void startStreaming();
+        return;
+      }
       if (data.outcome === 'auto-fixing-types') {
         // Type check failed — the server automatically started a fix run and will
         // retry Accept when done. Stream the progress; the server handles the rest.
@@ -789,7 +796,12 @@ export default function EvolveSessionView({
           )}
 
           {/* ── Button row (or fixing-types indicator) ── */}
-          {status === "fixing-types" ? (
+          {status === "accepting" ? (
+            <div className="px-4 py-3 flex items-center gap-2 text-sm text-green-300">
+              <span className="animate-spin inline-block">⟳</span>
+              Accepting changes…
+            </div>
+          ) : status === "fixing-types" ? (
             <div className="px-4 py-3 flex items-center gap-2 text-sm text-amber-300">
               <span className="animate-spin inline-block">⟳</span>
               Fixing type errors… will auto-accept when complete.
