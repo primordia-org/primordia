@@ -1,8 +1,8 @@
 // app/api/evolve/upstream-sync/route.ts
-// Merge or rebase the parent branch into the session branch's worktree.
+// Merge the parent branch into the session branch's worktree.
 // POST
-//   Body: { sessionId: string; action: "merge" | "rebase" }
-//   Returns: { outcome: "merged" | "rebased"; log: string }
+//   Body: { sessionId: string; action: "merge" }
+//   Returns: { outcome: "merged"; log: string }
 
 import { runGit } from '../../../../lib/evolve-sessions';
 import { getSessionUser } from '../../../../lib/auth';
@@ -18,8 +18,8 @@ export async function POST(request: Request) {
   if (!body.sessionId) {
     return Response.json({ error: 'sessionId is required' }, { status: 400 });
   }
-  if (body.action !== 'merge' && body.action !== 'rebase') {
-    return Response.json({ error: 'action must be "merge" or "rebase"' }, { status: 400 });
+  if (body.action !== 'merge') {
+    return Response.json({ error: 'action must be "merge"' }, { status: 400 });
   }
 
   const db = await getDb();
@@ -41,31 +41,18 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (body.action === 'merge') {
-      const result = await runGit(
-        ['merge', parentBranch, '--no-ff', '-m', `chore: merge ${parentBranch} into ${branch}`],
-        worktreePath,
-      );
-      if (result.code !== 0) {
-        await runGit(['merge', '--abort'], worktreePath);
-        return Response.json(
-          { error: `Merge failed:\n${result.stderr}` },
-          { status: 500 },
-        );
-      }
-      return Response.json({ outcome: 'merged', log: result.stdout + result.stderr });
-    }
-
-    // action === 'rebase'
-    const result = await runGit(['rebase', parentBranch], worktreePath);
+    const result = await runGit(
+      ['merge', parentBranch, '--no-ff', '-m', `chore: merge ${parentBranch} into ${branch}`],
+      worktreePath,
+    );
     if (result.code !== 0) {
-      await runGit(['rebase', '--abort'], worktreePath);
+      await runGit(['merge', '--abort'], worktreePath);
       return Response.json(
-        { error: `Rebase failed:\n${result.stderr}` },
+        { error: `Merge failed:\n${result.stderr}` },
         { status: 500 },
       );
     }
-    return Response.json({ outcome: 'rebased', log: result.stdout + result.stderr });
+    return Response.json({ outcome: 'merged', log: result.stdout + result.stderr });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return Response.json({ error: msg }, { status: 500 });

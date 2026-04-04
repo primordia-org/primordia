@@ -339,7 +339,7 @@ export default function EvolveSessionView({
   const [abortError, setAbortError] = useState<string | null>(null);
   const [isDraggingFollowup, setIsDraggingFollowup] = useState(false);
   const [remainingUpstream, setRemainingUpstream] = useState(upstreamCommitCount);
-  const [upstreamSyncLoading, setUpstreamSyncLoading] = useState<"merge" | "rebase" | null>(null);
+  const [upstreamSyncLoading, setUpstreamSyncLoading] = useState<"merge" | null>(null);
   const [upstreamSyncError, setUpstreamSyncError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   /** Tracks how many characters of progressText the client has received, for SSE reconnection. */
@@ -516,14 +516,14 @@ export default function EvolveSessionView({
     }
   }
 
-  async function handleUpstreamSync(action: "merge" | "rebase") {
-    setUpstreamSyncLoading(action);
+  async function handleUpstreamSync() {
+    setUpstreamSyncLoading("merge");
     setUpstreamSyncError(null);
     try {
       const res = await fetch('/api/evolve/upstream-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, action }),
+        body: JSON.stringify({ sessionId, action: "merge" }),
       });
       const data = (await res.json()) as { outcome?: string; log?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? `Server error: ${res.status}`);
@@ -828,19 +828,11 @@ export default function EvolveSessionView({
             <div className="flex gap-2 flex-shrink-0">
               <button
                 type="button"
-                onClick={() => handleUpstreamSync("merge")}
+                onClick={() => handleUpstreamSync()}
                 disabled={upstreamSyncLoading !== null}
                 className="px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-medium transition-colors"
               >
-                {upstreamSyncLoading === "merge" ? "Merging…" : "Merge"}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleUpstreamSync("rebase")}
-                disabled={upstreamSyncLoading !== null}
-                className="px-3 py-1.5 rounded-lg bg-blue-800 hover:bg-blue-700 disabled:bg-gray-800 disabled:text-gray-600 text-blue-200 text-xs font-medium transition-colors"
-              >
-                {upstreamSyncLoading === "rebase" ? "Rebasing…" : "Rebase"}
+                {upstreamSyncLoading === "merge" ? "Applying…" : "Apply Updates"}
               </button>
             </div>
           </div>
