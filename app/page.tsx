@@ -80,7 +80,7 @@ export default function LandingPage() {
       <LandingNav />
 
       {/* ── Hero ── */}
-      <section className="relative flex flex-col items-center justify-center min-h-dvh px-6 text-center overflow-hidden pt-20">
+      <section className="relative flex flex-col items-center justify-center min-h-dvh px-6 text-center overflow-hidden pt-20 pb-20">
 
         {/* Animated gradient blobs */}
         <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
