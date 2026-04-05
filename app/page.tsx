@@ -6,7 +6,6 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { buildPageTitle } from "@/lib/page-title";
-import { LandingNav } from "@/components/LandingNav";
 
 export function generateMetadata(): Metadata {
   return { title: buildPageTitle() };
@@ -76,11 +75,8 @@ export default function LandingPage() {
   return (
     <div className="min-h-dvh bg-gray-950 text-gray-100 overflow-x-hidden">
 
-      {/* ── Nav ── */}
-      <LandingNav />
-
       {/* ── Hero ── */}
-      <section className="relative flex flex-col items-center justify-center min-h-dvh px-6 text-center overflow-hidden pt-20">
+      <section className="relative flex flex-col items-center justify-center min-h-dvh px-6 text-center overflow-hidden">
 
         {/* Animated gradient blobs */}
         <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
@@ -127,8 +123,6 @@ export default function LandingPage() {
         {/* Sub-headline */}
         <p className="animate-fade-up-3 relative max-w-xl text-lg sm:text-xl text-gray-400 leading-relaxed mb-10">
           A web application that rewrites itself on demand.
-          Chat with Claude, propose a change in plain English,
-          and watch the code update live.
         </p>
 
         {/* CTAs */}
