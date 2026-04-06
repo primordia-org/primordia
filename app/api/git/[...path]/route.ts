@@ -97,6 +97,7 @@ async function handleGitRequest(req: NextRequest, pathInfo: string): Promise<Res
     QUERY_STRING: url.search.replace(/^\?/, ""),
     CONTENT_TYPE: req.headers.get("content-type") ?? "",
     CONTENT_LENGTH: req.headers.get("content-length") ?? "",
+    HTTP_CONTENT_ENCODING: req.headers.get("content-encoding") ?? "",
     HTTP_GIT_PROTOCOL: req.headers.get("git-protocol") ?? "",
   };
 
