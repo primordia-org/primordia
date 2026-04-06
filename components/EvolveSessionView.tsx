@@ -1091,28 +1091,6 @@ export default function EvolveSessionView({
         </div>
       )}
 
-      {/* Disconnected notice — restart action hidden for non-evolvers */}
-      {devServerStatus === "disconnected" && status !== "accepted" && status !== "accepting" && status !== "rejected" && (
-        <div className="mb-6 px-4 py-4 rounded-lg bg-yellow-900/40 border border-yellow-700/50 text-sm">
-          <p className="text-yellow-300 mb-3">
-            ⚠️ The preview server disconnected unexpectedly. The branch still exists.
-          </p>
-          {canEvolve && restartError && (
-            <p className="text-red-400 text-xs mb-2">{restartError}</p>
-          )}
-          {canEvolve && (
-            <button
-              type="button"
-              onClick={handleRestartServer}
-              disabled={isRestartingServer}
-              className="px-4 py-2 rounded-lg bg-yellow-700 hover:bg-yellow-600 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium transition-colors"
-            >
-              {isRestartingServer ? "Restarting…" : "↺ Restart preview"}
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Footer actions */}
       <div className="flex flex-col gap-2">
         {canEvolve && (
