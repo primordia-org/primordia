@@ -14,20 +14,24 @@
 //   All git-upload-pack operations (fetch/clone) are allowed.
 
 import { execSync, spawn } from "child_process";
+import { resolve } from "path";
 import { type NextRequest } from "next/server";
 
 // ─── Git dir resolution ────────────────────────────────────────────────────────
 
 // Resolve the real git object store once at module load time.
 // In a linked worktree, .git is a file; --git-common-dir gives the shared dir.
+// Always returns an absolute path so git http-backend can find the repo
+// regardless of its working directory.
 function resolveGitDir(): string {
   try {
-    return execSync("git rev-parse --git-common-dir", {
+    const result = execSync("git rev-parse --git-common-dir", {
       cwd: process.cwd(),
       encoding: "utf8",
     }).trim();
+    return resolve(process.cwd(), result);
   } catch {
-    return `${process.cwd()}/.git`;
+    return resolve(process.cwd(), ".git");
   }
 }
 
@@ -84,7 +88,11 @@ async function handleGitRequest(req: NextRequest, pathInfo: string): Promise<Res
     ...process.env,
     GIT_DIR,
     GIT_HTTP_EXPORT_ALL: "1",
+    // git http-backend requires PATH_TRANSLATED or GIT_PROJECT_ROOT (CGI interface).
+    // We synthesise PATH_TRANSLATED by appending PATH_INFO to GIT_DIR; http-backend
+    // strips the PATH_INFO suffix to derive the repo root (GIT_DIR itself).
     PATH_INFO: pathInfo,
+    PATH_TRANSLATED: GIT_DIR + pathInfo,
     REQUEST_METHOD: req.method,
     QUERY_STRING: url.search.replace(/^\?/, ""),
     CONTENT_TYPE: req.headers.get("content-type") ?? "",

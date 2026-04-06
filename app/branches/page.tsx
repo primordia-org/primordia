@@ -379,6 +379,7 @@ export default async function BranchesPage() {
       {/* Legend */}
       <div className="mt-8 border-t border-gray-800 pt-4 text-xs text-gray-600 font-mono space-y-1">
         <p>● green = preview server active · ● dim = no active session · <span className="text-purple-400">session ↗</span> = view evolve session</p>
+        <p>Clone: <span className="text-gray-400 select-all">{currentServerUrl}/api/git</span></p>
       </div>
 
       {/* Diagnostics — only shown to admins */}

@@ -152,7 +152,15 @@ function summarizeToolUse(
     case 'Glob':      return `Glob \`${pattern}\``;
     case 'Grep':      return `Grep \`${pattern}\``;
     case 'Bash':      return `Bash \`${command.replace(/\r?\n/g, ' ')}\``;
-    case 'TodoWrite': return `Update todo list`;
+    case 'TodoWrite': {
+      const todos = (input.todos as Array<{ content: string; status: string }> | undefined) ?? [];
+      if (!todos.length) return 'Update todo list';
+      const items = todos.map((t) => {
+        const icon = t.status === 'completed' ? '✅' : t.status === 'in_progress' ? '🔄' : '⬜';
+        return `${icon} ${t.content}`;
+      });
+      return `Updated todos: ${items.join(' · ')}`;
+    }
     case 'Agent':     return `Spawn sub-agent`;
     default:          return name;
   }
