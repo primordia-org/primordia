@@ -375,11 +375,17 @@ export async function startLocalEvolve(
       appendProgress(session, `- [x] Copied \`${dbName}\` (isolated data branch)\n`);
     }
 
-    // Step 4 — Symlink .env.local so the preview server has the same credentials
+    // Step 4 — Symlink .env.local so the preview server has the same credentials.
+    // Resolve any symlink chain on srcEnv before linking, so the session worktree
+    // points directly at the real file rather than through an intermediate symlink
+    // (e.g. current/.env.local → main/.env.local). Intermediate symlinks can be
+    // deleted when slots are cleaned up after an accept, which would leave a
+    // dangling chain.
     const srcEnv = path.join(repoRoot, '.env.local');
     const dstEnv = path.join(session.worktreePath, '.env.local');
     if (fs.existsSync(srcEnv) && !fs.existsSync(dstEnv)) {
-      fs.symlinkSync(srcEnv, dstEnv);
+      const resolvedEnv = fs.realpathSync(srcEnv);
+      fs.symlinkSync(resolvedEnv, dstEnv);
       appendProgress(session, `- [x] Symlinked \`.env.local\`\n`);
     }
 
