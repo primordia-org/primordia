@@ -344,6 +344,10 @@ export default function EvolveSessionView({
   const abortControllerRef = useRef<AbortController | null>(null);
   /** Tracks how many characters of progressText the client has received, for SSE reconnection. */
   const progressLengthRef = useRef(initialProgressText.length);
+  /** Mirrors current status so the visibilitychange handler can read it without a stale closure. */
+  const statusRef = useRef(initialStatus);
+  /** Mirrors current devServerStatus for the same reason. */
+  const devServerStatusRef = useRef(initialDevServerStatus);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const followupTextareaRef = useRef<HTMLTextAreaElement>(null);
   const followupFileInputRef = useRef<HTMLInputElement>(null);
@@ -386,6 +390,31 @@ export default function EvolveSessionView({
       abortControllerRef.current?.abort();
     };
   }, []);
+
+  // Keep refs in sync so the visibilitychange handler always has the latest values.
+  useEffect(() => { statusRef.current = status; }, [status]);
+  useEffect(() => { devServerStatusRef.current = devServerStatus; }, [devServerStatus]);
+
+  // Reconnect / restart streaming when the tab regains focus, in case the
+  // browser paused the SSE connection while the tab was in the background.
+  useEffect(() => {
+    function onVisibilityChange() {
+      if (document.visibilityState !== "visible") return;
+      const s = statusRef.current;
+      const ds = devServerStatusRef.current;
+      const isTerminal =
+        s === "accepted" ||
+        s === "rejected" ||
+        (s === "ready" &&
+          (ds === "running" || ds === "disconnected" || ds === "none"));
+      if (!isTerminal) {
+        void startStreaming();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]); // startStreaming only uses sessionId + stable refs/setters
 
   // Extracted streaming logic — can be called on mount and after follow-up / restart.
   async function startStreaming() {
