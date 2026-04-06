@@ -148,6 +148,10 @@ primordia/
 │               │   └── route.ts   ← POST abort the running Claude Code instance; transitions session to ready
 │               ├── kill-restart/
 │               │   └── route.ts   ← POST kill dev server process + restart it in the worktree
+│               ├── upstream-sync/
+│               │   └── route.ts   ← POST merge or rebase parent branch into session worktree
+│               └── from-branch/
+│                   └── route.ts   ← POST start a session on an existing local branch (external contributor workflow)
 │               └── upstream-sync/
 │                   └── route.ts   ← POST merge parent branch into session worktree ("Apply Updates")
 │
@@ -168,6 +172,7 @@ primordia/
 │   ├── ServerLogsClient.tsx       ← Client component: live tail of primordia systemd journal via SSE (/admin/logs)
 │   ├── NavHeader.tsx              ← Shared nav header (title, branch name, nav links)
 │   ├── PageNavBar.tsx             ← Shared nav header + hamburger for /changelog and /branches pages
+│   ├── CreateSessionFromBranchButton.tsx ← Client component: "+ session" button on Branches page; inline form to start a session on an existing branch
 │   ├── PruneBranchesButton.tsx    ← Client-side trigger button for PruneBranchesDialog
 │   ├── PruneBranchesDialog.tsx    ← Thin wrapper around StreamingDialog for delete-merged-branches action
 │   ├── SimpleMarkdown.tsx         ← Minimal markdown renderer (bold, links, inline code, code blocks)
@@ -357,6 +362,8 @@ When implementing changes, follow these principles:
 | Local evolve pipeline | ✅ Live | git worktree → Claude Agent SDK → local preview → accept/reject |
 | Evolve follow-up requests | ✅ Live | Chain multiple Claude passes on the same branch; form appears when session is ready |
 | File attachments in evolve | ✅ Live | Attach images/files to initial and follow-up requests; files are copied into `worktree/attachments/` so Claude can read and use them |
+| Upstream changes indicator | ✅ Live | Session page shows how many commits the parent branch is ahead of the session branch, with Merge and Rebase buttons |
+| Session from existing branch | ✅ Live | Branches page shows "+ session" next to branches with no active session; evolvers can attach the full AI preview pipeline to any pre-existing local branch |
 | Upstream changes indicator | ✅ Live | Session page shows how many commits the parent branch is ahead of the session branch, with an "Apply Updates" button (merge only) |
 | exe.dev deploy | ✅ Live | One-command SSH deploy; identical to local dev flow |
 | Dark theme | ✅ Live | Default dark UI with Tailwind |
