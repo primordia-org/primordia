@@ -79,7 +79,9 @@ primordia/
 │   ├── chat/
 │   │   └── page.tsx               ← Server component: chat interface; redirects to /login if unauthenticated
 │   ├── admin/
-│   │   └── page.tsx               ← Admin panel: owner-only; grant/revoke evolve access per user
+│   │   ├── page.tsx               ← Admin panel: owner-only; grant/revoke evolve access per user; tab subnav (Manage Users / Server Logs)
+│   │   └── logs/
+│   │       └── page.tsx           ← Server logs: streams primordia systemd journal via SSE; admin only
 │   ├── oops/
 │   │   └── page.tsx               ← Owner-only mobile shell: run occasional system commands without SSH
 │   ├── evolve/
@@ -130,8 +132,10 @@ primordia/
 │       ├── oops/
 │       │   └── route.ts           ← POST run shell command (streams SSE stdout+stderr); admin only
 │       ├── admin/
-│       │   └── permissions/
-│       │       └── route.ts       ← POST grant/revoke grantable roles (can_evolve); admin only
+│       │   ├── permissions/
+│       │   │   └── route.ts       ← POST grant/revoke grantable roles (can_evolve); admin only
+│       │   └── logs/
+│       │       └── route.ts       ← GET SSE stream of `journalctl -u primordia -f -n 100`; admin only
 │       └── evolve/
 │               ├── route.ts       ← POST start session (requires can_evolve permission), GET status (legacy poll)
 │               ├── stream/
@@ -150,6 +154,7 @@ primordia/
 ├── components/
 │   ├── AcceptRejectBar.tsx        ← Accept/reject bar for local preview worktrees
 │   ├── AdminPermissionsClient.tsx ← Client component: grant/revoke 'can_evolve' role per user (used by /admin)
+│   ├── AdminSubNav.tsx            ← Tab subnav for admin pages: "Manage Users" (/admin) and "Server Logs" (/admin/logs)
 │   ├── ForbiddenPage.tsx          ← Server component: 403 access-denied page with page description, required/met/unmet conditions, and how-to-fix
 │   ├── ChatInterface.tsx          ← Main chat UI (chat only); hamburger menu "Propose a change" opens FloatingEvolveDialog
 │   ├── ChangelogEntryDetails.tsx  ← Client component: single changelog <details> widget; lazy-loads body from /api/changelog on first open
@@ -160,6 +165,7 @@ primordia/
 │   ├── HamburgerMenu.tsx          ← Reusable hamburger button + dropdown; used by ChatInterface, EvolveForm, EvolveSessionView, PageNavBar
 │   ├── LandingNav.tsx             ← Landing page navbar with mobile hamburger collapse
 │   ├── OopsShell.tsx              ← Client component: mobile-friendly shell for /oops; streams command output via SSE
+│   ├── ServerLogsClient.tsx       ← Client component: live tail of primordia systemd journal via SSE (/admin/logs)
 │   ├── NavHeader.tsx              ← Shared nav header (title, branch name, nav links)
 │   ├── PageNavBar.tsx             ← Shared nav header + hamburger for /changelog and /branches pages
 │   ├── PruneBranchesButton.tsx    ← Client-side trigger button for PruneBranchesDialog
@@ -358,6 +364,7 @@ When implementing changes, follow these principles:
 | Cross-device QR sign-in | ✅ Live | Laptop shows QR code; authenticated phone scans it and approves; laptop gets a session |
 | RBAC (roles) | ✅ Live | Simple role system: `admin` (auto-granted to first user) and `can_evolve`; /admin page lets admin grant/revoke roles; protected pages show informative 403 instead of redirecting |
 | Owner shell (/oops) | ✅ Live | Mobile-friendly shell at `/oops`; admin-only; run system commands (e.g. `sudo systemctl restart primordia`) without SSH; streams stdout+stderr via SSE |
+| Server logs (/admin/logs) | ✅ Live | Admin-only; live tail of `journalctl -u primordia -f -n 100` via SSE; accessible from the admin subnav |
 | Read-only git HTTP | ✅ Live | Clone/fetch via `git clone http[s]://<host>/api/git`; proxied through `git http-backend`; push permanently blocked (403) |
 
 ---

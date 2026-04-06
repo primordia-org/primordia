@@ -9,6 +9,7 @@ import { buildPageTitle } from "@/lib/page-title";
 import AdminPermissionsClient, { type AdminUser } from "@/components/AdminPermissionsClient";
 import ForbiddenPage from "@/components/ForbiddenPage";
 import { PageNavBar } from "@/components/PageNavBar";
+import AdminSubNav from "@/components/AdminSubNav";
 
 export function generateMetadata(): Metadata {
   return {
@@ -65,6 +66,7 @@ export default async function AdminPage() {
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
       <PageNavBar subtitle="Admin" currentPage="admin" initialSession={sessionUser} />
+      <AdminSubNav currentTab="users" />
 
       <section>
         <h2 className="text-base font-medium text-gray-200 mb-3">Evolve permissions</h2>
