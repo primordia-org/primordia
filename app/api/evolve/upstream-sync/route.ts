@@ -2,9 +2,9 @@
 // Merge the parent branch into the session branch's worktree.
 // POST
 //   Body: { sessionId: string; action: "merge" }
-//   Returns: { outcome: "merged"; log: string }
+//   Returns: { outcome: "merged" | "merged-with-conflict-resolution"; log: string }
 
-import { runGit } from '../../../../lib/evolve-sessions';
+import { runGit, resolveConflictsWithClaude } from '../../../../lib/evolve-sessions';
 import { getSessionUser } from '../../../../lib/auth';
 import { getDb } from '../../../../lib/db';
 
@@ -46,11 +46,20 @@ export async function POST(request: Request) {
       worktreePath,
     );
     if (result.code !== 0) {
-      await runGit(['merge', '--abort'], worktreePath);
-      return Response.json(
-        { error: `Merge failed:\n${result.stderr}` },
-        { status: 500 },
-      );
+      // Merge produced conflicts — attempt auto-resolution with Claude before giving up.
+      // resolveConflictsWithClaude(root, mergedBranch, targetBranch) resolves in-place.
+      const resolution = await resolveConflictsWithClaude(worktreePath, parentBranch, branch);
+      if (!resolution.success) {
+        await runGit(['merge', '--abort'], worktreePath);
+        return Response.json(
+          { error: `Merge failed and automatic conflict resolution also failed:\n${resolution.log}` },
+          { status: 500 },
+        );
+      }
+      return Response.json({
+        outcome: 'merged-with-conflict-resolution',
+        log: result.stdout + result.stderr + '\n\n' + resolution.log,
+      });
     }
     return Response.json({ outcome: 'merged', log: result.stdout + result.stderr });
   } catch (err) {
