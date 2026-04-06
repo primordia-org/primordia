@@ -14,9 +14,11 @@
 //              4. Health-check the new slot (start on temp port, verify HTTP response)
 //              5. Copy production DB into new slot (VACUUM INTO — atomic snapshot)
 //              6. Atomically swap the 'current' symlink to the session worktree
-//              7. Schedule `sudo systemctl restart primordia` (fire-and-forget)
-//              8. Clean up old production slot (if it was a worktree, not the main repo)
-//              9. Delete the now-orphaned branch ref
+//              7. Clean up old production slot (if it was a worktree, not the main repo)
+//              8. Delete the now-orphaned branch ref
+//              9. Persist "accepted" status + final progress log to DB
+//             10. Final VACUUM INTO new slot DB (captures complete accepted state)
+//             11. Schedule `sudo systemctl restart primordia` (fire-and-forget)
 //
 //            LEGACY (local dev, NODE_ENV !== 'production'):
 //              git checkout → stash → merge → stash-pop → bun install → worktree remove
@@ -311,13 +313,9 @@ async function blueGreenAccept(
   await runGit(['checkout', '--detach'], oldSlot);
   await runGit(['checkout', parentBranch], worktreePath);
 
-  // Step 8: schedule the systemd service restart fire-and-forget.
-  // The 500 ms delay gives the HTTP response time to flush before the process dies.
-  await onStep('- Restarting service…\n');
-  setTimeout(() => {
-    try { execSync('sudo systemctl restart primordia', { stdio: 'ignore' }); } catch { /* best-effort */ }
-  }, 500);
-
+  // Step 8: The caller schedules the final VACUUM INTO + systemd restart
+  // AFTER persisting the "accepted" state to the DB, so the new slot's DB
+  // contains the complete progress log and is not truncated on refresh.
   return null; // success
 }
 
@@ -494,6 +492,15 @@ async function retryAcceptAfterFix(
   console.log(`[retryAcceptAfterFix] merge complete, marking session ${sessionId} as accepted`);
   await appendToProgress(sessionId, `\n\n---\n\n✅ **Accepted** — merged into \`${parentBranch}\`\n`);
   await db.updateEvolveSession(sessionId, { status: 'accepted' });
+
+  // (Production only) Final VACUUM INTO + systemd restart — same as runAcceptAsync.
+  if (isProduction) {
+    await appendToProgress(sessionId, '- Restarting service…\n');
+    try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
+    setTimeout(() => {
+      try { execSync('sudo systemctl restart primordia', { stdio: 'ignore' }); } catch { /* best-effort */ }
+    }, 500);
+  }
 }
 
 /**
@@ -678,6 +685,19 @@ async function runAcceptAsync(
     // Mark as accepted.
     await appendToProgress(sessionId, `\n\n---\n\n✅ **Accepted** — merged into \`${parentBranch}\`\n`);
     await db.updateEvolveSession(sessionId, { status: 'accepted' });
+
+    // (Production only) Final VACUUM INTO + systemd restart.
+    // Done here — after the session is fully written — so the new slot's DB
+    // contains the complete "accepted" progress log and status. Without this,
+    // the DB copied in blueGreenAccept (Step 4b) would be missing the final
+    // entries, leaving the session stuck in "Accepting changes" on refresh.
+    if (isProduction) {
+      await step('- Restarting service…\n');
+      try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
+      setTimeout(() => {
+        try { execSync('sudo systemctl restart primordia', { stdio: 'ignore' }); } catch { /* best-effort */ }
+      }, 500);
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[runAcceptAsync] unexpected error for session ${sessionId}:`, err);
