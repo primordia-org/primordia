@@ -362,13 +362,10 @@ export async function startLocalEvolve(
     const dstDb = path.join(session.worktreePath, dbName);
     if (fs.existsSync(srcDb) && !fs.existsSync(dstDb)) {
       fs.copyFileSync(srcDb, dstDb);
-      // Copy WAL and SHM files too if the database is in WAL mode
-      for (const ext of ['-shm', '-wal']) {
-        const srcExtra = srcDb + ext;
-        if (fs.existsSync(srcExtra)) {
-          fs.copyFileSync(srcExtra, dstDb + ext);
-        }
-      }
+      // Do NOT copy the -wal and -shm files. WAL files from an active database
+      // can cause "Compaction failed: Another write batch already active" errors
+      // when bun:sqlite tries to checkpoint on close(). The main .db file is
+      // always a consistent committed snapshot in WAL mode.
 
       // Delete this session from the copied DB so the child worktree doesn't
       // start with an incomplete in-progress session visible in its history.
