@@ -11,6 +11,7 @@ import { GitSyncDialog } from "./GitSyncDialog";
 import { FloatingEvolveDialog } from "./FloatingEvolveDialog";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import { useSessionUser } from "../lib/hooks";
+import { withBasePath } from "../lib/base-path";
 import Link from "next/link";
 
 // ─── Section parsing ──────────────────────────────────────────────────────────
@@ -426,7 +427,7 @@ export default function EvolveSessionView({
 
     try {
       const response = await fetch(
-        `/api/evolve/stream?sessionId=${sessionId}&offset=${offset}`,
+        withBasePath(`/api/evolve/stream?sessionId=${sessionId}&offset=${offset}`),
         { signal: controller.signal },
       );
       if (!response.ok || !response.body) return;
@@ -500,7 +501,7 @@ export default function EvolveSessionView({
     setRestartError(null);
 
     try {
-      const res = await fetch('/api/evolve/kill-restart', {
+      const res = await fetch(withBasePath('/api/evolve/kill-restart'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId }),
@@ -525,7 +526,7 @@ export default function EvolveSessionView({
     setAbortError(null);
 
     try {
-      const res = await fetch('/api/evolve/abort', {
+      const res = await fetch(withBasePath('/api/evolve/abort'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId }),
@@ -549,7 +550,7 @@ export default function EvolveSessionView({
     setUpstreamSyncLoading("merge");
     setUpstreamSyncError(null);
     try {
-      const res = await fetch('/api/evolve/upstream-sync', {
+      const res = await fetch(withBasePath('/api/evolve/upstream-sync'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, action: "merge" }),
@@ -617,7 +618,7 @@ export default function EvolveSessionView({
         formData.append('attachments', file);
       }
 
-      const res = await fetch('/api/evolve/followup', {
+      const res = await fetch(withBasePath('/api/evolve/followup'), {
         method: 'POST',
         body: formData,
       });
@@ -643,7 +644,7 @@ export default function EvolveSessionView({
     setAcceptRejectLoading(true);
     setAcceptRejectError(null);
     try {
-      const res = await fetch('/api/evolve/manage', {
+      const res = await fetch(withBasePath('/api/evolve/manage'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'accept', sessionId }),
@@ -679,7 +680,7 @@ export default function EvolveSessionView({
     setAcceptRejectLoading(true);
     setAcceptRejectError(null);
     try {
-      const res = await fetch('/api/evolve/manage', {
+      const res = await fetch(withBasePath('/api/evolve/manage'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'reject', sessionId }),

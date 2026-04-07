@@ -18,6 +18,7 @@ import { FloatingEvolveDialog } from "./FloatingEvolveDialog";
 import { NavHeader } from "./NavHeader";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import { useSessionUser } from "../lib/hooks";
+import { withBasePath } from "../lib/base-path";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -95,7 +96,7 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
 
   // On mount, check for missing API keys and warn the user if any are absent.
   useEffect(() => {
-    fetch("/api/check-keys")
+    fetch(withBasePath("/api/check-keys"))
       .then((res) => res.json())
       .then((data: { missing: Array<{ key: string; description: string }> }) => {
         if (!data.missing || data.missing.length === 0) return;
@@ -142,7 +143,7 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
     ]);
 
     try {
-      const response = await fetch("/api/chat", {
+      const response = await fetch(withBasePath("/api/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -10,6 +10,7 @@
 
 import { useState, useRef, useEffect, useLayoutEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { withBasePath } from "../lib/base-path";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -148,7 +149,7 @@ export function FloatingEvolveDialog({
         formData.append("attachments", file);
       }
 
-      const res = await fetch("/api/evolve", { method: "POST", body: formData });
+      const res = await fetch(withBasePath("/api/evolve"), { method: "POST", body: formData });
       const data = (await res.json()) as { sessionId?: string; error?: string };
 
       if (!res.ok) {

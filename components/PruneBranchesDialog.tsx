@@ -5,6 +5,7 @@
 // deletes all local branches merged into main via /api/prune-branches.
 
 import { StreamingDialog } from "./StreamingDialog";
+import { withBasePath } from "../lib/base-path";
 
 export function PruneBranchesDialog({ onClose }: { onClose: () => void }) {
   return (
@@ -36,7 +37,7 @@ export function PruneBranchesDialog({ onClose }: { onClose: () => void }) {
       runningLabel="Deleting…"
       successMessage="✅ Pruning complete!"
       errorMessage="❌ Pruning finished with errors. Check the output above."
-      apiEndpoint="/api/prune-branches"
+      apiEndpoint={withBasePath("/api/prune-branches")}
     />
   );
 }

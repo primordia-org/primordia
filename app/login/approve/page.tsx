@@ -13,6 +13,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { withBasePath } from "@/lib/base-path";
 
 type Phase =
   | "loading"       // checking session
@@ -43,7 +44,7 @@ function ApprovePageInner() {
   useEffect(() => {
     if (!tokenId) return;
 
-    fetch("/api/auth/session")
+    fetch(withBasePath("/api/auth/session"))
       .then((r) => r.json())
       .then((data: { user?: { username: string } | null }) => {
         if (data.user) {
@@ -64,7 +65,7 @@ function ApprovePageInner() {
     setPhase("approving");
     setErrorMsg(null);
     try {
-      const res = await fetch("/api/auth/cross-device/approve", {
+      const res = await fetch(withBasePath("/api/auth/cross-device/approve"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tokenId }),
