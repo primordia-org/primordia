@@ -156,6 +156,11 @@ primordia/
 │               └── upstream-sync/
 │                   └── route.ts   ← POST merge parent branch into session worktree ("Apply Updates")
 │
+├── app/preview/
+│   └── [sessionId]/
+│       └── [[...path]]/
+│           └── route.ts           ← HTTP proxy: forwards /preview/{sessionId}/... to the session's local dev server; all methods supported
+│
 ├── components/
 │   ├── AcceptRejectBar.tsx        ← Accept/reject bar for local preview worktrees
 │   ├── AdminPermissionsClient.tsx ← Client component: grant/revoke 'can_evolve' role per user (used by /admin)
@@ -209,10 +214,12 @@ User types change request on /evolve page
   → @anthropic-ai/claude-agent-sdk query() in worktree
       → streams SDKMessage events → formatted progressText appended in memory
       → progressText flushed to SQLite (throttled, ≤1 write/2s per session)
-  → spawn: bun run dev in worktree; Next.js picks its own port
+  → spawn: bun run dev in worktree with NEXT_BASE_PATH=/preview/{sessionId}; Next.js picks its own port
+  → main server proxies /preview/{sessionId}/... → http://localhost:{port}/preview/{sessionId}/...
+      (same-origin: cookies work, no port exposed to the client)
   → EvolveSessionView opens SSE stream to /api/evolve/stream?sessionId=...
       → GET streams delta progressText + state every 500 ms from SQLite until terminal
-  → Preview link shown when status becomes "ready"
+  → Preview link shown when status becomes "ready" (links to /preview/{sessionId})
   → User clicks Accept → POST /api/evolve/manage { action: "accept" }
       → pre-accept gates: ancestor check, clean worktree, bun run typecheck, bun run build (all in session worktree)
       → blue/green deploy (production): bun install in worktree → git commit-tree + update-ref (no production dir writes)
@@ -251,7 +258,7 @@ Each evolve session tracks two independent dimensions persisted to SQLite:
 |---|---|
 | `none` | Dev server not yet started (session is `starting` or `running-claude`) |
 | `starting` | `bun run dev` has been spawned; waiting for Next.js "Ready" signal |
-| `running` | Dev server is up; `previewUrl` is set and the preview is accessible |
+| `running` | Dev server is up; `previewUrl` is set to `/preview/{sessionId}` (proxied through the main server) |
 | `disconnected` | Server was running, then exited unexpectedly (branch still exists) |
 
 **Key transition triggers**

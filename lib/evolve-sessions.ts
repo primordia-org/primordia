@@ -566,12 +566,13 @@ export async function startLocalEvolve(
     await persist();
 
     await new Promise<void>((resolve, reject) => {
-      // omit the PORT env var so Next.js can pick an available port
+      // Omit PORT (let Next.js pick) and NEXT_BASE_PATH (we set it below for the preview path).
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { PORT, ...envWithoutPort } = process.env;
+      const { PORT, NEXT_BASE_PATH: _omitBasePath, ...envWithoutOverrides } = process.env;
+      const mainBasePath = process.env.NEXT_BASE_PATH ?? '';
       const proc = spawn('bun', ['run', 'dev'], {
         cwd: session.worktreePath,
-        env: { ...envWithoutPort, NODE_ENV: 'development' },
+        env: { ...envWithoutOverrides, NODE_ENV: 'development', NEXT_BASE_PATH: `${mainBasePath}/preview/${session.id}` },
         // detached=true creates a new process group so we can kill the entire tree
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -597,7 +598,7 @@ export async function startLocalEvolve(
 
         // Next.js 16 prints "Ready" when the dev server is up
         if (!session.previewUrl && session.port !== null && text.includes('Ready')) {
-          session.previewUrl = `http://${publicHostname}:${session.port}`;
+          session.previewUrl = `${process.env.NEXT_BASE_PATH ?? ''}/preview/${session.id}`;
           session.devServerStatus = 'running';
           void persist();
           resolve();
@@ -654,7 +655,7 @@ export async function startLocalEvolve(
       }, 120_000);
     });
 
-    appendProgress(session, `\n✅ **Ready on port ${session.port}**\n`);
+    appendProgress(session, `\n✅ **Preview ready**\n`);
     await persist();
 
   } catch (err) {
@@ -1001,11 +1002,12 @@ export async function restartDevServerInWorktree(
 
     await new Promise<void>((resolve, reject) => {
       // Pass PORT so Next.js reuses the same port rather than hunting for a free one.
-      const { PORT: _omit, ...envWithoutPort } = process.env;
+      const { PORT: _omit, NEXT_BASE_PATH: _omitBasePath2, ...envWithoutOverrides } = process.env;
+      const mainBasePath = process.env.NEXT_BASE_PATH ?? '';
       const env =
         oldPort !== null
-          ? { ...envWithoutPort, NODE_ENV: 'development' as const, PORT: String(oldPort) }
-          : { ...envWithoutPort, NODE_ENV: 'development' as const };
+          ? { ...envWithoutOverrides, NODE_ENV: 'development' as const, PORT: String(oldPort), NEXT_BASE_PATH: `${mainBasePath}/preview/${session.id}` }
+          : { ...envWithoutOverrides, NODE_ENV: 'development' as const, NEXT_BASE_PATH: `${mainBasePath}/preview/${session.id}` };
 
       const proc = spawn('bun', ['run', 'dev'], {
         cwd: session.worktreePath,
@@ -1031,7 +1033,7 @@ export async function restartDevServerInWorktree(
         }
 
         if (!session.previewUrl && session.port !== null && text.includes('Ready')) {
-          session.previewUrl = `http://${publicHostname}:${session.port}`;
+          session.previewUrl = `${process.env.NEXT_BASE_PATH ?? ''}/preview/${session.id}`;
           session.devServerStatus = 'running';
           void persist();
           resolve();
@@ -1074,7 +1076,7 @@ export async function restartDevServerInWorktree(
       }, 120_000);
     });
 
-    appendProgress(session, `\n✅ **Ready on port ${session.port}**\n`);
+    appendProgress(session, `\n✅ **Preview ready**\n`);
     await persist();
   } catch (err) {
     session.status = 'ready';
