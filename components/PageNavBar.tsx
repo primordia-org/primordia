@@ -22,6 +22,7 @@ import { GitSyncDialog } from "./GitSyncDialog";
 import { FloatingEvolveDialog } from "./FloatingEvolveDialog";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import type { SessionUser } from "../lib/hooks";
+import { withBasePath } from "../lib/base-path";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -59,14 +60,14 @@ export function PageNavBar({ subtitle, branch, currentPage, initialSession }: Pa
   // Only fetch session client-side when no server-provided value was given.
   useEffect(() => {
     if (initialSession !== undefined) return;
-    fetch("/api/auth/session")
+    fetch(withBasePath("/api/auth/session"))
       .then((res) => res.json())
       .then((data: { user: SessionUser | null }) => setSessionUser(data.user))
       .catch(() => setSessionUser(null));
   }, [initialSession]);
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await fetch(withBasePath("/api/auth/logout"), { method: "POST" });
     setSessionUser(null);
   }
 

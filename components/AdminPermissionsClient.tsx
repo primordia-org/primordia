@@ -5,6 +5,7 @@
 // Loaded by app/admin/page.tsx with initial data from the server.
 
 import { useState } from "react";
+import { withBasePath } from "../lib/base-path";
 
 export interface AdminUser {
   id: string;
@@ -29,7 +30,7 @@ export default function AdminPermissionsClient({ users: initial, adminRoleName, 
     setError(null);
     const action = user.canEvolve ? "revoke" : "grant";
     try {
-      const res = await fetch("/api/admin/permissions", {
+      const res = await fetch(withBasePath("/api/admin/permissions"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id, role: "can_evolve", action }),

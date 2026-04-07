@@ -7,6 +7,7 @@
 // has scrolled up (paused). A "Clear" button wipes accumulated output.
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { withBasePath } from "../lib/base-path";
 
 export default function ServerLogsClient() {
   const [output, setOutput] = useState<string>("");
@@ -30,7 +31,7 @@ export default function ServerLogsClient() {
 
     (async () => {
       try {
-        const res = await fetch("/api/admin/logs", { signal: abort.signal });
+        const res = await fetch(withBasePath("/api/admin/logs"), { signal: abort.signal });
         if (!res.ok) {
           const text = await res.text();
           setError(`HTTP ${res.status}: ${text}`);

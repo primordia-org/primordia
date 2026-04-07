@@ -6,6 +6,7 @@
 // Users scroll down to reveal it — the main app stays at 100dvh.
 
 import { useState } from "react";
+import { withBasePath } from "../lib/base-path";
 
 interface Props {
   /** True when this instance is running as a local preview worktree. */
@@ -28,7 +29,7 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
     setPreviewActionState("loading");
     setErrorMessage(null);
     try {
-      const res = await fetch("/api/evolve/manage", {
+      const res = await fetch(withBasePath("/api/evolve/manage"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "accept" }),
@@ -53,7 +54,7 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
     setPreviewActionState("loading");
     setErrorMessage(null);
     try {
-      const res = await fetch("/api/evolve/manage", {
+      const res = await fetch(withBasePath("/api/evolve/manage"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "reject" }),
