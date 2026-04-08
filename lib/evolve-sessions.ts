@@ -39,6 +39,45 @@ export interface LocalSession {
   createdAt: number;
 }
 
+// ─── Preview proxy route registry ────────────────────────────────────────────
+
+const WORKTREES_DIR =
+  process.env.PRIMORDIA_WORKTREES_DIR ?? '/home/exedev/primordia-worktrees';
+const PREVIEWS_CONFIG_PATH = path.join(WORKTREES_DIR, 'proxy-previews.json');
+
+/**
+ * Adds a sessionId → port entry to proxy-previews.json so the reverse proxy
+ * can route /preview/{sessionId} traffic to the correct preview server.
+ * No-op if REVERSE_PROXY_PORT is not set (proxy not running).
+ */
+function registerPreviewRoute(sessionId: string, port: number): void {
+  if (!process.env.REVERSE_PROXY_PORT) return;
+  try {
+    let map: Record<string, number> = {};
+    try { map = JSON.parse(fs.readFileSync(PREVIEWS_CONFIG_PATH, 'utf8')); } catch { /* new file */ }
+    map[sessionId] = port;
+    fs.writeFileSync(PREVIEWS_CONFIG_PATH, JSON.stringify(map, null, 2));
+  } catch (err) {
+    console.error('[evolve] failed to register preview route:', err);
+  }
+}
+
+/**
+ * Removes a sessionId entry from proxy-previews.json when the preview server
+ * stops. No-op if REVERSE_PROXY_PORT is not set.
+ */
+function unregisterPreviewRoute(sessionId: string): void {
+  if (!process.env.REVERSE_PROXY_PORT) return;
+  try {
+    let map: Record<string, number> = {};
+    try { map = JSON.parse(fs.readFileSync(PREVIEWS_CONFIG_PATH, 'utf8')); } catch { /* missing */ }
+    delete map[sessionId];
+    fs.writeFileSync(PREVIEWS_CONFIG_PATH, JSON.stringify(map, null, 2));
+  } catch (err) {
+    console.error('[evolve] failed to unregister preview route:', err);
+  }
+}
+
 // ─── In-memory dev server registry ───────────────────────────────────────────
 
 /**
@@ -569,9 +608,17 @@ export async function startLocalEvolve(
       // omit the PORT env var so Next.js can pick an available port
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { PORT, ...envWithoutPort } = process.env;
+      // When the reverse proxy is running, serve the preview at /preview/{sessionId}
+      // so the proxy can route to it without exposing the raw port.
+      const proxyPort = process.env.REVERSE_PROXY_PORT;
+      const basePath = proxyPort ? `/preview/${session.id}` : undefined;
       const proc = spawn('bun', ['run', 'dev'], {
         cwd: session.worktreePath,
-        env: { ...envWithoutPort, NODE_ENV: 'development' },
+        env: {
+          ...envWithoutPort,
+          NODE_ENV: 'development',
+          ...(basePath ? { NEXT_BASE_PATH: basePath } : {}),
+        },
         // detached=true creates a new process group so we can kill the entire tree
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -597,7 +644,14 @@ export async function startLocalEvolve(
 
         // Next.js 16 prints "Ready" when the dev server is up
         if (!session.previewUrl && session.port !== null && text.includes('Ready')) {
-          session.previewUrl = `http://${publicHostname}:${session.port}`;
+          if (proxyPort) {
+            // Route through the reverse proxy at /preview/{sessionId}
+            const portSuffix = proxyPort === '80' ? '' : `:${proxyPort}`;
+            session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.id}`;
+            registerPreviewRoute(session.id, session.port);
+          } else {
+            session.previewUrl = `http://${publicHostname}:${session.port}`;
+          }
           session.devServerStatus = 'running';
           void persist();
           resolve();
@@ -613,6 +667,7 @@ export async function startLocalEvolve(
       proc.on('error', (err) => reject(new Error(`Dev server spawn failed: ${err.message}`)));
       proc.on('close', (code) => {
         activeDevServerProcesses.delete(session.id);
+        unregisterPreviewRoute(session.id);
         if (session.devServerStatus !== 'running') {
           reject(new Error(`Dev server exited (code ${code ?? 'unknown'}) before becoming ready`));
           return;
@@ -964,6 +1019,7 @@ export async function restartDevServerInWorktree(
     const oldPort = session.port;
     session.port = null;
     session.previewUrl = null;
+    unregisterPreviewRoute(session.id);
     await persist();
 
     // Kill the existing dev server process group. Turbopack spawns worker processes
@@ -1002,10 +1058,13 @@ export async function restartDevServerInWorktree(
     await new Promise<void>((resolve, reject) => {
       // Pass PORT so Next.js reuses the same port rather than hunting for a free one.
       const { PORT: _omit, ...envWithoutPort } = process.env;
-      const env =
+      // When the reverse proxy is running, serve the preview at /preview/{sessionId}.
+      const proxyPort = process.env.REVERSE_PROXY_PORT;
+      const basePath = proxyPort ? `/preview/${session.id}` : undefined;
+      const env: NodeJS.ProcessEnv =
         oldPort !== null
-          ? { ...envWithoutPort, NODE_ENV: 'development' as const, PORT: String(oldPort) }
-          : { ...envWithoutPort, NODE_ENV: 'development' as const };
+          ? { ...envWithoutPort, NODE_ENV: 'development', PORT: String(oldPort), ...(basePath ? { NEXT_BASE_PATH: basePath } : {}) }
+          : { ...envWithoutPort, NODE_ENV: 'development', ...(basePath ? { NEXT_BASE_PATH: basePath } : {}) };
 
       const proc = spawn('bun', ['run', 'dev'], {
         cwd: session.worktreePath,
@@ -1031,7 +1090,13 @@ export async function restartDevServerInWorktree(
         }
 
         if (!session.previewUrl && session.port !== null && text.includes('Ready')) {
-          session.previewUrl = `http://${publicHostname}:${session.port}`;
+          if (proxyPort) {
+            const portSuffix = proxyPort === '80' ? '' : `:${proxyPort}`;
+            session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.id}`;
+            registerPreviewRoute(session.id, session.port);
+          } else {
+            session.previewUrl = `http://${publicHostname}:${session.port}`;
+          }
           session.devServerStatus = 'running';
           void persist();
           resolve();
@@ -1047,6 +1112,7 @@ export async function restartDevServerInWorktree(
       proc.on('error', (err) => reject(new Error(`Dev server spawn failed: ${err.message}`)));
       proc.on('close', (code) => {
         activeDevServerProcesses.delete(session.id);
+        unregisterPreviewRoute(session.id);
         if (session.devServerStatus !== 'running') {
           reject(new Error(`Dev server exited (code ${code ?? 'unknown'}) before becoming ready`));
           return;

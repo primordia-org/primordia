@@ -67,6 +67,7 @@ const LISTEN_PORT = parseInt(process.env.REVERSE_PROXY_PORT ?? '3000', 10);
 const WORKTREES_DIR =
   process.env.PRIMORDIA_WORKTREES_DIR ?? '/home/exedev/primordia-worktrees';
 const CONFIG_PATH = path.join(WORKTREES_DIR, 'proxy-upstream.json');
+const PREVIEWS_CONFIG_PATH = path.join(WORKTREES_DIR, 'proxy-previews.json');
 
 let upstreamPort = 3001;
 
@@ -98,10 +99,56 @@ watchConfig();
 // Safety-net poll every 5 s in case fs.watch misses an event
 setInterval(readConfig, 5000);
 
+// ─── Preview server routing ───────────────────────────────────────────────────
+// proxy-previews.json maps sessionId → port for active preview dev servers.
+// Requests to /preview/{sessionId}/... are routed to the corresponding port.
+
+/** Maps session IDs to their active preview server ports. */
+let previewPortMap: Record<string, number> = {};
+
+function readPreviewsConfig(): void {
+  try {
+    const raw = fs.readFileSync(PREVIEWS_CONFIG_PATH, 'utf8');
+    previewPortMap = JSON.parse(raw) as Record<string, number>;
+  } catch {
+    // File not yet written — treat as empty
+    previewPortMap = {};
+  }
+}
+
+readPreviewsConfig();
+
+function watchPreviewsConfig(): void {
+  try {
+    fs.watch(PREVIEWS_CONFIG_PATH, () => setTimeout(readPreviewsConfig, 50));
+  } catch {
+    setTimeout(watchPreviewsConfig, 1000);
+  }
+}
+watchPreviewsConfig();
+
+setInterval(readPreviewsConfig, 5000);
+
+/**
+ * Resolves the target port for a request.
+ * Requests matching /preview/{sessionId} are routed to the corresponding
+ * preview server; everything else goes to the main upstream.
+ */
+function resolveTargetPort(urlPath: string): number {
+  const previewMatch = urlPath.match(/^\/preview\/([^/?#]+)/);
+  if (previewMatch) {
+    const port = previewPortMap[previewMatch[1]];
+    if (port) return port;
+  }
+  return upstreamPort;
+}
+
 const server = http.createServer((clientReq, clientRes) => {
+  const targetPort = resolveTargetPort(clientReq.url ?? '/');
+
   const options: http.RequestOptions = {
     hostname: '127.0.0.1',
-    port: upstreamPort,
+    port: targetPort,
     path: clientReq.url,
     method: clientReq.method,
     headers: forwardHeaders(clientReq, {
@@ -116,7 +163,7 @@ const server = http.createServer((clientReq, clientRes) => {
   });
 
   upstreamReq.on('error', (err) => {
-    console.error(`[proxy] upstream error on port ${upstreamPort}:`, err.message);
+    console.error(`[proxy] upstream error on port ${targetPort}:`, err.message);
     if (!clientRes.headersSent) {
       clientRes.writeHead(502, { 'content-type': 'text/plain' });
       clientRes.end('Bad Gateway — upstream server unavailable\n');
@@ -136,9 +183,11 @@ server.on('upgrade', (clientReq: http.IncomingMessage, clientSocket: stream.Dupl
     console.error(`[proxy] client socket error during WS upgrade:`, err.message);
   });
 
+  const targetPort = resolveTargetPort(clientReq.url ?? '/');
+
   const options: http.RequestOptions = {
     hostname: '127.0.0.1',
-    port: upstreamPort,
+    port: targetPort,
     path: clientReq.url,
     method: clientReq.method,
     headers: {
@@ -175,7 +224,7 @@ server.on('upgrade', (clientReq: http.IncomingMessage, clientSocket: stream.Dupl
   });
 
   upstreamReq.on('error', (err) => {
-    console.error(`[proxy] WS upstream error on port ${upstreamPort}:`, err.message);
+    console.error(`[proxy] WS upstream error on port ${targetPort}:`, err.message);
     clientSocket.destroy();
   });
 
@@ -186,6 +235,7 @@ server.listen(LISTEN_PORT, '0.0.0.0', () => {
   console.log(
     `[proxy] listening on :${LISTEN_PORT} → upstream :${upstreamPort} (config: ${CONFIG_PATH})`,
   );
+  console.log(`[proxy] preview routes: ${PREVIEWS_CONFIG_PATH}`);
 });
 
 process.on('SIGTERM', () => {

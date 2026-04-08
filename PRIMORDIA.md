@@ -53,7 +53,7 @@ primordia/
 │   ├── deploy-to-exe-dev.sh      ← `bun run deploy-to-exe.dev <server>`: SSH deploy to <server>.exe.xyz
 │   ├── install-service.sh        ← Installs/re-installs the systemd service; creates primordia-worktrees/current symlink (blue/green bootstrap)
 │   ├── primordia.service         ← systemd service unit file; WorkingDirectory = primordia-worktrees/current; writes app port to proxy-upstream.json on start
-│   ├── reverse-proxy.ts          ← HTTP reverse proxy for zero-downtime blue/green; listens on REVERSE_PROXY_PORT; reads upstream port from proxy-upstream.json
+│   ├── reverse-proxy.ts          ← HTTP reverse proxy for zero-downtime blue/green AND preview servers; listens on REVERSE_PROXY_PORT; reads upstream port from proxy-upstream.json; routes /preview/{sessionId} paths to preview servers listed in proxy-previews.json
 │   └── primordia-proxy.service   ← systemd service unit for the reverse proxy
 │
 ├── public/
@@ -211,7 +211,11 @@ User types change request on /evolve page
   → @anthropic-ai/claude-agent-sdk query() in worktree
       → streams SDKMessage events → formatted progressText appended in memory
       → progressText flushed to SQLite (throttled, ≤1 write/2s per session)
-  → spawn: bun run dev in worktree; Next.js picks its own port
+  → spawn: bun run dev in worktree with NEXT_BASE_PATH=/preview/{sessionId} (when REVERSE_PROXY_PORT is set); Next.js picks its own port
+      → on ready: registers sessionId → port in proxy-previews.json; proxy routes /preview/{sessionId} traffic to that port
+      → previewUrl = http://{host}:{REVERSE_PROXY_PORT}/preview/{sessionId} (proxy path, no raw port exposed)
+      → on stop: removes entry from proxy-previews.json
+      → fallback when no proxy: NEXT_BASE_PATH unset; previewUrl = http://{host}:{port} (direct)
   → EvolveSessionView opens SSE stream to /api/evolve/stream?sessionId=...
       → GET streams delta progressText + state every 500 ms from SQLite until terminal
   → Preview link shown when status becomes "ready"
@@ -330,7 +334,7 @@ These must be set in:
 | `GITHUB_REPO` | No | `owner/repo` slug (e.g. `primordia-org/primordia`) — used alongside `GITHUB_TOKEN` to build the authenticated remote URL |
 | `REVERSE_PROXY_PORT` | No | Port the reverse proxy listens on (e.g. `3000`). When set, blue/green accepts use zero-downtime cutover instead of `systemctl restart`. |
 | `PRIMORDIA_WORKTREES_DIR` | No | Path to the worktrees directory (default `/home/exedev/primordia-worktrees`). Set automatically by the systemd service files. |
-| `NEXT_BASE_PATH` | No | URL sub-path prefix (e.g. `/primordia`) for hosting the app at a non-root path. Leave unset to serve from `/` (default). Sets both Next.js `basePath` config and `NEXT_PUBLIC_BASE_PATH` for client-side `fetch()` calls. |
+| `NEXT_BASE_PATH` | No | URL sub-path prefix (e.g. `/primordia`) for hosting the app at a non-root path. Leave unset to serve from `/` (default). Sets both Next.js `basePath` config and `NEXT_PUBLIC_BASE_PATH` for client-side `fetch()` calls. Also set automatically on preview dev servers to `/preview/{sessionId}` when `REVERSE_PROXY_PORT` is active. |
 
 ---
 
