@@ -52,8 +52,9 @@ primordia/
 ├── scripts/
 │   ├── deploy-to-exe-dev.sh      ← `bun run deploy-to-exe.dev <server>`: SSH deploy to <server>.exe.xyz
 │   ├── install-service.sh        ← Installs/re-installs the systemd service; creates primordia-worktrees/current symlink (blue/green bootstrap)
-│   ├── primordia.service         ← systemd service unit file; WorkingDirectory = primordia-worktrees/current; writes app port to proxy-upstream.json on start
-│   ├── reverse-proxy.ts          ← HTTP reverse proxy for zero-downtime blue/green AND preview servers; listens on REVERSE_PROXY_PORT; reads upstream port from proxy-upstream.json; routes /preview/{sessionId} paths to preview servers listed in proxy-previews.json
+│   ├── primordia.service         ← systemd service unit file; WorkingDirectory = primordia-worktrees/current; reads PORT from git config (branch.{name}.port) at startup
+│   ├── reverse-proxy.ts          ← HTTP reverse proxy for zero-downtime blue/green AND preview servers; listens on REVERSE_PROXY_PORT; reads upstream port and preview ports from git config (branch.{name}.port); watches git config file for instant cutover; routes /preview/{branchName} paths to branch preview servers
+│   ├── assign-branch-ports.sh    ← Idempotent migration script: assigns ephemeral ports to all local branches in git config (branch.{name}.port); main gets 3001, others get 3002+
 │   └── primordia-proxy.service   ← systemd service unit for the reverse proxy
 │
 ├── public/
@@ -211,10 +212,9 @@ User types change request on /evolve page
   → @anthropic-ai/claude-agent-sdk query() in worktree
       → streams SDKMessage events → formatted progressText appended in memory
       → progressText flushed to SQLite (throttled, ≤1 write/2s per session)
-  → spawn: bun run dev in worktree with NEXT_BASE_PATH=/preview/{sessionId} (when REVERSE_PROXY_PORT is set); Next.js picks its own port
-      → on ready: registers sessionId → port in proxy-previews.json; proxy routes /preview/{sessionId} traffic to that port
-      → previewUrl = http://{host}:{REVERSE_PROXY_PORT}/preview/{sessionId} (proxy path, no raw port exposed)
-      → on stop: removes entry from proxy-previews.json
+  → assigns ephemeral port to branch in git config (branch.{branch}.port) — idempotent, stable for branch lifetime
+  → spawn: bun run dev in worktree with PORT=branch port and NEXT_BASE_PATH=/preview/{branchName} (when REVERSE_PROXY_PORT is set)
+      → on ready: previewUrl = http://{host}:{REVERSE_PROXY_PORT}/preview/{branchName} (proxy routes by branch name via git config)
       → fallback when no proxy: NEXT_BASE_PATH unset; previewUrl = http://{host}:{port} (direct)
   → EvolveSessionView opens SSE stream to /api/evolve/stream?sessionId=...
       → GET streams delta progressText + state every 500 ms from SQLite until terminal
@@ -224,11 +224,11 @@ User types change request on /evolve page
       → blue/green deploy (production): bun install in worktree → git commit-tree + update-ref (no production dir writes)
           → copy prod DB from old slot into new slot (preserves auth data)
           → fix .env.local symlink in new slot to point to main repo (prevents dangling link)
-          → start new prod server on a free port; run health checks
+          → start new prod server on the branch's pre-assigned port (from git config); run health checks
           → atomic symlink swap: primordia-worktrees/current → session worktree
           → keep old slot as primordia-worktrees/previous (enables fast rollback via POST /api/rollback)
           → delete slot from two accepts ago (if worktree), delete session branch
-          → atomically update proxy-upstream.json → reverse proxy routes all new traffic to new slot
+          → update branch.{parentBranch}.port in git config → reverse proxy picks up new port instantly via fs.watch
           → gracefully shutdown the old prod server (SIGTERM via lsof)
       → legacy deploy (local dev, no systemd): git merge in production dir → bun install → worktree remove
   → User clicks Reject → POST /api/evolve/manage { action: "reject" }

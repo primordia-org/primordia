@@ -39,43 +39,57 @@ export interface LocalSession {
   createdAt: number;
 }
 
-// ─── Preview proxy route registry ────────────────────────────────────────────
+// ─── Branch port management ────────────────────────────────────────────────────
 
 const WORKTREES_DIR =
   process.env.PRIMORDIA_WORKTREES_DIR ?? '/home/exedev/primordia-worktrees';
-const PREVIEWS_CONFIG_PATH = path.join(WORKTREES_DIR, 'proxy-previews.json');
 
 /**
- * Adds a sessionId → port entry to proxy-previews.json so the reverse proxy
- * can route /preview/{sessionId} traffic to the correct preview server.
- * No-op if REVERSE_PROXY_PORT is not set (proxy not running).
+ * Returns the ephemeral port assigned to a branch in git config, assigning a
+ * new one if not yet set. Idempotent: running twice on the same branch returns
+ * the same port. Port 3001 is reserved for the main production branch.
  */
-function registerPreviewRoute(sessionId: string, port: number): void {
-  if (!process.env.REVERSE_PROXY_PORT) return;
-  try {
-    let map: Record<string, number> = {};
-    try { map = JSON.parse(fs.readFileSync(PREVIEWS_CONFIG_PATH, 'utf8')); } catch { /* new file */ }
-    map[sessionId] = port;
-    fs.writeFileSync(PREVIEWS_CONFIG_PATH, JSON.stringify(map, null, 2));
-  } catch (err) {
-    console.error('[evolve] failed to register preview route:', err);
-  }
-}
+function getOrAssignBranchPort(branch: string, repoRoot: string): number {
+  const { execFileSync } = require('child_process') as typeof import('child_process');
 
-/**
- * Removes a sessionId entry from proxy-previews.json when the preview server
- * stops. No-op if REVERSE_PROXY_PORT is not set.
- */
-function unregisterPreviewRoute(sessionId: string): void {
-  if (!process.env.REVERSE_PROXY_PORT) return;
+  // Return existing assignment if present.
   try {
-    let map: Record<string, number> = {};
-    try { map = JSON.parse(fs.readFileSync(PREVIEWS_CONFIG_PATH, 'utf8')); } catch { /* missing */ }
-    delete map[sessionId];
-    fs.writeFileSync(PREVIEWS_CONFIG_PATH, JSON.stringify(map, null, 2));
+    const out = execFileSync('git', ['config', '--get', `branch.${branch}.port`], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    if (out) return parseInt(out, 10);
+  } catch { /* not set yet */ }
+
+  // Collect all currently assigned ports to avoid conflicts.
+  const assigned = new Set<number>();
+  try {
+    const out = execFileSync('git', ['config', '--get-regexp', 'branch\\..*\\.port'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    for (const line of out.trim().split('\n')) {
+      const m = line.match(/\s+(\d+)$/);
+      if (m) assigned.add(parseInt(m[1], 10));
+    }
+  } catch { /* no ports assigned yet */ }
+
+  // Assign the next available port starting from 3001.
+  let port = 3001;
+  while (assigned.has(port)) port++;
+
+  try {
+    execFileSync('git', ['config', `branch.${branch}.port`, String(port)], {
+      cwd: repoRoot,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
   } catch (err) {
-    console.error('[evolve] failed to unregister preview route:', err);
+    console.error(`[evolve] failed to assign port ${port} to branch ${branch}:`, err);
   }
+
+  return port;
 }
 
 // ─── In-memory dev server registry ───────────────────────────────────────────
@@ -361,6 +375,12 @@ export async function startLocalEvolve(
     await runGit(['config', `branch.${session.branch}.parent`, parentBranch], repoRoot);
     await runGit(['config', `branch.${session.branch}.sessionId`, session.id], repoRoot);
 
+    // Assign an ephemeral port to this branch in git config (idempotent).
+    // The port is stable for the lifetime of the branch and is reused if the
+    // server restarts. Preview and production servers both use this port.
+    session.port = getOrAssignBranchPort(session.branch, repoRoot);
+    await persist();
+
     // Mark done by replacing the pending item
     session.progressText = session.progressText.replace(
       `- [ ] ${worktreeLabel}…`,
@@ -592,38 +612,30 @@ export async function startLocalEvolve(
       await persist();
     }
 
-    // Step 6 — Start Next.js dev server and detect the port from its output.
-    // We let Next.js pick its own port (defaulting to 3000, or the next available
-    // port if 3000 is busy) rather than pre-finding a free port ourselves. This
-    // avoids a race condition between our port check and Next.js binding. We parse
-    // two possible output patterns to discover which port was chosen:
-    //   "- Local:        http://localhost:3002"
-    //   "⚠ Port 3000 is in use by process 85352, using available port 3002 instead."
+    // Step 6 — Start Next.js dev server on the branch's pre-assigned port.
+    // The port was assigned in git config (branch.{branch}.port) so it is
+    // stable across restarts and consistent with the proxy's routing table.
     session.status = 'ready';
     session.devServerStatus = 'starting';
     appendProgress(session, `\n### 🚀 Starting preview server…\n\n`);
     await persist();
 
     await new Promise<void>((resolve, reject) => {
-      // omit the PORT env var so Next.js can pick an available port
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { PORT, ...envWithoutPort } = process.env;
-      // When the reverse proxy is running, serve the preview at /preview/{sessionId}
+      // When the reverse proxy is running, serve the preview at /preview/{branchName}
       // so the proxy can route to it without exposing the raw port.
       const proxyPort = process.env.REVERSE_PROXY_PORT;
-      const basePath = proxyPort ? `/preview/${session.id}` : undefined;
+      const basePath = proxyPort ? `/preview/${session.branch}` : undefined;
       const proc = spawn('bun', ['run', 'dev'], {
         cwd: session.worktreePath,
         env: {
-          ...envWithoutPort,
+          ...process.env,
           NODE_ENV: 'development',
+          PORT: String(session.port),
           ...(basePath ? { NEXT_BASE_PATH: basePath } : {}),
         },
-        // detached=true creates a new process group so we can kill the entire tree
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
-      // unref so this child doesn't prevent the parent event loop from exiting
       proc.unref();
       devServerProcess = proc;
       activeDevServerProcesses.set(session.id, proc);
@@ -632,23 +644,11 @@ export async function startLocalEvolve(
         const text = d.toString();
         appendProgress(session, text);
 
-        // Parse the port from Next.js output if not yet known.
-        if (session.port === null) {
-          const portMatch =
-            text.match(/localhost:(\d+)/) ??
-            text.match(/using available port (\d+) instead/i);
-          if (portMatch) {
-            session.port = parseInt(portMatch[1], 10);
-          }
-        }
-
-        // Next.js 16 prints "Ready" when the dev server is up
-        if (!session.previewUrl && session.port !== null && text.includes('Ready')) {
+        // Next.js 16 prints "Ready" when the dev server is up.
+        if (!session.previewUrl && text.includes('Ready')) {
           if (proxyPort) {
-            // Route through the reverse proxy at /preview/{sessionId}
             const portSuffix = proxyPort === '80' ? '' : `:${proxyPort}`;
-            session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.id}`;
-            registerPreviewRoute(session.id, session.port);
+            session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.branch}`;
           } else {
             session.previewUrl = `http://${publicHostname}:${session.port}`;
           }
@@ -656,8 +656,6 @@ export async function startLocalEvolve(
           void persist();
           resolve();
         } else if (session.devServerStatus === 'running') {
-          // Keep persisting dev server output after ready so it's visible in the
-          // session log and can help debug issues (e.g. git/request errors).
           void persist();
         }
       };
@@ -667,7 +665,6 @@ export async function startLocalEvolve(
       proc.on('error', (err) => reject(new Error(`Dev server spawn failed: ${err.message}`)));
       proc.on('close', (code) => {
         activeDevServerProcesses.delete(session.id);
-        unregisterPreviewRoute(session.id);
         if (session.devServerStatus !== 'running') {
           reject(new Error(`Dev server exited (code ${code ?? 'unknown'}) before becoming ready`));
           return;
@@ -1012,14 +1009,11 @@ export async function restartDevServerInWorktree(
   try {
     appendProgress(session, `\n### 🔄 Restarting preview server…\n\n`);
 
-    // Save the old port so we can pass it to the new process and kill any
-    // existing listener. Reset session.port to null now so that
-    // inferDevServerStatus returns 'starting' (via the process map) rather
-    // than 'disconnected' (via lsof) during the restart window.
+    // Reset previewUrl so inferDevServerStatus returns 'starting' (via the
+    // process map) rather than 'disconnected' (via lsof) during the restart window.
+    // session.port is kept — it is the stable branch port from git config.
     const oldPort = session.port;
-    session.port = null;
     session.previewUrl = null;
-    unregisterPreviewRoute(session.id);
     await persist();
 
     // Kill the existing dev server process group. Turbopack spawns worker processes
@@ -1056,15 +1050,15 @@ export async function restartDevServerInWorktree(
     session.devServerStatus = 'starting';
 
     await new Promise<void>((resolve, reject) => {
-      // Pass PORT so Next.js reuses the same port rather than hunting for a free one.
-      const { PORT: _omit, ...envWithoutPort } = process.env;
-      // When the reverse proxy is running, serve the preview at /preview/{sessionId}.
+      // When the reverse proxy is running, serve the preview at /preview/{branchName}.
       const proxyPort = process.env.REVERSE_PROXY_PORT;
-      const basePath = proxyPort ? `/preview/${session.id}` : undefined;
-      const env: NodeJS.ProcessEnv =
-        oldPort !== null
-          ? { ...envWithoutPort, NODE_ENV: 'development', PORT: String(oldPort), ...(basePath ? { NEXT_BASE_PATH: basePath } : {}) }
-          : { ...envWithoutPort, NODE_ENV: 'development', ...(basePath ? { NEXT_BASE_PATH: basePath } : {}) };
+      const basePath = proxyPort ? `/preview/${session.branch}` : undefined;
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        NODE_ENV: 'development',
+        PORT: String(session.port),
+        ...(basePath ? { NEXT_BASE_PATH: basePath } : {}),
+      };
 
       const proc = spawn('bun', ['run', 'dev'], {
         cwd: session.worktreePath,
@@ -1079,21 +1073,10 @@ export async function restartDevServerInWorktree(
         const text = d.toString();
         appendProgress(session, text);
 
-        // Re-detect port in case it changed (e.g. original port was reclaimed).
-        if (session.port === null) {
-          const portMatch =
-            text.match(/localhost:(\d+)/) ??
-            text.match(/using available port (\d+) instead/i);
-          if (portMatch) {
-            session.port = parseInt(portMatch[1], 10);
-          }
-        }
-
-        if (!session.previewUrl && session.port !== null && text.includes('Ready')) {
+        if (!session.previewUrl && text.includes('Ready')) {
           if (proxyPort) {
             const portSuffix = proxyPort === '80' ? '' : `:${proxyPort}`;
-            session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.id}`;
-            registerPreviewRoute(session.id, session.port);
+            session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.branch}`;
           } else {
             session.previewUrl = `http://${publicHostname}:${session.port}`;
           }
@@ -1101,8 +1084,6 @@ export async function restartDevServerInWorktree(
           void persist();
           resolve();
         } else if (session.devServerStatus === 'running') {
-          // Keep persisting dev server output after ready so it's visible in the
-          // session log and can help debug issues (e.g. git/request errors).
           void persist();
         }
       };
@@ -1112,7 +1093,6 @@ export async function restartDevServerInWorktree(
       proc.on('error', (err) => reject(new Error(`Dev server spawn failed: ${err.message}`)));
       proc.on('close', (code) => {
         activeDevServerProcesses.delete(session.id);
-        unregisterPreviewRoute(session.id);
         if (session.devServerStatus !== 'running') {
           reject(new Error(`Dev server exited (code ${code ?? 'unknown'}) before becoming ready`));
           return;

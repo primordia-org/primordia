@@ -44,14 +44,6 @@ else
   echo "  Production slot exists: ${CURRENT_LINK} -> $(readlink "${CURRENT_LINK}")"
 fi
 
-# Create initial proxy upstream config if it doesn't exist.
-# The app service will overwrite this with the actual port on startup.
-PROXY_CONFIG="${WORKTREES_DIR}/proxy-upstream.json"
-if [[ ! -f "${PROXY_CONFIG}" ]]; then
-  echo '{"port":3001}' > "${PROXY_CONFIG}"
-  echo "  Created proxy config: ${PROXY_CONFIG}"
-fi
-
 # Kill any legacy nohup process so we don't double-run
 if [[ -f "$HOME/primordia.pid" ]]; then
   OLD_PID=$(cat "$HOME/primordia.pid" 2>/dev/null || true)

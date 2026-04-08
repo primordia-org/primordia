@@ -11,14 +11,14 @@
 //              1. bun install --frozen-lockfile in the session worktree
 //              2. Create merge commit via git plumbing (no working-tree writes)
 //              3. Detach the session worktree HEAD onto the merge commit
-//              4. Start new prod server on a free port; health-check it (keep it running)
+//              4. Start new prod server on branch's pre-assigned port (git config); health-check it
 //              5. Copy production DB into new slot (VACUUM INTO — atomic snapshot)
 //              6. Atomically swap the 'current' symlink to the session worktree
 //              7. Clean up old production slot (if it was a worktree, not the main repo)
 //              8. Delete the now-orphaned branch ref
 //              9. Persist "accepted" status + final progress log to DB
 //             10. Final VACUUM INTO new slot DB (captures complete accepted state)
-//             11. Update proxy-upstream.json → proxy routes to new server; SIGTERM old server
+//             11. Update branch.{parentBranch}.port in git config → proxy routes to new server; SIGTERM old server
 //
 //            LEGACY (local dev, NODE_ENV !== 'production'):
 //              git checkout → stash → merge → stash-pop → bun install → worktree remove
@@ -26,7 +26,7 @@
 //   reject — kills the preview dev server, removes the worktree and branch
 //            without merging, updates the session status to "rejected".
 
-import { execSync, spawn } from 'child_process';
+import { execSync, execFileSync, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
@@ -202,10 +202,23 @@ async function blueGreenAccept(
     ? path.dirname(path.resolve(worktreePath, gitCommonResult.stdout.trim()))
     : path.resolve(repoRoot); // fallback: assume repoRoot is the main repo
 
-  // Step 4a: Start the new prod server on a free port and health-check it.
-  // The server stays running — traffic will be routed to it after the symlink swap.
+  // Step 4a: Start the new prod server on the branch's pre-assigned port.
+  // The preview dev server was already killed in the POST handler before
+  // runAcceptAsync was called, so this port is free by the time we reach here.
   await onStep('- Health-checking new slot…\n');
-  const newProdPort = await findFreePort();
+  let newProdPort: number;
+  try {
+    const portOut = execFileSync('git', ['config', '--get', `branch.${branch}.port`], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    newProdPort = parseInt(portOut, 10);
+    if (!newProdPort) throw new Error('empty port');
+  } catch {
+    // Fallback: find a free port (e.g. migration script hasn't run yet)
+    newProdPort = await findFreePort();
+  }
   const newServer = spawn('bun', ['run', 'start'], {
     cwd: path.resolve(worktreePath),
     env: { ...process.env, PORT: String(newProdPort), HOSTNAME: '0.0.0.0' },
@@ -242,13 +255,16 @@ async function blueGreenAccept(
     return { ok: false, error: `New slot failed health check: ${healthError ?? 'server did not respond'}` };
   }
 
-  // Read old upstream port from proxy config so we can kill it after the swap.
-  const proxyConfigPath = path.join(path.dirname(path.resolve(worktreePath)), 'proxy-upstream.json');
+  // Read the old upstream port from git config (the parent branch's current port).
   let oldUpstreamPort: number | null = null;
   try {
-    const cfg = JSON.parse(fs.readFileSync(proxyConfigPath, 'utf8')) as { port: number };
-    if (typeof cfg.port === 'number') oldUpstreamPort = cfg.port;
-  } catch { /* proxy config not yet written */ }
+    const portOut = execFileSync('git', ['config', '--get', `branch.${parentBranch}.port`], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    if (portOut) oldUpstreamPort = parseInt(portOut, 10);
+  } catch { /* branch port not yet assigned */ }
 
   // Step 4b: Copy the production database into the new slot via VACUUM INTO —
   // an atomic, consistent snapshot safe to take while the live server writes.
@@ -323,8 +339,8 @@ async function blueGreenAccept(
 /**
  * Activates the new production slot after all DB writes are complete.
  *
- * If REVERSE_PROXY_PORT is set (proxy in use): atomically updates
- * proxy-upstream.json so the reverse proxy routes to the new server, then
+ * If REVERSE_PROXY_PORT is set (proxy in use): updates branch.{parentBranch}.port
+ * in git config so the reverse proxy routes to the new server, then
  * gracefully kills the old server via lsof on its former port.
  *
  * Falls back to `sudo systemctl restart primordia` when the proxy is not
@@ -335,18 +351,19 @@ function scheduleSlotActivation(
   worktreePath: string,
   newProdPort: number | null,
   oldUpstreamPort: number | null,
+  parentBranch: string,
+  repoRoot: string,
 ): void {
   const useProxy = !!process.env.REVERSE_PROXY_PORT && newProdPort !== null;
 
   if (useProxy) {
-    const proxyConfigPath = path.join(
-      path.dirname(path.resolve(worktreePath)),
-      'proxy-upstream.json',
-    );
+    // Update git config so the proxy discovers the new port immediately via
+    // its fs.watch on the git config file.
     try {
-      const tmp = proxyConfigPath + '.tmp';
-      fs.writeFileSync(tmp, JSON.stringify({ port: newProdPort }));
-      fs.renameSync(tmp, proxyConfigPath);
+      execFileSync('git', ['config', `branch.${parentBranch}.port`, String(newProdPort)], {
+        cwd: repoRoot,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
     } catch { /* best-effort */ }
 
     // Give the proxy ~500 ms to pick up the new config, then kill the old server.
@@ -549,7 +566,7 @@ async function retryAcceptAfterFix(
   if (isProduction && bgAcceptResult && bgAcceptResult.ok) {
     await appendToProgress(sessionId, '- Switching traffic to new slot…\n');
     try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
-    scheduleSlotActivation(worktreePath, bgAcceptResult.newProdPort, bgAcceptResult.oldUpstreamPort);
+    scheduleSlotActivation(worktreePath, bgAcceptResult.newProdPort, bgAcceptResult.oldUpstreamPort, parentBranch, repoRoot);
   }
 }
 
@@ -746,7 +763,7 @@ async function runAcceptAsync(
     if (isProduction && bgAcceptResult && bgAcceptResult.ok) {
       await step('- Switching traffic to new slot…\n');
       try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
-      scheduleSlotActivation(worktreePath, bgAcceptResult.newProdPort, bgAcceptResult.oldUpstreamPort);
+      scheduleSlotActivation(worktreePath, bgAcceptResult.newProdPort, bgAcceptResult.oldUpstreamPort, parentBranch, repoRoot);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

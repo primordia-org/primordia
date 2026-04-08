@@ -2,49 +2,39 @@
 // Lightweight HTTP reverse proxy for zero-downtime blue/green deploys.
 //
 // Listens on REVERSE_PROXY_PORT (default 3000) and forwards all traffic to
-// the upstream port defined in proxy-upstream.json in the primordia-worktrees
-// directory. The upstream port is updated atomically during accepts, so traffic
-// switches to the new production server with no dropped connections.
+// the upstream port stored in git config as branch.{currentBranch}.port for
+// the branch checked out in the primordia-worktrees/current slot.
+//
+// Preview server routing: requests to /preview/{branchName}/... are routed to
+// the port stored as branch.{branchName}.port in git config.
+//
+// This approach eliminates the need for proxy-upstream.json and
+// proxy-previews.json entirely — the single source of truth is git config,
+// which is updated atomically during blue/green accepts.
 
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as stream from 'stream';
+import { execFileSync } from 'child_process';
 
 // Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
-// These are connection-specific and meaningful only for a single transport link.
 const HOP_BY_HOP = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'proxy-connection', 'te', 'trailers',
 ]);
 
-/**
- * Strip hop-by-hop headers from a headers object before forwarding to upstream.
- * Also strips any headers named in the Connection header's value, which marks
- * additional per-hop headers specific to this connection.
- *
- * NOTE: transfer-encoding is intentionally NOT stripped here. Node.js HTTP
- * already decodes chunked bodies and will re-encode on the outgoing side; the
- * header value ends up accurate without any special handling.
- *
- * NOTE: upgrade is intentionally NOT stripped here. Non-upgrade requests don't
- * carry this header, and the upgrade path uses a separate handler that forwards
- * all WebSocket negotiation headers verbatim.
- */
 function forwardHeaders(
   incoming: http.IncomingMessage,
   extra: Record<string, string>,
 ): http.OutgoingHttpHeaders {
   const raw = incoming.headers;
-
-  // Collect any per-connection header names declared in the Connection value.
   const connVal = raw['connection'];
   const perConn = new Set(
     typeof connVal === 'string'
       ? connVal.split(',').map((s) => s.trim().toLowerCase())
       : [],
   );
-
   const out: http.OutgoingHttpHeaders = {};
   for (const [key, val] of Object.entries(raw)) {
     const lc = key.toLowerCase();
@@ -52,92 +42,123 @@ function forwardHeaders(
       out[key] = val;
     }
   }
-
-  // Set x-forwarded-* headers. x-forwarded-host lets upstream reconstruct the
-  // public URL (used by the exe.dev SSO route for redirect generation).
   const host = raw['host'];
   if (host && !out['x-forwarded-host']) {
     out['x-forwarded-host'] = host;
   }
-
   return { ...out, ...extra };
 }
 
 const LISTEN_PORT = parseInt(process.env.REVERSE_PROXY_PORT ?? '3000', 10);
 const WORKTREES_DIR =
   process.env.PRIMORDIA_WORKTREES_DIR ?? '/home/exedev/primordia-worktrees';
-const CONFIG_PATH = path.join(WORKTREES_DIR, 'proxy-upstream.json');
-const PREVIEWS_CONFIG_PATH = path.join(WORKTREES_DIR, 'proxy-previews.json');
+const CURRENT_SYMLINK = path.join(WORKTREES_DIR, 'current');
 
 let upstreamPort = 3001;
+/** Cache of branch name → port for fast preview lookups. */
+let portCache: Record<string, number> = {};
+/** Path to the git config file being watched. */
+let watchedConfigPath: string | null = null;
 
-function readConfig(): void {
+/** Returns the resolved path of the current production worktree. */
+function getCurrentWorktreePath(): string | null {
   try {
-    const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
-    const parsed = JSON.parse(raw) as { port: number };
-    if (typeof parsed.port === 'number' && parsed.port > 0 && parsed.port !== upstreamPort) {
-      console.log(`[proxy] upstream port: ${upstreamPort} → ${parsed.port}`);
-      upstreamPort = parsed.port;
+    return fs.realpathSync(CURRENT_SYMLINK);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns the path to the shared git config file for the repo.
+ * Works whether cwd is the main repo or a worktree.
+ */
+function findGitConfigPath(cwd: string): string | null {
+  try {
+    const commonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    return path.resolve(cwd, commonDir, 'config');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Re-reads all branch ports from git config and updates the cache.
+ * Also updates the upstream port based on the current branch.
+ */
+function readAllPorts(): void {
+  const worktreePath = getCurrentWorktreePath();
+  if (!worktreePath) return;
+
+  // Start watching the git config file if not already doing so.
+  if (!watchedConfigPath) {
+    const cfgPath = findGitConfigPath(worktreePath);
+    if (cfgPath) {
+      watchedConfigPath = cfgPath;
+      watchGitConfig(cfgPath);
+    }
+  }
+
+  try {
+    const out = execFileSync('git', ['config', '--get-regexp', 'branch\\..*\\.port'], {
+      cwd: worktreePath,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const cache: Record<string, number> = {};
+    for (const line of out.trim().split('\n')) {
+      if (!line) continue;
+      const m = line.match(/^branch\.(.+)\.port\s+(\d+)$/);
+      if (m) cache[m[1]] = parseInt(m[2], 10);
+    }
+    portCache = cache;
+  } catch {
+    // git config --get-regexp exits non-zero when no keys match — normal on first run
+  }
+
+  // Determine which branch is currently live and update upstream port.
+  try {
+    const branch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+      cwd: worktreePath,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    const port = portCache[branch];
+    if (port && port !== upstreamPort) {
+      console.log(`[proxy] upstream port: ${upstreamPort} → ${port} (branch: ${branch})`);
+      upstreamPort = port;
     }
   } catch {
-    // Config not yet written — keep current value
+    // Detached HEAD — keep current upstream port
   }
 }
 
-readConfig();
-
-// Watch config file for changes; retry until the file exists
-function watchConfig(): void {
+function watchGitConfig(configPath: string): void {
   try {
-    fs.watch(CONFIG_PATH, () => setTimeout(readConfig, 50));
+    fs.watch(configPath, () => setTimeout(readAllPorts, 50));
   } catch {
-    setTimeout(watchConfig, 1000);
+    setTimeout(() => watchGitConfig(configPath), 1000);
   }
 }
-watchConfig();
+
+readAllPorts();
 
 // Safety-net poll every 5 s in case fs.watch misses an event
-setInterval(readConfig, 5000);
-
-// ─── Preview server routing ───────────────────────────────────────────────────
-// proxy-previews.json maps sessionId → port for active preview dev servers.
-// Requests to /preview/{sessionId}/... are routed to the corresponding port.
-
-/** Maps session IDs to their active preview server ports. */
-let previewPortMap: Record<string, number> = {};
-
-function readPreviewsConfig(): void {
-  try {
-    const raw = fs.readFileSync(PREVIEWS_CONFIG_PATH, 'utf8');
-    previewPortMap = JSON.parse(raw) as Record<string, number>;
-  } catch {
-    // File not yet written — treat as empty
-    previewPortMap = {};
-  }
-}
-
-readPreviewsConfig();
-
-function watchPreviewsConfig(): void {
-  try {
-    fs.watch(PREVIEWS_CONFIG_PATH, () => setTimeout(readPreviewsConfig, 50));
-  } catch {
-    setTimeout(watchPreviewsConfig, 1000);
-  }
-}
-watchPreviewsConfig();
-
-setInterval(readPreviewsConfig, 5000);
+setInterval(readAllPorts, 5000);
 
 /**
  * Resolves the target port for a request.
- * Requests matching /preview/{sessionId} are routed to the corresponding
- * preview server; everything else goes to the main upstream.
+ * Requests matching /preview/{branchName} are routed to that branch's port;
+ * everything else goes to the main upstream.
  */
 function resolveTargetPort(urlPath: string): number {
   const previewMatch = urlPath.match(/^\/preview\/([^/?#]+)/);
   if (previewMatch) {
-    const port = previewPortMap[previewMatch[1]];
+    const port = portCache[previewMatch[1]];
     if (port) return port;
   }
   return upstreamPort;
@@ -173,12 +194,7 @@ const server = http.createServer((clientReq, clientRes) => {
   clientReq.pipe(upstreamReq);
 });
 
-// Handle WebSocket upgrade requests (required for Next.js HMR in dev mode).
-// All WebSocket negotiation headers (Upgrade, Connection, Sec-WebSocket-*) are
-// forwarded verbatim — hop-by-hop stripping is intentionally skipped here because
-// these headers are required by the WebSocket handshake protocol (RFC 6455).
 server.on('upgrade', (clientReq: http.IncomingMessage, clientSocket: stream.Duplex, head: Buffer) => {
-  // Guard against client disconnect before the upstream 101 arrives.
   clientSocket.on('error', (err) => {
     console.error(`[proxy] client socket error during WS upgrade:`, err.message);
   });
@@ -200,7 +216,6 @@ server.on('upgrade', (clientReq: http.IncomingMessage, clientSocket: stream.Dupl
   const upstreamReq = http.request(options);
 
   upstreamReq.on('upgrade', (upstreamRes: http.IncomingMessage, upstreamSocket: stream.Duplex, upstreamHead: Buffer) => {
-    // Forward the 101 Switching Protocols response to the client.
     let responseHead = 'HTTP/1.1 101 Switching Protocols\r\n';
     for (const [key, val] of Object.entries(upstreamRes.headers)) {
       const values = Array.isArray(val) ? val : [val];
@@ -209,10 +224,6 @@ server.on('upgrade', (clientReq: http.IncomingMessage, clientSocket: stream.Dupl
     responseHead += '\r\n';
     clientSocket.write(responseHead);
 
-    // If either side buffered bytes in the same TCP packet as the upgrade
-    // handshake, replay them into the correct socket before piping starts.
-    // upstreamHead = bytes the upstream sent after its 101 → goes to clientSocket.
-    // head = bytes the client sent after its Upgrade request → goes to upstreamSocket.
     if (upstreamHead && upstreamHead.length > 0) clientSocket.unshift(upstreamHead);
     if (head && head.length > 0) upstreamSocket.unshift(head);
 
@@ -233,9 +244,9 @@ server.on('upgrade', (clientReq: http.IncomingMessage, clientSocket: stream.Dupl
 
 server.listen(LISTEN_PORT, '0.0.0.0', () => {
   console.log(
-    `[proxy] listening on :${LISTEN_PORT} → upstream :${upstreamPort} (config: ${CONFIG_PATH})`,
+    `[proxy] listening on :${LISTEN_PORT} → upstream :${upstreamPort} (git config)`,
   );
-  console.log(`[proxy] preview routes: ${PREVIEWS_CONFIG_PATH}`);
+  console.log(`[proxy] worktrees: ${WORKTREES_DIR}`);
 });
 
 process.on('SIGTERM', () => {

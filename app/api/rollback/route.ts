@@ -137,14 +137,23 @@ export async function POST() {
         s.on('error', reject);
       });
 
-      const worktreesDir = path.dirname(currentSymlink);
-      const proxyConfigPath = path.join(worktreesDir, 'proxy-upstream.json');
-
+      // Read old upstream port from git config (current branch's assigned port).
       let oldUpstreamPort: number | null = null;
+      let currentBranchName: string | null = null;
       try {
-        const cfg = JSON.parse(fs.readFileSync(proxyConfigPath, 'utf8')) as { port: number };
-        if (typeof cfg.port === 'number') oldUpstreamPort = cfg.port;
-      } catch { /* proxy config not yet written */ }
+        const currentPath = path.resolve(fs.readlinkSync(currentSymlink));
+        currentBranchName = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+          cwd: currentPath,
+          encoding: 'utf8',
+        }).stdout.trim() || null;
+        if (currentBranchName) {
+          const portOut = spawnSync('git', ['config', '--get', `branch.${currentBranchName}.port`], {
+            cwd: currentPath,
+            encoding: 'utf8',
+          }).stdout.trim();
+          if (portOut) oldUpstreamPort = parseInt(portOut, 10);
+        }
+      } catch { /* best-effort */ }
 
       const newServer = spawn('bun', ['run', 'start'], {
         cwd: previousTarget,
@@ -176,11 +185,18 @@ export async function POST() {
         return;
       }
 
-      // Atomically update proxy config — traffic switches here
+      // Update git config so the proxy discovers the new port immediately.
       try {
-        const tmp = proxyConfigPath + '.tmp';
-        fs.writeFileSync(tmp, JSON.stringify({ port: freePort }));
-        fs.renameSync(tmp, proxyConfigPath);
+        const rolledBackPath = path.resolve(fs.readlinkSync(currentSymlink));
+        const branch = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+          cwd: rolledBackPath,
+          encoding: 'utf8',
+        }).stdout.trim();
+        if (branch) {
+          spawnSync('git', ['config', `branch.${branch}.port`, String(freePort)], {
+            cwd: rolledBackPath,
+          });
+        }
       } catch { /* best-effort */ }
 
       // Give the proxy ~500 ms to pick up the config, then kill the old server

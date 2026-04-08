@@ -1,25 +1,39 @@
-# Fix proxy-upstream.json corrupted by systemd `%s` specifier
+# Eliminate proxy JSON config files; store ports in git config
 
 ## What changed
 
-`scripts/primordia.service` — changed `%s` to `%%s` in the `ExecStartPre` printf format string.
+Replaced `proxy-upstream.json` and `proxy-previews.json` with per-branch port
+assignments stored directly in git config (`branch.{name}.port`).
+
+- `scripts/reverse-proxy.ts` — now reads upstream port and preview ports from git
+  config instead of JSON files; watches the git config file for instant cutover
+- `lib/evolve-sessions.ts` — preview dev servers start on their branch's pre-assigned
+  port; preview URLs now use branch name (`/preview/{branchName}`) instead of
+  session ID
+- `app/api/evolve/manage/route.ts` — blue/green accept uses the branch's assigned port
+  instead of a random free port; updates git config instead of proxy-upstream.json
+- `app/api/rollback/route.ts` — reads/writes port from git config instead of
+  proxy-upstream.json
+- `scripts/primordia.service` — removed `ExecStartPre` script that wrote
+  proxy-upstream.json; PORT is now read from git config at service startup
+- `scripts/install-service.sh` — removed proxy-upstream.json bootstrap
+- `scripts/assign-branch-ports.sh` (new) — idempotent migration script that assigns
+  ephemeral ports to all existing local branches
 
 ## Why
 
-In systemd unit files, `%s` is a built-in specifier that expands to the shell of the service user (e.g. `/usr/bin/bash`). This expansion happens before the quoted argument is passed to bash, so the `printf` format string:
+`proxy-upstream.json` was being corrupted by systemd: the `%s` format specifier in
+the `ExecStartPre` printf command was expanded by systemd to `/usr/bin/bash` before
+being passed to bash, producing `{port:/usr/bin/bash}` instead of valid JSON. The
+escape fix (`%%s`) only partially addressed the root cause.
 
-```
-printf "{\"port\":%s}\\n" "${PORT:-3001}"
-```
+The deeper issue: port configuration was split across an ephemeral JSON file written
+at service startup, another JSON file written when preview servers started, and the
+systemd `PORT=` environment variable. Any crash or race between these writes left the
+proxy with a stale or missing config.
 
-was being rewritten by systemd to:
-
-```
-printf "{\"port\":/usr/bin/bash}\\n" "${PORT:-3001}"
-```
-
-causing `proxy-upstream.json` to contain `{port:/usr/bin/bash}` instead of valid JSON like `{"port":3001}`. The reverse proxy (`scripts/reverse-proxy.ts`) then failed to parse the file and silently kept its default port, breaking traffic routing after a service restart.
-
-## Fix
-
-Escaping the percent sign as `%%s` causes systemd to emit a literal `%s` after specifier processing, so `printf` receives the correct format string and writes valid JSON.
+The new design stores each branch's port once in git config (a persistent, atomic
+key-value store already tracking the repo). The proxy watches the git config file
+directly via `fs.watch` for immediate cutover on accepts, with a 5 s poll fallback.
+The service reads its own port from git config at startup, with no intermediate file
+to corrupt.
