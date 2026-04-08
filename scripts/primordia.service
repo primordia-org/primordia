@@ -10,7 +10,7 @@ EnvironmentFile=/home/exedev/primordia-worktrees/current/.env.local
 Environment=HOSTNAME=0.0.0.0
 Environment=PORT=3001
 Environment=PRIMORDIA_WORKTREES_DIR=/home/exedev/primordia-worktrees
-ExecStartPre=/bin/bash -c 'printf "{\"port\":%s}\\n" "${PORT:-3001}" > "${PRIMORDIA_WORKTREES_DIR:-/home/exedev/primordia-worktrees}/proxy-upstream.json"'
+ExecStartPre=/bin/bash -c 'printf "{\"port\":%%s}\\n" "${PORT:-3001}" > "${PRIMORDIA_WORKTREES_DIR:-/home/exedev/primordia-worktrees}/proxy-upstream.json"'
 ExecStart=/home/exedev/.bun/bin/bun run start
 Restart=on-failure
 RestartSec=5
