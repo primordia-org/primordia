@@ -5,7 +5,7 @@
 Introduced a persistent HTTP reverse proxy (`scripts/reverse-proxy.ts`) that sits in front of the Next.js production server and enables true zero-downtime deploys.
 
 **New components:**
-- `scripts/reverse-proxy.ts` — lightweight Node.js HTTP proxy; reads upstream port from `primordia-worktrees/proxy-upstream.json`; watches the file with `fs.watch()` and a 5s safety-net poll to pick up upstream changes atomically
+- `scripts/reverse-proxy.ts` — lightweight Node.js HTTP/WebSocket proxy; reads upstream port from `primordia-worktrees/proxy-upstream.json`; watches the file with `fs.watch()` and a 5s safety-net poll to pick up upstream changes atomically; handles WebSocket `upgrade` requests so Next.js HMR connections are tunnelled correctly
 - `scripts/primordia-proxy.service` — systemd service that keeps the proxy alive permanently, including across blue/green slot swaps
 
 **Modified deploy procedure (`app/api/evolve/manage/route.ts`):**

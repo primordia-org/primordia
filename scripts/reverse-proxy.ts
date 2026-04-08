@@ -9,6 +9,7 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as stream from 'stream';
 
 const LISTEN_PORT = parseInt(process.env.REVERSE_PROXY_PORT ?? '3000', 10);
 const WORKTREES_DIR =
@@ -72,6 +73,50 @@ const server = http.createServer((clientReq, clientRes) => {
   });
 
   clientReq.pipe(upstreamReq);
+});
+
+// Handle WebSocket upgrade requests (required for Next.js HMR)
+server.on('upgrade', (clientReq: http.IncomingMessage, clientSocket: stream.Duplex, head: Buffer) => {
+  const options: http.RequestOptions = {
+    hostname: '127.0.0.1',
+    port: upstreamPort,
+    path: clientReq.url,
+    method: clientReq.method,
+    headers: {
+      ...clientReq.headers,
+      'x-forwarded-for': clientReq.socket.remoteAddress ?? '',
+      'x-forwarded-proto': 'http',
+    },
+  };
+
+  const upstreamReq = http.request(options);
+
+  upstreamReq.on('upgrade', (upstreamRes: http.IncomingMessage, upstreamSocket: stream.Duplex, upstreamHead: Buffer) => {
+    // Forward the 101 Switching Protocols response to the client
+    let responseHead = 'HTTP/1.1 101 Switching Protocols\r\n';
+    for (const [key, val] of Object.entries(upstreamRes.headers)) {
+      const values = Array.isArray(val) ? val : [val];
+      for (const v of values) responseHead += `${key}: ${v}\r\n`;
+    }
+    responseHead += '\r\n';
+    clientSocket.write(responseHead);
+
+    if (upstreamHead && upstreamHead.length > 0) upstreamSocket.unshift(upstreamHead);
+    if (head && head.length > 0) clientSocket.unshift(head);
+
+    upstreamSocket.pipe(clientSocket);
+    clientSocket.pipe(upstreamSocket);
+
+    clientSocket.on('error', () => upstreamSocket.destroy());
+    upstreamSocket.on('error', () => clientSocket.destroy());
+  });
+
+  upstreamReq.on('error', (err) => {
+    console.error(`[proxy] WS upstream error on port ${upstreamPort}:`, err.message);
+    clientSocket.destroy();
+  });
+
+  upstreamReq.end();
 });
 
 server.listen(LISTEN_PORT, '0.0.0.0', () => {
