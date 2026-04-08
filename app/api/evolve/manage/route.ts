@@ -9,13 +9,16 @@
 //
 //            BLUE/GREEN (production, when NODE_ENV === 'production'):
 //              1. bun install --frozen-lockfile in the session worktree
-//              2. Create merge commit via git plumbing; advance parentBranch and fast-forward
-//                 the session branch ref to the same merge commit (no working-tree writes)
+//              2. No merge commit — Gate 1 guarantees session branch already contains parentBranch;
+//                 parentBranch is NOT advanced (old slot stays at its original commit for rollback).
+//                 Sibling sessions whose git config parent = parentBranch are reparented to session
+//                 branch so "Apply Updates" picks up the new production code going forward.
 //              3. Start new prod server on branch's pre-assigned port (git config); health-check it
 //              4. Copy production DB into new slot (VACUUM INTO — atomic snapshot)
 //              5. Set PROD symbolic-ref → session branch; proxy switches instantly
 //              6. Old slot kept indefinitely as registered git worktree (enables deep rollback via /admin/rollback)
-//              7. Session worktree stays checked out on the session branch; old slot keeps its branch
+//              7. Session worktree stays checked out on the session branch; old slot retains its branch
+//                 at the pre-accept commit — rollback can match it via the PROD reflog
 //              8. Persist "accepted" status + final progress log to DB
 //              9. Final VACUUM INTO new slot DB (captures complete accepted state)
 //             10. Set PROD symbolic-ref → session branch + touch git config → proxy switches; SIGTERM old server
@@ -66,50 +69,43 @@ async function appendToProgress(sessionId: string, text: string): Promise<void> 
 }
 
 /**
- * Creates a merge commit in git WITHOUT modifying any working tree.
+ * Reparents sibling evolve sessions in git config.
  *
- * Gate 1 (ancestor check) guarantees that the session branch already contains
- * all commits from parentBranch, so the branch's tree IS the correct merged
- * tree. We use git plumbing to:
- *   1. Build a merge commit object from the branch's tree with both branch tips
- *      as parents.
- *   2. Advance the parentBranch ref to the new commit.
+ * When a session branch is accepted as the new production, any other in-flight
+ * sessions whose `branch.{X}.parent` was the old parentBranch should now treat
+ * the accepted session branch as their parent.  This ensures "Apply Updates"
+ * correctly offers the new production changes to those sessions going forward.
  *
- * The production directory's files are never touched.
+ * The parentBranch ref itself is NOT advanced — leaving it at its pre-accept
+ * commit is what makes the PROD reflog hash-matching rollback work correctly.
  */
-async function createMergeCommitNoCheckout(
+function reparentSiblings(
   repoRoot: string,
   parentBranch: string,
-  branch: string,
-): Promise<{ commitHash: string } | { error: string }> {
-  const [treeRes, parentRes, branchRes] = await Promise.all([
-    runGit(['rev-parse', `${branch}^{tree}`], repoRoot),
-    runGit(['rev-parse', `refs/heads/${parentBranch}`], repoRoot),
-    runGit(['rev-parse', `refs/heads/${branch}`], repoRoot),
-  ]);
-  for (const r of [treeRes, parentRes, branchRes]) {
-    if (r.code !== 0) return { error: r.stderr };
-  }
-
-  const commitRes = await runGit(
-    [
-      'commit-tree', treeRes.stdout.trim(),
-      '-p', parentRes.stdout.trim(),
-      '-p', branchRes.stdout.trim(),
-      '-m', `chore: merge ${branch}`,
-    ],
-    repoRoot,
-  );
-  if (commitRes.code !== 0) return { error: commitRes.stderr };
-
-  const mergeCommit = commitRes.stdout.trim();
-  const updateRes = await runGit(
-    ['update-ref', `refs/heads/${parentBranch}`, mergeCommit],
-    repoRoot,
-  );
-  if (updateRes.code !== 0) return { error: updateRes.stderr };
-
-  return { commitHash: mergeCommit };
+  newParentBranch: string,
+): void {
+  try {
+    const configList = execFileSync('git', ['config', '--list'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    for (const line of configList.split('\n')) {
+      const match = line.match(/^branch\.(.+)\.parent=(.+)$/);
+      if (match && match[2] === parentBranch) {
+        const siblingBranch = match[1];
+        if (siblingBranch !== newParentBranch) {
+          try {
+            execFileSync('git', ['config', `branch.${siblingBranch}.parent`, newParentBranch], {
+              cwd: repoRoot,
+              encoding: 'utf8',
+              stdio: ['pipe', 'pipe', 'pipe'],
+            });
+          } catch { /* best-effort */ }
+        }
+      }
+    }
+  } catch { /* best-effort */ }
 }
 
 const DB_NAME = '.primordia-auth.db';
@@ -213,24 +209,14 @@ async function blueGreenAccept(
     };
   }
 
-  // Step 2: create the merge commit in git history without touching any working tree.
-  const mergeRes = await createMergeCommitNoCheckout(repoRoot, parentBranch, branch);
-  if ('error' in mergeRes) {
-    return { ok: false, error: `Failed to create merge commit: ${mergeRes.error}` };
-  }
-  const mergeCommit = mergeRes.commitHash;
-
-  // Fast-forward the session branch ref to the merge commit so the session
-  // worktree (whose HEAD is "ref: refs/heads/${branch}") lands on the merge
-  // commit without a checkout. The files are already correct (same tree —
-  // guaranteed by Gate 1). No detach is needed since we keep the branch alive.
-  const ffRes = await runGit(['update-ref', `refs/heads/${branch}`, mergeCommit], repoRoot);
-  if (ffRes.code !== 0) {
-    return { ok: false, error: `Failed to fast-forward session branch to merge commit: ${ffRes.stderr}` };
-  }
-
-  // Step 3 (old: detach HEAD) removed — the session worktree stays checked out
-  // on the session branch, which now points to the merge commit.
+  // Step 2: no merge commit — Gate 1 (ancestor check) guarantees the session
+  // branch already contains all commits from parentBranch, so it is the correct
+  // tree for production.  parentBranch is intentionally NOT advanced here:
+  // keeping the old slot's branch at its pre-accept commit is what lets the PROD
+  // reflog hash-matching rollback find it later.  Instead, reparent any sibling
+  // sessions that branched off parentBranch so their "Apply Updates" action will
+  // pull in the new production code going forward.
+  reparentSiblings(repoRoot, parentBranch, branch);
 
   // Step 4a: Start the new prod server on the branch's pre-assigned port.
   // The preview dev server was already killed in the POST handler before
@@ -317,11 +303,12 @@ async function blueGreenAccept(
 
   await onStep('- Activating new slot…\n');
 
-  // The session worktree remains checked out on the session branch (now fast-
-  // forwarded to the merge commit). The old slot retains whatever branch it had
-  // before — no detach or checkout is needed since both slots are on distinct
-  // branches. The PROD symbolic-ref is updated in scheduleSlotActivation after
-  // the DB is fully written, so the proxy switches atomically to the new slot.
+  // The session worktree remains checked out on the session branch at its own
+  // tip commit. The old slot retains its branch ref at the pre-accept commit —
+  // this is deliberate: the PROD reflog rollback matches previous PROD commit
+  // hashes against worktree HEAD hashes, so the old slot must stay at the
+  // original commit. The PROD symbolic-ref is updated in scheduleSlotActivation
+  // after the DB is fully written, so the proxy switches atomically.
 
   // The caller schedules the final VACUUM INTO + PROD update AFTER persisting
   // the "accepted" state to the DB, so the new slot's DB contains the complete
@@ -369,8 +356,18 @@ function scheduleSlotActivation(
       });
     } catch { /* best-effort */ }
 
-    // Give the proxy ~500 ms to pick up the new config, then kill the old server.
-    setTimeout(() => {
+    // Explicitly tell the proxy to re-read PROD and branch ports right now via
+    // HTTP. This is more reliable than relying solely on fs.watch, which can
+    // miss inotify events on Linux. After confirming the proxy has refreshed,
+    // give it 200 ms to update its upstream and then kill the old server.
+    void (async () => {
+      try {
+        await fetch(`http://127.0.0.1:${process.env.REVERSE_PROXY_PORT}/_proxy/refresh`, {
+          method: 'POST',
+          signal: AbortSignal.timeout(2_000),
+        });
+      } catch { /* proxy may not be running; 5-second poll will catch it */ }
+      await new Promise<void>((resolve) => setTimeout(resolve, 200));
       if (oldUpstreamPort !== null) {
         try {
           const pids = execSync(`lsof -ti tcp:${oldUpstreamPort}`, { encoding: 'utf8' })
@@ -380,7 +377,7 @@ function scheduleSlotActivation(
           }
         } catch { /* no process on that port */ }
       }
-    }, 500);
+    })();
   } else {
     // Fallback: restart the proxy (brief downtime window; proxy will start new prod server).
     setTimeout(() => {

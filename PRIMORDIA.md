@@ -226,7 +226,9 @@ User types change request on /evolve page
   → Preview link shown when status becomes "ready"
   → User clicks Accept → POST /api/evolve/manage { action: "accept" }
       → pre-accept gates: ancestor check, clean worktree, bun run typecheck, bun run build (all in session worktree)
-      → blue/green deploy (production): bun install in worktree → git commit-tree + update-ref (advances parentBranch and fast-forwards session branch to merge commit; no working-tree writes)
+      → blue/green deploy (production): bun install in worktree → session branch becomes new prod as-is (no merge commit; Gate 1 guarantees it already contains parentBranch)
+          → parentBranch ref NOT advanced — old slot stays at pre-accept commit so PROD reflog rollback can match it by hash
+          → sibling sessions whose git config parent = parentBranch are reparented to session branch (so "Apply Updates" picks up new prod)
           → session worktree stays checked out on the session branch; no detached HEAD
           → copy prod DB from old slot into new slot (preserves auth data)
           → fix .env.local symlink in new slot to point to main repo (prevents dangling link)

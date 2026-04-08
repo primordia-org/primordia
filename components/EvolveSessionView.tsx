@@ -1145,16 +1145,16 @@ export default function EvolveSessionView({
                   <p className="text-gray-300 text-sm mb-4">
                     {isProduction ? (
                       <>
-                        Accepting will make the current preview branch{" "}
+                        Accepting will make{" "}
                         <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code>{" "}
-                        the new production instance. The{" "}
+                        the new live production instance. No merge commit is created —{" "}
                         <code className="bg-gray-800 px-1 rounded">{branch ?? "main"}</code>{" "}
-                        branch will remain on the commit it is at and its worktree will remain
-                        available for future rollbacks. The{" "}
-                        <code className="bg-gray-800 px-1 rounded">main</code> branch will be
-                        updated, and the <code className="bg-gray-800 px-1 rounded">PROD</code>{" "}
-                        symbolic-ref will be set to{" "}
-                        <code className="bg-gray-800 px-1 rounded">refs/heads/{sessionBranch}</code>.
+                        stays at its current commit so the previous slot can be rolled back to. The{" "}
+                        <code className="bg-gray-800 px-1 rounded">PROD</code>{" "}
+                        symbolic-ref will switch to{" "}
+                        <code className="bg-gray-800 px-1 rounded">refs/heads/{sessionBranch}</code>
+                        , and the reverse proxy will cut traffic over with no downtime. The
+                        previous production worktree stays registered for rollback.
                       </>
                     ) : (
                       <>

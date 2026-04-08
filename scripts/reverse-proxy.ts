@@ -628,6 +628,17 @@ function handleProxyApi(
   clientRes: http.ServerResponse,
 ): void {
   const url = clientReq.url ?? '';
+
+  // POST /_proxy/refresh — force-read PROD ref and all branch ports immediately.
+  // Called by the production server after an accept to guarantee the proxy picks
+  // up the new PROD symbolic-ref even if the fs.watch inotify event was missed.
+  if (url === '/_proxy/refresh' && clientReq.method === 'POST') {
+    readAllPorts();
+    clientRes.writeHead(200, { 'content-type': 'application/json' });
+    clientRes.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
   const match = url.match(/^\/_proxy\/preview\/([^/?#]+)(?:\/([^/?#]*))?/);
   if (!match) {
     clientRes.writeHead(404, { 'content-type': 'text/plain' });
