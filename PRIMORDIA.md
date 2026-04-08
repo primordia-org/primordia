@@ -214,7 +214,7 @@ User types change request on /evolve page
       → progressText flushed to SQLite (throttled, ≤1 write/2s per session)
   → assigns ephemeral port to branch in git config (branch.{branch}.port) — idempotent, stable for branch lifetime
   → spawn: bun run dev in worktree with PORT=branch port and NEXT_BASE_PATH=/preview/{sessionId} (when REVERSE_PROXY_PORT is set)
-      → on ready: previewUrl = http://{host}:{REVERSE_PROXY_PORT}/preview/{sessionId} (proxy routes by session ID via git config)
+      → on ready: previewUrl = http://{host}/preview/{sessionId} (proxy routes by session ID via git config; port omitted — proxy is the public-facing server)
       → fallback when no proxy: NEXT_BASE_PATH unset; previewUrl = http://{host}:{port} (direct)
   → EvolveSessionView opens SSE stream to /api/evolve/stream?sessionId=...
       → GET streams delta progressText + state every 500 ms from SQLite until terminal

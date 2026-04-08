@@ -647,8 +647,7 @@ export async function startLocalEvolve(
         // Next.js 16 prints "Ready" when the dev server is up.
         if (!session.previewUrl && text.includes('Ready')) {
           if (proxyPort) {
-            const portSuffix = proxyPort === '80' ? '' : `:${proxyPort}`;
-            session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.id}`;
+            session.previewUrl = `http://${publicHostname}/preview/${session.id}`;
           } else {
             session.previewUrl = `http://${publicHostname}:${session.port}`;
           }
@@ -1075,8 +1074,7 @@ export async function restartDevServerInWorktree(
 
         if (!session.previewUrl && text.includes('Ready')) {
           if (proxyPort) {
-            const portSuffix = proxyPort === '80' ? '' : `:${proxyPort}`;
-            session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.id}`;
+            session.previewUrl = `http://${publicHostname}/preview/${session.id}`;
           } else {
             session.previewUrl = `http://${publicHostname}:${session.port}`;
           }
