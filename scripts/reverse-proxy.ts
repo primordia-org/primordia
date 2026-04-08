@@ -5,8 +5,10 @@
 // the upstream port stored in git config as branch.{currentBranch}.port for
 // the branch checked out in the primordia-worktrees/current slot.
 //
-// Preview server routing: requests to /preview/{branchName}/... are routed to
-// the port stored as branch.{branchName}.port in git config.
+// Preview server routing: requests to /preview/{sessionId}/... are routed to
+// the port associated with that session. The mapping is derived from git config:
+// each branch has branch.{name}.sessionId and branch.{name}.port entries, which
+// are combined into a sessionId → port lookup table.
 //
 // This approach eliminates the need for proxy-upstream.json and
 // proxy-previews.json entirely — the single source of truth is git config,
@@ -55,8 +57,8 @@ const WORKTREES_DIR =
 const CURRENT_SYMLINK = path.join(WORKTREES_DIR, 'current');
 
 let upstreamPort = 3001;
-/** Cache of branch name → port for fast preview lookups. */
-let portCache: Record<string, number> = {};
+/** Cache of session ID → port for fast preview lookups. */
+let sessionPortCache: Record<string, number> = {};
 /** Path to the git config file being watched. */
 let watchedConfigPath: string | null = null;
 
@@ -104,18 +106,35 @@ function readAllPorts(): void {
   }
 
   try {
-    const out = execFileSync('git', ['config', '--get-regexp', 'branch\\..*\\.port'], {
+    // Build branch → port map from git config.
+    const portOut = execFileSync('git', ['config', '--get-regexp', 'branch\\..*\\.port'], {
+      cwd: worktreePath,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const branchPort: Record<string, number> = {};
+    for (const line of portOut.trim().split('\n')) {
+      if (!line) continue;
+      const m = line.match(/^branch\.(.+)\.port\s+(\d+)$/);
+      if (m) branchPort[m[1]] = parseInt(m[2], 10);
+    }
+
+    // Build branch → sessionId map, then combine into sessionId → port.
+    const sessionOut = execFileSync('git', ['config', '--get-regexp', 'branch\\..*\\.sessionid'], {
       cwd: worktreePath,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     const cache: Record<string, number> = {};
-    for (const line of out.trim().split('\n')) {
+    for (const line of sessionOut.trim().split('\n')) {
       if (!line) continue;
-      const m = line.match(/^branch\.(.+)\.port\s+(\d+)$/);
-      if (m) cache[m[1]] = parseInt(m[2], 10);
+      const m = line.match(/^branch\.(.+)\.sessionid\s+(\S+)$/);
+      if (m) {
+        const port = branchPort[m[1]];
+        if (port) cache[m[2]] = port;
+      }
     }
-    portCache = cache;
+    sessionPortCache = cache;
   } catch {
     // git config --get-regexp exits non-zero when no keys match — normal on first run
   }
@@ -152,13 +171,13 @@ setInterval(readAllPorts, 5000);
 
 /**
  * Resolves the target port for a request.
- * Requests matching /preview/{branchName} are routed to that branch's port;
+ * Requests matching /preview/{sessionId} are routed to that session's port;
  * everything else goes to the main upstream.
  */
 function resolveTargetPort(urlPath: string): number {
   const previewMatch = urlPath.match(/^\/preview\/([^/?#]+)/);
   if (previewMatch) {
-    const port = portCache[previewMatch[1]];
+    const port = sessionPortCache[previewMatch[1]];
     if (port) return port;
   }
   return upstreamPort;

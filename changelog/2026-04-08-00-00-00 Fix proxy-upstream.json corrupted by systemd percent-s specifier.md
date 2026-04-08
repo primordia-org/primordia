@@ -6,10 +6,12 @@ Replaced `proxy-upstream.json` and `proxy-previews.json` with per-branch port
 assignments stored directly in git config (`branch.{name}.port`).
 
 - `scripts/reverse-proxy.ts` — now reads upstream port and preview ports from git
-  config instead of JSON files; watches the git config file for instant cutover
+  config instead of JSON files; watches the git config file for instant cutover;
+  preview routing uses `branch.{name}.sessionId` + `branch.{name}.port` to build a
+  sessionId → port table, routing `/preview/{sessionId}` requests correctly
 - `lib/evolve-sessions.ts` — preview dev servers start on their branch's pre-assigned
-  port; preview URLs now use branch name (`/preview/{branchName}`) instead of
-  session ID
+  port; preview URLs use session ID (`/preview/{sessionId}`) so branch names with
+  `/` slashes don't collide with path segments
 - `app/api/evolve/manage/route.ts` — blue/green accept uses the branch's assigned port
   instead of a random free port; updates git config instead of proxy-upstream.json
 - `app/api/rollback/route.ts` — reads/writes port from git config instead of

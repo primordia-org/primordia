@@ -621,10 +621,10 @@ export async function startLocalEvolve(
     await persist();
 
     await new Promise<void>((resolve, reject) => {
-      // When the reverse proxy is running, serve the preview at /preview/{branchName}
+      // When the reverse proxy is running, serve the preview at /preview/{sessionId}
       // so the proxy can route to it without exposing the raw port.
       const proxyPort = process.env.REVERSE_PROXY_PORT;
-      const basePath = proxyPort ? `/preview/${session.branch}` : undefined;
+      const basePath = proxyPort ? `/preview/${session.id}` : undefined;
       const proc = spawn('bun', ['run', 'dev'], {
         cwd: session.worktreePath,
         env: {
@@ -648,7 +648,7 @@ export async function startLocalEvolve(
         if (!session.previewUrl && text.includes('Ready')) {
           if (proxyPort) {
             const portSuffix = proxyPort === '80' ? '' : `:${proxyPort}`;
-            session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.branch}`;
+            session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.id}`;
           } else {
             session.previewUrl = `http://${publicHostname}:${session.port}`;
           }
@@ -1050,9 +1050,9 @@ export async function restartDevServerInWorktree(
     session.devServerStatus = 'starting';
 
     await new Promise<void>((resolve, reject) => {
-      // When the reverse proxy is running, serve the preview at /preview/{branchName}.
+      // When the reverse proxy is running, serve the preview at /preview/{sessionId}.
       const proxyPort = process.env.REVERSE_PROXY_PORT;
-      const basePath = proxyPort ? `/preview/${session.branch}` : undefined;
+      const basePath = proxyPort ? `/preview/${session.id}` : undefined;
       const env: NodeJS.ProcessEnv = {
         ...process.env,
         NODE_ENV: 'development',
@@ -1076,7 +1076,7 @@ export async function restartDevServerInWorktree(
         if (!session.previewUrl && text.includes('Ready')) {
           if (proxyPort) {
             const portSuffix = proxyPort === '80' ? '' : `:${proxyPort}`;
-            session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.branch}`;
+            session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.id}`;
           } else {
             session.previewUrl = `http://${publicHostname}:${session.port}`;
           }
