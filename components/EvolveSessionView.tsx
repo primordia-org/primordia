@@ -1114,7 +1114,7 @@ export default function EvolveSessionView({
             </>
           </span>
           <code className="font-mono text-amber-300/60">
-            {branch ? <>{branch} ^ </> : null}{sessionBranch}
+            {branch ? <>{branch} ▸ </> : null}{sessionBranch}
           </code>
         </div>
       </div>

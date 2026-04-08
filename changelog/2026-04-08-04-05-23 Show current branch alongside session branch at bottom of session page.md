@@ -2,10 +2,10 @@
 
 ## What changed
 
-The footer of the evolve session page (`/evolve/session/[id]`) previously showed only the session (evolve) branch name. It now also shows the current checked-out branch name, separated by a caret (`^`), in the format:
+The footer of the evolve session page (`/evolve/session/[id]`) previously showed only the session (evolve) branch name. It now also shows the current checked-out branch name, separated by a right-facing triangle (`▸`), in the format:
 
 ```
-currentBranch ^ sessionBranch
+currentBranch ▸ sessionBranch
 ```
 
 If the current branch cannot be determined (null), only the session branch name is shown (no change from before).
