@@ -287,8 +287,6 @@ interface EvolveSessionViewProps {
   initialRequest: string;
   initialProgressText: string;
   initialStatus: string;
-  /** The initial devServerStatus from the DB. */
-  initialDevServerStatus: string;
   initialPreviewUrl: string | null;
   /** The currently checked-out branch (parent). Used in confirmation copy and NavHeader. */
   branch?: string | null;
@@ -311,7 +309,6 @@ export default function EvolveSessionView({
   initialRequest,
   initialProgressText,
   initialStatus,
-  initialDevServerStatus,
   initialPreviewUrl,
   branch,
   sessionBranch,
@@ -322,8 +319,11 @@ export default function EvolveSessionView({
 }: EvolveSessionViewProps) {
   const [progressText, setProgressText] = useState(initialProgressText);
   const [status, setStatus] = useState(initialStatus);
-  const [devServerStatus, setDevServerStatus] = useState(initialDevServerStatus);
   const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl);
+  /** Status of the preview server as reported by the proxy management API. */
+  const [proxyServerStatus, setProxyServerStatus] = useState<'starting' | 'running' | 'stopped' | 'unknown'>('unknown');
+  /** Accumulated log lines from the proxy's server log SSE stream. */
+  const [serverLogs, setServerLogs] = useState<string>('');
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
   const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
@@ -346,12 +346,11 @@ export default function EvolveSessionView({
   const [upstreamSyncLoading, setUpstreamSyncLoading] = useState<"merge" | null>(null);
   const [upstreamSyncError, setUpstreamSyncError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const proxyLogsControllerRef = useRef<AbortController | null>(null);
   /** Tracks how many characters of progressText the client has received, for SSE reconnection. */
   const progressLengthRef = useRef(initialProgressText.length);
   /** Mirrors current status so the visibilitychange handler can read it without a stale closure. */
   const statusRef = useRef(initialStatus);
-  /** Mirrors current devServerStatus for the same reason. */
-  const devServerStatusRef = useRef(initialDevServerStatus);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const followupTextareaRef = useRef<HTMLTextAreaElement>(null);
   const followupFileInputRef = useRef<HTMLInputElement>(null);
@@ -397,7 +396,6 @@ export default function EvolveSessionView({
 
   // Keep refs in sync so the visibilitychange handler always has the latest values.
   useEffect(() => { statusRef.current = status; }, [status]);
-  useEffect(() => { devServerStatusRef.current = devServerStatus; }, [devServerStatus]);
 
   // Reconnect / restart streaming when the tab regains focus, in case the
   // browser paused the SSE connection while the tab was in the background.
@@ -405,13 +403,8 @@ export default function EvolveSessionView({
     function onVisibilityChange() {
       if (document.visibilityState !== "visible") return;
       const s = statusRef.current;
-      const ds = devServerStatusRef.current;
-      const isTerminal =
-        s === "accepted" ||
-        s === "rejected" ||
-        (s === "ready" &&
-          (ds === "running" || ds === "disconnected" || ds === "none"));
-      if (!isTerminal) {
+      const isTerminalStatus = s === "accepted" || s === "rejected" || s === "ready";
+      if (!isTerminalStatus) {
         void startStreaming();
       }
     }
@@ -451,7 +444,6 @@ export default function EvolveSessionView({
             const parsed = JSON.parse(raw) as {
               progressDelta?: string;
               status?: string;
-              devServerStatus?: string;
               previewUrl?: string | null;
               done?: boolean;
             };
@@ -466,7 +458,6 @@ export default function EvolveSessionView({
             if (parsed.status != null) {
               setStatus(parsed.status);
             }
-            if (parsed.devServerStatus != null) setDevServerStatus(parsed.devServerStatus);
             if ("previewUrl" in parsed) setPreviewUrl(parsed.previewUrl ?? null);
           } catch {
             // Ignore malformed SSE lines
@@ -479,17 +470,86 @@ export default function EvolveSessionView({
     }
   }
 
-  // Start streaming if the session isn't already in a terminal state
+  // Start streaming if the session isn't already in a terminal state.
   useEffect(() => {
     const alreadyTerminal =
       initialStatus === "accepted" ||
       initialStatus === "rejected" ||
-      (initialStatus === "ready" && (initialDevServerStatus === "running" || initialDevServerStatus === "disconnected" || initialDevServerStatus === "none"));
+      initialStatus === "ready";
     if (alreadyTerminal) return;
 
     void startStreaming();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]); // intentionally omit initialStatus — run once on mount
+
+  // Poll the proxy for the real-time preview server status whenever the session is ready.
+  useEffect(() => {
+    if (status !== "ready") return;
+    let cancelled = false;
+
+    async function poll() {
+      while (!cancelled) {
+        try {
+          const res = await fetch(`/_proxy/preview/${sessionId}/status`);
+          if (res.ok && !cancelled) {
+            const data = (await res.json()) as { devServerStatus?: string };
+            const s = data.devServerStatus;
+            if (s === 'starting' || s === 'running' || s === 'stopped') {
+              setProxyServerStatus(s);
+            }
+          }
+        } catch { /* network error — keep polling */ }
+        if (!cancelled) await new Promise<void>((r) => setTimeout(r, 5_000));
+      }
+    }
+
+    void poll();
+    return () => { cancelled = true; };
+  }, [sessionId, status]);
+
+  // Stream server logs from the proxy when the session is ready.
+  async function startServerLogsStream() {
+    proxyLogsControllerRef.current?.abort();
+    const controller = new AbortController();
+    proxyLogsControllerRef.current = controller;
+
+    try {
+      const res = await fetch(`/_proxy/preview/${sessionId}/logs`, { signal: controller.signal });
+      if (!res.ok || !res.body) return;
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          const raw = line.slice(6).trim();
+          if (!raw) continue;
+          try {
+            const parsed = JSON.parse(raw) as { text?: string; snapshot?: boolean; done?: boolean };
+            if (parsed.snapshot) {
+              setServerLogs(parsed.text ?? '');
+            } else if (parsed.text) {
+              setServerLogs((prev) => prev + parsed.text);
+            }
+            if (parsed.done) return;
+          } catch { /* malformed line */ }
+        }
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+    }
+  }
+
+  useEffect(() => {
+    if (status !== "ready") return;
+    void startServerLogsStream();
+    return () => { proxyLogsControllerRef.current?.abort(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, status]);
 
   // Auto-focus the follow-up textarea whenever the follow-up panel opens.
   useEffect(() => {
@@ -504,19 +564,17 @@ export default function EvolveSessionView({
     setRestartError(null);
 
     try {
-      const res = await fetch(withBasePath('/api/evolve/kill-restart'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
-      });
+      // Call the proxy management API directly — it owns the server lifecycle.
+      const res = await fetch(`/_proxy/preview/${sessionId}/restart`, { method: 'POST' });
 
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error ?? `Server error: ${res.status}`);
       }
 
-      setDevServerStatus('starting');
-      void startStreaming();
+      setProxyServerStatus('starting');
+      // Re-subscribe to server logs so the new startup output is captured.
+      void startServerLogsStream();
     } catch (err) {
       setRestartError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -709,7 +767,7 @@ export default function EvolveSessionView({
   const isTerminal =
     status === "accepted" ||
     status === "rejected" ||
-    (status === "ready" && (devServerStatus === "running" || devServerStatus === "disconnected" || devServerStatus === "none"));
+    status === "ready";
 
   /** True while the session pipeline is actively running (not yet ready for action). */
   const isClaudeRunning = status === "starting" || status === "running-claude" || status === "fixing-types";
@@ -837,6 +895,50 @@ export default function EvolveSessionView({
           </div>
         )}
 
+        {/* Preview server status + logs — shown when session is ready and proxy is managing the server */}
+        {status === "ready" && (
+          <div className="rounded-lg border border-emerald-700/50 bg-gray-900 text-sm overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-gray-800 flex items-center justify-between">
+              <span className="font-semibold text-xs text-emerald-300">🚀 Preview server</span>
+              <span className={`text-xs ${
+                proxyServerStatus === 'running' ? 'text-emerald-400' :
+                proxyServerStatus === 'starting' ? 'text-yellow-400 animate-pulse' :
+                proxyServerStatus === 'stopped' ? 'text-red-400' :
+                'text-gray-500'
+              }`}>
+                {proxyServerStatus === 'running' ? 'Running' :
+                 proxyServerStatus === 'starting' ? 'Starting…' :
+                 proxyServerStatus === 'stopped' ? 'Stopped' :
+                 'Checking…'}
+              </span>
+            </div>
+            {previewUrl && (
+              <div className="px-4 py-3 border-b border-gray-800">
+                <a
+                  href={previewUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-emerald-400 hover:text-emerald-200 underline break-all text-xs"
+                >
+                  {previewUrl}
+                </a>
+                <span className="text-gray-500 text-xs ml-2">(starts on first visit)</span>
+              </div>
+            )}
+            {serverLogs && (
+              <details className="group">
+                <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
+                  <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
+                  <span className="text-gray-500">🪵 Server logs</span>
+                </summary>
+                <div className="px-4 py-3 border-t border-gray-800">
+                  <pre className="text-xs text-gray-400 whitespace-pre-wrap font-mono overflow-x-auto max-h-64 overflow-y-auto">{serverLogs}</pre>
+                </div>
+              </details>
+            )}
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -888,16 +990,18 @@ export default function EvolveSessionView({
               >
                 {isAborting ? "Aborting…" : "⏹ Abort"}
               </button>
-            ) : status === "ready" && devServerStatus !== "starting" ? (
+            ) : status === "ready" ? (
               <button
                 type="button"
                 onClick={handleRestartServer}
-                disabled={isRestartingServer}
+                disabled={isRestartingServer || proxyServerStatus === "starting"}
                 className="text-xs text-gray-400 hover:text-gray-200 disabled:text-gray-600 transition-colors"
               >
-                {isRestartingServer
-                  ? (devServerStatus === "none" ? "Starting…" : "Restarting…")
-                  : (devServerStatus === "none" ? "▶ Start preview" : "↺ Restart preview")}
+                {isRestartingServer || proxyServerStatus === "starting"
+                  ? "Starting…"
+                  : proxyServerStatus === "running"
+                  ? "↺ Restart preview"
+                  : "▶ Start preview"}
               </button>
             ) : null}
           </div>

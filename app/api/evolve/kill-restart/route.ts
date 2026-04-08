@@ -1,20 +1,15 @@
 // app/api/evolve/kill-restart/route.ts
-// Kills any process listening on a session's port, then re-spawns bun run dev
-// in that session's worktree on the same port.
+// Delegates to the reverse proxy to kill and restart a session's preview server.
 //
 // POST
 //   Body: { sessionId: string }
 //   Returns: { ok: true }
 //
-// The actual restart runs fire-and-forget; the caller should poll
-// GET /api/evolve?sessionId=... for live status updates.
+// The proxy manages all preview server processes. This route is a thin
+// authenticated wrapper around POST /_proxy/preview/:id/restart.
 
 import { getSessionUser } from '../../../../lib/auth';
 import { getDb } from '../../../../lib/db';
-import {
-  restartDevServerInWorktree,
-  type LocalSession,
-} from '../../../../lib/evolve-sessions';
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -33,27 +28,26 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Session not found' }, { status: 404 });
   }
 
-  // Build the LocalSession object from the DB record.
-  const session: LocalSession = {
-    id: record.id,
-    branch: record.branch,
-    worktreePath: record.worktreePath,
-    status: record.status as LocalSession['status'],
-    devServerStatus: 'disconnected',
-    progressText: record.progressText,
-    port: record.port,
-    previewUrl: record.previewUrl,
-    request: record.request,
-    createdAt: record.createdAt,
-  };
+  const proxyPort = process.env.REVERSE_PROXY_PORT;
+  if (!proxyPort) {
+    return Response.json({ error: 'REVERSE_PROXY_PORT not configured' }, { status: 503 });
+  }
 
-  // Determine the public hostname for preview URLs (same logic as POST /api/evolve).
-  const fwdHost = request.headers.get('x-forwarded-host');
-  const publicHostname = fwdHost ? fwdHost.split(':')[0] : 'localhost';
-
-  // Fire-and-forget — restartDevServerInWorktree handles all state transitions
-  // and error cases internally, persisting each change to SQLite.
-  void restartDevServerInWorktree(session, process.cwd(), publicHostname);
+  try {
+    const res = await fetch(
+      `http://127.0.0.1:${proxyPort}/_proxy/preview/${body.sessionId}/restart`,
+      { method: 'POST' },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      return Response.json({ error: `Proxy error: ${text}` }, { status: res.status });
+    }
+  } catch (err) {
+    return Response.json(
+      { error: `Could not reach proxy: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 503 },
+    );
+  }
 
   return Response.json({ ok: true });
 }

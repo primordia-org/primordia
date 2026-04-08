@@ -7,22 +7,21 @@
 //   offset    — number of progressText characters the client already has (default 0)
 //
 // SSE events:
-//   data: { progressDelta: string, status: string, devServerStatus: string, previewUrl: string | null }
+//   data: { progressDelta: string, status: string, previewUrl: string | null }
 // Final event (terminal state):
-//   data: { progressDelta: string, status: string, devServerStatus: string, previewUrl: string | null, done: true }
+//   data: { progressDelta: string, status: string, previewUrl: string | null, done: true }
+//
+// Note: devServerStatus is no longer included in the SSE stream. The proxy manages
+// preview server lifecycle and exposes status via /_proxy/preview/:id/status. The
+// session page polls that endpoint separately.
 
 import { getSessionUser } from '../../../../lib/auth';
 import { getDb } from '../../../../lib/db';
-import { inferDevServerStatus } from '../../../../lib/evolve-sessions';
 
 const POLL_INTERVAL_MS = 500;
 
-function isTerminal(status: string, devServerStatus: string): boolean {
-  return (
-    status === 'accepted' ||
-    status === 'rejected' ||
-    (status === 'ready' && (devServerStatus === 'running' || devServerStatus === 'disconnected' || devServerStatus === 'none'))
-  );
+function isTerminal(status: string): boolean {
+  return status === 'accepted' || status === 'rejected' || status === 'ready';
 }
 
 export async function GET(request: Request) {
@@ -46,7 +45,6 @@ export async function GET(request: Request) {
       let lastSentOffset = offset;
       // Use sentinel values so the first iteration always sends the current state.
       let lastSentStatus = '';
-      let lastSentDevServerStatus = '';
       let lastSentPreviewUrl: string | null | undefined = undefined;
 
       const sendEvent = (data: Record<string, unknown>) => {
@@ -69,28 +67,24 @@ export async function GET(request: Request) {
             return;
           }
 
-          const devServerStatus = inferDevServerStatus(sessionId, session.port);
           const progressText = session.progressText ?? '';
           const progressDelta = progressText.slice(lastSentOffset);
-          const terminal = isTerminal(session.status, devServerStatus);
+          const terminal = isTerminal(session.status);
 
           const hasChange =
             progressDelta.length > 0 ||
             session.status !== lastSentStatus ||
-            devServerStatus !== lastSentDevServerStatus ||
             session.previewUrl !== lastSentPreviewUrl;
 
           if (hasChange || terminal) {
             sendEvent({
               progressDelta,
               status: session.status,
-              devServerStatus,
               previewUrl: session.previewUrl,
               ...(terminal ? { done: true } : {}),
             });
             lastSentOffset = progressText.length;
             lastSentStatus = session.status;
-            lastSentDevServerStatus = devServerStatus;
             lastSentPreviewUrl = session.previewUrl;
           }
 

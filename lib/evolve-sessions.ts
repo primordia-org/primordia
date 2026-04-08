@@ -3,7 +3,7 @@
 // Only used when NODE_ENV=development.
 
 import { query, type HookCallback, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getDb } from './db';
@@ -92,15 +92,6 @@ function getOrAssignBranchPort(branch: string, repoRoot: string): number {
   return port;
 }
 
-// ─── In-memory dev server registry ───────────────────────────────────────────
-
-/**
- * Maps session IDs to their active dev server ChildProcess.
- * Used by inferDevServerStatus to return 'starting' when the process is live
- * but hasn't yet reported its port.
- */
-const activeDevServerProcesses = new Map<string, ChildProcess>();
-
 // ─── In-memory Claude abort controller registry ───────────────────────────────
 
 /**
@@ -120,30 +111,6 @@ export function abortClaudeRun(sessionId: string): boolean {
   if (!controller) return false;
   controller.abort();
   return true;
-}
-
-/**
- * Infers the current DevServerStatus without reading it from SQLite.
- *
- * Strategy:
- *  - port === null and process registered → 'starting' (spawned, port not yet known)
- *  - port === null and no process          → 'none'    (server not yet started)
- *  - port set, lsof finds a listener      → 'running'
- *  - port set, lsof finds nothing         → 'disconnected'
- */
-export function inferDevServerStatus(sessionId: string, port: number | null): DevServerStatus {
-  if (port === null) {
-    const proc = activeDevServerProcesses.get(sessionId);
-    if (proc && !proc.killed) return 'starting';
-    return 'none';
-  }
-  try {
-    const { execSync } = require('child_process') as typeof import('child_process');
-    execSync(`lsof -ti :${port}`, { stdio: ['pipe', 'pipe', 'pipe'] });
-    return 'running';
-  } catch {
-    return 'disconnected';
-  }
 }
 
 // ─── Progress logging ─────────────────────────────────────────────────────────
@@ -338,10 +305,6 @@ export async function startLocalEvolve(
       port: session.port,
       previewUrl: session.previewUrl,
     });
-
-  // Holds the spawned dev-server process so the close/cleanup callback can
-  // reference it without exposing it on the session object.
-  let devServerProcess: ChildProcess | null = null;
 
   try {
     // Log which LLM backend is active so the user can see it in the session log.
@@ -612,101 +575,14 @@ export async function startLocalEvolve(
       await persist();
     }
 
-    // Step 6 — Start Next.js dev server on the branch's pre-assigned port.
-    // The port was assigned in git config (branch.{branch}.port) so it is
-    // stable across restarts and consistent with the proxy's routing table.
+    // Step 6 — Mark session ready; the proxy will start the preview server on demand.
+    // The preview URL is always accessible through the proxy at /preview/{sessionId}.
+    const proxyPort = process.env.REVERSE_PROXY_PORT;
+    if (proxyPort) {
+      const portSuffix = proxyPort === '80' ? '' : `:${proxyPort}`;
+      session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.id}`;
+    }
     session.status = 'ready';
-    session.devServerStatus = 'starting';
-    appendProgress(session, `\n### 🚀 Starting preview server…\n\n`);
-    await persist();
-
-    await new Promise<void>((resolve, reject) => {
-      // When the reverse proxy is running, serve the preview at /preview/{sessionId}
-      // so the proxy can route to it without exposing the raw port.
-      const proxyPort = process.env.REVERSE_PROXY_PORT;
-      const basePath = proxyPort ? `/preview/${session.id}` : undefined;
-      const proc = spawn('bun', ['run', 'dev'], {
-        cwd: session.worktreePath,
-        env: {
-          ...process.env,
-          NODE_ENV: 'development',
-          PORT: String(session.port),
-          ...(basePath ? { NEXT_BASE_PATH: basePath } : {}),
-        },
-        detached: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      proc.unref();
-      devServerProcess = proc;
-      activeDevServerProcesses.set(session.id, proc);
-
-      const onData = (d: Buffer) => {
-        const text = d.toString();
-        appendProgress(session, text);
-
-        // Next.js 16 prints "Ready" when the dev server is up.
-        if (!session.previewUrl && text.includes('Ready')) {
-          if (proxyPort) {
-            const portSuffix = proxyPort === '80' ? '' : `:${proxyPort}`;
-            session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.id}`;
-          } else {
-            session.previewUrl = `http://${publicHostname}:${session.port}`;
-          }
-          session.devServerStatus = 'running';
-          void persist();
-          resolve();
-        } else if (session.devServerStatus === 'running') {
-          void persist();
-        }
-      };
-
-      proc.stdout?.on('data', onData);
-      proc.stderr?.on('data', onData);
-      proc.on('error', (err) => reject(new Error(`Dev server spawn failed: ${err.message}`)));
-      proc.on('close', (code) => {
-        activeDevServerProcesses.delete(session.id);
-        if (session.devServerStatus !== 'running') {
-          reject(new Error(`Dev server exited (code ${code ?? 'unknown'}) before becoming ready`));
-          return;
-        }
-
-        // The dev server has terminated after having been ready. This happens when
-        // the preview was accepted or rejected (manage/route.ts calls process.exit),
-        // when the server was killed manually, or when it crashed.
-        //
-        // Wait a few seconds for any in-flight git cleanup (worktree remove, branch
-        // delete) to complete, then check whether the branch still exists:
-        //   - Branch gone  → normal accept/reject flow; nothing to update.
-        //   - Branch exists → unexpected termination (crashed / killed manually);
-        //                     mark session as disconnected so the UI can inform the user.
-        setTimeout(() => {
-          void (async () => {
-            try {
-              devServerProcess = null;
-              const branchCheck = await runGit(['branch', '--list', session.branch], repoRoot);
-              if (branchCheck.stdout.trim() !== '') {
-                // Branch still exists → server died unexpectedly.
-                session.devServerStatus = 'disconnected';
-              }
-              // Branch gone → accept/reject completed normally; no update needed.
-            } catch {
-              // If git fails for any reason, fall back to marking disconnected.
-              session.devServerStatus = 'disconnected';
-              devServerProcess = null;
-            }
-          })();
-        }, 3_000);
-      });
-
-      // Safety timeout: 2 minutes
-      setTimeout(() => {
-        if (session.devServerStatus !== 'running') {
-          reject(new Error('Dev server startup timed out (2 min)'));
-        }
-      }, 120_000);
-    });
-
-    appendProgress(session, `\n✅ **Ready on port ${session.port}**\n`);
     await persist();
 
   } catch (err) {
@@ -720,20 +596,6 @@ export async function startLocalEvolve(
         : '';
     appendProgress(session, `\n\n❌ **Error**: ${msg}${causeMsg}\n`);
     await persist().catch(() => {});
-    // Kill the dev server process if it was spawned before the error.
-    // Capture in a local const first: TypeScript cannot track the ChildProcess | null
-    // type of devServerProcess across async callbacks, so it narrows to `never` here.
-    const orphanProc = devServerProcess as ChildProcess | null;
-    if (orphanProc && !orphanProc.killed) {
-      try {
-        if (orphanProc.pid !== undefined) {
-          process.kill(-orphanProc.pid, 'SIGTERM');
-        }
-      } catch {
-        orphanProc.kill('SIGTERM');
-      }
-      devServerProcess = null;
-    }
   }
 }
 
@@ -983,150 +845,28 @@ export async function runFollowupInWorktree(
 // ─── Restart dev server ───────────────────────────────────────────────────────
 
 /**
- * Kills any process listening on the session's port (if any), then re-spawns
- * `bun run dev` in the worktree on the same port.
+ * Asks the reverse proxy to restart the preview server for a session.
+ * The proxy manages the dev server process; this is a thin HTTP call to its
+ * management API at /_proxy/preview/{sessionId}/restart.
  *
- * Status transitions: (any) → starting-server → ready | error.
- * Reconnects the close-watcher so the session is marked "disconnected" again
- * if the restarted server exits unexpectedly.
+ * Kept for backward compatibility with kill-restart/route.ts.
  */
 export async function restartDevServerInWorktree(
   session: LocalSession,
-  repoRoot: string,
-  /** Public hostname (no port) for preview URLs. Defaults to "localhost". */
-  publicHostname: string = "localhost",
+  _repoRoot: string,
+  _publicHostname: string = "localhost",
 ): Promise<void> {
-  const db = await getDb();
-
-  const persist = () =>
-    db.updateEvolveSession(session.id, {
-      status: session.status,
-      progressText: session.progressText,
-      port: session.port,
-      previewUrl: session.previewUrl,
-    });
-
-  try {
-    appendProgress(session, `\n### 🔄 Restarting preview server…\n\n`);
-
-    // Reset previewUrl so inferDevServerStatus returns 'starting' (via the
-    // process map) rather than 'disconnected' (via lsof) during the restart window.
-    // session.port is kept — it is the stable branch port from git config.
-    const oldPort = session.port;
-    session.previewUrl = null;
-    await persist();
-
-    // Kill the existing dev server process group. Turbopack spawns worker processes
-    // that don't bind to the port, so killing by port alone (lsof) leaves orphans
-    // that block a clean restart. Killing the process group via the negative PID
-    // takes down the entire tree in one shot.
-    const existingProc = activeDevServerProcesses.get(session.id);
-    if (existingProc && !existingProc.killed && existingProc.pid !== undefined) {
-      try { process.kill(-existingProc.pid, 'SIGTERM'); } catch { /* already dead */ }
-      activeDevServerProcesses.delete(session.id);
-    }
-
-    // Belt-and-suspenders: also kill any process still binding to the port in case
-    // the in-memory reference is stale (e.g. the parent server restarted since the
-    // worktree was spawned).
-    if (oldPort !== null) {
-      try {
-        const { execSync } = await import('child_process');
-        const raw = execSync(`lsof -ti :${oldPort}`, { encoding: 'utf8' }).trim();
-        const pids = raw.split('\n').map((p) => p.trim()).filter(Boolean);
-        for (const pid of pids) {
-          try { process.kill(parseInt(pid, 10), 'SIGTERM'); } catch { /* already dead */ }
-        }
-      } catch {
-        // lsof not available or no process on port — proceed anyway.
-      }
-    }
-
-    // Give the OS a moment to release the port before rebinding.
-    if (existingProc || oldPort !== null) {
-      await new Promise<void>((r) => setTimeout(r, 800));
-    }
-
-    session.devServerStatus = 'starting';
-
-    await new Promise<void>((resolve, reject) => {
-      // When the reverse proxy is running, serve the preview at /preview/{sessionId}.
-      const proxyPort = process.env.REVERSE_PROXY_PORT;
-      const basePath = proxyPort ? `/preview/${session.id}` : undefined;
-      const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        NODE_ENV: 'development',
-        PORT: String(session.port),
-        ...(basePath ? { NEXT_BASE_PATH: basePath } : {}),
-      };
-
-      const proc = spawn('bun', ['run', 'dev'], {
-        cwd: session.worktreePath,
-        env,
-        detached: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }) as ChildProcess;
-      proc.unref();
-      activeDevServerProcesses.set(session.id, proc);
-
-      const onData = (d: Buffer) => {
-        const text = d.toString();
-        appendProgress(session, text);
-
-        if (!session.previewUrl && text.includes('Ready')) {
-          if (proxyPort) {
-            const portSuffix = proxyPort === '80' ? '' : `:${proxyPort}`;
-            session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.id}`;
-          } else {
-            session.previewUrl = `http://${publicHostname}:${session.port}`;
-          }
-          session.devServerStatus = 'running';
-          void persist();
-          resolve();
-        } else if (session.devServerStatus === 'running') {
-          void persist();
-        }
-      };
-
-      proc.stdout?.on('data', onData);
-      proc.stderr?.on('data', onData);
-      proc.on('error', (err) => reject(new Error(`Dev server spawn failed: ${err.message}`)));
-      proc.on('close', (code) => {
-        activeDevServerProcesses.delete(session.id);
-        if (session.devServerStatus !== 'running') {
-          reject(new Error(`Dev server exited (code ${code ?? 'unknown'}) before becoming ready`));
-          return;
-        }
-        // Server exited after being ready — same disconnect detection as startLocalEvolve.
-        setTimeout(() => {
-          void (async () => {
-            try {
-              const branchCheck = await runGit(['branch', '--list', session.branch], repoRoot);
-              if (branchCheck.stdout.trim() !== '') {
-                session.devServerStatus = 'disconnected';
-              }
-            } catch {
-              session.devServerStatus = 'disconnected';
-            }
-          })();
-        }, 3_000);
-      });
-
-      // Safety timeout: 2 minutes
-      setTimeout(() => {
-        if (session.devServerStatus !== 'running') {
-          reject(new Error('Dev server startup timed out (2 min)'));
-        }
-      }, 120_000);
-    });
-
-    appendProgress(session, `\n✅ **Ready on port ${session.port}**\n`);
-    await persist();
-  } catch (err) {
-    session.status = 'ready';
-    const msg = err instanceof Error ? err.message : String(err);
-    appendProgress(session, `\n\n❌ **Error**: ${msg}\n`);
-    await persist().catch(() => {});
+  const proxyPort = process.env.REVERSE_PROXY_PORT;
+  if (!proxyPort) {
+    throw new Error('REVERSE_PROXY_PORT is not set; cannot restart preview server via proxy');
+  }
+  const res = await fetch(
+    `http://127.0.0.1:${proxyPort}/_proxy/preview/${session.id}/restart`,
+    { method: 'POST' },
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Proxy restart failed (${res.status}): ${body}`);
   }
 }
 

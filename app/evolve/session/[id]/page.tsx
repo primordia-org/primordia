@@ -11,7 +11,6 @@ import { getSessionUser, hasEvolvePermission } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { buildPageTitle } from "@/lib/page-title";
 import EvolveSessionView from "@/components/EvolveSessionView";
-import { inferDevServerStatus } from "@/lib/evolve-sessions";
 
 export function generateMetadata(): Metadata {
   return {
@@ -106,7 +105,6 @@ export default async function EvolveSessionPage({
       initialRequest={session.request}
       initialProgressText={session.progressText}
       initialStatus={session.status}
-      initialDevServerStatus={inferDevServerStatus(session.id, session.port)}
       initialPreviewUrl={session.previewUrl}
       branch={branch}
       sessionBranch={session.branch}

@@ -5,7 +5,7 @@
 //   Body: { action: "accept" | "reject", sessionId: string }
 //
 //   accept — looks up the session in SQLite, kills the preview dev server
-//            (found by its port via lsof), then performs one of two merge paths:
+//            (via the reverse proxy management API), then performs one of two merge paths:
 //
 //            BLUE/GREEN (production, when NODE_ENV === 'production'):
 //              1. bun install --frozen-lockfile in the session worktree
@@ -448,18 +448,15 @@ async function retryAcceptAfterFix(
     return;
   }
 
-  // Both typecheck and build passed — kill the preview dev server.
-  console.log(`[retryAcceptAfterFix] typecheck passed, killing dev server on port ${port}`);
-  if (port !== null) {
+  // Both typecheck and build passed — ask the proxy to kill the preview dev server.
+  console.log(`[retryAcceptAfterFix] typecheck passed, killing preview server for session ${sessionId}`);
+  const retryProxyPort = process.env.REVERSE_PROXY_PORT;
+  if (retryProxyPort) {
     try {
-      const { execSync: execSyncLocal } = require('child_process') as typeof import('child_process');
-      const pids = execSyncLocal(`lsof -ti tcp:${port}`, { encoding: 'utf8' })
-        .trim().split('\n').filter(Boolean).map(Number).filter(Boolean);
-      console.log(`[retryAcceptAfterFix] killing pids ${pids.join(', ')}`);
-      for (const pid of pids) {
-        try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
-      }
-    } catch { /* no process on that port */ }
+      await fetch(`http://127.0.0.1:${retryProxyPort}/_proxy/preview/${sessionId}`, {
+        method: 'DELETE',
+      });
+    } catch { /* proxy not running — preview server may already be gone */ }
   }
 
   // ── Merge: blue/green or legacy ────────────────────────────────────────────
@@ -800,19 +797,14 @@ export async function POST(request: Request) {
   const parentBranchResult = await runGit(['config', `branch.${branch}.parent`], repoRoot);
   const parentBranch = parentBranchResult.stdout.trim() || 'main';
 
-  // Kill the preview dev server by finding its process via the port it is bound to.
-  // `lsof -ti tcp:<port>` returns one PID per line; we SIGTERM each one.
-  // If lsof finds nothing (exit code 1), the process is already gone — not an error.
-  if (session.port !== null) {
+  // Ask the reverse proxy to stop the preview dev server for this session.
+  const proxyPort = process.env.REVERSE_PROXY_PORT;
+  if (proxyPort && body.sessionId) {
     try {
-      const pids = execSync(`lsof -ti tcp:${session.port}`, { encoding: 'utf8' })
-        .trim().split('\n').filter(Boolean).map(Number).filter(Boolean);
-      for (const pid of pids) {
-        try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
-      }
-    } catch {
-      // lsof exited non-zero — no process bound to that port (already gone).
-    }
+      await fetch(`http://127.0.0.1:${proxyPort}/_proxy/preview/${body.sessionId}`, {
+        method: 'DELETE',
+      });
+    } catch { /* proxy not running — preview server may already be gone */ }
   }
 
   /** Append a log entry and update the session status in the parent's own DB. */
