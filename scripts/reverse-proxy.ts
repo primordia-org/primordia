@@ -105,6 +105,7 @@ function readAllPorts(): void {
     }
   }
 
+  const branchPort: Record<string, number> = {};
   try {
     // Build branch → port map from git config.
     const portOut = execFileSync('git', ['config', '--get-regexp', 'branch\\..*\\.port'], {
@@ -112,7 +113,6 @@ function readAllPorts(): void {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    const branchPort: Record<string, number> = {};
     for (const line of portOut.trim().split('\n')) {
       if (!line) continue;
       const m = line.match(/^branch\.(.+)\.port\s+(\d+)$/);
@@ -146,7 +146,7 @@ function readAllPorts(): void {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
-    const port = portCache[branch];
+    const port = branchPort[branch];
     if (port && port !== upstreamPort) {
       console.log(`[proxy] upstream port: ${upstreamPort} → ${port} (branch: ${branch})`);
       upstreamPort = port;
