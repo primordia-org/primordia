@@ -52,8 +52,8 @@ primordia/
 ├── scripts/
 │   ├── deploy-to-exe-dev.sh      ← `bun run deploy-to-exe.dev <server>`: SSH deploy to <server>.exe.xyz
 │   ├── install-service.sh        ← Installs/re-installs the systemd service; creates primordia-worktrees/current symlink (blue/green bootstrap)
-│   ├── primordia.service         ← systemd service unit file; WorkingDirectory = primordia-worktrees/current; reads PORT from git config (branch.{name}.port) at startup
-│   ├── reverse-proxy.ts          ← HTTP reverse proxy for zero-downtime blue/green AND preview servers; listens on REVERSE_PROXY_PORT; reads upstream port and preview ports from git config (branch.{name}.port + branch.{name}.sessionId); watches git config file for instant cutover; routes /preview/{sessionId} paths to session preview servers
+│   ├── primordia.service         ← systemd service unit file; WorkingDirectory = primordia-worktrees/current; reads PORT from git config (branch.{name}.port) at startup via HEAD of current worktree
+│   ├── reverse-proxy.ts          ← HTTP reverse proxy for zero-downtime blue/green AND preview servers; listens on REVERSE_PROXY_PORT; reads production branch from git PROD symbolic-ref, then looks up branch.{name}.port; watches both .git/config and .git/PROD for instant cutover; falls back to HEAD of current worktree if PROD not set; routes /preview/{sessionId} paths to session preview servers
 │   ├── assign-branch-ports.sh    ← Idempotent migration script: assigns ephemeral ports to all local branches in git config (branch.{name}.port); main gets 3001, others get 3002+
 │   └── primordia-proxy.service   ← systemd service unit for the reverse proxy
 │
@@ -221,14 +221,15 @@ User types change request on /evolve page
   → Preview link shown when status becomes "ready"
   → User clicks Accept → POST /api/evolve/manage { action: "accept" }
       → pre-accept gates: ancestor check, clean worktree, bun run typecheck, bun run build (all in session worktree)
-      → blue/green deploy (production): bun install in worktree → git commit-tree + update-ref (no production dir writes)
+      → blue/green deploy (production): bun install in worktree → git commit-tree + update-ref (advances parentBranch and fast-forwards session branch to merge commit; no working-tree writes)
+          → session worktree stays checked out on the session branch; no detached HEAD
           → copy prod DB from old slot into new slot (preserves auth data)
           → fix .env.local symlink in new slot to point to main repo (prevents dangling link)
           → start new prod server on the branch's pre-assigned port (from git config); run health checks
           → atomic symlink swap: primordia-worktrees/current → session worktree
-          → keep old slot as primordia-worktrees/previous (enables fast rollback via POST /api/rollback)
-          → delete slot from two accepts ago (if worktree), delete session branch
-          → update branch.{parentBranch}.port in git config → reverse proxy picks up new port instantly via fs.watch
+          → keep old slot as primordia-worktrees/previous (enables fast rollback via POST /api/rollback); old slot retains its session branch (no detached HEAD)
+          → delete slot from two accepts ago (if worktree) and its session branch ref
+          → set git PROD symbolic-ref → session branch; touch git config → reverse proxy picks up new branch/port instantly via fs.watch
           → gracefully shutdown the old prod server (SIGTERM via lsof)
       → legacy deploy (local dev, no systemd): git merge in production dir → bun install → worktree remove
   → User clicks Reject → POST /api/evolve/manage { action: "reject" }

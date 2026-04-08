@@ -104,21 +104,8 @@ export async function POST() {
   fs.symlinkSync(currentTarget, tmpPrevious);
   fs.renameSync(tmpPrevious, previousSymlink);
 
-  // Re-attach HEAD: after the accept flow, the new-current (previousTarget) has a
-  // detached HEAD, while the new-previous (currentTarget) has the branch checked out.
-  // Git forbids two worktrees on the same branch, so detach the new-previous first,
-  // then check out the branch in the new-current.
-  try {
-    const branchRes = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], {
-      cwd: currentTarget,
-      encoding: 'utf8',
-    });
-    const checkedOutBranch = branchRes.stdout.trim();
-    if (checkedOutBranch) {
-      spawnSync('git', ['checkout', '--detach'], { cwd: currentTarget });
-      spawnSync('git', ['checkout', checkedOutBranch], { cwd: previousTarget });
-    }
-  } catch { /* best-effort — branch detection is non-critical */ }
+  // Both slots remain on their own session branches after the symlink swap —
+  // no HEAD-reattachment needed. The proxy is updated via PROD symbolic-ref below.
 
   // Zero-downtime restart when the proxy is configured.
   const reverseProxyPort = process.env.REVERSE_PROXY_PORT;
@@ -137,18 +124,25 @@ export async function POST() {
         s.on('error', reject);
       });
 
-      // Read old upstream port from git config (current branch's assigned port).
+      // Read the old production port from PROD symbolic-ref (the slot we're
+      // rolling back away from). Fall back to HEAD of currentTarget for
+      // pre-PROD deployments. currentTarget is the OLD production slot —
+      // now pointed to by 'previous' after the swap.
       let oldUpstreamPort: number | null = null;
-      let currentBranchName: string | null = null;
       try {
-        const currentPath = path.resolve(fs.readlinkSync(currentSymlink));
-        currentBranchName = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], {
-          cwd: currentPath,
+        let prodBranch = spawnSync('git', ['symbolic-ref', '--short', 'PROD'], {
+          cwd: currentTarget,
           encoding: 'utf8',
-        }).stdout.trim() || null;
-        if (currentBranchName) {
-          const portOut = spawnSync('git', ['config', '--get', `branch.${currentBranchName}.port`], {
-            cwd: currentPath,
+        }).stdout.trim();
+        if (!prodBranch) {
+          prodBranch = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+            cwd: currentTarget,
+            encoding: 'utf8',
+          }).stdout.trim();
+        }
+        if (prodBranch) {
+          const portOut = spawnSync('git', ['config', '--get', `branch.${prodBranch}.port`], {
+            cwd: currentTarget,
             encoding: 'utf8',
           }).stdout.trim();
           if (portOut) oldUpstreamPort = parseInt(portOut, 10);
@@ -185,7 +179,9 @@ export async function POST() {
         return;
       }
 
-      // Update git config so the proxy discovers the new port immediately.
+      // Set PROD → rolled-back branch and update its port in git config.
+      // The port write touches .git/config and fires the proxy's fs.watch so
+      // it reads the updated PROD ref immediately.
       try {
         const rolledBackPath = path.resolve(fs.readlinkSync(currentSymlink));
         const branch = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], {
@@ -193,6 +189,9 @@ export async function POST() {
           encoding: 'utf8',
         }).stdout.trim();
         if (branch) {
+          spawnSync('git', ['symbolic-ref', 'PROD', `refs/heads/${branch}`], {
+            cwd: rolledBackPath,
+          });
           spawnSync('git', ['config', `branch.${branch}.port`, String(freePort)], {
             cwd: rolledBackPath,
           });

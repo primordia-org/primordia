@@ -44,6 +44,15 @@ else
   echo "  Production slot exists: ${CURRENT_LINK} -> $(readlink "${CURRENT_LINK}")"
 fi
 
+# Initialise the PROD symbolic-ref so the reverse proxy knows which branch is
+# production. Only set on first install — never overwrite a live PROD pointer.
+if ! git -C "${REPO_ROOT}" symbolic-ref PROD >/dev/null 2>&1; then
+  git -C "${REPO_ROOT}" symbolic-ref PROD refs/heads/main
+  echo "  Initialized PROD symbolic-ref → refs/heads/main"
+else
+  echo "  PROD symbolic-ref already set → $(git -C "${REPO_ROOT}" symbolic-ref --short PROD)"
+fi
+
 # Kill any legacy nohup process so we don't double-run
 if [[ -f "$HOME/primordia.pid" ]]; then
   OLD_PID=$(cat "$HOME/primordia.pid" 2>/dev/null || true)

@@ -61,6 +61,8 @@ let upstreamPort = 3001;
 let sessionPortCache: Record<string, number> = {};
 /** Path to the git config file being watched. */
 let watchedConfigPath: string | null = null;
+/** Path to the .git/PROD symbolic-ref file being watched. */
+let watchedProdPath: string | null = null;
 
 /** Returns the resolved path of the current production worktree. */
 function getCurrentWorktreePath(): string | null {
@@ -102,6 +104,8 @@ function readAllPorts(): void {
     if (cfgPath) {
       watchedConfigPath = cfgPath;
       watchGitConfig(cfgPath);
+      // Also watch .git/PROD; it may not exist until the first accept.
+      setupProdWatch(path.dirname(cfgPath));
     }
   }
 
@@ -139,20 +143,37 @@ function readAllPorts(): void {
     // git config --get-regexp exits non-zero when no keys match — normal on first run
   }
 
-  // Determine which branch is currently live and update upstream port.
+  // Determine production branch: prefer the PROD symbolic-ref (set on each
+  // accept), fall back to HEAD of the current worktree (initial bootstrap
+  // before the first accept or on pre-PROD deployments).
+  let prodBranch: string | null = null;
   try {
-    const branch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+    const ref = execFileSync('git', ['symbolic-ref', '--short', 'PROD'], {
       cwd: worktreePath,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
-    const port = branchPort[branch];
+    if (ref) prodBranch = ref;
+  } catch {
+    // PROD not yet initialised — fall through to HEAD fallback
+  }
+  if (!prodBranch) {
+    try {
+      prodBranch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+        cwd: worktreePath,
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim() || null;
+    } catch {
+      // Detached HEAD — keep current upstream port
+    }
+  }
+  if (prodBranch) {
+    const port = branchPort[prodBranch];
     if (port && port !== upstreamPort) {
-      console.log(`[proxy] upstream port: ${upstreamPort} → ${port} (branch: ${branch})`);
+      console.log(`[proxy] upstream port: ${upstreamPort} → ${port} (PROD branch: ${prodBranch})`);
       upstreamPort = port;
     }
-  } catch {
-    // Detached HEAD — keep current upstream port
   }
 }
 
@@ -161,6 +182,23 @@ function watchGitConfig(configPath: string): void {
     fs.watch(configPath, () => setTimeout(readAllPorts, 50));
   } catch {
     setTimeout(() => watchGitConfig(configPath), 1000);
+  }
+}
+
+/**
+ * Sets up a fs.watch on .git/PROD so the proxy reacts instantly when the
+ * production branch changes. PROD is created on the first accept, so this
+ * retries every 5 s until the file appears.
+ */
+function setupProdWatch(gitDir: string): void {
+  if (watchedProdPath) return;
+  const prodRefPath = path.join(gitDir, 'PROD');
+  if (fs.existsSync(prodRefPath)) {
+    watchedProdPath = prodRefPath;
+    fs.watch(prodRefPath, () => setTimeout(readAllPorts, 50));
+  } else {
+    // PROD is created on the first accept — retry until it appears.
+    setTimeout(() => setupProdWatch(gitDir), 5_000);
   }
 }
 
