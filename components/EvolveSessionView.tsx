@@ -1101,7 +1101,7 @@ export default function EvolveSessionView({
             </Link>
           </div>
         )}
-        <div className="flex items-center justify-between text-xs text-gray-500">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-xs text-gray-500">
           <span>
             <Link href="/changelog" className="text-blue-400 hover:text-blue-300">
               Changelog
@@ -1113,7 +1113,9 @@ export default function EvolveSessionView({
               </Link>
             </>
           </span>
-          <code className="font-mono text-amber-300/60">{sessionBranch}</code>
+          <code className="font-mono text-amber-300/60">
+            {branch ? <>{branch} ▸ </> : null}{sessionBranch}
+          </code>
         </div>
       </div>
     </main>
