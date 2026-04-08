@@ -11,14 +11,14 @@
 //              1. bun install --frozen-lockfile in the session worktree
 //              2. Create merge commit via git plumbing (no working-tree writes)
 //              3. Detach the session worktree HEAD onto the merge commit
-//              4. Health-check the new slot (start on temp port, verify HTTP response)
+//              4. Start new prod server on a free port; health-check it (keep it running)
 //              5. Copy production DB into new slot (VACUUM INTO — atomic snapshot)
 //              6. Atomically swap the 'current' symlink to the session worktree
 //              7. Clean up old production slot (if it was a worktree, not the main repo)
 //              8. Delete the now-orphaned branch ref
 //              9. Persist "accepted" status + final progress log to DB
 //             10. Final VACUUM INTO new slot DB (captures complete accepted state)
-//             11. Schedule `sudo systemctl restart primordia` (fire-and-forget)
+//             11. Update proxy-upstream.json → proxy routes to new server; SIGTERM old server
 //
 //            LEGACY (local dev, NODE_ENV !== 'production'):
 //              git checkout → stash → merge → stash-pop → bun install → worktree remove
@@ -147,48 +147,9 @@ function findFreePort(): Promise<number> {
   });
 }
 
-/**
- * Starts the built production server from slotPath on a temporary free port
- * and verifies it responds to HTTP. Returns { ok: true } on success.
- * Kills the test server when done regardless of outcome.
- */
-async function healthCheckSlot(slotPath: string): Promise<{ ok: boolean; error?: string }> {
-  const port = await findFreePort();
-  const server = spawn('bun', ['run', 'start'], {
-    cwd: slotPath,
-    env: { ...process.env, PORT: String(port) },
-    stdio: 'ignore',
-    detached: false,
-  });
-
-  let spawnError: string | undefined;
-  let exitCode: number | null = null;
-  server.on('error', (err: Error) => { spawnError = err.message; });
-  server.on('exit', (code) => { exitCode = code ?? 1; });
-
-  try {
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-      await new Promise(resolve => setTimeout(resolve, 1_000));
-      if (spawnError) return { ok: false, error: `Server process error: ${spawnError}` };
-      if (exitCode !== null) return { ok: false, error: `Server exited early with code ${exitCode}` };
-      try {
-        await fetch(`http://localhost:${port}/`, {
-          signal: AbortSignal.timeout(3_000),
-          redirect: 'manual',
-        });
-        return { ok: true };
-      } catch {
-        // Not ready yet — keep polling
-      }
-    }
-    return { ok: false, error: 'Health check timed out after 30s' };
-  } finally {
-    server.kill('SIGTERM');
-    // Brief pause to let the process release its port binding
-    await new Promise(resolve => setTimeout(resolve, 500));
-  }
-}
+type BlueGreenAcceptResult =
+  | { ok: false; error: string }
+  | { ok: true; newProdPort: number | null; oldUpstreamPort: number | null };
 
 /**
  * Blue/green accept path.
@@ -196,7 +157,7 @@ async function healthCheckSlot(slotPath: string): Promise<{ ok: boolean; error?:
  * Builds and activates the session worktree as the new production slot without
  * running any git or bun commands in the live production directory.
  *
- * Returns null on success, or an error message string on failure.
+ * Returns { ok: false, error } on failure, or { ok: true, newProdPort, oldUpstreamPort } on success.
  */
 async function blueGreenAccept(
   currentSymlink: string,
@@ -205,22 +166,22 @@ async function blueGreenAccept(
   parentBranch: string,
   repoRoot: string,
   onStep: (text: string) => Promise<void> = async () => {},
-): Promise<string | null> {
+): Promise<BlueGreenAcceptResult> {
   // Step 1: ensure node_modules are up to date in the session worktree.
   // This is the only bun install that runs, and it runs in the worktree (not production).
   await onStep('- Installing dependencies…\n');
   const installResult = await runCmd('bun', ['install', '--frozen-lockfile'], worktreePath);
   if (installResult.code !== 0) {
-    return (
+    return { ok: false, error:
       `bun install --frozen-lockfile failed in session worktree:\n` +
       (installResult.stdout + installResult.stderr).trim()
-    );
+    };
   }
 
   // Step 2: create the merge commit in git history without touching any working tree.
   const mergeRes = await createMergeCommitNoCheckout(repoRoot, parentBranch, branch);
   if ('error' in mergeRes) {
-    return `Failed to create merge commit: ${mergeRes.error}`;
+    return { ok: false, error: `Failed to create merge commit: ${mergeRes.error}` };
   }
   const mergeCommit = mergeRes.commitHash;
 
@@ -241,13 +202,53 @@ async function blueGreenAccept(
     ? path.dirname(path.resolve(worktreePath, gitCommonResult.stdout.trim()))
     : path.resolve(repoRoot); // fallback: assume repoRoot is the main repo
 
-  // Step 4a: Health-check the new slot before committing to the swap.
-  // Starts the production server on a temporary free port and verifies it serves HTTP.
+  // Step 4a: Start the new prod server on a free port and health-check it.
+  // The server stays running — traffic will be routed to it after the symlink swap.
   await onStep('- Health-checking new slot…\n');
-  const healthCheck = await healthCheckSlot(path.resolve(worktreePath));
-  if (!healthCheck.ok) {
-    return `New slot failed health check: ${healthCheck.error ?? 'server did not respond'}`;
+  const newProdPort = await findFreePort();
+  const newServer = spawn('bun', ['run', 'start'], {
+    cwd: path.resolve(worktreePath),
+    env: { ...process.env, PORT: String(newProdPort), HOSTNAME: '0.0.0.0' },
+    stdio: 'ignore',
+    detached: true,
+  });
+  newServer.unref();
+
+  let spawnError: string | undefined;
+  let exitCode: number | null = null;
+  newServer.on('error', (err: Error) => { spawnError = err.message; });
+  newServer.on('exit', (code) => { exitCode = code ?? 1; });
+
+  let healthOk = false;
+  let healthError: string | undefined;
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 1_000));
+    if (spawnError) { healthError = `Server process error: ${spawnError}`; break; }
+    if (exitCode !== null) { healthError = `Server exited early with code ${exitCode}`; break; }
+    try {
+      await fetch(`http://localhost:${newProdPort}/`, {
+        signal: AbortSignal.timeout(3_000),
+        redirect: 'manual',
+      });
+      healthOk = true;
+      break;
+    } catch {
+      // Not ready yet — keep polling
+    }
   }
+  if (!healthOk) {
+    try { newServer.kill('SIGTERM'); } catch { /* already gone */ }
+    return { ok: false, error: `New slot failed health check: ${healthError ?? 'server did not respond'}` };
+  }
+
+  // Read old upstream port from proxy config so we can kill it after the swap.
+  const proxyConfigPath = path.join(path.dirname(path.resolve(worktreePath)), 'proxy-upstream.json');
+  let oldUpstreamPort: number | null = null;
+  try {
+    const cfg = JSON.parse(fs.readFileSync(proxyConfigPath, 'utf8')) as { port: number };
+    if (typeof cfg.port === 'number') oldUpstreamPort = cfg.port;
+  } catch { /* proxy config not yet written */ }
 
   // Step 4b: Copy the production database into the new slot via VACUUM INTO —
   // an atomic, consistent snapshot safe to take while the live server writes.
@@ -313,10 +314,59 @@ async function blueGreenAccept(
   await runGit(['checkout', '--detach'], oldSlot);
   await runGit(['checkout', parentBranch], worktreePath);
 
-  // Step 8: The caller schedules the final VACUUM INTO + systemd restart
+  // Step 8: The caller schedules the final VACUUM INTO + slot activation
   // AFTER persisting the "accepted" state to the DB, so the new slot's DB
   // contains the complete progress log and is not truncated on refresh.
-  return null; // success
+  return { ok: true, newProdPort, oldUpstreamPort };
+}
+
+/**
+ * Activates the new production slot after all DB writes are complete.
+ *
+ * If REVERSE_PROXY_PORT is set (proxy in use): atomically updates
+ * proxy-upstream.json so the reverse proxy routes to the new server, then
+ * gracefully kills the old server via lsof on its former port.
+ *
+ * Falls back to `sudo systemctl restart primordia` when the proxy is not
+ * configured (e.g. initial setup or local dev accidentally running in
+ * production mode).
+ */
+function scheduleSlotActivation(
+  worktreePath: string,
+  newProdPort: number | null,
+  oldUpstreamPort: number | null,
+): void {
+  const useProxy = !!process.env.REVERSE_PROXY_PORT && newProdPort !== null;
+
+  if (useProxy) {
+    const proxyConfigPath = path.join(
+      path.dirname(path.resolve(worktreePath)),
+      'proxy-upstream.json',
+    );
+    try {
+      const tmp = proxyConfigPath + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify({ port: newProdPort }));
+      fs.renameSync(tmp, proxyConfigPath);
+    } catch { /* best-effort */ }
+
+    // Give the proxy ~500 ms to pick up the new config, then kill the old server.
+    setTimeout(() => {
+      if (oldUpstreamPort !== null) {
+        try {
+          const pids = execSync(`lsof -ti tcp:${oldUpstreamPort}`, { encoding: 'utf8' })
+            .trim().split('\n').filter(Boolean).map(Number).filter(Boolean);
+          for (const pid of pids) {
+            try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+          }
+        } catch { /* no process on that port */ }
+      }
+    }, 500);
+  } else {
+    // Fallback: systemctl restart (brief downtime window).
+    setTimeout(() => {
+      try { execSync('sudo systemctl restart primordia', { stdio: 'ignore' }); } catch { /* best-effort */ }
+    }, 500);
+  }
 }
 
 /**
@@ -396,16 +446,18 @@ async function retryAcceptAfterFix(
 
   const isProduction = process.env.NODE_ENV === 'production';
   const currentSymlink = path.join(path.dirname(worktreePath), 'current');
+  let bgAcceptResult: BlueGreenAcceptResult | null = null;
 
   if (isProduction) {
     // Blue/green path: build is already done in the worktree, swap the slot.
     console.log(`[retryAcceptAfterFix] blue/green accept for session ${sessionId}`);
-    const err = await blueGreenAccept(currentSymlink, worktreePath, branch, parentBranch, repoRoot, (text) => appendToProgress(sessionId, text));
-    if (err) {
-      console.log(`[retryAcceptAfterFix] blue/green accept failed: ${err}`);
-      await failWithError(`\n\n❌ **Accept failed**: ${err}\n`);
+    const bgResult = await blueGreenAccept(currentSymlink, worktreePath, branch, parentBranch, repoRoot, (text) => appendToProgress(sessionId, text));
+    if (!bgResult.ok) {
+      console.log(`[retryAcceptAfterFix] blue/green accept failed: ${bgResult.error}`);
+      await failWithError(`\n\n❌ **Accept failed**: ${bgResult.error}\n`);
       return;
     }
+    bgAcceptResult = bgResult;
   } else {
     // Legacy path (local dev without systemd).
 
@@ -493,13 +545,11 @@ async function retryAcceptAfterFix(
   await appendToProgress(sessionId, `\n\n---\n\n✅ **Accepted** — merged into \`${parentBranch}\`\n`);
   await db.updateEvolveSession(sessionId, { status: 'accepted' });
 
-  // (Production only) Final VACUUM INTO + systemd restart — same as runAcceptAsync.
-  if (isProduction) {
-    await appendToProgress(sessionId, '- Restarting service…\n');
+  // (Production only) Final VACUUM INTO + slot activation — same as runAcceptAsync.
+  if (isProduction && bgAcceptResult && bgAcceptResult.ok) {
+    await appendToProgress(sessionId, '- Switching traffic to new slot…\n');
     try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
-    setTimeout(() => {
-      try { execSync('sudo systemctl restart primordia', { stdio: 'ignore' }); } catch { /* best-effort */ }
-    }, 500);
+    scheduleSlotActivation(worktreePath, bgAcceptResult.newProdPort, bgAcceptResult.oldUpstreamPort);
   }
 }
 
@@ -599,14 +649,16 @@ async function runAcceptAsync(
 
     const isProduction = process.env.NODE_ENV === 'production';
     const currentSymlink = path.join(path.dirname(worktreePath), 'current');
+    let bgAcceptResult: BlueGreenAcceptResult | null = null;
 
     if (isProduction) {
       // Blue/green path: build is already done in the worktree, swap the slot.
-      const err = await blueGreenAccept(currentSymlink, worktreePath, branch, parentBranch, repoRoot, step);
-      if (err) {
-        await failWithError(`\n\n❌ **Accept failed**: ${err}\n`);
+      const bgResult = await blueGreenAccept(currentSymlink, worktreePath, branch, parentBranch, repoRoot, step);
+      if (!bgResult.ok) {
+        await failWithError(`\n\n❌ **Accept failed**: ${bgResult.error}\n`);
         return;
       }
+      bgAcceptResult = bgResult;
     } else {
       // Legacy path (local dev without systemd).
       const checkoutResult = await runGit(['checkout', parentBranch], repoRoot);
@@ -686,17 +738,15 @@ async function runAcceptAsync(
     await appendToProgress(sessionId, `\n\n---\n\n✅ **Accepted** — merged into \`${parentBranch}\`\n`);
     await db.updateEvolveSession(sessionId, { status: 'accepted' });
 
-    // (Production only) Final VACUUM INTO + systemd restart.
+    // (Production only) Final VACUUM INTO + slot activation.
     // Done here — after the session is fully written — so the new slot's DB
     // contains the complete "accepted" progress log and status. Without this,
     // the DB copied in blueGreenAccept (Step 4b) would be missing the final
     // entries, leaving the session stuck in "Accepting changes" on refresh.
-    if (isProduction) {
-      await step('- Restarting service…\n');
+    if (isProduction && bgAcceptResult && bgAcceptResult.ok) {
+      await step('- Switching traffic to new slot…\n');
       try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
-      setTimeout(() => {
-        try { execSync('sudo systemctl restart primordia', { stdio: 'ignore' }); } catch { /* best-effort */ }
-      }, 500);
+      scheduleSlotActivation(worktreePath, bgAcceptResult.newProdPort, bgAcceptResult.oldUpstreamPort);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

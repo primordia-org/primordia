@@ -1,5 +1,5 @@
 [Unit]
-Description=Primordia Next.js App
+Description=Primordia Reverse Proxy
 After=network.target
 
 [Service]
@@ -7,12 +7,9 @@ Type=simple
 User=exedev
 WorkingDirectory=/home/exedev/primordia-worktrees/current
 EnvironmentFile=/home/exedev/primordia-worktrees/current/.env.local
-Environment=HOSTNAME=0.0.0.0
-Environment=PORT=3001
 Environment=PRIMORDIA_WORKTREES_DIR=/home/exedev/primordia-worktrees
-ExecStartPre=/bin/bash -c 'printf "{\"port\":%s}\\n" "${PORT:-3001}" > "${PRIMORDIA_WORKTREES_DIR:-/home/exedev/primordia-worktrees}/proxy-upstream.json"'
-ExecStart=/home/exedev/.bun/bin/bun run start
-Restart=on-failure
+ExecStart=/home/exedev/.bun/bin/bun run proxy
+Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal

@@ -52,7 +52,9 @@ primordia/
 ├── scripts/
 │   ├── deploy-to-exe-dev.sh      ← `bun run deploy-to-exe.dev <server>`: SSH deploy to <server>.exe.xyz
 │   ├── install-service.sh        ← Installs/re-installs the systemd service; creates primordia-worktrees/current symlink (blue/green bootstrap)
-│   └── primordia.service         ← systemd service unit file; WorkingDirectory points at primordia-worktrees/current (the active blue/green slot)
+│   ├── primordia.service         ← systemd service unit file; WorkingDirectory = primordia-worktrees/current; writes app port to proxy-upstream.json on start
+│   ├── reverse-proxy.ts          ← HTTP reverse proxy for zero-downtime blue/green; listens on REVERSE_PROXY_PORT; reads upstream port from proxy-upstream.json
+│   └── primordia-proxy.service   ← systemd service unit for the reverse proxy
 │
 ├── public/
 │   (no generated files)
@@ -218,10 +220,12 @@ User types change request on /evolve page
       → blue/green deploy (production): bun install in worktree → git commit-tree + update-ref (no production dir writes)
           → copy prod DB from old slot into new slot (preserves auth data)
           → fix .env.local symlink in new slot to point to main repo (prevents dangling link)
+          → start new prod server on a free port; run health checks
           → atomic symlink swap: primordia-worktrees/current → session worktree
           → keep old slot as primordia-worktrees/previous (enables fast rollback via POST /api/rollback)
           → delete slot from two accepts ago (if worktree), delete session branch
-          → sudo systemctl restart primordia (fire-and-forget)
+          → atomically update proxy-upstream.json → reverse proxy routes all new traffic to new slot
+          → gracefully shutdown the old prod server (SIGTERM via lsof)
       → legacy deploy (local dev, no systemd): git merge in production dir → bun install → worktree remove
   → User clicks Reject → POST /api/evolve/manage { action: "reject" }
       → kill dev server, git worktree remove, git branch -D
@@ -324,6 +328,8 @@ These must be set in:
 | `ANTHROPIC_API_KEY` | Required for evolve | Required for the evolve pipeline (`@anthropic-ai/claude-agent-sdk`) in **all environments**. Not required for chat on exe.dev — the built-in LLM gateway is used instead. Required for chat outside exe.dev. |
 | `GITHUB_TOKEN` | No | Personal access token (repo scope) — enables authenticated git pull/push in GitSyncDialog; falls back to `origin` remote if unset |
 | `GITHUB_REPO` | No | `owner/repo` slug (e.g. `primordia-org/primordia`) — used alongside `GITHUB_TOKEN` to build the authenticated remote URL |
+| `REVERSE_PROXY_PORT` | No | Port the reverse proxy listens on (e.g. `3000`). When set, blue/green accepts use zero-downtime cutover instead of `systemctl restart`. |
+| `PRIMORDIA_WORKTREES_DIR` | No | Path to the worktrees directory (default `/home/exedev/primordia-worktrees`). Set automatically by the systemd service files. |
 | `NEXT_BASE_PATH` | No | URL sub-path prefix (e.g. `/primordia`) for hosting the app at a non-root path. Leave unset to serve from `/` (default). Sets both Next.js `basePath` config and `NEXT_PUBLIC_BASE_PATH` for client-side `fetch()` calls. |
 
 ---

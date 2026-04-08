@@ -10,15 +10,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_SRC="${SCRIPT_DIR}/primordia.service"
 SERVICE_DST="/etc/systemd/system/primordia.service"
+PROXY_SERVICE_SRC="${SCRIPT_DIR}/primordia-proxy.service"
+PROXY_SERVICE_DST="/etc/systemd/system/primordia-proxy.service"
 
-echo "Installing Primordia systemd service..."
+echo "Installing Primordia systemd services..."
 
-# Symlink the service file from the repo into systemd
+# Symlink the app service file from the repo into systemd
 sudo ln -sf "${SERVICE_SRC}" "${SERVICE_DST}"
 echo "  Symlinked: ${SERVICE_DST} -> ${SERVICE_SRC}"
 
+# Symlink the proxy service file from the repo into systemd
+sudo ln -sf "${PROXY_SERVICE_SRC}" "${PROXY_SERVICE_DST}"
+echo "  Symlinked: ${PROXY_SERVICE_DST} -> ${PROXY_SERVICE_SRC}"
+
 sudo systemctl daemon-reload
 sudo systemctl enable primordia
+sudo systemctl enable primordia-proxy
 echo "  Enabled on boot."
 
 # Blue/green production slot: ensure primordia-worktrees/current symlink exists.
@@ -37,6 +44,14 @@ else
   echo "  Production slot exists: ${CURRENT_LINK} -> $(readlink "${CURRENT_LINK}")"
 fi
 
+# Create initial proxy upstream config if it doesn't exist.
+# The app service will overwrite this with the actual port on startup.
+PROXY_CONFIG="${WORKTREES_DIR}/proxy-upstream.json"
+if [[ ! -f "${PROXY_CONFIG}" ]]; then
+  echo '{"port":3001}' > "${PROXY_CONFIG}"
+  echo "  Created proxy config: ${PROXY_CONFIG}"
+fi
+
 # Kill any legacy nohup process so we don't double-run
 if [[ -f "$HOME/primordia.pid" ]]; then
   OLD_PID=$(cat "$HOME/primordia.pid" 2>/dev/null || true)
@@ -49,9 +64,13 @@ if [[ -f "$HOME/primordia.pid" ]]; then
 fi
 
 sudo systemctl restart primordia
+sudo systemctl restart primordia-proxy
 echo ""
 echo "Done! Useful commands:"
-echo "  sudo systemctl restart primordia    # restart"
-echo "  sudo systemctl stop primordia       # stop"
-echo "  sudo systemctl status primordia     # status"
-echo "  journalctl -u primordia -f          # tail logs"
+echo "  sudo systemctl restart primordia        # restart app"
+echo "  sudo systemctl restart primordia-proxy  # restart proxy"
+echo "  sudo systemctl stop primordia           # stop app"
+echo "  sudo systemctl status primordia         # app status"
+echo "  sudo systemctl status primordia-proxy   # proxy status"
+echo "  journalctl -u primordia -f              # tail app logs"
+echo "  journalctl -u primordia-proxy -f        # tail proxy logs"

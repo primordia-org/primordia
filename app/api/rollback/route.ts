@@ -5,7 +5,7 @@
 // GET  — returns { hasPrevious: boolean } so the UI can show/hide the rollback option.
 // POST — performs the rollback; returns { outcome: 'rolled-back' } or { error }.
 
-import { execSync, spawnSync } from 'child_process';
+import { execSync, spawn, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Database } from 'bun:sqlite';
@@ -120,11 +120,88 @@ export async function POST() {
     }
   } catch { /* best-effort — branch detection is non-critical */ }
 
-  // Restart the service on the now-active (rolled-back) slot.
-  // Fire-and-forget with a short delay so the HTTP response flushes first.
-  setTimeout(() => {
-    try { execSync('sudo systemctl restart primordia', { stdio: 'ignore' }); } catch { /* best-effort */ }
-  }, 500);
+  // Zero-downtime restart when the proxy is configured.
+  const reverseProxyPort = process.env.REVERSE_PROXY_PORT;
+  if (reverseProxyPort) {
+    // Start the rolled-back slot on a free port, wait for health, then cut over.
+    void (async () => {
+      const net = await import('net');
+
+      const freePort: number = await new Promise((resolve, reject) => {
+        const s = net.createServer();
+        s.listen(0, '127.0.0.1', () => {
+          const addr = s.address();
+          const port = typeof addr === 'object' && addr ? addr.port : 0;
+          s.close(() => resolve(port));
+        });
+        s.on('error', reject);
+      });
+
+      const worktreesDir = path.dirname(currentSymlink);
+      const proxyConfigPath = path.join(worktreesDir, 'proxy-upstream.json');
+
+      let oldUpstreamPort: number | null = null;
+      try {
+        const cfg = JSON.parse(fs.readFileSync(proxyConfigPath, 'utf8')) as { port: number };
+        if (typeof cfg.port === 'number') oldUpstreamPort = cfg.port;
+      } catch { /* proxy config not yet written */ }
+
+      const newServer = spawn('bun', ['run', 'start'], {
+        cwd: previousTarget,
+        env: { ...process.env, PORT: String(freePort), HOSTNAME: '0.0.0.0' },
+        stdio: 'ignore',
+        detached: true,
+      });
+      newServer.unref();
+
+      // Health check for up to 30 s
+      const deadline = Date.now() + 30_000;
+      let healthy = false;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 1_000));
+        try {
+          await fetch(`http://localhost:${freePort}/`, {
+            signal: AbortSignal.timeout(3_000),
+            redirect: 'manual',
+          });
+          healthy = true;
+          break;
+        } catch { /* not ready yet */ }
+      }
+
+      if (!healthy) {
+        // Fall back to systemctl restart on health-check failure
+        try { newServer.kill('SIGTERM'); } catch {}
+        try { execSync('sudo systemctl restart primordia', { stdio: 'ignore' }); } catch {}
+        return;
+      }
+
+      // Atomically update proxy config — traffic switches here
+      try {
+        const tmp = proxyConfigPath + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify({ port: freePort }));
+        fs.renameSync(tmp, proxyConfigPath);
+      } catch { /* best-effort */ }
+
+      // Give the proxy ~500 ms to pick up the config, then kill the old server
+      setTimeout(() => {
+        if (oldUpstreamPort !== null) {
+          try {
+            const pids = execSync(`lsof -ti tcp:${oldUpstreamPort}`, { encoding: 'utf8' })
+              .trim().split('\n').filter(Boolean).map(Number).filter(Boolean);
+            for (const pid of pids) {
+              try { process.kill(pid, 'SIGTERM'); } catch {}
+            }
+          } catch {}
+        }
+      }, 500);
+    })();
+  } else {
+    // Fallback: brief-downtime systemctl restart
+    setTimeout(() => {
+      try { execSync('sudo systemctl restart primordia', { stdio: 'ignore' }); } catch {}
+    }, 500);
+  }
 
   return Response.json({ outcome: 'rolled-back' });
 }
