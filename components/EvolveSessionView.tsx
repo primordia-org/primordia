@@ -300,6 +300,8 @@ interface EvolveSessionViewProps {
   upstreamCommitCount: number;
   /** True when the current user has the can_evolve (or admin) permission. Actions are hidden when false. */
   canEvolve: boolean;
+  /** True when running in production mode (NODE_ENV=production). Changes accept confirmation copy to describe blue/green cutover instead of a merge. */
+  isProduction: boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -316,6 +318,7 @@ export default function EvolveSessionView({
   canAcceptReject,
   upstreamCommitCount,
   canEvolve,
+  isProduction,
 }: EvolveSessionViewProps) {
   const [progressText, setProgressText] = useState(initialProgressText);
   const [status, setStatus] = useState(initialStatus);
@@ -1036,9 +1039,26 @@ export default function EvolveSessionView({
               {canAcceptReject ? (
                 <>
                   <p className="text-gray-300 text-sm mb-4">
-                    Accepting will merge the preview branch{" "}
-                    <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code> into{" "}
-                    <code className="bg-gray-800 px-1 rounded">{branch ?? "main"}</code>.
+                    {isProduction ? (
+                      <>
+                        Accepting will make the current preview branch{" "}
+                        <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code>{" "}
+                        the new production instance. The{" "}
+                        <code className="bg-gray-800 px-1 rounded">{branch ?? "main"}</code>{" "}
+                        branch will remain on the commit it is at and its worktree will remain
+                        available for future rollbacks. The{" "}
+                        <code className="bg-gray-800 px-1 rounded">main</code> branch will be
+                        updated, and the <code className="bg-gray-800 px-1 rounded">PROD</code>{" "}
+                        symbolic-ref will be set to{" "}
+                        <code className="bg-gray-800 px-1 rounded">refs/heads/{sessionBranch}</code>.
+                      </>
+                    ) : (
+                      <>
+                        Accepting will merge the preview branch{" "}
+                        <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code> into{" "}
+                        <code className="bg-gray-800 px-1 rounded">{branch ?? "main"}</code>.
+                      </>
+                    )}
                   </p>
                   <button
                     onClick={handleAccept}

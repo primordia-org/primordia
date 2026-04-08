@@ -113,6 +113,7 @@ export default async function EvolveSessionPage({
       canAcceptReject={canAcceptReject}
       upstreamCommitCount={upstreamCommitCount}
       canEvolve={canEvolve}
+      isProduction={process.env.NODE_ENV === "production"}
     />
   );
 }
