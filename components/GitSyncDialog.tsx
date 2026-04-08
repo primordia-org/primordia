@@ -5,6 +5,7 @@
 // pulls then pushes the current branch via /api/git-sync.
 
 import { StreamingDialog } from "./StreamingDialog";
+import { withBasePath } from "../lib/base-path";
 
 export function GitSyncDialog({ onClose }: { onClose: () => void }) {
   return (
@@ -32,7 +33,7 @@ export function GitSyncDialog({ onClose }: { onClose: () => void }) {
       runningLabel="Syncing…"
       successMessage="✅ Sync complete!"
       errorMessage="❌ Sync finished with errors. Check the output above."
-      apiEndpoint="/api/git-sync"
+      apiEndpoint={withBasePath("/api/git-sync")}
     />
   );
 }

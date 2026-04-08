@@ -13,6 +13,7 @@ import { GitSyncDialog } from "./GitSyncDialog";
 import { NavHeader } from "./NavHeader";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import { useSessionUser } from "../lib/hooks";
+import { withBasePath } from "../lib/base-path";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -59,7 +60,7 @@ export default function EvolveForm({ branch }: EvolveFormProps = {}) {
         formData.append("attachments", file);
       }
 
-      const res = await fetch("/api/evolve", {
+      const res = await fetch(withBasePath("/api/evolve"), {
         method: "POST",
         body: formData,
       });

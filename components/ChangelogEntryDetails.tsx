@@ -9,6 +9,7 @@
 
 import { useState, useRef } from "react";
 import { MarkdownContent } from "@/components/SimpleMarkdown";
+import { withBasePath } from "@/lib/base-path";
 
 interface Props {
   filename: string;
@@ -26,7 +27,7 @@ export function ChangelogEntryDetails({ filename, date, title, dateLabel }: Prop
     if (!e.currentTarget.open || fetchedRef.current) return;
     fetchedRef.current = true;
     setLoading(true);
-    fetch(`/api/changelog?filename=${encodeURIComponent(filename)}`)
+    fetch(withBasePath(`/api/changelog?filename=${encodeURIComponent(filename)}`))
       .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
       .then((text) => setContent(text.trim()))
       .catch(() => setContent("*(Failed to load content.)*"))

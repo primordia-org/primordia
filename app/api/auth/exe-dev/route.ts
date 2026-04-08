@@ -48,8 +48,9 @@ export async function GET(req: NextRequest) {
   if (!email) {
     // Not authenticated with exe.dev yet — bounce through the exe.dev login page.
     // After login the proxy redirects back here with the headers injected.
+    const basePath = process.env.NEXT_BASE_PATH ?? "";
     const callbackPath =
-      "/api/auth/exe-dev?next=" + encodeURIComponent(next);
+      basePath + "/api/auth/exe-dev?next=" + encodeURIComponent(next);
     const loginUrl = "/__exe.dev/login?redirect=" + encodeURIComponent(callbackPath);
     return NextResponse.redirect(new URL(loginUrl, origin));
   }

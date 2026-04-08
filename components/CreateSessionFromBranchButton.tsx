@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { withBasePath } from "../lib/base-path";
 
 interface Props {
   branchName: string;
@@ -23,7 +24,7 @@ export function CreateSessionFromBranchButton({ branchName }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/evolve/from-branch", {
+      const res = await fetch(withBasePath("/api/evolve/from-branch"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ branchName, request: request.trim() || undefined }),

@@ -10,6 +10,7 @@ import {
   startRegistration,
   startAuthentication,
 } from "@simplewebauthn/browser";
+import { withBasePath } from "@/lib/base-path";
 
 type Tab = "passkey" | "qr" | "exe-dev";
 
@@ -79,7 +80,7 @@ function LoginPageInner({ initialUser, exeDevEmail }: LoginClientProps) {
     setQrError(null);
     setQrTokenId(null);
     try {
-      const res = await fetch("/api/auth/cross-device/start", { method: "POST" });
+      const res = await fetch(withBasePath("/api/auth/cross-device/start"), { method: "POST" });
       const data = (await res.json()) as { tokenId?: string; error?: string };
       if (!res.ok || !data.tokenId) {
         setQrPhase("error");
@@ -93,7 +94,7 @@ function LoginPageInner({ initialUser, exeDevEmail }: LoginClientProps) {
       pollIntervalRef.current = setInterval(async () => {
         try {
           const pollRes = await fetch(
-            `/api/auth/cross-device/poll?tokenId=${data.tokenId}`
+            withBasePath(`/api/auth/cross-device/poll?tokenId=${data.tokenId}`)
           );
           const pollData = (await pollRes.json()) as {
             status?: string;
@@ -149,7 +150,7 @@ function LoginPageInner({ initialUser, exeDevEmail }: LoginClientProps) {
     setSuccess(null);
     setLoading("register");
     try {
-      const startRes = await fetch("/api/auth/passkey/register/start", {
+      const startRes = await fetch(withBasePath("/api/auth/passkey/register/start"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username }),
@@ -169,7 +170,7 @@ function LoginPageInner({ initialUser, exeDevEmail }: LoginClientProps) {
         >[0]["optionsJSON"],
       });
 
-      const finishRes = await fetch("/api/auth/passkey/register/finish", {
+      const finishRes = await fetch(withBasePath("/api/auth/passkey/register/finish"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(attResp),
@@ -199,7 +200,7 @@ function LoginPageInner({ initialUser, exeDevEmail }: LoginClientProps) {
     setSuccess(null);
     setLoading("login");
     try {
-      const startRes = await fetch("/api/auth/passkey/login/start", {
+      const startRes = await fetch(withBasePath("/api/auth/passkey/login/start"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: username || undefined }),
@@ -219,7 +220,7 @@ function LoginPageInner({ initialUser, exeDevEmail }: LoginClientProps) {
         >[0]["optionsJSON"],
       });
 
-      const finishRes = await fetch("/api/auth/passkey/login/finish", {
+      const finishRes = await fetch(withBasePath("/api/auth/passkey/login/finish"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(authResp),
@@ -446,7 +447,7 @@ function LoginPageInner({ initialUser, exeDevEmail }: LoginClientProps) {
                   <div className="flex justify-center">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={`/api/auth/cross-device/qr?tokenId=${qrTokenId}`}
+                      src={withBasePath(`/api/auth/cross-device/qr?tokenId=${qrTokenId}`)}
                       alt="QR code for cross-device sign-in"
                       width={200}
                       height={200}
@@ -530,7 +531,7 @@ function LoginPageInner({ initialUser, exeDevEmail }: LoginClientProps) {
                     {exeDevEmail}
                   </p>
                   <a
-                    href={`/api/auth/exe-dev?next=${encodeURIComponent(nextUrl)}`}
+                    href={withBasePath(`/api/auth/exe-dev?next=${encodeURIComponent(nextUrl)}`)}
                     className="block w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white transition-colors text-center"
                   >
                     <ExeDevIcon />

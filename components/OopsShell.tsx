@@ -6,6 +6,7 @@
 // /api/oops as SSE, showing output in real time.
 
 import { useState, useRef, useEffect, type FormEvent, type KeyboardEvent } from "react";
+import { withBasePath } from "../lib/base-path";
 
 interface HistoryEntry {
   id: number;
@@ -41,7 +42,7 @@ export default function OopsShell() {
     abortRef.current = abort;
 
     try {
-      const res = await fetch("/api/oops", {
+      const res = await fetch(withBasePath("/api/oops"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cmd: trimmed }),

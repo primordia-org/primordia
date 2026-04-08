@@ -1,6 +1,17 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Optional base path — set NEXT_BASE_PATH=/my-prefix to serve the app at a sub-path.
+  // Leave unset (or empty) to serve from the root (default behaviour).
+  basePath: process.env.NEXT_BASE_PATH ?? "",
+
+  // Expose the base path to client-side code so fetch() calls can prefix API routes.
+  // Next.js <Link>, router.push(), and redirect() are basePath-aware automatically;
+  // plain fetch() calls are not, so they import withBasePath() from lib/base-path.ts.
+  env: {
+    NEXT_PUBLIC_BASE_PATH: process.env.NEXT_BASE_PATH ?? "",
+  },
+
   // Skip type-checking during `next build` — these run manually instead.
   // Note: ESLint config was removed in Next.js 16; ESLint is no longer run during builds.
   typescript: { ignoreBuildErrors: true },
