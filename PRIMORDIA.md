@@ -26,7 +26,7 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 | Styling | Tailwind CSS | AI models write Tailwind well; no CSS files to manage |
 | Language | TypeScript | Catches mistakes; Claude Code understands it well |
 | AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Streaming chat via `claude-sonnet-4-6`; prefers exe.dev LLM gateway, falls back to `ANTHROPIC_API_KEY` |
-| Hosting | exe.dev | Production builds via `bun run build && bun run start`; systemd service; blue/green slot swap on accept |
+| Hosting | exe.dev | Production builds via `bun run build && bun run start`; single systemd service (`primordia-proxy`) manages both proxy and production app; blue/green slot swap on accept |
 | AI code gen | `@anthropic-ai/claude-agent-sdk` | `query()` runs Claude Code in git worktrees for evolve requests |
 | Database | bun:sqlite | Local SQLite for passkey auth **and evolve session persistence**; same adapter on exe.dev and local dev |
 
@@ -51,11 +51,11 @@ primordia/
 │
 ├── scripts/
 │   ├── deploy-to-exe-dev.sh      ← `bun run deploy-to-exe.dev <server>`: SSH deploy to <server>.exe.xyz
-│   ├── install-service.sh        ← Installs/re-installs the systemd service; creates primordia-worktrees/current symlink (blue/green bootstrap)
-│   ├── primordia.service         ← systemd service unit file; WorkingDirectory = primordia-worktrees/current; reads PORT from git config (branch.{name}.port) at startup
-│   ├── reverse-proxy.ts          ← HTTP reverse proxy for zero-downtime blue/green AND preview servers; listens on REVERSE_PROXY_PORT; reads upstream port and preview ports from git config (branch.{name}.port + branch.{name}.sessionId); watches git config file for instant cutover; routes /preview/{sessionId} paths to session preview servers
+│   ├── install-service.sh        ← Installs/re-installs the proxy systemd service; copies reverse-proxy.ts to ~/primordia-proxy.ts; initialises PROD symbolic-ref on first install
+│   ├── reverse-proxy.ts          ← HTTP reverse proxy for zero-downtime blue/green AND preview servers; listens on REVERSE_PROXY_PORT; reads production branch from git PROD symbolic-ref, then looks up branch.{name}.port; discovers main repo from any worktree in PRIMORDIA_WORKTREES_DIR; on startup spawns the production Next.js server if not already running; watches both .git/config and .git/PROD for instant cutover; routes /preview/{sessionId} paths to session preview servers; installed to ~/primordia-proxy.ts by install-service.sh
 │   ├── assign-branch-ports.sh    ← Idempotent migration script: assigns ephemeral ports to all local branches in git config (branch.{name}.port); main gets 3001, others get 3002+
-│   └── primordia-proxy.service   ← systemd service unit for the reverse proxy
+│   ├── rollback.ts               ← Standalone CLI rollback script: updates PROD to previous slot (PROD@{1}) and restarts primordia-proxy; use when the server itself is broken and /api/rollback is unreachable
+│   └── primordia-proxy.service   ← systemd service unit for the reverse proxy; WorkingDirectory=/home/exedev/primordia; is the sole long-running service — responsible for starting the production Next.js server on boot and routing all traffic
 │
 ├── public/
 │   (no generated files)
@@ -83,9 +83,11 @@ primordia/
 │   ├── chat/
 │   │   └── page.tsx               ← Server component: chat interface; redirects to /login if unauthenticated
 │   ├── admin/
-│   │   ├── page.tsx               ← Admin panel: owner-only; grant/revoke evolve access per user; tab subnav (Manage Users / Server Logs)
-│   │   └── logs/
-│   │       └── page.tsx           ← Server logs: streams primordia systemd journal via SSE; admin only
+│   │   ├── page.tsx               ← Admin panel: owner-only; grant/revoke evolve access per user; tab subnav (Manage Users / Server Logs / Rollback)
+│   │   ├── logs/
+│   │   │   └── page.tsx           ← Server logs: streams primordia systemd journal via SSE; admin only
+│   │   └── rollback/
+│   │       └── page.tsx           ← Deep rollback: lists previous prod slots from PROD git reflog; admin only
 │   ├── oops/
 │   │   └── page.tsx               ← Owner-only mobile shell: run occasional system commands without SSH
 │   ├── evolve/
@@ -109,6 +111,13 @@ primordia/
 │       │   └── route.ts           ← POST pull + push the current branch (used by GitSyncDialog)
 │       ├── rollback/
 │       │   └── route.ts           ← GET hasPrevious check; POST swap current↔previous + systemd restart (admin only)
+│       ├── admin/
+│       │   ├── permissions/
+│       │   │   └── route.ts       ← POST grant/revoke grantable roles (can_evolve); admin only
+│       │   ├── logs/
+│       │   │   └── route.ts       ← GET SSE stream of `journalctl -u primordia -f -n 100`; admin only
+│       │   └── rollback/
+│       │       └── route.ts       ← GET list previous prod slots from PROD reflog; POST apply deep rollback to any slot; admin only
 │       ├── prune-branches/
 │       │   └── route.ts           ← POST delete all local branches merged into main; streams SSE progress
 │       ├── auth/
@@ -135,11 +144,6 @@ primordia/
 │       │       └── route.ts       ← GET/POST git http-backend proxy (read-only clone/fetch); push (receive-pack) blocked with 403
 │       ├── oops/
 │       │   └── route.ts           ← POST run shell command (streams SSE stdout+stderr); admin only
-│       ├── admin/
-│       │   ├── permissions/
-│       │   │   └── route.ts       ← POST grant/revoke grantable roles (can_evolve); admin only
-│       │   └── logs/
-│       │       └── route.ts       ← GET SSE stream of `journalctl -u primordia -f -n 100`; admin only
 │       └── evolve/
 │               ├── route.ts       ← POST start session (requires can_evolve permission), GET status (legacy poll)
 │               ├── stream/
@@ -162,7 +166,8 @@ primordia/
 ├── components/
 │   ├── AcceptRejectBar.tsx        ← Accept/reject bar for local preview worktrees
 │   ├── AdminPermissionsClient.tsx ← Client component: grant/revoke 'can_evolve' role per user (used by /admin)
-│   ├── AdminSubNav.tsx            ← Tab subnav for admin pages: "Manage Users" (/admin) and "Server Logs" (/admin/logs)
+│   ├── AdminRollbackClient.tsx    ← Client component: deep rollback UI; lists PROD reflog targets with roll-back buttons (used by /admin/rollback)
+│   ├── AdminSubNav.tsx            ← Tab subnav for admin pages: "Manage Users" (/admin), "Server Logs" (/admin/logs), "Rollback" (/admin/rollback)
 │   ├── ForbiddenPage.tsx          ← Server component: 403 access-denied page with page description, required/met/unmet conditions, and how-to-fix
 │   ├── ChatInterface.tsx          ← Main chat UI (chat only); hamburger menu "Propose a change" opens FloatingEvolveDialog
 │   ├── ChangelogEntryDetails.tsx  ← Client component: single changelog <details> widget; lazy-loads body from /api/changelog on first open
@@ -221,14 +226,13 @@ User types change request on /evolve page
   → Preview link shown when status becomes "ready"
   → User clicks Accept → POST /api/evolve/manage { action: "accept" }
       → pre-accept gates: ancestor check, clean worktree, bun run typecheck, bun run build (all in session worktree)
-      → blue/green deploy (production): bun install in worktree → git commit-tree + update-ref (no production dir writes)
+      → blue/green deploy (production): bun install in worktree → git commit-tree + update-ref (advances parentBranch and fast-forwards session branch to merge commit; no working-tree writes)
+          → session worktree stays checked out on the session branch; no detached HEAD
           → copy prod DB from old slot into new slot (preserves auth data)
           → fix .env.local symlink in new slot to point to main repo (prevents dangling link)
           → start new prod server on the branch's pre-assigned port (from git config); run health checks
-          → atomic symlink swap: primordia-worktrees/current → session worktree
-          → keep old slot as primordia-worktrees/previous (enables fast rollback via POST /api/rollback)
-          → delete slot from two accepts ago (if worktree), delete session branch
-          → update branch.{parentBranch}.port in git config → reverse proxy picks up new port instantly via fs.watch
+          → old slots accumulate indefinitely as registered git worktrees (enables deep rollback via /admin/rollback)
+          → set git PROD symbolic-ref → session branch; touch git config → reverse proxy picks up new branch/port instantly via fs.watch
           → gracefully shutdown the old prod server (SIGTERM via lsof)
       → legacy deploy (local dev, no systemd): git merge in production dir → bun install → worktree remove
   → User clicks Reject → POST /api/evolve/manage { action: "reject" }
@@ -384,6 +388,7 @@ When implementing changes, follow these principles:
 | RBAC (roles) | ✅ Live | Simple role system: `admin` (auto-granted to first user) and `can_evolve`; /admin page lets admin grant/revoke roles; protected pages show informative 403 instead of redirecting |
 | Owner shell (/oops) | ✅ Live | Mobile-friendly shell at `/oops`; admin-only; run system commands (e.g. `sudo systemctl restart primordia`) without SSH; streams stdout+stderr via SSE |
 | Server logs (/admin/logs) | ✅ Live | Admin-only; live tail of `journalctl -u primordia -f -n 100` via SSE; accessible from the admin subnav |
+| Deep rollback (/admin/rollback) | ✅ Live | Admin-only; lists all previous production slots from the PROD git reflog; "Roll back" button for each target; zero-downtime cutover via reverse proxy |
 | Read-only git HTTP | ✅ Live | Clone/fetch via `git clone http[s]://<host>/api/git`; proxied through `git http-backend`; push permanently blocked (403) |
 
 ---
@@ -394,8 +399,7 @@ These were noted at project inception but are explicitly out of scope for the MV
 
 - **Fork flow**: one-click fork to user's own instance
 - **Voting**: upvote proposed evolve requests before they get built
-- **Rollback UI**: A dedicated UI for the `POST /api/rollback` endpoint (endpoint exists; no UI yet)
-- **Deep rollback**: "go back to before X was added" via natural language (only one level of rollback is available today via `previous`)
+- **Rollback UI / Deep rollback**: Implemented — `/admin/rollback` lists all previous slots from the PROD git reflog with one-click rollback buttons
 - **Multi-tenant**: each user gets their own Primordia instance
 
 ## Changelog

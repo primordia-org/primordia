@@ -3,7 +3,12 @@
 //
 // Listens on REVERSE_PROXY_PORT (default 3000) and forwards all traffic to
 // the upstream port stored in git config as branch.{currentBranch}.port for
-// the branch checked out in the primordia-worktrees/current slot.
+// the branch pointed to by the PROD symbolic-ref in git.
+//
+// On startup, if the production Next.js server is not already running, the
+// proxy spawns it automatically (bun run start in the production worktree).
+// This makes the proxy the sole systemd service needed — no separate
+// primordia.service required.
 //
 // Preview server routing: requests to /preview/{sessionId}/... are routed to
 // the port associated with that session. The mapping is derived from git config:
@@ -18,7 +23,7 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as stream from 'stream';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 
 // Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
 const HOP_BY_HOP = new Set([
@@ -54,22 +59,48 @@ function forwardHeaders(
 const LISTEN_PORT = parseInt(process.env.REVERSE_PROXY_PORT ?? '3000', 10);
 const WORKTREES_DIR =
   process.env.PRIMORDIA_WORKTREES_DIR ?? '/home/exedev/primordia-worktrees';
-const CURRENT_SYMLINK = path.join(WORKTREES_DIR, 'current');
+
+/**
+ * Discover the main git repo by inspecting any worktree in WORKTREES_DIR.
+ * Falls back to process.cwd() (which is set to the main repo by the systemd
+ * WorkingDirectory directive in primordia-proxy.service).
+ */
+function discoverMainRepo(): string {
+  try {
+    const entries = fs.readdirSync(WORKTREES_DIR, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const candidate = path.join(WORKTREES_DIR, entry.name);
+      try {
+        const commonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+          cwd: candidate,
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }).trim();
+        // commonDir is an absolute path like /home/exedev/primordia/.git
+        return path.dirname(path.resolve(candidate, commonDir));
+      } catch {
+        continue;
+      }
+    }
+  } catch {
+    // WORKTREES_DIR doesn't exist yet
+  }
+  return process.cwd();
+}
+
+/** Stable path to the main git repo — used as cwd for all git commands. */
+const MAIN_REPO = discoverMainRepo();
 
 let upstreamPort = 3001;
+/** The branch name currently pointed to by PROD. */
+let currentProdBranch: string | null = null;
 /** Cache of session ID → port for fast preview lookups. */
 let sessionPortCache: Record<string, number> = {};
 /** Path to the git config file being watched. */
 let watchedConfigPath: string | null = null;
-
-/** Returns the resolved path of the current production worktree. */
-function getCurrentWorktreePath(): string | null {
-  try {
-    return fs.realpathSync(CURRENT_SYMLINK);
-  } catch {
-    return null;
-  }
-}
+/** Path to the .git/PROD symbolic-ref file being watched. */
+let watchedProdPath: string | null = null;
 
 /**
  * Returns the path to the shared git config file for the repo.
@@ -93,15 +124,14 @@ function findGitConfigPath(cwd: string): string | null {
  * Also updates the upstream port based on the current branch.
  */
 function readAllPorts(): void {
-  const worktreePath = getCurrentWorktreePath();
-  if (!worktreePath) return;
-
   // Start watching the git config file if not already doing so.
   if (!watchedConfigPath) {
-    const cfgPath = findGitConfigPath(worktreePath);
+    const cfgPath = findGitConfigPath(MAIN_REPO);
     if (cfgPath) {
       watchedConfigPath = cfgPath;
       watchGitConfig(cfgPath);
+      // Also watch .git/PROD; it may not exist until the first accept.
+      setupProdWatch(path.dirname(cfgPath));
     }
   }
 
@@ -109,7 +139,7 @@ function readAllPorts(): void {
   try {
     // Build branch → port map from git config.
     const portOut = execFileSync('git', ['config', '--get-regexp', 'branch\\..*\\.port'], {
-      cwd: worktreePath,
+      cwd: MAIN_REPO,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -121,7 +151,7 @@ function readAllPorts(): void {
 
     // Build branch → sessionId map, then combine into sessionId → port.
     const sessionOut = execFileSync('git', ['config', '--get-regexp', 'branch\\..*\\.sessionid'], {
-      cwd: worktreePath,
+      cwd: MAIN_REPO,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -139,20 +169,38 @@ function readAllPorts(): void {
     // git config --get-regexp exits non-zero when no keys match — normal on first run
   }
 
-  // Determine which branch is currently live and update upstream port.
+  // Determine production branch: prefer the PROD symbolic-ref (set on each
+  // accept), fall back to HEAD of the current worktree (initial bootstrap
+  // before the first accept or on pre-PROD deployments).
+  let prodBranch: string | null = null;
   try {
-    const branch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
-      cwd: worktreePath,
+    const ref = execFileSync('git', ['symbolic-ref', '--short', 'PROD'], {
+      cwd: MAIN_REPO,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
-    const port = branchPort[branch];
+    if (ref) prodBranch = ref;
+  } catch {
+    // PROD not yet initialised — fall through to HEAD fallback
+  }
+  if (!prodBranch) {
+    try {
+      prodBranch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+        cwd: MAIN_REPO,
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim() || null;
+    } catch {
+      // Detached HEAD — keep current upstream port
+    }
+  }
+  if (prodBranch) {
+    currentProdBranch = prodBranch;
+    const port = branchPort[prodBranch];
     if (port && port !== upstreamPort) {
-      console.log(`[proxy] upstream port: ${upstreamPort} → ${port} (branch: ${branch})`);
+      console.log(`[proxy] upstream port: ${upstreamPort} → ${port} (PROD branch: ${prodBranch})`);
       upstreamPort = port;
     }
-  } catch {
-    // Detached HEAD — keep current upstream port
   }
 }
 
@@ -164,7 +212,83 @@ function watchGitConfig(configPath: string): void {
   }
 }
 
+/**
+ * Sets up a fs.watch on .git/PROD so the proxy reacts instantly when the
+ * production branch changes. PROD is created on the first accept, so this
+ * retries every 5 s until the file appears.
+ */
+function setupProdWatch(gitDir: string): void {
+  if (watchedProdPath) return;
+  const prodRefPath = path.join(gitDir, 'PROD');
+  if (fs.existsSync(prodRefPath)) {
+    watchedProdPath = prodRefPath;
+    fs.watch(prodRefPath, () => setTimeout(readAllPorts, 50));
+  } else {
+    // PROD is created on the first accept — retry until it appears.
+    setTimeout(() => setupProdWatch(gitDir), 5_000);
+  }
+}
+
+/**
+ * On startup, if the production Next.js server is not already running on the
+ * upstream port, find the production worktree and spawn `bun run start` there.
+ * This makes the proxy responsible for the production server lifecycle so no
+ * separate primordia.service systemd unit is needed.
+ */
+async function startProdServerIfNeeded(): Promise<void> {
+  if (!currentProdBranch || !upstreamPort) return;
+
+  // Check if the production server is already running.
+  try {
+    await fetch(`http://localhost:${upstreamPort}/`, {
+      signal: AbortSignal.timeout(2_000),
+      redirect: 'manual',
+    });
+    console.log(`[proxy] production server already running on :${upstreamPort}`);
+    return;
+  } catch {
+    // Not running — need to start it.
+  }
+
+  // Find the worktree checked out on the production branch.
+  let prodPath: string | null = null;
+  try {
+    const wtOut = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+      cwd: MAIN_REPO,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let curPath: string | undefined;
+    let curBranch: string | null = null;
+    for (const line of wtOut.split('\n')) {
+      if (line.startsWith('worktree ')) { curPath = line.slice(9); curBranch = null; }
+      else if (line.startsWith('branch ')) { curBranch = line.slice(7).replace('refs/heads/', ''); }
+      else if (line === '' && curPath && curBranch === currentProdBranch) { prodPath = curPath; break; }
+    }
+    // Handle last entry (no trailing blank line)
+    if (!prodPath && curPath && curBranch === currentProdBranch) prodPath = curPath;
+  } catch {
+    // git not available
+  }
+
+  if (!prodPath) {
+    console.warn(`[proxy] cannot start prod server: no worktree for branch '${currentProdBranch}'`);
+    return;
+  }
+
+  console.log(`[proxy] starting production server (${currentProdBranch}) on :${upstreamPort} in ${prodPath}`);
+  const server = spawn('bun', ['run', 'start'], {
+    cwd: prodPath,
+    env: { ...process.env, PORT: String(upstreamPort), HOSTNAME: '0.0.0.0' },
+    stdio: 'ignore',
+    detached: true,
+  });
+  server.unref();
+}
+
 readAllPorts();
+// Start production server on boot if not already running.
+void startProdServerIfNeeded();
 
 // Safety-net poll every 5 s in case fs.watch misses an event
 setInterval(readAllPorts, 5000);
@@ -265,6 +389,7 @@ server.listen(LISTEN_PORT, '0.0.0.0', () => {
   console.log(
     `[proxy] listening on :${LISTEN_PORT} → upstream :${upstreamPort} (git config)`,
   );
+  console.log(`[proxy] main repo: ${MAIN_REPO}`);
   console.log(`[proxy] worktrees: ${WORKTREES_DIR}`);
 });
 

@@ -9,16 +9,16 @@
 //
 //            BLUE/GREEN (production, when NODE_ENV === 'production'):
 //              1. bun install --frozen-lockfile in the session worktree
-//              2. Create merge commit via git plumbing (no working-tree writes)
-//              3. Detach the session worktree HEAD onto the merge commit
-//              4. Start new prod server on branch's pre-assigned port (git config); health-check it
-//              5. Copy production DB into new slot (VACUUM INTO — atomic snapshot)
-//              6. Atomically swap the 'current' symlink to the session worktree
-//              7. Clean up old production slot (if it was a worktree, not the main repo)
-//              8. Delete the now-orphaned branch ref
-//              9. Persist "accepted" status + final progress log to DB
-//             10. Final VACUUM INTO new slot DB (captures complete accepted state)
-//             11. Update branch.{parentBranch}.port in git config → proxy routes to new server; SIGTERM old server
+//              2. Create merge commit via git plumbing; advance parentBranch and fast-forward
+//                 the session branch ref to the same merge commit (no working-tree writes)
+//              3. Start new prod server on branch's pre-assigned port (git config); health-check it
+//              4. Copy production DB into new slot (VACUUM INTO — atomic snapshot)
+//              5. Set PROD symbolic-ref → session branch; proxy switches instantly
+//              6. Old slot kept indefinitely as registered git worktree (enables deep rollback via /admin/rollback)
+//              7. Session worktree stays checked out on the session branch; old slot keeps its branch
+//              8. Persist "accepted" status + final progress log to DB
+//              9. Final VACUUM INTO new slot DB (captures complete accepted state)
+//             10. Set PROD symbolic-ref → session branch + touch git config → proxy switches; SIGTERM old server
 //
 //            LEGACY (local dev, NODE_ENV !== 'production'):
 //              git checkout → stash → merge → stash-pop → bun install → worktree remove
@@ -149,7 +149,7 @@ function findFreePort(): Promise<number> {
 
 type BlueGreenAcceptResult =
   | { ok: false; error: string }
-  | { ok: true; newProdPort: number | null; oldUpstreamPort: number | null };
+  | { ok: true; branch: string; newProdPort: number | null; oldUpstreamPort: number | null };
 
 /**
  * Blue/green accept path.
@@ -160,13 +160,48 @@ type BlueGreenAcceptResult =
  * Returns { ok: false, error } on failure, or { ok: true, newProdPort, oldUpstreamPort } on success.
  */
 async function blueGreenAccept(
-  currentSymlink: string,
   worktreePath: string,
   branch: string,
   parentBranch: string,
   repoRoot: string,
   onStep: (text: string) => Promise<void> = async () => {},
 ): Promise<BlueGreenAcceptResult> {
+  // Compute the main repo root (shared .git dir's parent) — needed for
+  // install-service.sh path and as the fallback old-slot on first accept.
+  const gitCommonResult = await runGit(['rev-parse', '--git-common-dir'], worktreePath);
+  const mainRepoRoot = gitCommonResult.code === 0
+    ? path.dirname(path.resolve(worktreePath, gitCommonResult.stdout.trim()))
+    : path.resolve(repoRoot); // fallback: assume repoRoot is the main repo
+
+  // Find the current production slot via the PROD symbolic-ref.
+  // Falls back to the main repo on the very first accept (before PROD is set).
+  let oldSlot: string = mainRepoRoot;
+  try {
+    const prodBranch = execFileSync('git', ['symbolic-ref', '--short', 'PROD'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    if (prodBranch) {
+      const wtOut = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      let curPath: string | undefined;
+      let curBranch: string | null = null;
+      for (const line of wtOut.split('\n')) {
+        if (line.startsWith('worktree ')) { curPath = line.slice(9); curBranch = null; }
+        else if (line.startsWith('branch ')) { curBranch = line.slice(7).replace('refs/heads/', ''); }
+        else if (line === '' && curPath && curBranch === prodBranch) { oldSlot = curPath; break; }
+      }
+      // Handle last entry (no trailing blank line)
+      if (oldSlot === mainRepoRoot && curPath && curBranch === prodBranch) oldSlot = curPath;
+    }
+  } catch {
+    // PROD not yet set — fall through to mainRepoRoot default
+  }
+
   // Step 1: ensure node_modules are up to date in the session worktree.
   // This is the only bun install that runs, and it runs in the worktree (not production).
   await onStep('- Installing dependencies…\n');
@@ -185,22 +220,17 @@ async function blueGreenAccept(
   }
   const mergeCommit = mergeRes.commitHash;
 
-  // Step 3: detach the session worktree HEAD onto the merge commit.
-  // The files are already correct (same tree — guaranteed by Gate 1), so this
-  // is effectively a no-op for file content and just updates HEAD.
-  // Detaching from the named branch ref allows us to delete the branch afterwards.
-  await runGit(['checkout', '--detach', mergeCommit], worktreePath);
+  // Fast-forward the session branch ref to the merge commit so the session
+  // worktree (whose HEAD is "ref: refs/heads/${branch}") lands on the merge
+  // commit without a checkout. The files are already correct (same tree —
+  // guaranteed by Gate 1). No detach is needed since we keep the branch alive.
+  const ffRes = await runGit(['update-ref', `refs/heads/${branch}`, mergeCommit], repoRoot);
+  if (ffRes.code !== 0) {
+    return { ok: false, error: `Failed to fast-forward session branch to merge commit: ${ffRes.stderr}` };
+  }
 
-  // Step 4: read the current slot before swapping so we can handle it afterwards.
-  const oldSlot = path.resolve(fs.readlinkSync(currentSymlink));
-
-  // Resolve the main git repo root so we never accidentally remove it.
-  // 'git rev-parse --git-common-dir' in any worktree returns the shared .git path;
-  // dirname of that is the main repo directory, which is stable and never deleted.
-  const gitCommonResult = await runGit(['rev-parse', '--git-common-dir'], worktreePath);
-  const mainRepoRoot = gitCommonResult.code === 0
-    ? path.dirname(path.resolve(worktreePath, gitCommonResult.stdout.trim()))
-    : path.resolve(repoRoot); // fallback: assume repoRoot is the main repo
+  // Step 3 (old: detach HEAD) removed — the session worktree stays checked out
+  // on the session branch, which now points to the merge commit.
 
   // Step 4a: Start the new prod server on the branch's pre-assigned port.
   // The preview dev server was already killed in the POST handler before
@@ -285,70 +315,34 @@ async function blueGreenAccept(
     fs.symlinkSync(mainEnvPath, worktreeEnvPath);
   }
 
-  // Step 5: atomically swap the symlink.
-  // ln -sfn creates the new symlink at a temp path; renameSync replaces the
-  // old symlink in a single atomic rename(2) syscall.
   await onStep('- Activating new slot…\n');
-  const tmpLink = currentSymlink + '.tmp';
-  fs.symlinkSync(path.resolve(worktreePath), tmpLink);
-  fs.renameSync(tmpLink, currentSymlink);
 
-  // Step 6: Preserve the old slot as 'previous' for fast rollback, and clean up
-  // whatever was 'previous' before (two accepts ago).
-  const previousSymlink = path.join(path.dirname(currentSymlink), 'previous');
+  // The session worktree remains checked out on the session branch (now fast-
+  // forwarded to the merge commit). The old slot retains whatever branch it had
+  // before — no detach or checkout is needed since both slots are on distinct
+  // branches. The PROD symbolic-ref is updated in scheduleSlotActivation after
+  // the DB is fully written, so the proxy switches atomically to the new slot.
 
-  // Read the slot that was 'previous' before this accept so we can remove it.
-  let veryOldSlot: string | null = null;
-  try {
-    const prevTarget = fs.readlinkSync(previousSymlink);
-    veryOldSlot = path.resolve(prevTarget);
-  } catch { /* no previous slot yet — first or second accept */ }
-
-  // Atomically move 'previous' to point at the slot we just retired.
-  const tmpPrev = previousSymlink + '.tmp';
-  if (oldSlot !== mainRepoRoot) {
-    // Only create a 'previous' symlink when the old slot is a worktree (not main).
-    // If old slot IS the main repo it will stick around forever anyway.
-    fs.symlinkSync(oldSlot, tmpPrev);
-    fs.renameSync(tmpPrev, previousSymlink);
-  }
-
-  // Remove the slot that was 'previous' before this accept (two accepts ago),
-  // unless it is the main git repository, which must never be removed.
-  if (veryOldSlot && veryOldSlot !== mainRepoRoot) {
-    await runGit(['worktree', 'remove', '--force', veryOldSlot], repoRoot);
-  }
-
-  // Step 7: delete the now-orphaned branch ref (HEAD is detached, so this succeeds).
-  await runGit(['branch', '-D', branch], repoRoot);
-  await runGit(['config', '--remove-section', `branch.${branch}`], repoRoot);
-
-  // Step 7b: re-attach the new slot's HEAD to the parent branch so that
-  // branch-detection logic (e.g. /branches page) works correctly in production.
-  // Git forbids two worktrees from having the same branch checked out
-  // simultaneously, so we must detach HEAD in the old slot first.
-  await runGit(['checkout', '--detach'], oldSlot);
-  await runGit(['checkout', parentBranch], worktreePath);
-
-  // Step 8: The caller schedules the final VACUUM INTO + slot activation
-  // AFTER persisting the "accepted" state to the DB, so the new slot's DB
-  // contains the complete progress log and is not truncated on refresh.
-  return { ok: true, newProdPort, oldUpstreamPort };
+  // The caller schedules the final VACUUM INTO + PROD update AFTER persisting
+  // the "accepted" state to the DB, so the new slot's DB contains the complete
+  // progress log and is not truncated on refresh.
+  return { ok: true, branch, newProdPort, oldUpstreamPort };
 }
 
 /**
  * Activates the new production slot after all DB writes are complete.
  *
- * If REVERSE_PROXY_PORT is set (proxy in use): updates branch.{parentBranch}.port
- * in git config so the reverse proxy routes to the new server, then
+ * If REVERSE_PROXY_PORT is set (proxy in use): sets the PROD symbolic-ref to
+ * the session branch so the reverse proxy routes to the new server, then
  * gracefully kills the old server via lsof on its former port.
  *
- * Falls back to `sudo systemctl restart primordia` when the proxy is not
+ * Falls back to `sudo systemctl restart primordia-proxy` when the proxy is not
  * configured (e.g. initial setup or local dev accidentally running in
  * production mode).
  */
 function scheduleSlotActivation(
   worktreePath: string,
+  branch: string,
   newProdPort: number | null,
   oldUpstreamPort: number | null,
   parentBranch: string,
@@ -357,10 +351,19 @@ function scheduleSlotActivation(
   const useProxy = !!process.env.REVERSE_PROXY_PORT && newProdPort !== null;
 
   if (useProxy) {
-    // Update git config so the proxy discovers the new port immediately via
-    // its fs.watch on the git config file.
+    // Set PROD symbolic-ref so the proxy routes to the new session branch.
     try {
-      execFileSync('git', ['config', `branch.${parentBranch}.port`, String(newProdPort)], {
+      execFileSync('git', ['symbolic-ref', 'PROD', `refs/heads/${branch}`], {
+        cwd: repoRoot,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch { /* best-effort */ }
+
+    // Re-write the session branch port in git config (same value, but the write
+    // touches .git/config and fires the proxy's fs.watch so it reads the updated
+    // PROD ref immediately rather than waiting for the 5 s safety-net poll).
+    try {
+      execFileSync('git', ['config', `branch.${branch}.port`, String(newProdPort)], {
         cwd: repoRoot,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -379,9 +382,9 @@ function scheduleSlotActivation(
       }
     }, 500);
   } else {
-    // Fallback: systemctl restart (brief downtime window).
+    // Fallback: restart the proxy (brief downtime window; proxy will start new prod server).
     setTimeout(() => {
-      try { execSync('sudo systemctl restart primordia', { stdio: 'ignore' }); } catch { /* best-effort */ }
+      try { execSync('sudo systemctl restart primordia-proxy', { stdio: 'ignore' }); } catch { /* best-effort */ }
     }, 500);
   }
 }
@@ -462,13 +465,12 @@ async function retryAcceptAfterFix(
   // ── Merge: blue/green or legacy ────────────────────────────────────────────
 
   const isProduction = process.env.NODE_ENV === 'production';
-  const currentSymlink = path.join(path.dirname(worktreePath), 'current');
   let bgAcceptResult: BlueGreenAcceptResult | null = null;
 
   if (isProduction) {
     // Blue/green path: build is already done in the worktree, swap the slot.
     console.log(`[retryAcceptAfterFix] blue/green accept for session ${sessionId}`);
-    const bgResult = await blueGreenAccept(currentSymlink, worktreePath, branch, parentBranch, repoRoot, (text) => appendToProgress(sessionId, text));
+    const bgResult = await blueGreenAccept(worktreePath, branch, parentBranch, repoRoot, (text) => appendToProgress(sessionId, text));
     if (!bgResult.ok) {
       console.log(`[retryAcceptAfterFix] blue/green accept failed: ${bgResult.error}`);
       await failWithError(`\n\n❌ **Accept failed**: ${bgResult.error}\n`);
@@ -566,7 +568,7 @@ async function retryAcceptAfterFix(
   if (isProduction && bgAcceptResult && bgAcceptResult.ok) {
     await appendToProgress(sessionId, '- Switching traffic to new slot…\n');
     try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
-    scheduleSlotActivation(worktreePath, bgAcceptResult.newProdPort, bgAcceptResult.oldUpstreamPort, parentBranch, repoRoot);
+    scheduleSlotActivation(worktreePath, bgAcceptResult.branch, bgAcceptResult.newProdPort, bgAcceptResult.oldUpstreamPort, parentBranch, repoRoot);
   }
 }
 
@@ -665,12 +667,11 @@ async function runAcceptAsync(
     // ── Merge: blue/green or legacy ──────────────────────────────────────────
 
     const isProduction = process.env.NODE_ENV === 'production';
-    const currentSymlink = path.join(path.dirname(worktreePath), 'current');
     let bgAcceptResult: BlueGreenAcceptResult | null = null;
 
     if (isProduction) {
       // Blue/green path: build is already done in the worktree, swap the slot.
-      const bgResult = await blueGreenAccept(currentSymlink, worktreePath, branch, parentBranch, repoRoot, step);
+      const bgResult = await blueGreenAccept(worktreePath, branch, parentBranch, repoRoot, step);
       if (!bgResult.ok) {
         await failWithError(`\n\n❌ **Accept failed**: ${bgResult.error}\n`);
         return;
@@ -763,7 +764,7 @@ async function runAcceptAsync(
     if (isProduction && bgAcceptResult && bgAcceptResult.ok) {
       await step('- Switching traffic to new slot…\n');
       try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
-      scheduleSlotActivation(worktreePath, bgAcceptResult.newProdPort, bgAcceptResult.oldUpstreamPort, parentBranch, repoRoot);
+      scheduleSlotActivation(worktreePath, bgAcceptResult.branch, bgAcceptResult.newProdPort, bgAcceptResult.oldUpstreamPort, parentBranch, repoRoot);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
