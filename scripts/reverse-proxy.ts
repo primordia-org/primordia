@@ -767,7 +767,7 @@ function forwardToPort(
     console.error(`[proxy] upstream error on port ${port}:`, err.message);
     if (!clientRes.headersSent) {
       clientRes.writeHead(502, { 'content-type': 'text/plain' });
-      clientRes.end('Bad Gateway — upstream server unavailable\n');
+      clientRes.end('Bad Gateway - upstream server unavailable\n');
     }
   });
 
