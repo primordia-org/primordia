@@ -772,8 +772,9 @@ export default function EvolveSessionView({
   /** True while the session pipeline is actively running (not yet ready for action). */
   const isClaudeRunning = status === "starting" || status === "running-claude" || status === "fixing-types";
 
-  // Extract the branch name from the "✅ **Accepted** — merged into `foo`" decision log line.
-  const mergedIntoBranch = progressText
+  // Extract accept type from the decision log line.
+  const deployedToProduction = progressText ? /✅ \*\*Accepted\*\* — deployed to production/.test(progressText) : false;
+  const mergedIntoBranch = !deployedToProduction && progressText
     ? (progressText.match(/✅ \*\*Accepted\*\* — merged into `([^`]+)`/) ?? [])[1] ?? null
     : null;
 
@@ -878,9 +879,11 @@ export default function EvolveSessionView({
           <div className="px-4 py-4 rounded-lg bg-green-900/40 border border-green-700/50 text-sm">
             <p className="text-green-200 font-semibold">✅ Changes accepted</p>
             <p className="text-green-300/80 text-xs mt-1">
-              {mergedIntoBranch
-                ? <>The branch was merged into <code className="bg-green-950/60 px-1 rounded">{mergedIntoBranch}</code> and the worktree has been removed.</>
-                : "The branch was merged and the worktree has been removed."}
+              {deployedToProduction
+                ? "The branch was deployed to production and the worktree has been removed."
+                : mergedIntoBranch
+                  ? <>The branch was merged into <code className="bg-green-950/60 px-1 rounded">{mergedIntoBranch}</code> and the worktree has been removed.</>
+                  : "The branch was accepted and the worktree has been removed."}
             </p>
           </div>
         )}

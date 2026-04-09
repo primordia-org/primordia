@@ -559,7 +559,7 @@ async function retryAcceptAfterFix(
 
   // Mark as accepted and log the decision.
   console.log(`[retryAcceptAfterFix] merge complete, marking session ${sessionId} as accepted`);
-  await appendToProgress(sessionId, `\n\n---\n\n✅ **Accepted** — merged into \`${parentBranch}\`\n`);
+  await appendToProgress(sessionId, `\n\n---\n\n✅ **Accepted** — ${isProduction ? 'deployed to production' : `merged into \`${parentBranch}\``}\n`);
   await db.updateEvolveSession(sessionId, { status: 'accepted' });
 
   // (Production only) Final VACUUM INTO + slot activation — same as runAcceptAsync.
@@ -751,7 +751,7 @@ async function runAcceptAsync(
     }
 
     // Mark as accepted.
-    await appendToProgress(sessionId, `\n\n---\n\n✅ **Accepted** — merged into \`${parentBranch}\`\n`);
+    await appendToProgress(sessionId, `\n\n---\n\n✅ **Accepted** — ${isProduction ? 'deployed to production' : `merged into \`${parentBranch}\``}\n`);
     await db.updateEvolveSession(sessionId, { status: 'accepted' });
 
     // (Production only) Final VACUUM INTO + slot activation.
@@ -864,11 +864,14 @@ export async function POST(request: Request) {
       // Gates 1+2 pass synchronously. The remaining work (type-check, build,
       // merge) runs fire-and-forget so the client receives a response immediately
       // and can stream progress via SSE.
+      const isProduction = process.env.NODE_ENV === 'production';
       const acceptingRow = await db.getEvolveSession(body.sessionId);
       if (acceptingRow) {
         await db.updateEvolveSession(body.sessionId, {
           status: 'accepting',
-          progressText: acceptingRow.progressText + `\n\n### 🚀 Merging into ${parentBranch}\n\n`,
+          progressText: acceptingRow.progressText + (isProduction
+            ? `\n\n### 🚀 Deploying to production\n\n`
+            : `\n\n### 🚀 Merging into ${parentBranch}\n\n`),
           port: acceptingRow.port,
           previewUrl: acceptingRow.previewUrl,
         });
