@@ -2,6 +2,7 @@
 // Server component — no client JS needed.
 // The actual chat lives at /chat.
 
+import { execSync } from "child_process";
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
@@ -71,7 +72,21 @@ const STEPS = [
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
+function getCurrentBranch(): string | null {
+  try {
+    return (
+      execSync("git branch --show-current", {
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim() || null
+    );
+  } catch {
+    return null;
+  }
+}
+
 export default function LandingPage() {
+  const branch = getCurrentBranch();
   return (
     <div className="min-h-dvh bg-gray-950 text-gray-100 overflow-x-hidden">
 
@@ -241,7 +256,10 @@ export default function LandingPage() {
       {/* ── Footer ── */}
       <footer className="border-t border-white/5 px-6 py-10">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500 font-mono">
-          <span>Primordia — a self-modifying web application</span>
+          <span>
+            Primordia — a self-modifying web application
+            {branch && <span className="text-gray-600"> ({branch})</span>}
+          </span>
           <div className="flex items-center gap-6">
             <Link href="/chat" className="hover:text-gray-300 transition-colors">Chat</Link>
             <Link href="/evolve" className="hover:text-gray-300 transition-colors">Evolve</Link>

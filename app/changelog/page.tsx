@@ -7,6 +7,7 @@
 
 import fs from "fs";
 import path from "path";
+import { execSync } from "child_process";
 import type { Metadata } from "next";
 import { ChangelogEntryDetails } from "@/components/ChangelogEntryDetails";
 import { PageNavBar } from "@/components/PageNavBar";
@@ -49,6 +50,19 @@ function loadSummaries(): ChangelogSummary[] {
   }
 }
 
+function getCurrentBranch(): string | null {
+  try {
+    return (
+      execSync("git branch --show-current", {
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim() || null
+    );
+  } catch {
+    return null;
+  }
+}
+
 export default async function ChangelogPage() {
   const [entries, user] = await Promise.all([
     Promise.resolve(loadSummaries()),
@@ -57,11 +71,12 @@ export default async function ChangelogPage() {
   const sessionUser = user
     ? { id: user.id, username: user.username, isAdmin: await isAdmin(user.id) }
     : null;
+  const branch = getCurrentBranch();
 
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-screen">
       {/* Header — session resolved server-side so the hamburger is instant */}
-      <PageNavBar subtitle="Changelog" currentPage="changelog" initialSession={sessionUser} />
+      <PageNavBar subtitle="Changelog" currentPage="changelog" initialSession={sessionUser} branch={branch} />
 
       {/* Entry list */}
       {entries.length === 0 ? (
