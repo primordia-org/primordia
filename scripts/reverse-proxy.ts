@@ -1124,7 +1124,31 @@ server.on('upgrade', (clientReq: http.IncomingMessage, clientSocket: stream.Dupl
   // If the upstream responds with a non-101 (e.g. 400 or 404), the 'upgrade'
   // event never fires. Without a 'response' handler the client socket would
   // hang open indefinitely, so we send a 502 and close it.
+  //
+  // Bun quirk: in Bun's HTTP client, a 101 Switching Protocols response fires
+  // 'response' instead of 'upgrade'. Detect that case and handle it identically
+  // to the 'upgrade' handler above so WebSocket proxying works in Bun.
   upstreamReq.on('response', (upstreamRes) => {
+    if (upstreamRes.statusCode === 101) {
+      let responseHead = 'HTTP/1.1 101 Switching Protocols\r\n';
+      for (const [key, val] of Object.entries(upstreamRes.headers)) {
+        const values = Array.isArray(val) ? val : [val];
+        for (const v of values) responseHead += `${key}: ${v}\r\n`;
+      }
+      responseHead += '\r\n';
+      clientSocket.write(responseHead);
+
+      if (head && head.length > 0) clientSocket.unshift(head);
+
+      const upstreamSocket = upstreamRes.socket as stream.Duplex;
+      upstreamRes.pipe(clientSocket);
+      clientSocket.pipe(upstreamSocket);
+
+      clientSocket.on('error', () => upstreamSocket.destroy());
+      upstreamSocket.on('error', () => clientSocket.destroy());
+      return;
+    }
+
     console.error(`[proxy] WS upstream on port ${targetPort} returned HTTP ${upstreamRes.statusCode ?? 'unknown'} instead of 101`);
     upstreamRes.resume(); // drain so Node.js can reuse the connection
     if (!clientSocket.destroyed) {
