@@ -386,6 +386,7 @@ When implementing changes, follow these principles:
 | Evolve follow-up requests | ✅ Live | Chain multiple Claude passes on the same branch; form appears when session is ready |
 | File attachments in evolve | ✅ Live | Attach images/files to initial and follow-up requests; files are copied into `worktree/attachments/` so Claude can read and use them |
 | Upstream changes indicator | ✅ Live | Session page shows how many commits the parent branch is ahead of the session branch, with Merge and Rebase buttons |
+| Git diff summary | ✅ Live | Session page shows a collapsible "Files changed" section (file names + +/- LOC) once the session is ready/accepted/rejected |
 | Session from existing branch | ✅ Live | Branches page shows "+ session" next to branches with no active session; evolvers can attach the full AI preview pipeline to any pre-existing local branch |
 | Upstream changes indicator | ✅ Live | Session page shows how many commits the parent branch is ahead of the session branch, with an "Apply Updates" button (merge only) |
 | exe.dev deploy | ✅ Live | One-command SSH deploy; identical to local dev flow |

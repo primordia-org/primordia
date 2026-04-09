@@ -13,6 +13,7 @@ import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import { useSessionUser } from "../lib/hooks";
 import { withBasePath } from "../lib/base-path";
 import Link from "next/link";
+import type { DiffFileSummary } from "../app/evolve/session/[id]/page";
 
 // ─── Section parsing ──────────────────────────────────────────────────────────
 
@@ -296,6 +297,8 @@ interface EvolveSessionViewProps {
   canAcceptReject: boolean;
   /** Number of commits on the parent branch not yet in the session branch. */
   upstreamCommitCount: number;
+  /** Per-file diff summary for files changed in this session branch vs its parent. */
+  diffSummary: DiffFileSummary[];
   /** True when the current user has the can_evolve (or admin) permission. Actions are hidden when false. */
   canEvolve: boolean;
   /** True when running in production mode (NODE_ENV=production). Changes accept confirmation copy to describe blue/green cutover instead of a merge. */
@@ -314,6 +317,7 @@ export default function EvolveSessionView({
   sessionBranch,
   canAcceptReject,
   upstreamCommitCount,
+  diffSummary,
   canEvolve,
   isProduction,
 }: EvolveSessionViewProps) {
@@ -944,6 +948,40 @@ export default function EvolveSessionView({
 
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Git diff summary — shown when session is done and there are file changes */}
+      {(status === "ready" || status === "accepted" || status === "rejected") && diffSummary.length > 0 && (() => {
+        const totalAdditions = diffSummary.reduce((s, f) => s + f.additions, 0);
+        const totalDeletions = diffSummary.reduce((s, f) => s + f.deletions, 0);
+        return (
+          <details className="group mb-6 rounded-lg border border-gray-700 bg-gray-900 text-sm overflow-hidden">
+            <summary className="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none">
+              <span className="text-gray-600 group-open:rotate-90 transition-transform flex-shrink-0 text-xs">▶</span>
+              <span className="font-semibold text-xs text-gray-300 flex-shrink-0">📄 Files changed</span>
+              <span className="ml-auto text-xs text-gray-500 flex-shrink-0">
+                {diffSummary.length} file{diffSummary.length !== 1 ? "s" : ""}
+                {" · "}
+                <span className="text-green-400">+{totalAdditions}</span>
+                {" "}
+                <span className="text-red-400">-{totalDeletions}</span>
+              </span>
+            </summary>
+            <div className="border-t border-gray-800">
+              <table className="w-full text-xs font-mono">
+                <tbody>
+                  {diffSummary.map((f, i) => (
+                    <tr key={i} className="border-b border-gray-800/60 last:border-0 hover:bg-gray-800/30">
+                      <td className="px-4 py-1.5 text-gray-300 truncate max-w-0 w-full">{f.file}</td>
+                      <td className="px-4 py-1.5 text-right whitespace-nowrap text-green-400 w-12">+{f.additions}</td>
+                      <td className="px-4 py-1.5 text-right whitespace-nowrap text-red-400 w-12">-{f.deletions}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        );
+      })()}
 
       {/* Upstream Changes — shown when the parent branch has commits not yet in the session branch; hidden for non-evolvers */}
       {canEvolve && remainingUpstream > 0 && status !== "accepted" && status !== "rejected" && (
