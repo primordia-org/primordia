@@ -322,7 +322,7 @@ function BranchRow({
     ? ""
     : linePrefix + (isLast ? "    " : "│   ");
 
-  const url = node.isCurrent ? currentServerUrl : node.previewUrl;
+  const url = node.isProduction ? currentServerUrl : node.previewUrl;
   const statusColor = node.sessionStatus
     ? (STATUS_COLOR[node.sessionStatus] ?? "text-gray-400")
     : "";
