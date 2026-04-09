@@ -22,4 +22,6 @@ The production Next.js server is a child process of the `primordia-proxy` system
 - Falls back to `journalctl -u primordia` when no proxy is configured (local dev).
 
 **`app/admin/logs/page.tsx`**:
-- The server-side initial log prefetch (via `spawnSync journalctl`) is skipped when `REVERSE_PROXY_PORT` is set, since `journalctl -u primordia` returns nothing in that environment. The SSE stream delivers the buffered log immediately on connect, so there is no visible delay.
+- In production (`REVERSE_PROXY_PORT` set): fetches `/_proxy/prod/logs` server-side, reads the first SSE event (the ring-buffer snapshot), and passes it as `initialOutput` to `ServerLogsClient`. This pre-renders the current log buffer in the HTML so the page is useful even if client-side JS is broken. Aborts after 2 s if the buffer is empty (fresh server with no output yet).
+- In local dev (no proxy): unchanged — uses `spawnSync journalctl` for the initial snapshot.
+- `ServerLogsClient` already opens the live SSE stream with `?n=0` (skip history) when `initialOutput` is populated, so the server-side snapshot and the live stream never duplicate lines.

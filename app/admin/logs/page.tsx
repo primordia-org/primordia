@@ -47,15 +47,55 @@ export default async function AdminLogsPage() {
 
   const sessionUser = { id: user.id, username: user.username, isAdmin: true };
 
-  // In production (REVERSE_PROXY_PORT set), the prod server logs come from the
-  // reverse proxy via SSE — journalctl -u primordia returns nothing because there
-  // is no separate primordia unit. Skip the server-side prefetch; the SSE
-  // connection will deliver the buffered log on connect.
-  // In local dev (no proxy), pre-fetch via journalctl for a faster first paint.
-  const { spawnSync } = await import("child_process");
-  const initialLogs = process.env.REVERSE_PROXY_PORT
-    ? ""
-    : (spawnSync("journalctl", ["-u", "primordia", "-n", "100", "--no-pager"], { encoding: "utf8" }).stdout ?? "");
+  // Pre-fetch the initial log buffer for a useful first paint even if JS is broken.
+  // In production (REVERSE_PROXY_PORT set): read the first SSE event from
+  // /_proxy/prod/logs, which contains the full ring-buffer snapshot.
+  // In local dev (no proxy): use journalctl --no-pager for the same effect.
+  const proxyPort = process.env.REVERSE_PROXY_PORT;
+  let initialLogs = "";
+
+  if (proxyPort) {
+    // Fetch the proxy SSE stream and read just the first event (the snapshot).
+    // Abort after 2 s in case the buffer is empty and no event arrives.
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 2000);
+    try {
+      const res = await fetch(`http://localhost:${proxyPort}/_proxy/prod/logs`, {
+        signal: ac.signal,
+      });
+      if (res.ok && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let raw = "";
+        outer: while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          raw += decoder.decode(value, { stream: true });
+          // SSE events are delimited by \n\n
+          const end = raw.indexOf("\n\n");
+          if (end !== -1) {
+            const eventText = raw.slice(0, end);
+            reader.cancel();
+            for (const line of eventText.split("\n")) {
+              if (!line.startsWith("data: ")) continue;
+              try {
+                const parsed = JSON.parse(line.slice(6)) as { text?: string };
+                if (parsed.text) { initialLogs = parsed.text; }
+              } catch { /* ignore malformed */ }
+            }
+            break outer;
+          }
+        }
+      }
+    } catch {
+      // timeout or network error — leave initialLogs as ""
+    } finally {
+      clearTimeout(timer);
+    }
+  } else {
+    const { spawnSync } = await import("child_process");
+    initialLogs = spawnSync("journalctl", ["-u", "primordia", "-n", "100", "--no-pager"], { encoding: "utf8" }).stdout ?? "";
+  }
 
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
