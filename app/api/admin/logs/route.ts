@@ -1,12 +1,12 @@
 // app/api/admin/logs/route.ts
-// Streams the primordia systemd service journal as SSE.
+// Streams production server logs as SSE.
 // Admin only. GET /api/admin/logs
 //
 // SSE events: { text: string } | { done: true; exitCode: number }
 //
-// Runs: journalctl -u primordia -f -n 100
-// -n 100  → emit last 100 lines before following
-// -f      → keep following (long-lived stream)
+// When REVERSE_PROXY_PORT is set (production): proxies /_proxy/prod/logs from
+// the reverse proxy, which captures the production Next.js server's stdout/stderr.
+// Otherwise (local dev / no proxy): falls back to journalctl -u primordia -f -n N.
 
 import { spawn } from "child_process";
 import { type NextRequest } from "next/server";
@@ -17,12 +17,28 @@ export async function GET(req: NextRequest) {
   if (!user) return new Response("Unauthorized", { status: 401 });
   if (!(await isAdmin(user.id))) return new Response("Forbidden", { status: 403 });
 
+  const url = new URL(req.url);
+  const n = url.searchParams.get("n") ?? "100";
+  const proxyPort = process.env.REVERSE_PROXY_PORT;
+
+  if (proxyPort) {
+    // Proxy the log stream from the reverse proxy which captures prod server output.
+    const proxyUrl = `http://localhost:${proxyPort}/_proxy/prod/logs${n === "0" ? "?n=0" : ""}`;
+    const proxyRes = await fetch(proxyUrl, { signal: req.signal });
+    return new Response(proxyRes.body, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  }
+
+  // Fallback: stream journalctl for local dev environments without a proxy.
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     start(controller) {
-      const url = new URL(req.url);
-      const n = url.searchParams.get("n") ?? "100";
       const proc = spawn("journalctl", ["-u", "primordia", "-f", "-n", n], {
         stdio: ["ignore", "pipe", "pipe"],
       });

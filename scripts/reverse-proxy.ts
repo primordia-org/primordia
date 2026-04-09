@@ -18,6 +18,7 @@
 //
 // Proxy management API (all under /_proxy/):
 //   POST /_proxy/prod/spawn          — spawn new prod server, health check, activate (SSE stream)
+//   GET  /_proxy/prod/logs           — SSE stream of production server stdout/stderr (last 50 KB + follow)
 //   GET  /_proxy/preview/:id/status  — { devServerStatus }
 //   POST /_proxy/preview/:id/restart — kill + restart
 //   DELETE /_proxy/preview/:id       — kill
@@ -116,6 +117,18 @@ let sessionWorktreeCache: Record<string, { worktreePath: string; port: number }>
 let watchedConfigPath: string | null = null;
 /** Tracked production server process (proxy-owned). Null until first spawn or boot start. */
 let prodServerEntry: { process: ChildProcess; port: number; branch: string } | null = null;
+/** Rolling log buffer for the production server's stdout+stderr (50 KB). */
+let prodLogBuffer = '';
+/** Active SSE subscribers for production server log streaming. */
+const prodLogSubscribers: Set<LogSubscriber> = new Set();
+
+function appendProdLog(text: string): void {
+  prodLogBuffer += text;
+  if (prodLogBuffer.length > MAX_LOG_BYTES) {
+    prodLogBuffer = prodLogBuffer.slice(prodLogBuffer.length - MAX_LOG_BYTES);
+  }
+  for (const sub of prodLogSubscribers) sub.write(text);
+}
 
 // ─── Preview server registry ─────────────────────────────────────────────────
 
@@ -520,10 +533,10 @@ async function startProdServerIfNeeded(): Promise<void> {
   const server = spawn('bun', ['run', 'start'], {
     cwd: prodPath,
     env: { ...process.env, PORT: String(upstreamPort), HOSTNAME: '0.0.0.0' },
-    stdio: 'ignore',
-    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  server.unref();
+  server.stdout?.on('data', (d: Buffer) => appendProdLog(d.toString()));
+  server.stderr?.on('data', (d: Buffer) => appendProdLog(d.toString()));
   const startBranch = currentProdBranch;
   const startPort = upstreamPort;
   prodServerEntry = { process: server, port: startPort, branch: startBranch };
@@ -633,10 +646,10 @@ async function handleProdSpawn(
     const newServer = spawn('bun', ['run', 'start'], {
       cwd: path.resolve(worktreePath),
       env: { ...process.env, PORT: String(port), HOSTNAME: '0.0.0.0' },
-      stdio: 'ignore',
-      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-    newServer.unref();
+    newServer.stdout?.on('data', (d: Buffer) => appendProdLog(d.toString()));
+    newServer.stderr?.on('data', (d: Buffer) => appendProdLog(d.toString()));
 
     let spawnError: string | undefined;
     let exitedEarly = false;
@@ -991,6 +1004,32 @@ async function handleRequest(
   if (url.startsWith('/_proxy/')) {
     if (url === '/_proxy/prod/spawn' && clientReq.method === 'POST') {
       await handleProdSpawn(clientReq, clientRes);
+      return;
+    }
+    if (url.startsWith('/_proxy/prod/logs') && clientReq.method === 'GET') {
+      const qs = url.includes('?') ? url.slice(url.indexOf('?') + 1) : '';
+      const skipSnapshot = new URLSearchParams(qs).get('n') === '0';
+      clientRes.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        'connection': 'keep-alive',
+      });
+      if (!skipSnapshot && prodLogBuffer) {
+        clientRes.write(`data: ${JSON.stringify({ text: prodLogBuffer })}\n\n`);
+      }
+      const subscriber: LogSubscriber = {
+        write: (text) => {
+          if (!clientRes.writableEnded) clientRes.write(`data: ${JSON.stringify({ text })}\n\n`);
+        },
+        close: () => {
+          if (!clientRes.writableEnded) {
+            clientRes.write(`data: ${JSON.stringify({ done: true, exitCode: 0 })}\n\n`);
+            clientRes.end();
+          }
+        },
+      };
+      prodLogSubscribers.add(subscriber);
+      clientReq.on('close', () => prodLogSubscribers.delete(subscriber));
       return;
     }
     handleProxyApi(clientReq, clientRes);
