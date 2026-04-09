@@ -86,9 +86,9 @@ primordia/
 │   ├── admin/
 │   │   ├── page.tsx               ← Admin panel: owner-only; grant/revoke evolve access per user; tab subnav (Manage Users / Server Logs / Proxy Logs / Rollback)
 │   │   ├── logs/
-│   │   │   └── page.tsx           ← Server logs: streams primordia systemd journal via SSE; admin only
+│   │   │   └── page.tsx           ← Server logs: pre-fetches initial log buffer from /_proxy/prod/logs on server render; delegates live tail to ServerLogsClient; admin only
 │   │   ├── proxy-logs/
-│   │   │   └── page.tsx           ← Proxy logs: streams primordia-proxy systemd journal via SSE; admin only
+│   │   │   └── page.tsx           ← Proxy logs: pre-fetches first 100 journalctl lines server-side (Linux only; skipped on macOS); delegates live tail to ServerLogsClient; admin only
 │   │   └── rollback/
 │   │       └── page.tsx           ← Deep rollback: lists previous prod slots from primordia.productionHistory; admin only
 │   ├── oops/
@@ -113,14 +113,14 @@ primordia/
 │       ├── git-sync/
 │       │   └── route.ts           ← POST pull + push the current branch (used by GitSyncDialog)
 │       ├── rollback/
-│       │   └── route.ts           ← GET hasPrevious check; POST swap current↔previous + systemd restart (admin only)
+│       │   └── route.ts           ← GET hasPrevious check; POST zero-downtime swap to previous slot via lsof kill + bun start health-check (admin only)
 │       ├── admin/
 │       │   ├── permissions/
 │       │   │   └── route.ts       ← POST grant/revoke grantable roles (can_evolve); admin only
 │       │   ├── logs/
-│       │   │   └── route.ts       ← GET SSE stream of production server logs; proxies /_proxy/prod/logs when REVERSE_PROXY_PORT is set, else falls back to journalctl -u primordia; admin only
+│       │   │   └── route.ts       ← GET SSE stream of production server logs; always proxies /_proxy/prod/logs (REVERSE_PROXY_PORT required); admin only
 │       │   ├── proxy-logs/
-│       │   │   └── route.ts       ← GET SSE stream of `journalctl -u primordia-proxy -f -n 100`; admin only
+│       │   │   └── route.ts       ← GET SSE stream of `journalctl -u primordia-proxy -f -n 100`; returns informational message on non-Linux platforms (macOS guard); admin only
 │       │   └── rollback/
 │       │       └── route.ts       ← GET list previous prod slots from primordia.productionHistory; POST apply deep rollback to any slot; admin only
 │       ├── prune-branches/
