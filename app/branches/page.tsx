@@ -359,7 +359,7 @@ export default async function BranchesPage() {
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-screen">
 
       {/* Header — session resolved server-side so the hamburger is instant */}
-      <PageNavBar subtitle="Local Branches" currentPage="branches" initialSession={sessionUser} />
+      <PageNavBar subtitle="Local Branches" currentPage="branches" initialSession={sessionUser} branch={currentBranchResult.stdout || null} />
 
       {/* Actions row — only shown to admins */}
       {userIsAdmin && (

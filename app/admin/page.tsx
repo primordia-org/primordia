@@ -1,6 +1,7 @@
 // app/admin/page.tsx — Admin panel for managing user permissions.
 // Only accessible to users with the admin role.
 
+import { execSync } from "child_process";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSessionUser, isAdmin } from "@/lib/auth";
@@ -62,10 +63,14 @@ export default async function AdminPage() {
   }));
 
   const sessionUser = { id: user.id, username: user.username, isAdmin: true };
+  let branch: string | null = null;
+  try {
+    branch = execSync("git branch --show-current", { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim() || null;
+  } catch { /* ignore */ }
 
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
-      <PageNavBar subtitle="Admin" currentPage="admin" initialSession={sessionUser} />
+      <PageNavBar subtitle="Admin" currentPage="admin" initialSession={sessionUser} branch={branch} />
       <AdminSubNav currentTab="users" />
 
       <section>

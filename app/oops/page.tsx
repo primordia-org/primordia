@@ -2,6 +2,7 @@
 // Lets the admin run occasional system commands (e.g. sudo systemctl restart primordia)
 // from a phone without needing SSH access.
 
+import { execSync } from "child_process";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSessionUser, isAdmin } from "@/lib/auth";
@@ -38,10 +39,14 @@ export default async function OopsPage() {
   }
 
   const sessionUser = { id: user.id, username: user.username, isAdmin: true };
+  let branch: string | null = null;
+  try {
+    branch = execSync("git branch --show-current", { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim() || null;
+  } catch { /* ignore */ }
 
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
-      <PageNavBar subtitle="Shell" currentPage="oops" initialSession={sessionUser} />
+      <PageNavBar subtitle="Shell" currentPage="oops" initialSession={sessionUser} branch={branch} />
       <OopsShell />
     </main>
   );
