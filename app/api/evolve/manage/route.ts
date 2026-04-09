@@ -9,7 +9,9 @@
 //
 //            BLUE/GREEN (production, when NODE_ENV === 'production'):
 //              1. bun install --frozen-lockfile in the session worktree
-//              2. No merge commit — Gate 1 guarantees session branch already contains parentBranch;
+//              2. Run scripts/update-service.sh — daemon-reload if service unit changed;
+//                 restart primordia-proxy if reverse-proxy.ts changed (non-fatal on error)
+//              3. No merge commit — Gate 1 guarantees session branch already contains parentBranch;
 //                 parentBranch is NOT advanced (old slot stays at its original commit for rollback).
 //                 Sibling sessions whose git config parent = parentBranch are reparented to session
 //                 branch so "Apply Updates" picks up the new production code going forward.
@@ -209,7 +211,20 @@ async function blueGreenAccept(
     };
   }
 
-  // Step 2: no merge commit — Gate 1 (ancestor check) guarantees the session
+  // Step 2: Apply any changes to the proxy script or systemd service unit.
+  // update-service.sh is a no-op when neither file changed, so this is safe to
+  // run on every deploy.  It runs daemon-reload only if the service unit changed,
+  // and restarts primordia-proxy only if the proxy script itself changed.
+  await onStep('- Updating service files…\n');
+  const updateServiceScript = path.join(worktreePath, 'scripts', 'update-service.sh');
+  const updateServiceResult = await runCmd('bash', [updateServiceScript], worktreePath);
+  if (updateServiceResult.code !== 0) {
+    // Non-fatal: log the output but continue — a failed service update should not
+    // block the slot swap.  The admin can re-run update-service.sh manually.
+    await onStep(`  ⚠ update-service.sh exited ${updateServiceResult.code}: ${(updateServiceResult.stdout + updateServiceResult.stderr).trim()}\n`);
+  }
+
+  // Step 3: no merge commit — Gate 1 (ancestor check) guarantees the session
   // branch already contains all commits from parentBranch, so it is the correct
   // tree for production.  parentBranch is intentionally NOT advanced here:
   // keeping the old slot's branch at its pre-accept commit is what lets the PROD

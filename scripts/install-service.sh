@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # scripts/install-service.sh
-# Installs (or re-installs) the Primordia reverse-proxy systemd service.
-# Run once on the server after cloning/updating the repo.
+# First-time installation of the Primordia reverse-proxy systemd service.
+# Run once on the server after cloning the repo.
+#
+# For subsequent deploys, use scripts/update-service.sh instead — it only
+# runs daemon-reload / restart when the relevant files actually changed.
 #
 # The proxy is the only long-running systemd service. It is responsible for:
 #   - Reading primordia.productionBranch from git config to determine the production branch/port.
