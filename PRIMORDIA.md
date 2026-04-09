@@ -51,11 +51,9 @@ primordia/
 │
 ├── scripts/
 │   ├── deploy-to-exe-dev.sh      ← `bun run deploy-to-exe.dev <server>`: SSH deploy to <server>.exe.xyz
-│   ├── install-service.sh        ← Installs/re-installs the proxy systemd service; copies reverse-proxy.ts to ~/primordia-proxy.ts; initialises primordia.productionBranch in git config on first install
-│   ├── reverse-proxy.ts          ← HTTP reverse proxy for zero-downtime blue/green AND preview servers; listens on REVERSE_PROXY_PORT; reads production branch from git config (primordia.productionBranch), then looks up branch.{name}.port; discovers main repo from any worktree in PRIMORDIA_WORKTREES_DIR; on startup spawns the production Next.js server if not already running and tracks the process; captures prod server stdout/stderr in a 50 KB ring buffer; exposes POST /_proxy/prod/spawn (SSE, body: { branch }) — looks up port and worktree path from git config/worktree list, then spawns, health-checks, updates git config, and SIGTERMs old server; exposes GET /_proxy/prod/logs (SSE) — streams prod server log buffer + live output; watches .git/config for instant cutover; routes /preview/{sessionId} paths to session preview servers; installed to ~/primordia-proxy.ts by install-service.sh
 │   ├── install-service.sh        ← First-time install of the proxy systemd service; copies reverse-proxy.ts to ~/primordia-proxy.ts; initialises primordia.productionBranch in git config; enables and starts the service
 │   ├── update-service.sh         ← Run automatically on every blue-green prod deploy; updates ~/primordia-proxy.ts and the systemd symlink only when they changed; runs daemon-reload only if the service unit changed; runs systemctl restart primordia-proxy only if the proxy script changed
-│   ├── reverse-proxy.ts          ← HTTP reverse proxy for zero-downtime blue/green AND preview servers; listens on REVERSE_PROXY_PORT; reads production branch from git config (primordia.productionBranch), then looks up branch.{name}.port; discovers main repo from any worktree in PRIMORDIA_WORKTREES_DIR; on startup spawns the production Next.js server if not already running; captures prod server stdout/stderr in a 50 KB ring buffer; exposes GET /_proxy/prod/logs (SSE) — streams prod server log buffer + live output; watches .git/config for instant cutover; routes /preview/{sessionId} paths to session preview servers; installed to ~/primordia-proxy.ts by install-service.sh
+│   ├── reverse-proxy.ts          ← HTTP reverse proxy for zero-downtime blue/green AND preview servers; listens on REVERSE_PROXY_PORT; reads production branch from git config (primordia.productionBranch), then looks up branch.{name}.port; discovers main repo from any worktree in PRIMORDIA_WORKTREES_DIR; on startup spawns the production Next.js server if not already running and tracks the process; captures prod server stdout/stderr in a 50 KB ring buffer; exposes POST /_proxy/prod/spawn (SSE, body: { branch }) — looks up port and worktree path from git config/worktree list, then spawns, health-checks, updates git config, and SIGTERMs old server; exposes GET /_proxy/prod/logs (SSE) — streams prod server log buffer + live output; watches .git/config for instant cutover; routes /preview/{sessionId} paths to session preview servers; installed to ~/primordia-proxy.ts by install-service.sh
 │   ├── assign-branch-ports.sh    ← Idempotent migration script: assigns ephemeral ports to all local branches in git config (branch.{name}.port); main gets 3001, others get 3002+
 │   ├── rollback.ts               ← Standalone CLI rollback script: updates primordia.productionBranch to the previous slot (second entry in primordia.productionHistory) and restarts primordia-proxy; use when the server itself is broken and /api/rollback is unreachable
 │   └── primordia-proxy.service   ← systemd service unit for the reverse proxy; WorkingDirectory=/home/exedev/primordia; is the sole long-running service — responsible for starting the production Next.js server on boot and routing all traffic
@@ -173,7 +171,7 @@ primordia/
 ├── components/
 │   ├── AcceptRejectBar.tsx        ← Accept/reject bar for local preview worktrees
 │   ├── AdminPermissionsClient.tsx ← Client component: grant/revoke 'can_evolve' role per user (used by /admin)
-│   ├── AdminRollbackClient.tsx    ← Client component: deep rollback UI; lists PROD reflog targets with roll-back buttons (used by /admin/rollback)
+│   ├── AdminRollbackClient.tsx    ← Client component: deep rollback UI; lists previous production slots from primordia.productionHistory with roll-back buttons (used by /admin/rollback)
 │   ├── AdminSubNav.tsx            ← Tab subnav for admin pages: "Manage Users" (/admin), "Server Logs" (/admin/logs), "Proxy Logs" (/admin/proxy-logs), "Rollback" (/admin/rollback)
 │   ├── ForbiddenPage.tsx          ← Server component: 403 access-denied page with page description, required/met/unmet conditions, and how-to-fix
 │   ├── ChatInterface.tsx          ← Main chat UI (chat only); hamburger menu "Propose a change" opens FloatingEvolveDialog
@@ -238,7 +236,9 @@ User types change request on /evolve page
           → session worktree stays checked out on the session branch; no detached HEAD
           → copy prod DB from old slot into new slot (preserves auth data)
           → fix .env.local symlink in new slot to point to main repo (prevents dangling link)
-          → POST /_proxy/prod/spawn to the reverse proxy (SSE stream): proxy spawns new prod server, health-checks it, sets primordia.productionBranch + productionHistory in git config, SIGTERMs old prod server; proxy owns the new server process
+          → POST /_proxy/prod/spawn to the reverse proxy (SSE stream): proxy spawns new prod server, health-checks it, sets primordia.productionBranch + productionHistory in git config, and switches traffic; proxy does NOT kill the old prod server
+          → run scripts/update-service.sh in the new worktree: daemon-reload if service unit changed; systemctl restart primordia-proxy if reverse-proxy.ts changed
+          → old prod server self-terminates (process.exit) after update-service.sh completes; proxy owns the new server process
           → old slots accumulate indefinitely as registered git worktrees (enables deep rollback via /admin/rollback)
       → legacy deploy (local dev, NODE_ENV !== 'production'): git merge in production dir → bun install → worktree remove
   → User clicks Reject → POST /api/evolve/manage { action: "reject" }
@@ -260,7 +260,8 @@ Each evolve session tracks two independent dimensions persisted to SQLite:
 | `running-claude` | Claude Agent SDK `query()` is streaming tool calls into the worktree |
 | `fixing-types` | TypeScript or build gate failed on Accept; Claude is auto-fixing compilation errors; session page keeps Available Actions panel visible; server retries Accept when done (client tab does not need to be open) |
 | `ready` | Claude Code finished (or errored); worktree is live and interactive. If an error occurred, the progress log contains an `❌ **Error**:` entry and the Claude Code section heading is styled in red. |
-| `accepted` | User clicked Accept; branch merged into parent, worktree deleted |
+| `accepting` | User clicked Accept; typecheck/build/deploy pipeline is running asynchronously. No other session can enter `accepting` while this status is set — the manage route returns 409 if a concurrent deploy is attempted (prevents two deploys racing and the second overwriting the first). |
+| `accepted` | Deploy complete; branch is live in production (blue/green) or merged into parent (legacy). |
 | `rejected` | User clicked Reject; worktree and branch discarded without merging |
 
 **Dev server status reference**
@@ -286,7 +287,10 @@ Each evolve session tracks two independent dimensions persisted to SQLite:
 | `ready` → `fixing-types` (devServer stays `running`) | `POST /api/evolve/manage` when TypeScript or build gate fails |
 | `fixing-types` → `accepted` | `runFollowupInWorktree()` success + re-typecheck + re-build both pass; server merges without client |
 | `fixing-types` → `ready` (with `❌` error in log) | `runFollowupInWorktree()` success but type/build errors persist after fix, or merge fails |
-| `ready` → `accepted` / `rejected` | `POST /api/evolve/manage` |
+| `ready` → `accepting` | `POST /api/evolve/manage` (Gates 1–3 pass; async pipeline begins) |
+| `accepting` → `accepted` | `runAcceptAsync()` completes successfully |
+| `accepting` → `ready` (with `❌` error) | `runAcceptAsync()` fails at any step |
+| `ready` → `rejected` | `POST /api/evolve/manage` { action: "reject" } |
 | devServer `running` → `disconnected` | Dev server `close` event + branch still present (3 s later) |
 | devServer `disconnected` → `starting` | `POST /api/evolve/kill-restart` |
 | any → `ready` (with `❌` error in log) | Uncaught exception inside the respective async helper |

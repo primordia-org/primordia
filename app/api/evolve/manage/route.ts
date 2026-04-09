@@ -17,12 +17,13 @@
 //              4. Persist "accepted" status + final progress log to DB
 //              5. Final VACUUM INTO new slot DB (captures complete accepted state)
 //              6. POST /_proxy/prod/spawn → proxy spawns new prod server, health-checks, sets
-//                 primordia.productionBranch in git config, switches traffic, SIGTERMs old server
+//                 primordia.productionBranch in git config, and switches traffic (does NOT kill old server)
 //              7. Run scripts/update-service.sh — daemon-reload if service unit changed;
 //                 restart primordia-proxy if reverse-proxy.ts changed (non-fatal on error).
 //                 Must run AFTER step 6: if the proxy script changed, restarting before spawn
 //                 would kill the proxy before it handles the spawn request.
-//              8. Old slot kept indefinitely as registered git worktree (enables deep rollback via /admin/rollback)
+//              8. Old prod server self-terminates (process.exit) after update-service.sh completes.
+//              9. Old slot kept indefinitely as registered git worktree (enables deep rollback via /admin/rollback)
 //
 //            LEGACY (local dev, NODE_ENV !== 'production'):
 //              git checkout → stash → merge → stash-pop → bun install → worktree remove
@@ -42,6 +43,7 @@ import {
 } from '../../../../lib/evolve-sessions';
 import { getSessionUser } from '../../../../lib/auth';
 import { getDb } from '../../../../lib/db';
+import type { DbAdapter } from '../../../../lib/db/types';
 
 /** Run an arbitrary command; resolves with stdout, stderr, and exit code. */
 function runCmd(
@@ -448,6 +450,11 @@ async function retryAcceptAfterFix(
 
   // (Production only) Final VACUUM INTO + proxy spawn + slot activation.
   if (isProduction && bgAcceptResult && bgAcceptResult.ok) {
+    // Before the DB snapshot and proxy spawn, mark any sessions that are still
+    // running as interrupted. This server will self-terminate below, which will
+    // kill those Claude Code processes (exit 143). Without this step the new
+    // slot's DB would show them stuck in "running-claude" forever.
+    await markInterruptedSessions(db, sessionId);
     try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
     await spawnProdViaProxy(bgAcceptResult.branch,
       (text) => appendToProgress(sessionId, text));
@@ -461,6 +468,34 @@ async function retryAcceptAfterFix(
     if (retryUpdateResult.code !== 0) {
       await appendToProgress(sessionId, `  ⚠ update-service.sh exited ${retryUpdateResult.code}: ${(retryUpdateResult.stdout + retryUpdateResult.stderr).trim()}\n`);
     }
+    // Self-terminate: the proxy has switched traffic to the new slot. This old
+    // production server's work is done. Delay briefly so the final log write
+    // can flush to SQLite before the process exits.
+    setTimeout(() => process.exit(0), 1000);
+  }
+}
+
+/**
+ * Before a blue/green deploy SIGTERMs the old prod server, mark any sessions
+ * that are still actively running (running-claude, fixing-types, starting) as
+ * ready with an error note. Without this, those sessions would appear stuck
+ * forever in the new slot's DB — the Claude Code processes die with exit 143
+ * when the old server is killed, but they can no longer write their error back
+ * to the DB that the new server will use.
+ */
+async function markInterruptedSessions(db: DbAdapter, acceptingSessionId: string): Promise<void> {
+  const allSessions = await db.listEvolveSessions(200);
+  const interruptible = ['running-claude', 'fixing-types', 'starting'] as const;
+  for (const s of allSessions) {
+    if (s.id === acceptingSessionId) continue;
+    if (!interruptible.includes(s.status as typeof interruptible[number])) continue;
+    await db.updateEvolveSession(s.id, {
+      status: 'ready',
+      progressText:
+        s.progressText +
+        '\n\n❌ **Error**: Claude Code process exited with code 143\n\n' +
+        '*Session interrupted by a concurrent production deploy. Use a follow-up request to continue.*\n',
+    });
   }
 }
 
@@ -654,6 +689,11 @@ async function runAcceptAsync(
     // the DB copied in blueGreenAccept would be missing the final entries,
     // leaving the session stuck in "Accepting changes" on refresh.
     if (isProduction && bgAcceptResult && bgAcceptResult.ok) {
+      // Before the DB snapshot and proxy spawn, mark any sessions that are still
+      // running as interrupted. This server will self-terminate below, which will
+      // kill those Claude Code processes (exit 143). Without this step the new
+      // slot's DB would show them stuck in "running-claude" forever.
+      await markInterruptedSessions(db, sessionId);
       try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
       await spawnProdViaProxy(bgAcceptResult.branch, step);
       // Run update-service.sh AFTER the proxy has accepted the new prod instance.
@@ -666,6 +706,10 @@ async function runAcceptAsync(
       if (updateServiceResult.code !== 0) {
         await step(`  ⚠ update-service.sh exited ${updateServiceResult.code}: ${(updateServiceResult.stdout + updateServiceResult.stderr).trim()}\n`);
       }
+      // Self-terminate: the proxy has switched traffic to the new slot. This old
+      // production server's work is done. Delay briefly so the final log write
+      // can flush to SQLite before the process exits.
+      setTimeout(() => process.exit(0), 1000);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -760,10 +804,30 @@ export async function POST(request: Request) {
         );
       }
 
+      // ── Gate 3: no concurrent deploy ──────────────────────────────────────
+      // Reject if another session is already mid-deploy. Two concurrent accepts
+      // would both call spawnProdViaProxy; the second one would overwrite the
+      // first deploy with code that was built from the old production branch,
+      // effectively rolling back the first deploy's changes.
+      const allSessions = await db.listEvolveSessions();
+      const concurrentDeploy = allSessions.find(
+        (s) => s.status === 'accepting' && s.id !== body.sessionId,
+      );
+      if (concurrentDeploy) {
+        return Response.json(
+          {
+            error:
+              `A deploy is already in progress (session "${concurrentDeploy.branch}"). ` +
+              `Please wait for it to finish, then try again.`,
+          },
+          { status: 409 },
+        );
+      }
+
       // ── Kick off async accept ──────────────────────────────────────────────
-      // Gates 1+2 pass synchronously. The remaining work (type-check, build,
-      // merge) runs fire-and-forget so the client receives a response immediately
-      // and can stream progress via SSE.
+      // Gates 1+2+3 pass. The remaining work (type-check, build, merge) runs
+      // fire-and-forget so the client receives a response immediately and can
+      // stream progress via SSE.
       const isProduction = process.env.NODE_ENV === 'production';
       const acceptingRow = await db.getEvolveSession(body.sessionId);
       if (acceptingRow) {

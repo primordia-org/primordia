@@ -14,6 +14,7 @@ export type LocalSessionStatus =
   | 'running-claude'
   | 'fixing-types'
   | 'ready'
+  | 'accepting'
   | 'accepted'
   | 'rejected';
 

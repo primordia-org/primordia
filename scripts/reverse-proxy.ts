@@ -717,22 +717,11 @@ async function handleProdSpawn(
     // Update internal state immediately (don't wait for 5 s poll).
     readAllPorts();
 
-    // Gracefully kill the old production server.
-    if (oldEntry && oldEntry.process.pid !== undefined) {
-      try { process.kill(-oldEntry.process.pid, 'SIGTERM'); } catch { /* already gone */ }
-      try { oldEntry.process.kill('SIGTERM'); } catch { /* already gone */ }
-    } else if (oldPort && oldPort !== port) {
-      // Fallback: lsof on the old port (e.g. server was started before tracking was added).
-      try {
-        const pids = execFileSync('lsof', ['-ti', `tcp:${oldPort}`], { encoding: 'utf8' })
-          .trim().split('\n').filter(Boolean).map(Number).filter(Boolean);
-        for (const pid of pids) {
-          try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
-        }
-      } catch { /* no process on that port */ }
-    }
-
-    console.log(`[proxy] prod slot activated: ${branch} on :${port} (old :${oldPort})`);
+    // Do NOT kill the old production server here. The old server is the one that
+    // called this endpoint — it will self-terminate after running update-service.sh.
+    // Killing it from the proxy would race with (and likely win against) the old
+    // server's remaining work, causing update-service.sh to never run.
+    console.log(`[proxy] prod slot activated: ${branch} on :${port} (old :${oldPort}; old server will self-terminate)`);
     sendDone(true);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -1124,7 +1113,31 @@ server.on('upgrade', (clientReq: http.IncomingMessage, clientSocket: stream.Dupl
   // If the upstream responds with a non-101 (e.g. 400 or 404), the 'upgrade'
   // event never fires. Without a 'response' handler the client socket would
   // hang open indefinitely, so we send a 502 and close it.
+  //
+  // Bun quirk: in Bun's HTTP client, a 101 Switching Protocols response fires
+  // 'response' instead of 'upgrade'. Detect that case and handle it identically
+  // to the 'upgrade' handler above so WebSocket proxying works in Bun.
   upstreamReq.on('response', (upstreamRes) => {
+    if (upstreamRes.statusCode === 101) {
+      let responseHead = 'HTTP/1.1 101 Switching Protocols\r\n';
+      for (const [key, val] of Object.entries(upstreamRes.headers)) {
+        const values = Array.isArray(val) ? val : [val];
+        for (const v of values) responseHead += `${key}: ${v}\r\n`;
+      }
+      responseHead += '\r\n';
+      clientSocket.write(responseHead);
+
+      if (head && head.length > 0) clientSocket.unshift(head);
+
+      const upstreamSocket = upstreamRes.socket as stream.Duplex;
+      upstreamRes.pipe(clientSocket);
+      clientSocket.pipe(upstreamSocket);
+
+      clientSocket.on('error', () => upstreamSocket.destroy());
+      upstreamSocket.on('error', () => clientSocket.destroy());
+      return;
+    }
+
     console.error(`[proxy] WS upstream on port ${targetPort} returned HTTP ${upstreamRes.statusCode ?? 'unknown'} instead of 101`);
     upstreamRes.resume(); // drain so Node.js can reuse the connection
     if (!clientSocket.destroyed) {
