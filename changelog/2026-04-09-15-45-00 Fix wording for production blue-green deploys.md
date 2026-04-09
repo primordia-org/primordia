@@ -13,7 +13,7 @@ In a production (blue/green) deploy, the session branch is **not merged** into t
 ### `components/EvolveSessionView.tsx`
 
 - Added detection of the new `deployed to production` decision log pattern alongside the existing `merged into` pattern.
-- The "Changes accepted" banner now reads **"The branch was deployed to production and the worktree has been removed."** for production deploys, instead of the inaccurate merge message.
+- The "Changes accepted" banner now reads **"The branch was deployed to production as the new active slot."** for production deploys, instead of the inaccurate merge message. (The worktree is intentionally kept — it IS the new production slot.)
 - The fallback for older sessions (no recognisable decision line) now reads "The branch was accepted and the worktree has been removed." instead of the misleading "merged" wording.
 
 ## Why
