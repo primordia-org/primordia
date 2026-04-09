@@ -7,10 +7,19 @@
 // Runs: journalctl -u primordia-proxy -f -n 100
 // -n 100  → emit last 100 lines before following
 // -f      → keep following (long-lived stream)
+//
+// On non-Linux platforms (e.g. macOS) where journalctl is unavailable, emits
+// a single informational message and closes the stream.
 
 import { spawn } from "child_process";
 import { type NextRequest } from "next/server";
 import { getSessionUser, isAdmin } from "@/lib/auth";
+
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache",
+  Connection: "keep-alive",
+} as const;
 
 export async function GET(req: NextRequest) {
   const user = await getSessionUser();
@@ -18,6 +27,23 @@ export async function GET(req: NextRequest) {
   if (!(await isAdmin(user.id))) return new Response("Forbidden", { status: 403 });
 
   const encoder = new TextEncoder();
+
+  // journalctl is only available on Linux (systemd). On macOS the proxy runs
+  // as a plain bun process — start it in a terminal to see its output.
+  if (process.platform !== "linux") {
+    const msg =
+      "journalctl is not available on this platform. " +
+      "Proxy logs are only streamed via systemd on Linux. " +
+      "Run the proxy directly in a terminal to see its output.\n";
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: msg })}\n\n`));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, exitCode: 0 })}\n\n`));
+        controller.close();
+      },
+    });
+    return new Response(stream, { headers: SSE_HEADERS });
+  }
 
   const stream = new ReadableStream({
     start(controller) {
@@ -61,11 +87,5 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+  return new Response(stream, { headers: SSE_HEADERS });
 }

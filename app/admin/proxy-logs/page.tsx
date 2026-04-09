@@ -50,11 +50,13 @@ export default async function AdminProxyLogsPage() {
 
   // Fetch the first batch of log lines server-side so the page is readable
   // even when client-side JavaScript hasn't connected yet (e.g. broken HMR).
-  const initialLogs = spawnSync(
-    "journalctl",
-    ["-u", "primordia-proxy", "-n", "100", "--no-pager"],
-    { encoding: "utf8" },
-  ).stdout ?? "";
+  // journalctl is only available on Linux (systemd); skip on other platforms.
+  const initialLogs =
+    process.platform === "linux"
+      ? spawnSync("journalctl", ["-u", "primordia-proxy", "-n", "100", "--no-pager"], {
+          encoding: "utf8",
+        }).stdout ?? ""
+      : "";
 
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">

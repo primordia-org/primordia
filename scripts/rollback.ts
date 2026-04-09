@@ -122,16 +122,22 @@ spawnSync('git', ['config', '--add', 'primordia.productionHistory', previousBran
 console.log('  Done.');
 console.log('');
 
-// Restart the proxy service. The proxy will read the updated git config and
-// start the production server on the previous slot's pre-assigned port.
-console.log('Restarting proxy service...');
-try {
-  execSync('sudo systemctl restart primordia-proxy', { stdio: 'inherit' });
-  console.log('  Service restarted.');
-} catch (err) {
-  console.error(`  Failed to restart service: ${err}`);
-  console.error('  Run manually: sudo systemctl restart primordia-proxy');
-  process.exit(1);
+// Restart the proxy service so it picks up the updated git config.
+// On non-Linux platforms (e.g. macOS) systemd is unavailable — just print a reminder.
+const hasSystemctl = spawnSync('which', ['systemctl'], { encoding: 'utf8' }).status === 0;
+if (!hasSystemctl) {
+  console.log('systemctl not available — skipping proxy service restart.');
+  console.log('Restart the proxy manually: bun ~/primordia-proxy.ts');
+} else {
+  console.log('Restarting proxy service...');
+  try {
+    execSync('sudo systemctl restart primordia-proxy', { stdio: 'inherit' });
+    console.log('  Service restarted.');
+  } catch (err) {
+    console.error(`  Failed to restart service: ${err}`);
+    console.error('  Run manually: sudo systemctl restart primordia-proxy');
+    process.exit(1);
+  }
 }
 
 console.log('');

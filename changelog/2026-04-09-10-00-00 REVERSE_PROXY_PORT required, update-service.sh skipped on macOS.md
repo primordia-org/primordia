@@ -29,7 +29,26 @@ fi
 
 This means `update-service.sh` can safely be called as part of the blue-green accept flow on macOS developer machines without failing. The script simply skips all systemd work when `systemctl` is not present.
 
+### Remove dead journalctl fallback from admin server logs
+
+After merging the admin-logs-reverse-proxy-integration branch, the admin logs API and page still contained a `journalctl -u primordia` fallback for when `REVERSE_PROXY_PORT` was unset. Since `REVERSE_PROXY_PORT` is now required, that code was dead. Removed:
+
+- `app/api/admin/logs/route.ts` — removed the `spawn("journalctl", ...)` fallback; now unconditionally proxies `/_proxy/prod/logs`
+- `app/admin/logs/page.tsx` — removed the `spawnSync("journalctl", ...)` fallback for SSR pre-fetch; now unconditionally reads from the proxy
+
+### Proxy logs and rollback script degrade gracefully on macOS
+
+The merged admin-logs branch also added `app/api/admin/proxy-logs/route.ts` and `app/admin/proxy-logs/page.tsx`, both of which unconditionally spawned `journalctl`. On macOS (no systemd) this would crash or emit unhelpful errors. Fixed:
+
+- `app/api/admin/proxy-logs/route.ts` — checks `process.platform !== "linux"` before spawning journalctl; returns an informational SSE message on other platforms explaining that proxy logs require systemd
+- `app/admin/proxy-logs/page.tsx` — guards the `spawnSync("journalctl", ...)` SSR pre-fetch behind `process.platform === "linux"`; falls back to `""` on other platforms
+
+`scripts/rollback.ts` previously called `sudo systemctl restart primordia-proxy` unconditionally. Fixed:
+
+- Added a `which systemctl` check before the restart; on macOS (or any system without systemd) it prints a reminder to restart the proxy manually and exits cleanly
+
 ## Why
 
 - The proxy is a bun script, not an OS-level service dependency, so there is no scenario where it is running but `REVERSE_PROXY_PORT` is unset. Keeping the fallback paths added dead code and masked misconfiguration.
 - Primordia can be developed on macOS, which does not have `systemd`. The `update-service.sh` script previously would fail on `command not found: systemctl`, but it is called as part of every blue-green accept. Skipping it silently on non-systemd platforms makes the accept flow work correctly on macOS.
+- The newly merged proxy-logs pages and rollback script contained unconditional `journalctl`/`systemctl` calls. On macOS these would either crash or emit confusing errors. The platform guards ensure the app remains functional on macOS while still providing full functionality on Linux.
