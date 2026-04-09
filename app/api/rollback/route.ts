@@ -142,77 +142,65 @@ export async function POST() {
     if (portOut) oldUpstreamPort = parseInt(portOut, 10);
   } catch { /* best-effort */ }
 
-  // Zero-downtime restart when the proxy is configured.
-  const reverseProxyPort = process.env.REVERSE_PROXY_PORT;
-  if (reverseProxyPort) {
-    // Start the rolled-back slot on a free port, wait for health, then cut over.
-    void (async () => {
-      const freePort: number = await new Promise((resolve, reject) => {
-        const s = net.createServer();
-        s.listen(0, '127.0.0.1', () => {
-          const addr = s.address();
-          const port = typeof addr === 'object' && addr ? addr.port : 0;
-          s.close(() => resolve(port));
+  // Zero-downtime restart via proxy: start the rolled-back slot on a free port,
+  // wait for health, then update git config for the proxy to cut over instantly.
+  void (async () => {
+    const freePort: number = await new Promise((resolve, reject) => {
+      const s = net.createServer();
+      s.listen(0, '127.0.0.1', () => {
+        const addr = s.address();
+        const port = typeof addr === 'object' && addr ? addr.port : 0;
+        s.close(() => resolve(port));
+      });
+      s.on('error', reject);
+    });
+
+    const newServer = spawn('bun', ['run', 'start'], {
+      cwd: previousTarget,
+      env: { ...process.env, PORT: String(freePort), HOSTNAME: '0.0.0.0' },
+      stdio: 'ignore',
+      detached: true,
+    });
+    newServer.unref();
+
+    // Health check for up to 30 s
+    const deadline = Date.now() + 30_000;
+    let healthy = false;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 1_000));
+      try {
+        await fetch(`http://localhost:${freePort}/`, {
+          signal: AbortSignal.timeout(3_000),
+          redirect: 'manual',
         });
-        s.on('error', reject);
-      });
+        healthy = true;
+        break;
+      } catch { /* not ready yet */ }
+    }
 
-      const newServer = spawn('bun', ['run', 'start'], {
-        cwd: previousTarget,
-        env: { ...process.env, PORT: String(freePort), HOSTNAME: '0.0.0.0' },
-        stdio: 'ignore',
-        detached: true,
-      });
-      newServer.unref();
+    if (!healthy) {
+      try { newServer.kill('SIGTERM'); } catch {}
+      return;
+    }
 
-      // Health check for up to 30 s
-      const deadline = Date.now() + 30_000;
-      let healthy = false;
-      while (Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 1_000));
-        try {
-          await fetch(`http://localhost:${freePort}/`, {
-            signal: AbortSignal.timeout(3_000),
-            redirect: 'manual',
-          });
-          healthy = true;
-          break;
-        } catch { /* not ready yet */ }
-      }
-
-      if (!healthy) {
-        // Fall back to proxy restart on health-check failure
-        try { newServer.kill('SIGTERM'); } catch {}
-        try { execSync('sudo systemctl restart primordia-proxy', { stdio: 'ignore' }); } catch {}
-        return;
-      }
-
-      // Update production branch in git config; touch port to fire proxy's fs.watch.
-      spawnSync('git', ['config', 'primordia.productionBranch', previousBranch], { cwd: repoRoot });
-      spawnSync('git', ['config', '--add', 'primordia.productionHistory', previousBranch], { cwd: repoRoot });
-      spawnSync('git', ['config', `branch.${previousBranch}.port`, String(freePort)], { cwd: repoRoot });
-
-      // Give the proxy ~500 ms to pick up the config, then kill the old server
-      setTimeout(() => {
-        if (oldUpstreamPort !== null) {
-          try {
-            const pids = execSync(`lsof -ti tcp:${oldUpstreamPort}`, { encoding: 'utf8' })
-              .trim().split('\n').filter(Boolean).map(Number).filter(Boolean);
-            for (const pid of pids) {
-              try { process.kill(pid, 'SIGTERM'); } catch {}
-            }
-          } catch {}
-        }
-      }, 500);
-    })();
-  } else {
-    // Fallback: update production branch in git config then restart the proxy (brief downtime).
+    // Update production branch in git config; touch port to fire proxy's fs.watch.
     spawnSync('git', ['config', 'primordia.productionBranch', previousBranch], { cwd: repoRoot });
     spawnSync('git', ['config', '--add', 'primordia.productionHistory', previousBranch], { cwd: repoRoot });
+    spawnSync('git', ['config', `branch.${previousBranch}.port`, String(freePort)], { cwd: repoRoot });
+
+    // Give the proxy ~500 ms to pick up the config, then kill the old server
     setTimeout(() => {
-      try { execSync('sudo systemctl restart primordia-proxy', { stdio: 'ignore' }); } catch {}
+      if (oldUpstreamPort !== null) {
+        try {
+          const pids = execSync(`lsof -ti tcp:${oldUpstreamPort}`, { encoding: 'utf8' })
+            .trim().split('\n').filter(Boolean).map(Number).filter(Boolean);
+          for (const pid of pids) {
+            try { process.kill(pid, 'SIGTERM'); } catch {}
+          }
+        } catch {}
+      }
     }, 500);
-  }
+  })();
 
   return Response.json({ outcome: 'rolled-back' });
 }

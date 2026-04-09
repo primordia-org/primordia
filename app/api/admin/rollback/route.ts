@@ -189,69 +189,57 @@ export async function POST(req: Request) {
     copyDb(currentTarget, targetPath);
   } catch { /* non-fatal */ }
 
-  const reverseProxyPort = process.env.REVERSE_PROXY_PORT;
+  // Zero-downtime path: start target server, health-check, then swap
+  void (async () => {
+    const freePort = await findFreePort();
 
-  if (reverseProxyPort) {
-    // Zero-downtime path: start target server, health-check, then swap
-    void (async () => {
-      const freePort = await findFreePort();
+    const newServer = spawn('bun', ['run', 'start'], {
+      cwd: targetPath,
+      env: { ...process.env, PORT: String(freePort), HOSTNAME: '0.0.0.0' },
+      stdio: 'ignore',
+      detached: true,
+    });
+    newServer.unref();
 
-      const newServer = spawn('bun', ['run', 'start'], {
-        cwd: targetPath,
-        env: { ...process.env, PORT: String(freePort), HOSTNAME: '0.0.0.0' },
-        stdio: 'ignore',
-        detached: true,
-      });
-      newServer.unref();
-
-      const deadline = Date.now() + 30_000;
-      let healthy = false;
-      while (Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 1_000));
-        try {
-          await fetch(`http://localhost:${freePort}/`, {
-            signal: AbortSignal.timeout(3_000),
-            redirect: 'manual',
-          });
-          healthy = true;
-          break;
-        } catch { /* not ready yet */ }
-      }
-
-      if (!healthy) {
-        try { newServer.kill('SIGTERM'); } catch {}
-        try { execSync('sudo systemctl restart primordia-proxy', { stdio: 'ignore' }); } catch {}
-        return;
-      }
-
-      // Update production branch in git config + branch port → proxy picks up instantly
+    const deadline = Date.now() + 30_000;
+    let healthy = false;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 1_000));
       try {
-        spawnSync('git', ['config', 'primordia.productionBranch', targetWorktree.branch!], { cwd: repoRoot });
-        spawnSync('git', ['config', '--add', 'primordia.productionHistory', targetWorktree.branch!], { cwd: repoRoot });
-        spawnSync('git', ['config', `branch.${targetWorktree.branch}.port`, String(freePort)], { cwd: repoRoot });
-      } catch { /* best-effort */ }
+        await fetch(`http://localhost:${freePort}/`, {
+          signal: AbortSignal.timeout(3_000),
+          redirect: 'manual',
+        });
+        healthy = true;
+        break;
+      } catch { /* not ready yet */ }
+    }
 
-      // Kill old server after proxy has time to pick up changes
-      setTimeout(() => {
-        if (oldUpstreamPort !== null) {
-          try {
-            const pids = execSync(`lsof -ti tcp:${oldUpstreamPort}`, { encoding: 'utf8' })
-              .trim().split('\n').filter(Boolean).map(Number).filter(Boolean);
-            for (const pid of pids) {
-              try { process.kill(pid, 'SIGTERM'); } catch {}
-            }
-          } catch {}
-        }
-      }, 500);
-    })();
-  } else {
-    // Brief-downtime path: update production branch in git config then restart.
-    spawnSync('git', ['config', 'primordia.productionBranch', targetWorktree.branch], { cwd: repoRoot });
-    spawnSync('git', ['config', '--add', 'primordia.productionHistory', targetWorktree.branch], { cwd: repoRoot });
+    if (!healthy) {
+      try { newServer.kill('SIGTERM'); } catch {}
+      return;
+    }
+
+    // Update production branch in git config + branch port → proxy picks up instantly
+    try {
+      spawnSync('git', ['config', 'primordia.productionBranch', targetWorktree.branch!], { cwd: repoRoot });
+      spawnSync('git', ['config', '--add', 'primordia.productionHistory', targetWorktree.branch!], { cwd: repoRoot });
+      spawnSync('git', ['config', `branch.${targetWorktree.branch}.port`, String(freePort)], { cwd: repoRoot });
+    } catch { /* best-effort */ }
+
+    // Kill old server after proxy has time to pick up changes
     setTimeout(() => {
-      try { execSync('sudo systemctl restart primordia-proxy', { stdio: 'ignore' }); } catch {}
+      if (oldUpstreamPort !== null) {
+        try {
+          const pids = execSync(`lsof -ti tcp:${oldUpstreamPort}`, { encoding: 'utf8' })
+            .trim().split('\n').filter(Boolean).map(Number).filter(Boolean);
+          for (const pid of pids) {
+            try { process.kill(pid, 'SIGTERM'); } catch {}
+          }
+        } catch {}
+      }
     }, 500);
-  }
+  })();
 
   return Response.json({ outcome: 'rolling-back' });
 }

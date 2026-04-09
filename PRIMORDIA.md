@@ -225,9 +225,8 @@ User types change request on /evolve page
       → streams SDKMessage events → formatted progressText appended in memory
       → progressText flushed to SQLite (throttled, ≤1 write/2s per session)
   → assigns ephemeral port to branch in git config (branch.{branch}.port) — idempotent, stable for branch lifetime
-  → spawn: bun run dev in worktree with PORT=branch port and NEXT_BASE_PATH=/preview/{sessionId} (when REVERSE_PROXY_PORT is set)
+  → spawn: bun run dev in worktree with PORT=branch port and NEXT_BASE_PATH=/preview/{sessionId}
       → on ready: previewUrl = http://{host}:{REVERSE_PROXY_PORT}/preview/{sessionId} (proxy routes by session ID via git config)
-      → fallback when no proxy: NEXT_BASE_PATH unset; previewUrl = http://{host}:{port} (direct)
   → EvolveSessionView opens SSE stream to /api/evolve/stream?sessionId=...
       → GET streams delta progressText + state every 500 ms from SQLite until terminal
   → Preview link shown when status becomes "ready"
@@ -241,7 +240,7 @@ User types change request on /evolve page
           → fix .env.local symlink in new slot to point to main repo (prevents dangling link)
           → POST /_proxy/prod/spawn to the reverse proxy (SSE stream): proxy spawns new prod server, health-checks it, sets primordia.productionBranch + productionHistory in git config, SIGTERMs old prod server; proxy owns the new server process
           → old slots accumulate indefinitely as registered git worktrees (enables deep rollback via /admin/rollback)
-      → legacy deploy (local dev, no systemd): git merge in production dir → bun install → worktree remove
+      → legacy deploy (local dev, NODE_ENV !== 'production'): git merge in production dir → bun install → worktree remove
   → User clicks Reject → POST /api/evolve/manage { action: "reject" }
       → kill dev server, git worktree remove, git branch -D
 ```
@@ -343,7 +342,7 @@ These must be set in:
 | `ANTHROPIC_API_KEY` | Required for evolve | Required for the evolve pipeline (`@anthropic-ai/claude-agent-sdk`) in **all environments**. Not required for chat on exe.dev — the built-in LLM gateway is used instead. Required for chat outside exe.dev. |
 | `GITHUB_TOKEN` | No | Personal access token (repo scope) — enables authenticated git pull/push in GitSyncDialog; falls back to `origin` remote if unset |
 | `GITHUB_REPO` | No | `owner/repo` slug (e.g. `primordia-org/primordia`) — used alongside `GITHUB_TOKEN` to build the authenticated remote URL |
-| `REVERSE_PROXY_PORT` | No | Port the reverse proxy listens on (e.g. `3000`). When set, blue/green accepts use zero-downtime cutover instead of `systemctl restart`. |
+| `REVERSE_PROXY_PORT` | Yes | Port the reverse proxy listens on (e.g. `3000`). Blue/green accepts and rollbacks use zero-downtime cutover via the proxy. |
 | `PRIMORDIA_WORKTREES_DIR` | No | Path to the worktrees directory (default `/home/exedev/primordia-worktrees`). Set automatically by the systemd service files. |
 | `NEXT_BASE_PATH` | No | URL sub-path prefix (e.g. `/primordia`) for hosting the app at a non-root path. Leave unset to serve from `/` (default). Sets both Next.js `basePath` config and `NEXT_PUBLIC_BASE_PATH` for client-side `fetch()` calls. Also set automatically on preview dev servers to `/preview/{sessionId}` when `REVERSE_PROXY_PORT` is active. |
 

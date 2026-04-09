@@ -233,23 +233,12 @@ async function blueGreenAccept(
  * Asks the reverse proxy to spawn the new production server, health-check it,
  * update primordia.productionBranch in git config, and kill the old server.
  * Streams SSE events from the proxy and pipes each log line through onStep.
- *
- * Falls back to `sudo systemctl restart primordia-proxy` when REVERSE_PROXY_PORT
- * is not set (e.g. local dev accidentally running in production mode).
  */
 async function spawnProdViaProxy(
   branch: string,
   onStep: (text: string) => Promise<void>,
 ): Promise<void> {
-  const proxyPort = process.env.REVERSE_PROXY_PORT;
-
-  if (!proxyPort) {
-    // Fallback: restart the proxy (brief downtime; proxy will start new prod server on boot).
-    setTimeout(() => {
-      try { execSync('sudo systemctl restart primordia-proxy', { stdio: 'ignore' }); } catch { /* best-effort */ }
-    }, 500);
-    return;
-  }
+  const proxyPort = process.env.REVERSE_PROXY_PORT!;
 
   try {
     const response = await fetch(`http://127.0.0.1:${proxyPort}/_proxy/prod/spawn`, {
@@ -349,14 +338,11 @@ async function retryAcceptAfterFix(
 
   // Both typecheck and build passed — ask the proxy to kill the preview dev server.
   console.log(`[retryAcceptAfterFix] typecheck passed, killing preview server for session ${sessionId}`);
-  const retryProxyPort = process.env.REVERSE_PROXY_PORT;
-  if (retryProxyPort) {
-    try {
-      await fetch(`http://127.0.0.1:${retryProxyPort}/_proxy/preview/${sessionId}`, {
-        method: 'DELETE',
-      });
-    } catch { /* proxy not running — preview server may already be gone */ }
-  }
+  try {
+    await fetch(`http://127.0.0.1:${process.env.REVERSE_PROXY_PORT!}/_proxy/preview/${sessionId}`, {
+      method: 'DELETE',
+    });
+  } catch { /* proxy not running — preview server may already be gone */ }
 
   // ── Merge: blue/green or legacy ────────────────────────────────────────────
 
@@ -716,14 +702,11 @@ export async function POST(request: Request) {
   const parentBranch = parentBranchResult.stdout.trim() || 'main';
 
   // Ask the reverse proxy to stop the preview dev server for this session.
-  const proxyPort = process.env.REVERSE_PROXY_PORT;
-  if (proxyPort && body.sessionId) {
-    try {
-      await fetch(`http://127.0.0.1:${proxyPort}/_proxy/preview/${body.sessionId}`, {
-        method: 'DELETE',
-      });
-    } catch { /* proxy not running — preview server may already be gone */ }
-  }
+  try {
+    await fetch(`http://127.0.0.1:${process.env.REVERSE_PROXY_PORT!}/_proxy/preview/${body.sessionId}`, {
+      method: 'DELETE',
+    });
+  } catch { /* proxy not running — preview server may already be gone */ }
 
   /** Append a log entry and update the session status in the parent's own DB. */
   async function logDecision(action: 'accept' | 'reject'): Promise<void> {

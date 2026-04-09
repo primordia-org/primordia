@@ -577,11 +577,9 @@ export async function startLocalEvolve(
 
     // Step 6 — Mark session ready; the proxy will start the preview server on demand.
     // The preview URL is always accessible through the proxy at /preview/{sessionId}.
-    const proxyPort = process.env.REVERSE_PROXY_PORT;
-    if (proxyPort) {
-      const portSuffix = proxyPort === '80' ? '' : `:${proxyPort}`;
-      session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.id}`;
-    }
+    const proxyPort = process.env.REVERSE_PROXY_PORT!;
+    const portSuffix = proxyPort === '80' ? '' : `:${proxyPort}`;
+    session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.id}`;
     session.status = 'ready';
     await persist();
 
@@ -856,10 +854,7 @@ export async function restartDevServerInWorktree(
   _repoRoot: string,
   _publicHostname: string = "localhost",
 ): Promise<void> {
-  const proxyPort = process.env.REVERSE_PROXY_PORT;
-  if (!proxyPort) {
-    throw new Error('REVERSE_PROXY_PORT is not set; cannot restart preview server via proxy');
-  }
+  const proxyPort = process.env.REVERSE_PROXY_PORT!;
   const res = await fetch(
     `http://127.0.0.1:${proxyPort}/_proxy/preview/${session.id}/restart`,
     { method: 'POST' },

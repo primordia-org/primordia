@@ -14,6 +14,13 @@
 
 set -euo pipefail
 
+# macOS (and other non-systemd platforms) do not have systemctl.
+# Nothing to update — exit cleanly.
+if ! command -v systemctl &>/dev/null; then
+  echo "systemctl not available — skipping service update."
+  exit 0
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROXY_SERVICE_SRC="${SCRIPT_DIR}/primordia-proxy.service"
 PROXY_SERVICE_DST="/etc/systemd/system/primordia-proxy.service"
