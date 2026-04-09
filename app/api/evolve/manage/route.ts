@@ -28,7 +28,6 @@
 
 import { execSync, execFileSync, spawn } from 'child_process';
 import * as fs from 'fs';
-import * as net from 'net';
 import * as path from 'path';
 import { Database } from 'bun:sqlite';
 import {
@@ -127,22 +126,9 @@ function copyDb(srcDir: string, dstDir: string): void {
   }
 }
 
-/** Returns an available TCP port on 127.0.0.1 (OS picks one). */
-function findFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address();
-      const port = typeof addr === 'object' && addr ? addr.port : 0;
-      server.close(() => resolve(port));
-    });
-    server.on('error', reject);
-  });
-}
-
 type BlueGreenAcceptResult =
   | { ok: false; error: string }
-  | { ok: true; branch: string; newProdPort: number };
+  | { ok: true; branch: string };
 
 /**
  * Blue/green accept path.
@@ -150,7 +136,7 @@ type BlueGreenAcceptResult =
  * Builds and activates the session worktree as the new production slot without
  * running any git or bun commands in the live production directory.
  *
- * Returns { ok: false, error } on failure, or { ok: true, newProdPort, oldUpstreamPort } on success.
+ * Returns { ok: false, error } on failure, or { ok: true, branch } on success.
  */
 async function blueGreenAccept(
   worktreePath: string,
@@ -215,21 +201,6 @@ async function blueGreenAccept(
   // pull in the new production code going forward.
   reparentSiblings(repoRoot, parentBranch, branch);
 
-  // Read the branch's pre-assigned port from git config (assigned by assign-branch-ports.sh).
-  let newProdPort: number;
-  try {
-    const portOut = execFileSync('git', ['config', '--get', `branch.${branch}.port`], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    newProdPort = parseInt(portOut, 10);
-    if (!newProdPort) throw new Error('empty port');
-  } catch {
-    // Fallback: find a free port (e.g. migration script hasn't run yet)
-    newProdPort = await findFreePort();
-  }
-
   // Copy the production database into the new slot via VACUUM INTO — an atomic,
   // consistent snapshot safe to take while the live server writes.
   try {
@@ -251,7 +222,7 @@ async function blueGreenAccept(
 
   // Spawning the new prod server, health-checking it, and switching traffic are
   // handled by the proxy (POST /_proxy/prod/spawn) after the final DB writes.
-  return { ok: true, branch, newProdPort };
+  return { ok: true, branch };
 }
 
 /**
@@ -263,9 +234,7 @@ async function blueGreenAccept(
  * is not set (e.g. local dev accidentally running in production mode).
  */
 async function spawnProdViaProxy(
-  worktreePath: string,
   branch: string,
-  newProdPort: number,
   onStep: (text: string) => Promise<void>,
 ): Promise<void> {
   const proxyPort = process.env.REVERSE_PROXY_PORT;
@@ -282,7 +251,7 @@ async function spawnProdViaProxy(
     const response = await fetch(`http://127.0.0.1:${proxyPort}/_proxy/prod/spawn`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ branch, worktreePath: path.resolve(worktreePath), port: newProdPort }),
+      body: JSON.stringify({ branch }),
     });
 
     const reader = response.body?.getReader();
@@ -490,7 +459,7 @@ async function retryAcceptAfterFix(
   // (Production only) Final VACUUM INTO + proxy spawn + slot activation.
   if (isProduction && bgAcceptResult && bgAcceptResult.ok) {
     try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
-    await spawnProdViaProxy(worktreePath, bgAcceptResult.branch, bgAcceptResult.newProdPort,
+    await spawnProdViaProxy(bgAcceptResult.branch,
       (text) => appendToProgress(sessionId, text));
   }
 }
@@ -686,7 +655,7 @@ async function runAcceptAsync(
     // leaving the session stuck in "Accepting changes" on refresh.
     if (isProduction && bgAcceptResult && bgAcceptResult.ok) {
       try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
-      await spawnProdViaProxy(worktreePath, bgAcceptResult.branch, bgAcceptResult.newProdPort, step);
+      await spawnProdViaProxy(bgAcceptResult.branch, step);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

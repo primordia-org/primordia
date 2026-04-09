@@ -8,19 +8,21 @@ This caused a reliability bug: the switch to the new prod instance would succeed
 
 ### New flow
 
-A new SSE endpoint `POST /_proxy/prod/spawn` was added to `scripts/reverse-proxy.ts`. It:
+A new SSE endpoint `POST /_proxy/prod/spawn` was added to `scripts/reverse-proxy.ts`. It accepts `{ branch }` in the request body and looks up the port (`branch.{name}.port` from git config) and worktree path (`git worktree list`) itself. It:
 
-1. Spawns `bun run start` in the given worktree (proxy owns the process via `prodServerEntry`)
-2. Health-checks the new server (30 s timeout, polling every 1 s)
-3. Sets `primordia.productionBranch` + `primordia.productionHistory` in git config
-4. Touches the branch port in git config (triggers the `fs.watch` handler for instant cutover)
-5. Calls `readAllPorts()` to update internal state immediately
-6. SIGTERMs the old production server (via tracked `prodServerEntry`, falling back to lsof)
-7. Streams `{ type: 'log', text }` and `{ type: 'done', ok }` SSE events throughout
+1. Looks up the port from `git config branch.{branch}.port`
+2. Looks up the worktree path from `git worktree list --porcelain`
+3. Spawns `bun run start` in the worktree (proxy owns the process via `prodServerEntry`)
+4. Health-checks the new server (30 s timeout, polling every 1 s)
+5. Sets `primordia.productionBranch` + `primordia.productionHistory` in git config
+6. Touches the branch port in git config (triggers the `fs.watch` handler for instant cutover)
+7. Calls `readAllPorts()` to update internal state immediately
+8. SIGTERMs the old production server (via tracked `prodServerEntry`, falling back to lsof)
+9. Streams `{ type: 'log', text }` and `{ type: 'done', ok }` SSE events throughout
 
-`blueGreenAccept` now only handles: bun install, sibling reparenting, initial DB copy (VACUUM INTO), and .env.local symlink fix. It no longer spawns anything.
+`blueGreenAccept` now only handles: bun install, sibling reparenting, initial DB copy (VACUUM INTO), and .env.local symlink fix. It no longer reads the branch port or spawns anything.
 
-A new `spawnProdViaProxy()` helper in `manage/route.ts` calls `/_proxy/prod/spawn`, streams its SSE events into the session progress log, and falls back to `sudo systemctl restart primordia-proxy` when `REVERSE_PROXY_PORT` is not set.
+`spawnProdViaProxy()` in `manage/route.ts` sends only `{ branch }` to `/_proxy/prod/spawn`, streams its SSE events into the session progress log, and falls back to `sudo systemctl restart primordia-proxy` when `REVERSE_PROXY_PORT` is not set.
 
 The proxy also now tracks the production server started at boot via `prodServerEntry`, so it can properly SIGTERM it during the first post-boot accept.
 

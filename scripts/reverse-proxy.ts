@@ -490,7 +490,7 @@ async function handleProdSpawn(
   // Read request body.
   const chunks: Buffer[] = [];
   for await (const chunk of clientReq as AsyncIterable<Buffer>) chunks.push(chunk);
-  let body: { branch?: string; worktreePath?: string; port?: number };
+  let body: { branch?: string };
   try {
     body = JSON.parse(Buffer.concat(chunks).toString()) as typeof body;
   } catch {
@@ -499,10 +499,50 @@ async function handleProdSpawn(
     return;
   }
 
-  const { branch, worktreePath, port } = body;
-  if (!branch || !worktreePath || !port) {
+  const { branch } = body;
+  if (!branch) {
     clientRes.writeHead(400, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ error: 'branch, worktreePath, and port are required' }));
+    clientRes.end(JSON.stringify({ error: 'branch is required' }));
+    return;
+  }
+
+  // Look up port from git config (set by assign-branch-ports.sh).
+  let port: number;
+  try {
+    const portStr = execFileSync('git', ['config', '--get', `branch.${branch}.port`], {
+      cwd: MAIN_REPO,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    port = parseInt(portStr, 10);
+    if (!port) throw new Error('empty port');
+  } catch {
+    clientRes.writeHead(400, { 'content-type': 'application/json' });
+    clientRes.end(JSON.stringify({ error: `No port configured for branch: ${branch}` }));
+    return;
+  }
+
+  // Look up worktree path from git worktree list.
+  let worktreePath: string | undefined;
+  try {
+    const wtOut = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+      cwd: MAIN_REPO,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let curPath: string | undefined;
+    for (const line of wtOut.split('\n')) {
+      if (line.startsWith('worktree ')) {
+        curPath = line.slice(9).trim();
+      } else if (line.startsWith('branch ') && curPath) {
+        const b = line.slice(7).trim().replace('refs/heads/', '');
+        if (b === branch) { worktreePath = curPath; break; }
+      }
+    }
+  } catch { /* fall through */ }
+  if (!worktreePath) {
+    clientRes.writeHead(400, { 'content-type': 'application/json' });
+    clientRes.end(JSON.stringify({ error: `No worktree found for branch: ${branch}` }));
     return;
   }
 
