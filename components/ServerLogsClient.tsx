@@ -1,15 +1,20 @@
 "use client";
 
 // components/ServerLogsClient.tsx
-// Streams the primordia systemd service journal in real time.
-// Auto-connects to GET /api/admin/logs on mount and appends SSE text chunks
+// Streams a systemd service journal in real time.
+// Auto-connects to the given apiPath on mount and appends SSE text chunks
 // to a scrollable terminal window. Auto-scrolls to the bottom unless the user
 // has scrolled up (paused). A "Clear" button wipes accumulated output.
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { withBasePath } from "../lib/base-path";
 
-export default function ServerLogsClient() {
+interface ServerLogsClientProps {
+  /** API route to stream from. Defaults to /api/admin/logs. */
+  apiPath?: string;
+}
+
+export default function ServerLogsClient({ apiPath = "/api/admin/logs" }: ServerLogsClientProps) {
   const [output, setOutput] = useState<string>("");
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +36,7 @@ export default function ServerLogsClient() {
 
     (async () => {
       try {
-        const res = await fetch(withBasePath("/api/admin/logs"), { signal: abort.signal });
+        const res = await fetch(withBasePath(apiPath), { signal: abort.signal });
         if (!res.ok) {
           const text = await res.text();
           setError(`HTTP ${res.status}: ${text}`);

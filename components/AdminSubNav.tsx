@@ -4,12 +4,13 @@
 import Link from "next/link";
 
 interface AdminSubNavProps {
-  currentTab: "users" | "logs" | "rollback";
+  currentTab: "users" | "logs" | "proxy-logs" | "rollback";
 }
 
 const tabs = [
   { id: "users" as const, label: "Manage Users", href: "/admin" },
   { id: "logs" as const, label: "Server Logs", href: "/admin/logs" },
+  { id: "proxy-logs" as const, label: "Proxy Logs", href: "/admin/proxy-logs" },
   { id: "rollback" as const, label: "Rollback", href: "/admin/rollback" },
 ];
 

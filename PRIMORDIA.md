@@ -83,9 +83,11 @@ primordia/
 │   ├── chat/
 │   │   └── page.tsx               ← Server component: chat interface; redirects to /login if unauthenticated
 │   ├── admin/
-│   │   ├── page.tsx               ← Admin panel: owner-only; grant/revoke evolve access per user; tab subnav (Manage Users / Server Logs / Rollback)
+│   │   ├── page.tsx               ← Admin panel: owner-only; grant/revoke evolve access per user; tab subnav (Manage Users / Server Logs / Proxy Logs / Rollback)
 │   │   ├── logs/
 │   │   │   └── page.tsx           ← Server logs: streams primordia systemd journal via SSE; admin only
+│   │   ├── proxy-logs/
+│   │   │   └── page.tsx           ← Proxy logs: streams primordia-proxy systemd journal via SSE; admin only
 │   │   └── rollback/
 │   │       └── page.tsx           ← Deep rollback: lists previous prod slots from primordia.productionHistory; admin only
 │   ├── oops/
@@ -116,6 +118,8 @@ primordia/
 │       │   │   └── route.ts       ← POST grant/revoke grantable roles (can_evolve); admin only
 │       │   ├── logs/
 │       │   │   └── route.ts       ← GET SSE stream of `journalctl -u primordia -f -n 100`; admin only
+│       │   ├── proxy-logs/
+│       │   │   └── route.ts       ← GET SSE stream of `journalctl -u primordia-proxy -f -n 100`; admin only
 │       │   └── rollback/
 │       │       └── route.ts       ← GET list previous prod slots from primordia.productionHistory; POST apply deep rollback to any slot; admin only
 │       ├── prune-branches/
@@ -167,7 +171,7 @@ primordia/
 │   ├── AcceptRejectBar.tsx        ← Accept/reject bar for local preview worktrees
 │   ├── AdminPermissionsClient.tsx ← Client component: grant/revoke 'can_evolve' role per user (used by /admin)
 │   ├── AdminRollbackClient.tsx    ← Client component: deep rollback UI; lists PROD reflog targets with roll-back buttons (used by /admin/rollback)
-│   ├── AdminSubNav.tsx            ← Tab subnav for admin pages: "Manage Users" (/admin), "Server Logs" (/admin/logs), "Rollback" (/admin/rollback)
+│   ├── AdminSubNav.tsx            ← Tab subnav for admin pages: "Manage Users" (/admin), "Server Logs" (/admin/logs), "Proxy Logs" (/admin/proxy-logs), "Rollback" (/admin/rollback)
 │   ├── ForbiddenPage.tsx          ← Server component: 403 access-denied page with page description, required/met/unmet conditions, and how-to-fix
 │   ├── ChatInterface.tsx          ← Main chat UI (chat only); hamburger menu "Propose a change" opens FloatingEvolveDialog
 │   ├── ChangelogEntryDetails.tsx  ← Client component: single changelog <details> widget; lazy-loads body from /api/changelog on first open
@@ -390,6 +394,7 @@ When implementing changes, follow these principles:
 | RBAC (roles) | ✅ Live | Simple role system: `admin` (auto-granted to first user) and `can_evolve`; /admin page lets admin grant/revoke roles; protected pages show informative 403 instead of redirecting |
 | Owner shell (/oops) | ✅ Live | Mobile-friendly shell at `/oops`; admin-only; run system commands (e.g. `sudo systemctl restart primordia`) without SSH; streams stdout+stderr via SSE |
 | Server logs (/admin/logs) | ✅ Live | Admin-only; live tail of `journalctl -u primordia -f -n 100` via SSE; accessible from the admin subnav |
+| Proxy logs (/admin/proxy-logs) | ✅ Live | Admin-only; live tail of `journalctl -u primordia-proxy -f -n 100` via SSE; accessible from the admin subnav |
 | Deep rollback (/admin/rollback) | ✅ Live | Admin-only; lists all previous production slots from primordia.productionHistory in git config; "Roll back" button for each target; zero-downtime cutover via reverse proxy |
 | Read-only git HTTP | ✅ Live | Clone/fetch via `git clone http[s]://<host>/api/git`; proxied through `git http-backend`; push permanently blocked (403) |
 
