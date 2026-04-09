@@ -827,6 +827,16 @@ async function handlePreviewRequest(
       forwardToPort(upstreamPort, clientReq, clientRes);
       return;
     }
+    // Guard: refuse to launch a preview server for a worktree that is currently
+    // serving production. This can happen when a session branch is accepted and
+    // becomes the production branch — its sessionWorktreeCache entry remains
+    // valid, but spawning a dev server would call killPortOwner and take down prod.
+    if (info.port === upstreamPort) {
+      console.warn(`[proxy] refusing preview for session ${sessionId}: worktree is the current production server (port :${info.port})`);
+      clientRes.writeHead(409, { 'content-type': 'text/plain' });
+      clientRes.end(`This session's branch is now the production server and cannot be previewed as a dev server.\n`);
+      return;
+    }
     entry = await startPreviewServer(sessionId, info);
   }
 
