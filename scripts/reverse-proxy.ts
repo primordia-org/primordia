@@ -787,14 +787,35 @@ server.on('upgrade', (clientReq: http.IncomingMessage, clientSocket: stream.Dupl
     responseHead += '\r\n';
     clientSocket.write(responseHead);
 
-    if (upstreamHead && upstreamHead.length > 0) clientSocket.unshift(upstreamHead);
-    if (head && head.length > 0) upstreamSocket.unshift(head);
+    // upstreamHead contains data from the upstream socket buffered after the 101
+    // response headers — put it back on the upstream socket's readable side so
+    // it flows through upstreamSocket.pipe(clientSocket) to the browser.
+    // head contains data from the client socket buffered after the HTTP upgrade
+    // request headers — put it back on the client socket's readable side so it
+    // flows through clientSocket.pipe(upstreamSocket) to the dev server.
+    if (upstreamHead && upstreamHead.length > 0) upstreamSocket.unshift(upstreamHead);
+    if (head && head.length > 0) clientSocket.unshift(head);
 
     upstreamSocket.pipe(clientSocket);
     clientSocket.pipe(upstreamSocket);
 
     clientSocket.on('error', () => upstreamSocket.destroy());
     upstreamSocket.on('error', () => clientSocket.destroy());
+  });
+
+  // If the upstream responds with a non-101 (e.g. 400 or 404), the 'upgrade'
+  // event never fires. Without a 'response' handler the client socket would
+  // hang open indefinitely, so we send a 502 and close it.
+  upstreamReq.on('response', (upstreamRes) => {
+    console.error(`[proxy] WS upstream on port ${targetPort} returned HTTP ${upstreamRes.statusCode ?? 'unknown'} instead of 101`);
+    upstreamRes.resume(); // drain so Node.js can reuse the connection
+    if (!clientSocket.destroyed) {
+      clientSocket.write(
+        `HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n` +
+        `WebSocket upstream did not upgrade (status ${upstreamRes.statusCode ?? 'unknown'})\n`,
+      );
+      clientSocket.destroy();
+    }
   });
 
   upstreamReq.on('error', (err) => {
