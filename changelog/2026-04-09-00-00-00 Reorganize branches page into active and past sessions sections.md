@@ -28,3 +28,4 @@ The new layout separates "what's active now" from "what happened before", making
 - The `+ session` button is suppressed in the Past Sessions section (no point attaching new sessions to retired slots).
 - Production branch is also shown in the Diagnostics panel.
 - Fixed branch link logic: the production branch links to the root server URL (`http://primordia.exe.xyz:3000`), while all other branches link to their `/preview/{sessionId}` URL. Previously the logic incorrectly used `isCurrent` instead of `isProduction` to decide which URL to show, causing the production branch to display its old preview URL and the current preview branch to display the root URL.
+- Branch links now show compact "view ↗" (production) or "preview ↗" (all others) instead of the full URL, reducing visual clutter on the page.

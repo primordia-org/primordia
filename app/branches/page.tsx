@@ -390,7 +390,7 @@ function BranchRow({
             rel="noopener noreferrer"
             className="text-blue-400 hover:text-blue-300 text-xs ml-1 shrink-0"
           >
-            {url} ↗
+            {node.isProduction ? "view" : "preview"} ↗
           </a>
         )}
       </div>
@@ -545,7 +545,8 @@ export default async function BranchesPage() {
         <p>
           ● green = preview server active · ● dim = no active session ·{" "}
           <span className="text-purple-400">session ↗</span> = view evolve
-          session · <span className="text-purple-500">+ session</span> = start
+          session · <span className="text-blue-400">view/preview ↗</span> = open
+          branch · <span className="text-purple-500">+ session</span> = start
           session on existing branch
         </p>
         <p>
