@@ -52,6 +52,49 @@ function isSessionBranchChildOfCurrent(
   }
 }
 
+export interface DiffFileSummary {
+  file: string;
+  additions: number;
+  deletions: number;
+}
+
+/**
+ * Returns a per-file diff summary (additions + deletions) for all files
+ * changed in the session branch relative to where it diverged from its parent.
+ * Uses `git diff --numstat parent...sessionBranch` (three-dot notation) so
+ * only commits exclusive to the session branch are counted.
+ */
+function getGitDiffSummary(sessionBranch: string): DiffFileSummary[] {
+  try {
+    const parentBranch = execSync(
+      `git config branch.${sessionBranch}.parent`,
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+    ).trim();
+    if (!parentBranch) return [];
+
+    const output = execSync(
+      `git diff --numstat ${parentBranch}...${sessionBranch}`,
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+    ).trim();
+
+    if (!output) return [];
+
+    return output.split("\n").flatMap((line) => {
+      const parts = line.split("\t");
+      if (parts.length < 3) return [];
+      const file = parts[2].trim();
+      if (!file) return [];
+      return [{
+        additions: parseInt(parts[0], 10) || 0,
+        deletions: parseInt(parts[1], 10) || 0,
+        file,
+      }];
+    });
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Returns the number of commits on the parent branch that are not yet in
  * the session branch (i.e. how far ahead the parent is).
@@ -98,6 +141,7 @@ export default async function EvolveSessionPage({
       : false;
 
   const upstreamCommitCount = getUpstreamCommitCount(session.branch);
+  const diffSummary = getGitDiffSummary(session.branch);
 
   return (
     <EvolveSessionView
@@ -110,6 +154,7 @@ export default async function EvolveSessionPage({
       sessionBranch={session.branch}
       canAcceptReject={canAcceptReject}
       upstreamCommitCount={upstreamCommitCount}
+      diffSummary={diffSummary}
       canEvolve={canEvolve}
       isProduction={process.env.NODE_ENV === "production"}
     />
