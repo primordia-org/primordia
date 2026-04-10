@@ -276,7 +276,7 @@ function LogSection({
     const mergedIntoBranch = !isProduction
       ? (heading.match(/Merging into `([^`]+)`/) ?? [])[1] ?? null
       : null;
-    const doneTitle = isProduction ? "🚀 Deployed to production" : heading.replace("Merging into", "✅ Merged into");
+    const doneTitle = isProduction ? "🚀 Deployed to production" : heading.replace(/🚀\s*Merging into/, "✅ Merged into");
     return (
       <div className="rounded-lg bg-green-900/40 border border-green-700/50 text-sm overflow-hidden">
         <div className="px-4 py-4">

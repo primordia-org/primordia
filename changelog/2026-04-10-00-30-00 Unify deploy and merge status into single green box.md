@@ -10,7 +10,7 @@ The evolve session view previously showed two redundant elements after a session
 These have been merged into a single component that:
 
 - Uses the green-box styling (`bg-green-900/40 border border-green-700/50`) from the old banner
-- Shows the appropriate title — "🚀 Deployed to production" (production deploy) or "✅ Merged into `branchname`" (legacy merge)
+- Shows the appropriate title — "🚀 Deployed to production" (production deploy) or "✅ Merged into `branchname`" (dev branch merge, no rocket emoji)
 - Includes a short description sentence inline (same text as the old banner)
 - Has a collapsible "Deploy log" section underneath showing the step-by-step output
 
