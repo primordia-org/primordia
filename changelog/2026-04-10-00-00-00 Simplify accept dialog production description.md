@@ -8,7 +8,7 @@ The production accept confirmation message in `EvolveSessionView.tsx` was simpli
 > Accepting will make `{sessionBranch}` the new live production instance. No merge commit is created — `{parentBranch}` stays at its current commit so the previous slot can be rolled back to. `primordia.productionBranch` in git config will be updated to `{sessionBranch}`, and the reverse proxy will cut traffic over with no downtime. The previous production worktree stays registered for rollback.
 
 **After:**
-> Accepting will deploy `{sessionBranch}` to production with zero-downtime cutover. The previous slot stays registered for rollback.
+> Accepting will deploy `{sessionBranch}` to production with zero-downtime cutover. `{branch}` stays registered for rollback.
 
 ## Why
 

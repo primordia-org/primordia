@@ -1202,8 +1202,15 @@ export default function EvolveSessionView({
                       <>
                         Accepting will deploy{" "}
                         <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code>{" "}
-                        to production with zero-downtime cutover. The previous slot stays
-                        registered for rollback.
+                        to production with zero-downtime cutover.{" "}
+                        {branch ? (
+                          <>
+                            <code className="bg-gray-800 px-1 rounded">{branch}</code> stays
+                            registered for rollback.
+                          </>
+                        ) : (
+                          <>The previous branch stays registered for rollback.</>
+                        )}
                       </>
                     ) : (
                       <>
