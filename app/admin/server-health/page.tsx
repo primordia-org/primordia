@@ -48,7 +48,7 @@ export default async function AdminServerHealthPage() {
   const sessionUser = { id: user.id, username: user.username, isAdmin: true };
 
   return (
-    <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
+    <main className="flex flex-col w-full max-w-full px-4 py-6 min-h-dvh">
       <PageNavBar subtitle="Admin" currentPage="admin" initialSession={sessionUser} />
       <AdminSubNav currentTab="server-health" />
       <AdminServerHealthClient />

@@ -59,7 +59,7 @@ export default async function AdminProxyLogsPage() {
       : "";
 
   return (
-    <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
+    <main className="flex flex-col w-full max-w-full px-4 py-6 min-h-dvh">
       <PageNavBar subtitle="Admin" currentPage="admin" initialSession={sessionUser} />
       <AdminSubNav currentTab="proxy-logs" />
       <ServerLogsClient apiPath="/api/admin/proxy-logs" initialOutput={initialLogs} />
