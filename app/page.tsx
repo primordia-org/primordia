@@ -122,7 +122,7 @@ export default function LandingPage() {
 
         {/* Sub-headline */}
         <p className="animate-fade-up-3 relative max-w-xl text-lg sm:text-xl text-gray-400 leading-relaxed mb-10">
-          A web application that rewrites itself on demand.
+          The web application that rewrites itself on demand.
         </p>
 
         {/* CTAs */}
@@ -164,7 +164,7 @@ export default function LandingPage() {
             What is Primordia?
           </h2>
           <p className="text-gray-400 max-w-2xl mx-auto leading-relaxed">
-            It&apos;s an app that builds itself. You interact with it, you shape it —
+            It&apos;s the app that builds itself. You interact with it, you shape it —
             and it evolves to become whatever you need.
           </p>
         </div>
@@ -241,7 +241,7 @@ export default function LandingPage() {
       {/* ── Footer ── */}
       <footer className="border-t border-white/5 px-6 py-10">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500 font-mono">
-          <span>Primordia — a self-modifying web application</span>
+          <span>Primordia — the self-modifying web application</span>
           <div className="flex items-center gap-6">
             <Link href="/chat" className="hover:text-gray-300 transition-colors">Chat</Link>
             <Link href="/evolve" className="hover:text-gray-300 transition-colors">Evolve</Link>
