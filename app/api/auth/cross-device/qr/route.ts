@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
 import { getDb } from "@/lib/db/index";
 import { getPublicOrigin } from "@/lib/public-origin";
+import { basePath } from "@/lib/base-path";
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,9 +23,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Token not found or expired" }, { status: 404 });
     }
 
-    // Build the approval URL — e.g. https://primordia.example.com/login/approve?token=<id>
+    // Build the approval URL — e.g. https://primordia.example.com/primordia/login/approve?token=<id>
     // Use forwarded headers so the URL is correct when running behind a reverse proxy.
-    const approvalUrl = `${getPublicOrigin(request)}/login/approve?token=${tokenId}`;
+    // Include basePath so preview server environments with a path prefix work correctly.
+    const approvalUrl = `${getPublicOrigin(request)}${basePath}/login/approve?token=${tokenId}`;
 
     const svg = await QRCode.toString(approvalUrl, {
       type: "svg",
