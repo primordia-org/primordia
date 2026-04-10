@@ -48,6 +48,10 @@ export function FloatingEvolveDialog({
   const [dock, setDock] = useState<DockPosition>("bottom-right");
   const dragOriginRef = useRef<DragOrigin | null>(null);
 
+  // null = auto height; number = explicit height in px (set by bottom resize handle)
+  const [dialogHeight, setDialogHeight] = useState<number | null>(null);
+  const resizeOriginRef = useRef<{ startY: number; startHeight: number } | null>(null);
+
   // Position the dialog under the hamburger button on first render if anchorRect is provided.
   useLayoutEffect(() => {
     if (!anchorRect || !dialogRef.current) return;
@@ -131,6 +135,40 @@ export function FloatingEvolveDialog({
     setFreePos(null);
     setDock(pos);
   }
+
+  // ── Vertical resize (bottom handle) ───────────────────────────────────────
+
+  function startResize(clientY: number) {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    resizeOriginRef.current = { startY: clientY, startHeight: dialog.offsetHeight };
+  }
+
+  useEffect(() => {
+    function onMove(clientY: number) {
+      if (!resizeOriginRef.current) return;
+      const { startY, startHeight } = resizeOriginRef.current;
+      setDialogHeight(Math.max(200, startHeight + (clientY - startY)));
+    }
+    function onMouseMove(e: MouseEvent) { onMove(e.clientY); }
+    function onTouchMove(e: TouchEvent) {
+      if (!resizeOriginRef.current) return;
+      e.preventDefault();
+      onMove(e.touches[0].clientY);
+    }
+    function onEnd() { resizeOriginRef.current = null; }
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onEnd);
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
+    window.addEventListener("touchend", onEnd);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onEnd);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onEnd);
+    };
+  }, []);
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
@@ -221,8 +259,8 @@ export function FloatingEvolveDialog({
   return (
     <div
       ref={dialogRef}
-      style={{ ...positionStyle, zIndex: 50 }}
-      className="rounded-xl border border-gray-700 bg-gray-950 shadow-2xl flex flex-col overflow-hidden resize w-[420px] min-w-[280px] max-w-[calc(100vw-32px)]"
+      style={{ ...positionStyle, zIndex: 50, ...(dialogHeight !== null ? { height: dialogHeight } : {}) }}
+      className="rounded-xl border border-gray-700 bg-gray-950 shadow-2xl flex flex-col overflow-hidden w-[420px] min-w-[280px] max-w-[calc(100vw-32px)] min-h-[200px]"
     >
       {/* Title bar / drag handle */}
       <div
@@ -265,8 +303,8 @@ export function FloatingEvolveDialog({
         </button>
       </div>
 
-      {/* Form body */}
-      <div className="p-3 flex flex-col gap-2 flex-1 overflow-y-auto">
+      {/* Form body — flex-1 so it fills available height when dialog is resized */}
+      <div className="p-3 flex flex-col gap-2 flex-1 overflow-y-auto min-h-0">
         {error && (
           <div className="px-3 py-2 rounded-lg bg-red-900/40 border border-red-700/50 text-red-300 text-xs">
             ❌ {error}
@@ -344,6 +382,16 @@ export function FloatingEvolveDialog({
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Bottom resize handle — drag up/down to resize the dialog vertically */}
+      <div
+        onMouseDown={(e) => { e.preventDefault(); startResize(e.clientY); }}
+        onTouchStart={(e) => { startResize(e.touches[0].clientY); }}
+        className="flex items-center justify-center h-4 cursor-ns-resize bg-gray-900 border-t border-gray-800 touch-none select-none flex-shrink-0"
+        aria-hidden="true"
+      >
+        <div className="w-8 h-1 rounded-full bg-gray-700" />
       </div>
     </div>
   );
