@@ -73,7 +73,7 @@ function getGitDiffSummary(sessionBranch: string): DiffFileSummary[] {
     if (!parentBranch) return [];
 
     const output = execSync(
-      `git diff --numstat ${parentBranch}...${sessionBranch}`,
+      `git diff --numstat -w ${parentBranch}...${sessionBranch}`,
       { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
     ).trim();
 

@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     }
 
     const diff = execSync(
-      `git diff ${parentBranch}...${session.branch} -- ${JSON.stringify(file)}`,
+      `git diff -w ${parentBranch}...${session.branch} -- ${JSON.stringify(file)}`,
       { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1024 * 1024 * 4 },
     );
 
