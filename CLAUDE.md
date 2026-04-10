@@ -1,4 +1,4 @@
-# PRIMORDIA.md
+# CLAUDE.md
 
 > **This file is the living brain of Primordia.**
 > Every time Claude Code runs — whether triggered by the evolve pipeline or manually — it should:
@@ -34,7 +34,7 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 
 ```
 primordia/
-├── PRIMORDIA.md                   ← You are here. Read me first, update me last.
+├── CLAUDE.md                      ← You are here. Read me first, update me last.
 ├── README.md                      ← Public-facing project readme
 ├── LICENSE
 ├── .env.example                   ← Copy to .env.local, fill in secrets
@@ -62,7 +62,7 @@ primordia/
 │   (no generated files)
 │
 ├── lib/
-│   ├── system-prompt.ts           ← Builds chat system prompt at runtime: reads PRIMORDIA.md + last 30 changelog filenames on each request
+│   ├── system-prompt.ts           ← Builds chat system prompt at runtime: reads CLAUDE.md + last 30 changelog filenames on each request
 │   ├── auth.ts                    ← Session helpers: createSession, getSessionUser, isAdmin (admin role check), hasEvolvePermission (admin or can_evolve role)
 │   ├── base-path.ts               ← basePath constant + withBasePath() helper; used by all client-side fetch() calls to prefix API routes when NEXT_BASE_PATH is set
 │   ├── hooks.ts                   ← Shared React hooks: useSessionUser (fetches session on mount, provides logout)
@@ -372,7 +372,7 @@ To deploy to exe.dev: `bun run deploy-to-exe.dev <server-name>`
 
 When implementing changes, follow these principles:
 
-1. **Read PRIMORDIA.md first.** Understand the current architecture before making changes.
+1. **Read CLAUDE.md first.** Understand the current architecture before making changes.
 2. **Minimal changes.** Only modify what is necessary for the user's request.
 3. **No clever magic.** Write code that is easy for another AI to read and modify later.
 4. **Minimal dependencies.** Every new dependency is a future maintenance burden. Avoid them unless essential.
@@ -425,5 +425,5 @@ These were noted at project inception but are explicitly out of scope for the MV
 > **Changelog entries are stored exclusively in `changelog/`** — never in this file.
 > Each file is named `YYYY-MM-DD-HH-MM-SS Description.md`; the filename is the short description and the body has the full what+why detail.
 > **One PR = one changelog entry.** Do not create multiple changelog files for a single pull request — consolidate all changes into one entry.
-> The chat system prompt is built at runtime by `lib/system-prompt.ts`, which reads `PRIMORDIA.md` and the last 30 `changelog/` filenames on each request — no prebuild or codegen step needed. The `/changelog` page also reads `changelog/` directly at runtime. Having each entry as a separate timestamped file prevents merge conflicts.
+> The chat system prompt is built at runtime by `lib/system-prompt.ts`, which reads `CLAUDE.md` and the last 30 `changelog/` filenames on each request — no prebuild or codegen step needed. The `/changelog` page also reads `changelog/` directly at runtime. Having each entry as a separate timestamped file prevents merge conflicts.
 > Do **not** add changelog bullets here.

@@ -121,4 +121,4 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 
 ## Architecture
 
-See [PRIMORDIA.md](./PRIMORDIA.md) for the full architecture document, design principles, and file map.
+See [CLAUDE.md](./CLAUDE.md) for the full architecture document, design principles, and file map.

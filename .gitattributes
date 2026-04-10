@@ -1,5 +1,5 @@
-# Use union merge for PRIMORDIA.md so concurrent PRs that each prepend a
+# Use union merge for CLAUDE.md so concurrent PRs that each prepend a
 # changelog entry never produce a merge conflict. The union driver accepts
 # all lines from both sides; since every changelog entry is unique text,
 # the result is always correct.
-PRIMORDIA.md merge=union
+CLAUDE.md merge=union
