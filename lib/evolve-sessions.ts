@@ -301,10 +301,11 @@ export async function startLocalEvolve(
   session: LocalSession,
   taskRequest: string,
   repoRoot: string,
-  /** Public hostname (no port) to use when constructing preview URLs.
-   *  Comes from the x-forwarded-host request header so the URL is correct
-   *  when running behind a reverse proxy (e.g. exe.dev). Defaults to "localhost". */
-  publicHostname: string = "localhost",
+  /** Public origin (scheme + host, no trailing slash) to use when constructing
+   *  preview URLs. Derived from x-forwarded-proto / x-forwarded-host request
+   *  headers so the URL is correct behind a reverse proxy (e.g. exe.dev).
+   *  Defaults to "http://localhost". */
+  publicOrigin: string = "http://localhost",
   /** Temporary file paths for user-uploaded attachments. Copied into worktree/attachments/ and deleted from /tmp. */
   attachmentPaths: string[] = [],
   /** Extra options for advanced use cases. */
@@ -612,9 +613,7 @@ export async function startLocalEvolve(
 
     // Step 6 — Mark session ready; the proxy will start the preview server on demand.
     // The preview URL is always accessible through the proxy at /preview/{sessionId}.
-    const proxyPort = process.env.REVERSE_PROXY_PORT!;
-    const portSuffix = proxyPort === '80' ? '' : `:${proxyPort}`;
-    session.previewUrl = `http://${publicHostname}${portSuffix}/preview/${session.id}`;
+    session.previewUrl = `${publicOrigin}/preview/${session.id}`;
     session.status = 'ready';
     await persist();
 

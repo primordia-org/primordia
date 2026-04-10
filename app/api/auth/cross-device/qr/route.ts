@@ -6,17 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
 import { getDb } from "@/lib/db/index";
-
-function getPublicOrigin(req: NextRequest): string {
-  const proto =
-    req.headers.get("x-forwarded-proto") ??
-    req.nextUrl.protocol.replace(/:$/, "");
-  const host =
-    req.headers.get("x-forwarded-host") ??
-    req.headers.get("host") ??
-    req.nextUrl.host;
-  return `${proto}://${host}`;
-}
+import { getPublicOrigin } from "@/lib/public-origin";
 
 export async function GET(request: NextRequest) {
   try {

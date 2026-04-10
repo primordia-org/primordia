@@ -19,6 +19,7 @@ import {
 } from '../../../lib/evolve-sessions';
 import { getSessionUser, hasEvolvePermission } from '../../../lib/auth';
 import { getDb } from '../../../lib/db';
+import { getPublicOrigin } from '../../../lib/public-origin';
 
 /** Ask Claude to choose a short, descriptive kebab-case slug for the request.
  *  Falls back to the first-4-words approach if the API call fails. */
@@ -183,15 +184,13 @@ export async function POST(request: Request) {
     createdAt: session.createdAt,
   });
 
-  // Determine the public hostname for preview URLs. When running behind exe.dev's
-  // reverse proxy, x-forwarded-host contains the real hostname (e.g. myserver.exe.xyz).
-  // Strip any port that may be included in the header value.
-  const fwdHost = request.headers.get("x-forwarded-host");
-  const publicHostname = fwdHost ? fwdHost.split(":")[0] : "localhost";
+  // Determine the public origin for preview URLs using x-forwarded-* headers
+  // so the URL is correct when running behind a reverse proxy (e.g. exe.dev).
+  const publicOrigin = getPublicOrigin(request);
 
   // Fire-and-forget — run async so POST returns immediately with the session ID.
   // startLocalEvolve handles all error states internally and writes them to SQLite.
-  void startLocalEvolve(session, requestText, repoRoot, publicHostname, savedAttachmentPaths);
+  void startLocalEvolve(session, requestText, repoRoot, publicOrigin, savedAttachmentPaths);
 
   return Response.json({ sessionId });
 }

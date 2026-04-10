@@ -70,6 +70,38 @@ function forwardHeaders(
   return { ...out, ...extra };
 }
 
+/**
+ * Derives the public-facing port from an incoming request's x-forwarded
+ * headers, falling back to the Host header port, then to the protocol default.
+ *
+ * Chain of preference:
+ *   1. x-forwarded-port  (set by an upstream proxy like exe.dev)
+ *   2. port in x-forwarded-host  (e.g. "myhost:8080")
+ *   3. port in Host header
+ *   4. 443 for https, 80 for http
+ */
+function derivePublicPort(incoming: http.IncomingMessage): string {
+  const fwdPort = incoming.headers['x-forwarded-port'];
+  if (typeof fwdPort === 'string' && fwdPort) return fwdPort;
+
+  const fwdHost = incoming.headers['x-forwarded-host'];
+  if (typeof fwdHost === 'string') {
+    const colonIdx = fwdHost.lastIndexOf(':');
+    if (colonIdx !== -1) return fwdHost.slice(colonIdx + 1);
+  }
+
+  const host = incoming.headers['host'];
+  if (typeof host === 'string') {
+    const colonIdx = host.lastIndexOf(':');
+    if (colonIdx !== -1) return host.slice(colonIdx + 1);
+  }
+
+  const proto = typeof incoming.headers['x-forwarded-proto'] === 'string'
+    ? incoming.headers['x-forwarded-proto']
+    : 'http';
+  return proto === 'https' ? '443' : '80';
+}
+
 const LISTEN_PORT = parseInt(process.env.REVERSE_PROXY_PORT ?? '3000', 10);
 const WORKTREES_DIR =
   process.env.PRIMORDIA_WORKTREES_DIR ?? '/home/exedev/primordia-worktrees';
@@ -756,7 +788,13 @@ function forwardToPort(
     method: clientReq.method,
     headers: forwardHeaders(clientReq, {
       'x-forwarded-for': clientReq.socket.remoteAddress ?? '',
-      'x-forwarded-proto': 'http',
+      // Pass through the upstream proxy's x-forwarded-proto (e.g. "https" set
+      // by exe.dev) so the Next.js app sees the correct public protocol.
+      'x-forwarded-proto': (typeof clientReq.headers['x-forwarded-proto'] === 'string'
+        ? clientReq.headers['x-forwarded-proto']
+        : 'http'),
+      // Ensure the downstream app always has an explicit port to work with.
+      'x-forwarded-port': derivePublicPort(clientReq),
     }),
   };
 

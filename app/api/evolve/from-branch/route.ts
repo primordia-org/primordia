@@ -15,6 +15,7 @@ import {
 } from '../../../../lib/evolve-sessions';
 import { getSessionUser, hasEvolvePermission } from '../../../../lib/auth';
 import { getDb } from '../../../../lib/db';
+import { getPublicOrigin } from '../../../../lib/public-origin';
 
 /** Ask Haiku to choose a short kebab-case slug from a branch name.
  *  Falls back to sanitising the branch name directly. */
@@ -144,10 +145,9 @@ export async function POST(request: Request) {
     createdAt: session.createdAt,
   });
 
-  const fwdHost = request.headers.get('x-forwarded-host');
-  const publicHostname = fwdHost ? fwdHost.split(':')[0] : 'localhost';
+  const publicOrigin = getPublicOrigin(request);
 
-  void startLocalEvolve(session, requestText, repoRoot, publicHostname, [], {
+  void startLocalEvolve(session, requestText, repoRoot, publicOrigin, [], {
     skipBranchCreation: true,
   });
 

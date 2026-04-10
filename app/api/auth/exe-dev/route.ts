@@ -14,26 +14,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db/index";
 import { generateId, createSession, SESSION_COOKIE, SESSION_DURATION_MS } from "@/lib/auth";
-
-/**
- * Returns the public-facing origin (scheme + host) for this request.
- *
- * When the app runs behind exe.dev's reverse proxy, Next.js sees
- * "localhost" as the host in req.url / req.nextUrl, because the proxy
- * terminates TLS and forwards traffic internally. The proxy preserves the
- * original Host header and may also set X-Forwarded-Proto / X-Forwarded-Host,
- * so we prefer those over the internal URL when building redirect targets.
- */
-function getPublicOrigin(req: NextRequest): string {
-  const proto =
-    req.headers.get("x-forwarded-proto") ??
-    req.nextUrl.protocol.replace(/:$/, "");
-  const host =
-    req.headers.get("x-forwarded-host") ??
-    req.headers.get("host") ??
-    req.nextUrl.host;
-  return `${proto}://${host}`;
-}
+import { getPublicOrigin } from "@/lib/public-origin";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
