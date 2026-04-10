@@ -1004,8 +1004,8 @@ export default function EvolveSessionView({
           </div>
         )}
 
-        <div ref={messagesEndRef} />
       </div>
+      <div ref={messagesEndRef} />
 
       {/* Git diff summary — shown when session is done and there are file changes */}
       {(status === "ready" || status === "accepted" || status === "rejected") && liveDiffSummary.length > 0 && (() => {
