@@ -1190,10 +1190,10 @@ export default function EvolveSessionView({
                         <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code>{" "}
                         the new live production instance. No merge commit is created —{" "}
                         <code className="bg-gray-800 px-1 rounded">{branch ?? "main"}</code>{" "}
-                        stays at its current commit so the previous slot can be rolled back to. The{" "}
-                        <code className="bg-gray-800 px-1 rounded">PROD</code>{" "}
-                        symbolic-ref will switch to{" "}
-                        <code className="bg-gray-800 px-1 rounded">refs/heads/{sessionBranch}</code>
+                        stays at its current commit so the previous slot can be rolled back to.{" "}
+                        <code className="bg-gray-800 px-1 rounded">primordia.productionBranch</code>{" "}
+                        in git config will be updated to{" "}
+                        <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code>
                         , and the reverse proxy will cut traffic over with no downtime. The
                         previous production worktree stays registered for rollback.
                       </>
