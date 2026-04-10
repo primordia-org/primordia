@@ -1097,11 +1097,14 @@ function buildWsUpgradeRequest(reqBuf: Buffer, remoteAddress: string): Buffer {
   const headerEnd = reqBuf.indexOf('\r\n\r\n');
   if (headerEnd === -1) return reqBuf; // shouldn't happen
   let headers = reqBuf.slice(0, headerEnd).toString('binary');
+  // Extract upstream x-forwarded-proto before stripping (exe.dev sets this to 'https').
+  const protoMatch = headers.match(/\r\nx-forwarded-proto:\s*([^\r\n]+)/i);
+  const proto = protoMatch ? protoMatch[1].trim() : 'http';
   // Remove any existing forwarded headers to avoid duplicates.
   headers = headers.replace(/\r\nx-forwarded-for:[^\r\n]*/gi, '');
   headers = headers.replace(/\r\nx-forwarded-proto:[^\r\n]*/gi, '');
   headers += `\r\nX-Forwarded-For: ${remoteAddress}`;
-  headers += `\r\nX-Forwarded-Proto: http`;
+  headers += `\r\nX-Forwarded-Proto: ${proto}`;
   return Buffer.concat([Buffer.from(headers, 'binary'), Buffer.from('\r\n\r\n')]);
 }
 
