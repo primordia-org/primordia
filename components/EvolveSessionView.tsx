@@ -350,6 +350,7 @@ export default function EvolveSessionView({
   const [remainingUpstream, setRemainingUpstream] = useState(upstreamCommitCount);
   const [upstreamSyncLoading, setUpstreamSyncLoading] = useState<"merge" | null>(null);
   const [upstreamSyncError, setUpstreamSyncError] = useState<string | null>(null);
+  const [liveDiffSummary, setLiveDiffSummary] = useState<DiffFileSummary[]>(diffSummary);
   const abortControllerRef = useRef<AbortController | null>(null);
   const proxyLogsControllerRef = useRef<AbortController | null>(null);
   /** Tracks how many characters of progressText the client has received, for SSE reconnection. */
@@ -401,6 +402,19 @@ export default function EvolveSessionView({
 
   // Keep refs in sync so the visibilitychange handler always has the latest values.
   useEffect(() => { statusRef.current = status; }, [status]);
+
+  // When the session becomes ready (e.g. after Claude finishes), refresh the
+  // diff summary so the "Files changed" section reflects the latest commits.
+  useEffect(() => {
+    if (status !== "ready") return;
+    void fetch(withBasePath(`/api/evolve/diff-summary?sessionId=${sessionId}`))
+      .then((res) => res.ok ? res.json() : null)
+      .then((data: { files?: DiffFileSummary[] } | null) => {
+        if (data?.files) setLiveDiffSummary(data.files);
+      })
+      .catch(() => {/* leave existing summary unchanged on error */});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   // Reconnect / restart streaming when the tab regains focus, in case the
   // browser paused the SSE connection while the tab was in the background.
@@ -951,16 +965,16 @@ export default function EvolveSessionView({
       </div>
 
       {/* Git diff summary — shown when session is done and there are file changes */}
-      {(status === "ready" || status === "accepted" || status === "rejected") && diffSummary.length > 0 && (() => {
-        const totalAdditions = diffSummary.reduce((s, f) => s + f.additions, 0);
-        const totalDeletions = diffSummary.reduce((s, f) => s + f.deletions, 0);
+      {(status === "ready" || status === "accepted" || status === "rejected") && liveDiffSummary.length > 0 && (() => {
+        const totalAdditions = liveDiffSummary.reduce((s, f) => s + f.additions, 0);
+        const totalDeletions = liveDiffSummary.reduce((s, f) => s + f.deletions, 0);
         return (
           <details className="group mb-6 rounded-lg border border-gray-700 bg-gray-900 text-sm overflow-hidden">
             <summary className="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none">
               <span className="text-gray-600 group-open:rotate-90 transition-transform flex-shrink-0 text-xs">▶</span>
               <span className="font-semibold text-xs text-gray-300 flex-shrink-0">📄 Files changed</span>
               <span className="ml-auto text-xs text-gray-500 flex-shrink-0">
-                {diffSummary.length} file{diffSummary.length !== 1 ? "s" : ""}
+                {liveDiffSummary.length} file{liveDiffSummary.length !== 1 ? "s" : ""}
                 {" · "}
                 <span className="text-green-400">+{totalAdditions}</span>
                 {" "}
@@ -968,14 +982,14 @@ export default function EvolveSessionView({
               </span>
             </summary>
             <div className="border-t border-gray-800">
-              {diffSummary.map((f, i) => (
+              {liveDiffSummary.map((f, i) => (
                 <DiffFileExpander
                   key={i}
                   sessionId={sessionId}
                   file={f.file}
                   additions={f.additions}
                   deletions={f.deletions}
-                  isLast={i === diffSummary.length - 1}
+                  isLast={i === liveDiffSummary.length - 1}
                 />
               ))}
             </div>
