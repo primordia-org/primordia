@@ -61,13 +61,20 @@ async function generateSlug(text: string): Promise<string> {
     .join('-');
 }
 
-/** Return a branch name that doesn't already exist in the repo.
- *  Tries `{slug}` first, then `{slug}-2`, `-3`, … up to -99. */
-async function findUniqueBranch(slug: string, repoRoot: string): Promise<string> {
+/** Return a branch name that doesn't already exist in the repo or the DB.
+ *  Tries `{slug}` first, then `{slug}-2`, `-3`, … up to -99.
+ *  Since sessionId === branch, we check both git and the evolve_sessions table
+ *  to avoid UNIQUE constraint failures when a slug is reused after rejection. */
+async function findUniqueBranch(
+  slug: string,
+  repoRoot: string,
+  sessionExists: (id: string) => Promise<boolean>,
+): Promise<string> {
   const base = slug;
   const taken = async (name: string): Promise<boolean> => {
     const r = await runGit(['branch', '--list', name], repoRoot);
-    return r.stdout.trim().length > 0;
+    if (r.stdout.trim().length > 0) return true;
+    return sessionExists(name);
   };
   if (!(await taken(base))) return base;
   for (let i = 2; i <= 99; i++) {
@@ -125,7 +132,11 @@ export async function POST(request: Request) {
 
   const repoRoot = process.cwd();
   const slug = await generateSlug(requestText);
-  const branch = await findUniqueBranch(slug, repoRoot);
+  const db = await getDb();
+  const branch = await findUniqueBranch(slug, repoRoot, async (id) => {
+    const existing = await db.getEvolveSession(id);
+    return existing !== null;
+  });
   const sessionId = branch;
 
   // Derive the worktree path from the git common dir so it is stable even when
@@ -160,7 +171,6 @@ export async function POST(request: Request) {
   };
 
   // Persist to DB so the session page is reachable immediately after redirect.
-  const db = await getDb();
   await db.createEvolveSession({
     id: session.id,
     branch: session.branch,
