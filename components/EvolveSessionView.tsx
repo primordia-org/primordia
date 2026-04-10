@@ -119,6 +119,9 @@ function LogSection({
   const isServerSection =
     heading.includes("Starting preview server") ||
     heading.includes("Restarting preview server");
+  const isDeploySection =
+    heading.includes("Deploying to production") ||
+    heading.includes("Merging into");
 
   // ── Follow-up Request: render like "Your request" ─────────────────────────
   if (isFollowupSection) {
@@ -246,6 +249,46 @@ function LogSection({
           </div>
         )}
       </div>
+    );
+  }
+
+  // ── Deploy section (Deploying to production / Merging into) ───────────────
+  if (isDeploySection) {
+    if (isActive) {
+      return (
+        <div className="rounded-lg border border-gray-700 bg-gray-900 text-sm overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
+            <span className="font-semibold text-xs text-gray-300">{heading}</span>
+            <span className="ml-auto flex items-center gap-1.5 text-gray-500 text-xs animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
+              Running…
+            </span>
+          </div>
+          <div className="px-4 py-3">
+            <MarkdownContent text={content || " "} />
+          </div>
+        </div>
+      );
+    }
+
+    // Done — green border, "Deployed" title
+    const doneTitle = heading.includes("Deploying to production")
+      ? "✅ Deployed to production"
+      : heading.replace("Merging into", "✅ Merged into");
+    return (
+      <details className="group rounded-lg border border-green-700/50 overflow-hidden">
+        <summary className="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none">
+          <span className="text-gray-600 group-open:rotate-90 transition-transform flex-shrink-0 text-xs">
+            ▶
+          </span>
+          <span className="font-semibold text-xs flex-shrink-0 text-green-300">{doneTitle}</span>
+        </summary>
+        {content && (
+          <div className="px-4 py-3 border-t border-gray-800">
+            <MarkdownContent text={content} />
+          </div>
+        )}
+      </details>
     );
   }
 
