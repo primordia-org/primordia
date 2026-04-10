@@ -231,6 +231,56 @@ async function blueGreenAccept(
   return { ok: true, branch };
 }
 
+/** Build an authenticated https remote URL from GITHUB_TOKEN + GITHUB_REPO.
+ *  Returns null if either env var is missing. */
+function buildAuthRemoteUrl(): string | null {
+  const token = process.env.GITHUB_TOKEN;
+  const repo = process.env.GITHUB_REPO;
+  if (!token || !repo) return null;
+  // username = token, password = blank (empty string after the colon)
+  return `https://${token}:@github.com/${repo}.git`;
+}
+
+/**
+ * Moves the `main` branch pointer to the HEAD of the accepted session branch
+ * and pushes it to the remote. `main` is a stable reference that external
+ * users can clone to always get the latest production code.
+ *
+ * Non-fatal: errors are logged as warnings so a push failure never blocks a deploy.
+ */
+async function moveMainAndPush(
+  worktreePath: string,
+  branch: string,
+  onStep: (text: string) => Promise<void>,
+): Promise<void> {
+  // Resolve the main repo root from the shared .git dir so we run git
+  // commands against the repo rather than just the worktree checkout.
+  const gitCommonResult = await runGit(['rev-parse', '--git-common-dir'], worktreePath);
+  const mainRepoRoot = gitCommonResult.code === 0
+    ? path.dirname(path.resolve(worktreePath, gitCommonResult.stdout.trim()))
+    : worktreePath;
+
+  await onStep('- Advancing main branch pointer…\n');
+
+  // Force-move the `main` branch ref to the accepted session branch HEAD.
+  const moveResult = await runGit(['branch', '-f', 'main', branch], mainRepoRoot);
+  if (moveResult.code !== 0) {
+    await onStep(`  ⚠ Could not move main branch: ${moveResult.stderr.trim()}\n`);
+    return;
+  }
+
+  // Push main to the remote so external clones see the latest production code.
+  await onStep('- Pushing main branch…\n');
+  const remoteUrl = buildAuthRemoteUrl();
+  const pushArgs = remoteUrl
+    ? ['push', remoteUrl, 'main:main']
+    : ['push', 'origin', 'main'];
+  const pushResult = await runGit(pushArgs, mainRepoRoot);
+  if (pushResult.code !== 0) {
+    await onStep(`  ⚠ Could not push main branch: ${pushResult.stderr.trim()}\n`);
+  }
+}
+
 /**
  * Asks the reverse proxy to spawn the new production server, health-check it,
  * update primordia.productionBranch in git config, and kill the old server.
@@ -457,6 +507,10 @@ async function retryAcceptAfterFix(
     await markInterruptedSessions(db, sessionId);
     try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
     await spawnProdViaProxy(bgAcceptResult.branch,
+      (text) => appendToProgress(sessionId, text));
+    // Move the `main` branch pointer to the accepted branch and push it so
+    // external clones always reflect the latest production code.
+    await moveMainAndPush(worktreePath, bgAcceptResult.branch,
       (text) => appendToProgress(sessionId, text));
     // Run update-service.sh AFTER the proxy has accepted the new prod instance.
     // If the proxy script changed, this will restart primordia-proxy — doing it
@@ -698,6 +752,9 @@ async function runAcceptAsync(
       await markInterruptedSessions(db, sessionId);
       try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
       await spawnProdViaProxy(bgAcceptResult.branch, step);
+      // Move the `main` branch pointer to the accepted branch and push it so
+      // external clones always reflect the latest production code.
+      await moveMainAndPush(worktreePath, bgAcceptResult.branch, step);
       // Run update-service.sh AFTER the proxy has accepted the new prod instance.
       // If the proxy script changed, this will restart primordia-proxy — doing it
       // before spawnProdViaProxy would kill the proxy before it could handle the
