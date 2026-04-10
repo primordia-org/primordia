@@ -271,24 +271,36 @@ function LogSection({
       );
     }
 
-    // Done — green border, "Deployed" title
-    const doneTitle = heading.includes("Deploying to production")
-      ? "✅ Deployed to production"
-      : heading.replace("Merging into", "✅ Merged into");
+    // Done — green box with collapsible log
+    const isProduction = heading.includes("Deploying to production");
+    const mergedIntoBranch = !isProduction
+      ? (heading.match(/Merging into `([^`]+)`/) ?? [])[1] ?? null
+      : null;
+    const doneTitle = isProduction ? "🚀 Deployed to production" : heading.replace("Merging into", "✅ Merged into");
     return (
-      <details className="group rounded-lg border border-green-700/50 overflow-hidden">
-        <summary className="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none">
-          <span className="text-gray-600 group-open:rotate-90 transition-transform flex-shrink-0 text-xs">
-            ▶
-          </span>
-          <span className="font-semibold text-xs flex-shrink-0 text-green-300">{doneTitle}</span>
-        </summary>
+      <div className="rounded-lg bg-green-900/40 border border-green-700/50 text-sm overflow-hidden">
+        <div className="px-4 py-4">
+          <p className="text-green-200 font-semibold">{doneTitle}</p>
+          <p className="text-green-300/80 text-xs mt-1">
+            {isProduction
+              ? "The branch was deployed to production as the new active slot."
+              : mergedIntoBranch
+                ? <>The branch was merged into <code className="bg-green-950/60 px-1 rounded">{mergedIntoBranch}</code> and the worktree has been removed.</>
+                : "The branch was accepted and the worktree has been removed."}
+          </p>
+        </div>
         {content && (
-          <div className="px-4 py-3 border-t border-gray-800">
-            <MarkdownContent text={content} />
-          </div>
+          <details className="group border-t border-green-800/50">
+            <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-green-900/30 transition-colors list-none text-xs">
+              <span className="text-green-700 group-open:rotate-90 transition-transform">▶</span>
+              <span className="text-green-700/80">Deploy log</span>
+            </summary>
+            <div className="px-4 py-3 border-t border-green-800/50">
+              <MarkdownContent text={content} />
+            </div>
+          </details>
         )}
-      </details>
+      </div>
     );
   }
 
@@ -834,11 +846,6 @@ export default function EvolveSessionView({
   /** True while the session pipeline is actively running (not yet ready for action). */
   const isClaudeRunning = status === "starting" || status === "running-claude" || status === "fixing-types";
 
-  // Extract accept type from the decision log line.
-  const deployedToProduction = progressText ? /✅ \*\*Accepted\*\* — deployed to production/.test(progressText) : false;
-  const mergedIntoBranch = !deployedToProduction && progressText
-    ? (progressText.match(/✅ \*\*Accepted\*\* — merged into `([^`]+)`/) ?? [])[1] ?? null
-    : null;
 
   // Parse progress into sections; integrate setup into the "Created branch" card.
   const sections = progressText ? parseProgressSections(progressText) : [];
@@ -935,20 +942,6 @@ export default function EvolveSessionView({
             />
           );
         })}
-
-        {/* Accepted banner — inline with other sections */}
-        {status === "accepted" && (
-          <div className="px-4 py-4 rounded-lg bg-green-900/40 border border-green-700/50 text-sm">
-            <p className="text-green-200 font-semibold">✅ Changes accepted</p>
-            <p className="text-green-300/80 text-xs mt-1">
-              {deployedToProduction
-                ? "The branch was deployed to production as the new active slot."
-                : mergedIntoBranch
-                  ? <>The branch was merged into <code className="bg-green-950/60 px-1 rounded">{mergedIntoBranch}</code> and the worktree has been removed.</>
-                  : "The branch was accepted and the worktree has been removed."}
-            </p>
-          </div>
-        )}
 
         {/* Rejected banner — inline with other sections */}
         {status === "rejected" && (
