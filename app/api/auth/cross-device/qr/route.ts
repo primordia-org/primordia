@@ -7,6 +7,17 @@ import { NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
 import { getDb } from "@/lib/db/index";
 
+function getPublicOrigin(req: NextRequest): string {
+  const proto =
+    req.headers.get("x-forwarded-proto") ??
+    req.nextUrl.protocol.replace(/:$/, "");
+  const host =
+    req.headers.get("x-forwarded-host") ??
+    req.headers.get("host") ??
+    req.nextUrl.host;
+  return `${proto}://${host}`;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const tokenId = request.nextUrl.searchParams.get("tokenId");
@@ -22,7 +33,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Build the approval URL — e.g. https://primordia.example.com/login/approve?token=<id>
-    const approvalUrl = `${request.nextUrl.origin}/login/approve?token=${tokenId}`;
+    // Use forwarded headers so the URL is correct when running behind a reverse proxy.
+    const approvalUrl = `${getPublicOrigin(request)}/login/approve?token=${tokenId}`;
 
     const svg = await QRCode.toString(approvalUrl, {
       type: "svg",
