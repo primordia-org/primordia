@@ -213,6 +213,16 @@ async function main(): Promise<void> {
   let capturedOutputTokens: number | null = null;
   let capturedCostUsd: number | null = null;
 
+  function appendMetricsMarker(): void {
+    const data: Record<string, number> = {};
+    if (capturedDurationMs != null) data.durationMs = capturedDurationMs;
+    if (capturedCostUsd != null) data.costUsd = capturedCostUsd;
+    if (capturedInputTokens != null) data.inputTokens = capturedInputTokens;
+    if (capturedOutputTokens != null) data.outputTokens = capturedOutputTokens;
+    if (Object.keys(data).length === 0) return;
+    appendProgress(`\n<!-- metrics: ${JSON.stringify(data)} -->\n`);
+  }
+
   try {
     const run = query({
       prompt,
@@ -277,12 +287,14 @@ async function main(): Promise<void> {
       userAborted = !timedOut && abortController.signal.aborted;
       if (timedOut) {
         appendProgress(`\n\n⏱️ **Claude Code timed out after 20 minutes.** Moving to ready state with work completed so far.\n`);
+        appendMetricsMarker();
         dbUpdate(db, sessionId, { status: 'ready', progressText, durationMs: capturedDurationMs, inputTokens: capturedInputTokens, outputTokens: capturedOutputTokens, costUsd: capturedCostUsd });
         clearTimeout(timeoutId);
         cleanup();
         process.exit(0);
       } else if (userAborted) {
         appendProgress(`\n\n🛑 **Claude Code was aborted.** Moving to ready state with work completed so far.\n`);
+        appendMetricsMarker();
         dbUpdate(db, sessionId, { status: 'ready', progressText, durationMs: capturedDurationMs, inputTokens: capturedInputTokens, outputTokens: capturedOutputTokens, costUsd: capturedCostUsd });
         clearTimeout(timeoutId);
         cleanup();
@@ -300,6 +312,7 @@ async function main(): Promise<void> {
 
     // Successful completion
     const metrics = { durationMs: capturedDurationMs, inputTokens: capturedInputTokens, outputTokens: capturedOutputTokens, costUsd: capturedCostUsd };
+    appendMetricsMarker();
     if (setReadyOnSuccess) {
       appendProgress(completionMessage);
       const previewUrl = publicOrigin ? `${publicOrigin}/preview/${sessionId}` : null;
@@ -324,6 +337,7 @@ async function main(): Promise<void> {
         ? `\n\n*Caused by*: ${err.cause.message}`
         : '';
     appendProgress(`\n\n❌ **Error**: ${msg}${causeMsg}\n`);
+    appendMetricsMarker();
     dbUpdate(db, sessionId, { status: 'ready', progressText, durationMs: capturedDurationMs, inputTokens: capturedInputTokens, outputTokens: capturedOutputTokens, costUsd: capturedCostUsd });
     cleanup();
     process.exit(1);

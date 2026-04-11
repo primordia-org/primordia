@@ -182,6 +182,10 @@ export async function POST(request: Request) {
     previewUrl: session.previewUrl,
     request: session.request,
     createdAt: session.createdAt,
+    durationMs: null,
+    inputTokens: null,
+    outputTokens: null,
+    costUsd: null,
   });
 
   // Determine the public origin for preview URLs using x-forwarded-* headers

@@ -150,10 +150,6 @@ export default async function EvolveSessionPage({
       initialProgressText={session.progressText}
       initialStatus={session.status}
       initialPreviewUrl={session.previewUrl}
-      initialDurationMs={session.durationMs}
-      initialInputTokens={session.inputTokens}
-      initialOutputTokens={session.outputTokens}
-      initialCostUsd={session.costUsd}
       branch={branch}
       sessionBranch={session.branch}
       canAcceptReject={canAcceptReject}
