@@ -134,6 +134,18 @@ Side benefit: because bash now reads from a file instead of the PTY, it doesn't 
 
 Belt-and-suspenders: added `DEBIAN_FRONTEND=noninteractive` and `</dev/null` to all `apt-get`, `locale-gen`, and `update-locale` calls in the remote script to prevent any future interactive stdin reads from those commands.
 
+## `setlocale: LC_ALL: cannot change locale` warning (2026-04-12 follow-up #4)
+
+The remote setup script was exporting `LC_ALL=en_US.UTF-8` _before_ installing the `locales` package and generating the locale. Bash emits a `warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)` whenever you try to set a locale that hasn't been generated yet.
+
+Fixed by reordering the remote script preamble: `apt-get install locales`, `locale-gen`, and `update-locale` now run first, and the `export LANG/LC_ALL/LANGUAGE` lines follow after.
+
+## Readiness check replaced with HTTP polling (2026-04-12 follow-up #4)
+
+`install.sh` was checking `journalctl` logs for the string `"Ready"` to decide when the service was up. This never matched because the proxy logs `[proxy] listening on :3000` (not "Ready"), while the Next.js server logs `✓ Ready` only to its own stdout (not captured by journalctl). The result: the 120 s wait always expired, even when the service was actually running within 30–50 s.
+
+Replaced with an HTTP health check: the loop now calls `curl -sf http://localhost:${REVERSE_PROXY_PORT}/` and considers the service ready as soon as it gets any HTTP response. This is more reliable, version-independent, and matches the only thing that actually matters — whether the service is accepting connections.
+
 ## Why
 
 The previous design required the script to be run on the server and prompted for API keys upfront. The new installer runs entirely from the user's laptop, orchestrates VM creation automatically, and defers all configuration to the app's own first-run flow.

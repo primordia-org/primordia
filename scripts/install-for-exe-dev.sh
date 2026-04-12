@@ -230,15 +230,15 @@ PRIMORDIA_GIT_IP="${2:-}"
 set -euo pipefail
 
 # ── Set locale early to avoid garbled box-drawing characters ───────────────────
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
-export LANGUAGE=en_US.UTF-8
-# Install locales package and generate en_US.UTF-8.
-# DEBIAN_FRONTEND=noninteractive + </dev/null prevent apt-get from reading stdin.
+# Install and generate the locale BEFORE exporting it so bash doesn't warn
+# "cannot change locale (en_US.UTF-8)" (locale must exist first).
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get install -y locales </dev/null >/dev/null 2>&1 || true
 sudo locale-gen en_US.UTF-8 </dev/null >/dev/null 2>&1 || true
 sudo update-locale LANG=en_US.UTF-8 </dev/null >/dev/null 2>&1 || true
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+export LANGUAGE=en_US.UTF-8
 
 GREEN="\033[0;32m"; CYAN="\033[0;36m"; RED="\033[0;31m"; DIM="\033[2m"; BOLD="\033[1m"; RESET="\033[0m"
 info()    { echo -e "${CYAN}▸${RESET} $*"; }

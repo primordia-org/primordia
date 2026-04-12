@@ -205,6 +205,8 @@ info "Installing systemd service..."
 bash "${INSTALL_DIR}/scripts/install-service.sh"
 
 # ── Wait for ready ────────────────────────────────────────────────────────────
+# Poll the HTTP port directly — this is more reliable than scraping logs, which
+# depend on specific log messages that may change between Next.js versions.
 
 _CURRENT_STEP="wait for service ready"
 echo ""
@@ -212,9 +214,7 @@ info "Waiting for Primordia to be ready (up to 120 s)..."
 SERVICE_READY=false
 for i in $(seq 1 60); do
   sleep 2
-  LOGS=$(journalctl -u primordia-proxy -n 200 --no-pager 2>/dev/null || true)
-  # "Ready" = Next.js server is up; "listening on" = proxy is up (enough to serve)
-  if echo "$LOGS" | grep -qE "Ready|✓ Ready"; then
+  if curl -sf --max-time 3 "http://localhost:${REVERSE_PROXY_PORT}/" -o /dev/null 2>/dev/null; then
     SERVICE_READY=true
     echo ""
     success "Primordia is ready!"
@@ -226,7 +226,7 @@ for i in $(seq 1 60); do
 done
 
 if [[ "$SERVICE_READY" != "true" ]]; then
-  warn "Service did not report ready within 120 s — it may still be starting."
+  warn "Service did not respond within 120 s — it may still be starting."
   echo ""
   echo -e "${DIM}  --- Last 40 lines of service log ---${RESET}"
   journalctl -u primordia-proxy -n 40 --no-pager 2>/dev/null || true
