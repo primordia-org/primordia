@@ -529,14 +529,38 @@ function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath }: {
   );
 }
 
+const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.avif', '.bmp', '.ico']);
+
+function AttachmentChip({ name, sessionId }: { name: string; sessionId: string }) {
+  const url = withBasePath(`/api/evolve/attachment/${encodeURIComponent(sessionId)}?file=${encodeURIComponent(name)}`);
+  const ext = name.includes('.') ? ('.' + name.split('.').pop()!.toLowerCase()) : '';
+  const isImage = IMAGE_EXTENSIONS.has(ext);
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-800 border border-gray-700 text-xs text-gray-300 font-mono hover:bg-gray-700 hover:border-gray-600 transition-colors"
+    >
+      {isImage && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt="" className="h-4 w-4 rounded object-cover flex-shrink-0" />
+      )}
+      {name}
+    </a>
+  );
+}
+
 /** Render a single non-setup, non-legacy section. */
 function StructuredSection({
   section,
   isActive,
+  sessionId,
   worktreePath,
 }: {
   section: SectionGroup;
   isActive: boolean;
+  sessionId: string;
   worktreePath?: string;
 }) {
   const { type, label, events } = section;
@@ -552,6 +576,13 @@ function StructuredSection({
           <div className="px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm">
             <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Follow-up request</p>
             <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{requestEvent.request}</p>
+            {requestEvent.attachments && requestEvent.attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {requestEvent.attachments.map((name) => (
+                  <AttachmentChip key={name} name={name} sessionId={sessionId} />
+                ))}
+              </div>
+            )}
           </div>
         )}
         {claudeEvents.length > 0 && (
@@ -638,8 +669,10 @@ interface EvolveSessionViewProps {
   initialLineCount: number;
   initialStatus: string;
   initialPreviewUrl: string | null;
-  /** The currently checked-out branch (parent). Used in confirmation copy and NavHeader. */
+  /** The currently checked-out branch in this instance. Used in confirmation copy and NavHeader. */
   branch?: string | null;
+  /** The branch this session was branched from (from git config). Used in upstream-changes display. */
+  parentBranch?: string | null;
   /** The preview branch name created for this session. */
   sessionBranch: string;
   /** True when the session branch is a direct child of the current branch, so Accept/Reject are safe to show. */
@@ -666,6 +699,7 @@ export default function EvolveSessionView({
   initialStatus,
   initialPreviewUrl,
   branch,
+  parentBranch,
   sessionBranch,
   canAcceptReject,
   upstreamCommitCount,
@@ -1207,10 +1241,23 @@ export default function EvolveSessionView({
       </header>
 
       {/* Original request */}
-      <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm">
-        <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Your request</p>
-        <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{initialRequest}</p>
-      </div>
+      {(() => {
+        const initialReqEvent = events.find((e): e is Extract<SessionEvent, { type: 'initial_request' }> => e.type === 'initial_request');
+        const attachments = initialReqEvent?.attachments ?? [];
+        return (
+          <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm">
+            <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Your request</p>
+            <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{initialRequest}</p>
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {attachments.map((name) => (
+                  <AttachmentChip key={name} name={name} sessionId={sessionId} />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Created branch — setup steps fold into this card */}
       <div className="mb-6 px-4 py-4 rounded-lg bg-amber-900/40 border border-amber-700/50 text-sm">
@@ -1294,6 +1341,7 @@ export default function EvolveSessionView({
                 key={i}
                 section={section}
                 isActive={isSectionActive}
+                sessionId={sessionId}
                 worktreePath={worktreePath}
               />
             );
@@ -1399,7 +1447,12 @@ export default function EvolveSessionView({
                 ⬆ Upstream Changes
               </p>
               <p className="text-blue-200/70 text-xs">
-                <code className="bg-blue-950/60 px-1 rounded">{branch ?? "parent"}</code> is{" "}
+                {parentBranch ? (
+                  <code className="bg-blue-950/60 px-1 rounded">{parentBranch}</code>
+                ) : (
+                  <span className="text-yellow-400">[parent branch unknown]</span>
+                )}{" "}
+                is{" "}
                 <strong>{remainingUpstream}</strong> commit{remainingUpstream === 1 ? "" : "s"} ahead
                 of <code className="bg-blue-950/60 px-1 rounded">{sessionBranch}</code>.
                 Bring those changes into the session branch before accepting.
@@ -1408,16 +1461,18 @@ export default function EvolveSessionView({
                 <p className="text-red-400 text-xs mt-2 whitespace-pre-wrap">{upstreamSyncError}</p>
               )}
             </div>
-            <div className="flex gap-2 flex-shrink-0">
-              <button
-                type="button"
-                onClick={() => handleUpstreamSync()}
-                disabled={upstreamSyncLoading !== null}
-                className="px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-medium transition-colors"
-              >
-                {upstreamSyncLoading === "merge" ? "Applying…" : "Apply Updates"}
-              </button>
-            </div>
+            {canAcceptReject && (
+              <div className="flex gap-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleUpstreamSync()}
+                  disabled={upstreamSyncLoading !== null}
+                  className="px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-medium transition-colors"
+                >
+                  {upstreamSyncLoading === "merge" ? "Applying…" : "Apply Updates"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

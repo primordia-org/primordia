@@ -377,6 +377,7 @@ export async function startLocalEvolve(
 
     // AFTER worktree is created, write the NDJSON file with all setup events
     const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
+    appendSessionEvent(ndjsonPath, { type: 'initial_request', request: taskRequest, attachments: attachmentPaths.map(p => path.basename(p)), ts: Date.now() });
     appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'setup', label: 'Setup', ts: Date.now() });
     appendSessionEvent(ndjsonPath, { type: 'setup_step', label: worktreeLabel, done: true, ts: Date.now() });
 
@@ -570,7 +571,7 @@ export async function runFollowupInWorktree(
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'type_fix', label: '🔧 Fixing type errors…', ts: Date.now() });
     } else {
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'followup', label: '🔄 Follow-up Request', ts: Date.now() });
-      appendSessionEvent(ndjsonPath, { type: 'followup_request', request: followupRequest, ts: Date.now() });
+      appendSessionEvent(ndjsonPath, { type: 'followup_request', request: followupRequest, attachments: attachmentPaths.map(p => path.basename(p)), ts: Date.now() });
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'claude', label: '🤖 Claude Code', ts: Date.now() });
     }
     session.status = inProgressStatus;
