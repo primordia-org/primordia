@@ -14,6 +14,7 @@ export type SessionEvent =
   | { type: 'result'; subtype: 'success' | 'error' | 'timeout' | 'aborted'; message?: string; ts: number }
   | { type: 'metrics'; durationMs: number | null; inputTokens: number | null; outputTokens: number | null; costUsd: number | null; ts: number }
   | { type: 'log_line'; content: string; ts: number }
+  | { type: 'initial_request'; request: string; ts: number }
   | { type: 'followup_request'; request: string; ts: number }
   | { type: 'decision'; action: 'accepted' | 'rejected'; detail: string; ts: number }
   | { type: 'legacy_text'; content: string };

@@ -377,6 +377,7 @@ export async function startLocalEvolve(
 
     // AFTER worktree is created, write the NDJSON file with all setup events
     const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
+    appendSessionEvent(ndjsonPath, { type: 'initial_request', request: taskRequest, ts: Date.now() });
     appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'setup', label: 'Setup', ts: Date.now() });
     appendSessionEvent(ndjsonPath, { type: 'setup_step', label: worktreeLabel, done: true, ts: Date.now() });
 
