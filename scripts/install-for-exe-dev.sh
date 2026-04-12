@@ -135,41 +135,25 @@ stop_spinner
 diag "VM JSON response: ${VM_JSON}"
 success "VM '${VM_NAME}' created"
 
-# Parse the public hostname from the JSON response
-_CURRENT_STEP="parse VM hostname"
+# Parse the public hostname and proxy port from the JSON response
+_CURRENT_STEP="parse VM JSON"
 VM_HOST=""
+PROXY_PORT=""
 if command -v python3 &>/dev/null; then
-  VM_HOST=$(python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('hostname',''))" \
+  VM_HOST=$(python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('ssh_dest',''))" \
+    <<< "$VM_JSON" 2>/dev/null || true)
+  PROXY_PORT=$(python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('proxy_port',''))" \
     <<< "$VM_JSON" 2>/dev/null || true)
 fi
 if [[ -z "$VM_HOST" ]] && command -v jq &>/dev/null; then
-  VM_HOST=$(jq -r '.hostname // empty' <<< "$VM_JSON" 2>/dev/null || true)
+  VM_HOST=$(jq -r '.ssh_dest // empty' <<< "$VM_JSON" 2>/dev/null || true)
+  PROXY_PORT=$(jq -r '.proxy_port // empty' <<< "$VM_JSON" 2>/dev/null || true)
 fi
-# Fall back to the predictable hostname pattern
+# Fall back to predictable defaults
 [[ -z "$VM_HOST" ]] && VM_HOST="${VM_NAME}.exe.xyz"
+[[ -z "$PROXY_PORT" ]] && PROXY_PORT="8000"
 diag "Resolved hostname: ${VM_HOST}"
-
-# ── Set port 3000 as the public port ──────────────────────────────────────────
-
-_CURRENT_STEP="configure public port"
-diag "Running: ssh exe.dev share port ${VM_NAME} 3000"
-start_spinner "Setting port 3000 as the public port..."
-SHARE_OUTPUT=$(ssh -n -o BatchMode=yes exe.dev share port "${VM_NAME}" 3000 2>&1) || {
-  stop_spinner
-  echo -e "${DIM}  share port output: ${SHARE_OUTPUT}${RESET}" >&2
-  die "Failed to configure shared port."
-}
-diag "share port output: ${SHARE_OUTPUT}"
-
-diag "Running: ssh exe.dev share set-public ${VM_NAME}"
-SET_PUBLIC_OUTPUT=$(ssh -n -o BatchMode=yes exe.dev share set-public "${VM_NAME}" 2>&1) || {
-  stop_spinner
-  echo -e "${DIM}  set-public output: ${SET_PUBLIC_OUTPUT}${RESET}" >&2
-  die "Failed to set port as public."
-}
-stop_spinner
-diag "set-public output: ${SET_PUBLIC_OUTPUT}"
-success "Port 3000 is public at ${BOLD}https://${VM_HOST}/${RESET}"
+diag "Proxy port: ${PROXY_PORT}"
 echo ""
 
 # ── Pre-resolve git server hostname ───────────────────────────────────────────
@@ -226,6 +210,7 @@ ssh -o StrictHostKeyChecking=accept-new "${VM_HOST}" \
 # Positional args passed from local machine:
 PRIMORDIA_GIT_HOST="${1:-primordia.exe.xyz}"
 PRIMORDIA_GIT_IP="${2:-}"
+REVERSE_PROXY_PORT="${3:-8000}"
 
 set -euo pipefail
 
@@ -373,21 +358,24 @@ echo ""
 # ── Run the install script (no API key prompts — check_keys handles that) ──────
 _REMOTE_STEP="run install.sh"
 cd "$HOME/primordia"
-bash scripts/install.sh
+REVERSE_PROXY_PORT="$REVERSE_PROXY_PORT" bash scripts/install.sh
 REMOTE
 
 # Step 2: execute the uploaded script with a PTY for live streaming output.
 # bash reads from the file — subprocesses get a clean PTY stdin (the forwarded
 # local terminal), not the script content.
 ssh -tt -o StrictHostKeyChecking=accept-new "${VM_HOST}" \
-  "bash /tmp/primordia_setup.sh '${PRIMORDIA_GIT_HOST}' '${PRIMORDIA_GIT_IP:-}'; rm -f /tmp/primordia_setup.sh"
+  "bash /tmp/primordia_setup.sh '${PRIMORDIA_GIT_HOST}' '${PRIMORDIA_GIT_IP:-}' '${PROXY_PORT}'; rm -f /tmp/primordia_setup.sh"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
 echo -e "${BOLD}${GREEN}  Primordia is running!${RESET}"
 echo ""
-echo -e "  Open:  ${BOLD}https://${VM_HOST}/${RESET}"
+echo -e "  Access (requires sign-in):  ${BOLD}https://${VM_HOST}:${PROXY_PORT}/${RESET}"
+echo ""
+echo -e "  To make it publicly accessible, run:"
+echo -e "    ${DIM}ssh exe.dev share set-public ${VM_NAME}${RESET}"
 echo ""
 echo -e "  Sign in with your exe.dev account. Any missing configuration"
 echo -e "  (API keys etc.) will be requested on first login."
