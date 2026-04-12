@@ -1418,7 +1418,7 @@ export default function EvolveSessionView({
       })()}
 
       {/* Upstream Changes — shown when the parent branch has commits not yet in the session branch; hidden for non-evolvers */}
-      {canEvolve && canAcceptReject && remainingUpstream > 0 && status !== "accepted" && status !== "rejected" && (
+      {canEvolve && remainingUpstream > 0 && status !== "accepted" && status !== "rejected" && (
         <div className="mb-6 rounded-lg bg-blue-950/40 border border-blue-700/50 text-sm overflow-hidden">
           <div className="px-4 py-3 flex items-start justify-between gap-4">
             <div>
@@ -1440,16 +1440,18 @@ export default function EvolveSessionView({
                 <p className="text-red-400 text-xs mt-2 whitespace-pre-wrap">{upstreamSyncError}</p>
               )}
             </div>
-            <div className="flex gap-2 flex-shrink-0">
-              <button
-                type="button"
-                onClick={() => handleUpstreamSync()}
-                disabled={upstreamSyncLoading !== null}
-                className="px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-medium transition-colors"
-              >
-                {upstreamSyncLoading === "merge" ? "Applying…" : "Apply Updates"}
-              </button>
-            </div>
+            {canAcceptReject && (
+              <div className="flex gap-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleUpstreamSync()}
+                  disabled={upstreamSyncLoading !== null}
+                  className="px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-medium transition-colors"
+                >
+                  {upstreamSyncLoading === "merge" ? "Applying…" : "Apply Updates"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
