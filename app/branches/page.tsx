@@ -6,12 +6,14 @@
 //      most recent first, each with any accepted/rejected sibling branches nested
 //      beneath them.
 
+import * as fs from "fs";
 import { spawnSync } from "child_process";
 import { headers } from "next/headers";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { getDb } from "@/lib/db";
 import type { EvolveSession } from "@/lib/db/types";
+import { getCandidateWorktreePath, getSessionNdjsonPath } from "@/lib/session-events";
 import { PageNavBar } from "@/components/PageNavBar";
 import { PruneBranchesButton } from "@/components/PruneBranchesButton";
 import { CreateSessionFromBranchButton } from "@/components/CreateSessionFromBranchButton";
@@ -134,14 +136,30 @@ async function getBranchData(): Promise<{
   const branches: BranchData[] = allBranchNames.map((name) => {
     const parent = gitConfigValue(`branch.${name}.parent`, cwd);
     const session = sessionByBranch.get(name);
+
+    let sessionId = session?.id ?? null;
+    const sessionStatus = session?.status ?? null;
+
+    // For branches not in the DB, check if there's a git-config sessionId with
+    // a corresponding worktree+NDJSON log so we can link to it.
+    if (!sessionId) {
+      const gitSessionId = gitConfigValue(`branch.${name}.sessionId`, cwd);
+      if (gitSessionId) {
+        const ndjsonPath = getSessionNdjsonPath(getCandidateWorktreePath(gitSessionId));
+        if (fs.existsSync(ndjsonPath)) {
+          sessionId = gitSessionId;
+        }
+      }
+    }
+
     return {
       name,
       isCurrent: name === current,
       isProduction: name === productionBranch,
       parent,
       previewUrl: session?.previewUrl ?? null,
-      sessionStatus: session?.status ?? null,
-      sessionId: session?.id ?? null,
+      sessionStatus,
+      sessionId,
     };
   });
 
@@ -546,7 +564,7 @@ export default async function BranchesPage() {
           ● green = preview server active · ● dim = no active session ·{" "}
           <span className="text-purple-400">session ↗</span> = view evolve
           session · <span className="text-blue-400">view/preview ↗</span> = open
-          branch · <span className="text-purple-500">+ session</span> = start
+          branch · <span className="text-purple-500">+ session</span> = start new
           session on existing branch
         </p>
         <p>
