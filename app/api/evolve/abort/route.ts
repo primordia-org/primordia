@@ -12,7 +12,6 @@ import {
   appendSessionEvent,
   getSessionNdjsonPath,
   getSessionFromFilesystem,
-  writeSessionStatus,
 } from '../../../../lib/session-events';
 
 export async function POST(request: Request) {
@@ -52,14 +51,14 @@ export async function POST(request: Request) {
     // accept, reject, or submit a follow-up on whatever work was completed.
     const ndjsonPath = getSessionNdjsonPath(record.worktreePath);
     appendSessionEvent(ndjsonPath, {
-      type: 'log_line',
-      content:
+      type: 'result',
+      subtype: 'aborted',
+      message:
         '🛑 Session recovered. The server restarted while Claude Code was running. ' +
         'Moving to ready state with work completed so far.' +
         (record.status === 'fixing-types' ? ' (Auto-accept was cancelled — you can accept or reject manually.)' : ''),
       ts: Date.now(),
     });
-    writeSessionStatus(record.worktreePath, 'ready');
     return Response.json({ ok: true });
   }
 

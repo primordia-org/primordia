@@ -47,7 +47,6 @@ import {
   getSessionNdjsonPath,
   getSessionFromFilesystem,
   listSessionsFromFilesystem,
-  writeSessionStatus,
 } from '../../../../lib/session-events';
 
 /** Run an arbitrary command; resolves with stdout, stderr, and exit code. */
@@ -351,21 +350,20 @@ async function retryAcceptAfterFix(
 ): Promise<void> {
   console.log(`[retryAcceptAfterFix] starting for session ${sessionId}, parentBranch=${parentBranch}`);
   const current = getSessionFromFilesystem(sessionId, repoRoot);
-  console.log(`[retryAcceptAfterFix] session status=${current?.status ?? 'not found'}`);
-  // If the fix itself failed (status = error) or session is missing, do nothing.
-  // The expected status at this point is 'fixing-types'; runFollowupInWorktree does NOT
-  // transition to 'ready' when an onSuccess callback is provided.
-  if (!current || current.status !== 'fixing-types') {
-    console.log(`[retryAcceptAfterFix] aborting — expected 'fixing-types', got '${current?.status ?? 'not found'}'`);
+  if (!current) {
+    console.log(`[retryAcceptAfterFix] aborting — session not found`);
     return;
   }
 
   const { branch, worktreePath, port } = current;
 
-  /** Write an error log line and mark the session ready. */
+  /** Append an error result event (makes inferred status 'ready') and log the message. */
   async function failWithError(msg: string): Promise<void> {
     await appendLogLine(sessionId, msg);
-    writeSessionStatus(worktreePath, 'ready');
+    const ndjsonPath = getSessionNdjsonPath(worktreePath);
+    if (fs.existsSync(ndjsonPath)) {
+      appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'error', message: msg, ts: Date.now() });
+    }
   }
 
   // Re-run the TypeScript check to verify the fix worked.
@@ -508,7 +506,6 @@ async function retryAcceptAfterFix(
       appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: isProduction ? 'deployed to production' : `merged into \`${parentBranch}\``, ts: Date.now() });
     }
   }
-  writeSessionStatus(worktreePath, 'accepted');
 
   // (Production only) Final VACUUM INTO + proxy spawn + slot activation.
   if (isProduction && bgAcceptResult && bgAcceptResult.ok) {
@@ -555,7 +552,10 @@ async function runAcceptAsync(
 
   async function failWithError(msg: string): Promise<void> {
     await appendLogLine(sessionId, msg);
-    writeSessionStatus(worktreePath, 'ready');
+    const ndjsonPath = getSessionNdjsonPath(worktreePath);
+    if (fs.existsSync(ndjsonPath)) {
+      appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'error', message: msg, ts: Date.now() });
+    }
   }
 
   try {
@@ -586,7 +586,6 @@ async function runAcceptAsync(
           createdAt: session.createdAt,
         };
         console.log(`[runAcceptAsync] type errors for session ${sessionId}, starting auto-fix`);
-        writeSessionStatus(worktreePath, 'fixing-types');
         void runFollowupInWorktree(
           autoFixSession, fixPrompt, repoRoot, 'fixing-types',
           (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch),
@@ -618,7 +617,6 @@ async function runAcceptAsync(
           createdAt: session.createdAt,
         };
         console.log(`[runAcceptAsync] build errors for session ${sessionId}, starting auto-fix`);
-        writeSessionStatus(worktreePath, 'fixing-types');
         void runFollowupInWorktree(
           autoFixSession, buildFixPrompt, repoRoot, 'fixing-types',
           (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch),
@@ -713,14 +711,13 @@ async function runAcceptAsync(
       await runGit(['config', '--remove-section', `branch.${branch}`], repoRoot);
     }
 
-    // Mark as accepted.
+    // Mark as accepted (decision event makes inferred status 'accepted').
     {
       const ndjsonPath = getSessionNdjsonPath(worktreePath);
       if (fs.existsSync(ndjsonPath)) {
         appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: isProduction ? 'deployed to production' : `merged into \`${parentBranch}\``, ts: Date.now() });
       }
     }
-    writeSessionStatus(worktreePath, 'accepted');
 
     // (Production only) Final VACUUM INTO + proxy spawn + slot activation.
     // Done here — after the session is fully written — so the new slot's DB
@@ -790,7 +787,7 @@ export async function POST(request: Request) {
 
   const isProduction = process.env.NODE_ENV === 'production';
 
-  /** Write a decision event and update the session status on the filesystem. */
+  /** Write a decision event (makes inferred status 'accepted' or 'rejected'). */
   async function logDecision(action: 'accept' | 'reject'): Promise<void> {
     const ndjsonPath = getSessionNdjsonPath(worktreePath);
     if (fs.existsSync(ndjsonPath)) {
@@ -799,7 +796,6 @@ export async function POST(request: Request) {
         : 'changes discarded';
       appendSessionEvent(ndjsonPath, { type: 'decision', action: action === 'accept' ? 'accepted' : 'rejected', detail, ts: Date.now() });
     }
-    writeSessionStatus(worktreePath, action === 'accept' ? 'accepted' : 'rejected');
   }
 
   try {
@@ -865,9 +861,9 @@ export async function POST(request: Request) {
       {
         const ndjsonPath = getSessionNdjsonPath(worktreePath);
         if (fs.existsSync(ndjsonPath)) {
+          // section_start:deploy makes inferred status 'accepting' while deploy runs
           appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'deploy', label: isProduction ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``, ts: Date.now() });
         }
-        writeSessionStatus(worktreePath, 'accepting');
       }
       void runAcceptAsync(body.sessionId, worktreePath, branch, parentBranch, repoRoot);
       return Response.json({ outcome: 'accepting' });

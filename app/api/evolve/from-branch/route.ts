@@ -15,11 +15,10 @@ import {
 } from '../../../../lib/evolve-sessions';
 import { getSessionUser, hasEvolvePermission } from '../../../../lib/auth';
 import {
-  writeSessionStatus,
-  writeSessionBranch,
   getCandidateWorktreePath,
+  appendSessionEvent,
+  getSessionNdjsonPath,
 } from '../../../../lib/session-events';
-import { getPublicOrigin } from '../../../../lib/public-origin';
 
 /** Ask Haiku to choose a short kebab-case slug from a branch name.
  *  Falls back to sanitising the branch name directly. */
@@ -66,10 +65,10 @@ async function findUniqueSessionId(base: string, repoRoot: string): Promise<stri
   const taken = async (id: string): Promise<boolean> => {
     const r = await runGit(['branch', '--list', id], repoRoot);
     if (r.stdout.trim().length > 0) return true;
-    // Also check if the candidate worktree path already has a status file
+    // Also check if the candidate worktree path already has a session ndjson file
     const { existsSync } = await import('fs');
     const candidatePath = getCandidateWorktreePath(id);
-    return existsSync(path.join(candidatePath, '.primordia-status'));
+    return existsSync(path.join(candidatePath, '.primordia-session.ndjson'));
   };
   if (!(await taken(base))) return base;
   for (let i = 2; i <= 99; i++) {
@@ -151,9 +150,10 @@ export async function POST(request: Request) {
     }
   }
 
-  // Write initial filesystem state
-  writeSessionStatus(actualWorktreePath, 'starting');
-  writeSessionBranch(actualWorktreePath, branchName);
+  // Write the initial_request event synchronously so getSessionFromFilesystem()
+  // can find the session immediately (the ndjson file is the session existence marker).
+  const ndjsonPath = getSessionNdjsonPath(actualWorktreePath);
+  appendSessionEvent(ndjsonPath, { type: 'initial_request', request: requestText, ts: Date.now() });
 
   const session: LocalSession = {
     id: sessionId,
@@ -167,10 +167,9 @@ export async function POST(request: Request) {
     createdAt: Date.now(),
   };
 
-  const publicOrigin = getPublicOrigin(request);
-
-  void startLocalEvolve(session, requestText, repoRoot, publicOrigin, [], {
+  void startLocalEvolve(session, requestText, repoRoot, undefined, [], {
     worktreeAlreadyCreated: true,
+    initialEventAlreadyWritten: true,
   });
 
   return Response.json({ sessionId });

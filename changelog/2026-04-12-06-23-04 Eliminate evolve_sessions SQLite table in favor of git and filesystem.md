@@ -2,40 +2,56 @@
 
 ## What changed
 
-The `evolve_sessions` SQLite table has been removed entirely. Session state is now stored in small files inside each worktree and read directly from git config and the existing NDJSON event log.
+The `evolve_sessions` SQLite table has been removed entirely. Session state is now derived entirely from git and the NDJSON event log — no supplementary filesystem state files are needed.
 
-### New filesystem state files (per session worktree)
+### Single source of truth: `.primordia-session.ndjson`
 
-| File | Purpose |
-|------|---------|
-| `.primordia-status` | Current session status (plain text: `starting`, `running-claude`, `ready`, `accepted`, etc.) |
-| `.primordia-preview-url` | Preview URL when the session is ready (absent = null) |
-| `.primordia-branch` | Branch name (for from-branch sessions where branch ≠ session ID; absent = session ID) |
-| `.primordia-session.ndjson` | Structured event log (unchanged — always was the authoritative record) |
+The NDJSON event log was already the authoritative record of what happened in a session. It now also serves as:
 
-Port is read from git config `branch.<name>.port` (was already stored there).
-Request text, timestamps, and metrics are read from the NDJSON log (`initial_request` / `metrics` events).
+| Previously stored in | Now derived from |
+|---------------------|-----------------|
+| `.primordia-status` | `inferStatusFromEvents()` — scans event types in the NDJSON log |
+| `.primordia-preview-url` | Always `/preview/<sessionId>` when status is `ready` |
+| `.primordia-branch` | `git worktree list --porcelain` / `git symbolic-ref HEAD` in the worktree |
+| `.primordia-session.ndjson` | Unchanged — always was the authoritative record |
+
+Port is still read from git config `branch.<name>.port`.
+Request text, timestamps, and metrics are still read from the NDJSON log.
+
+### Status inference rules (`inferStatusFromEvents`)
+
+| Condition | Inferred status |
+|-----------|----------------|
+| `decision` event present | `accepted` or `rejected` |
+| `result` event present with no `section_start` after it | `ready` |
+| Last `section_start` is `deploy` | `accepting` |
+| Last `section_start` is `type_fix` | `fixing-types` |
+| Last `section_start` is `claude` or `followup` | `running-claude` |
+| Otherwise (setup section or no events yet) | `starting` |
 
 ### Code changes
 
-- **`lib/session-events.ts`**: Added `readSessionStatus`, `writeSessionStatus`, `readSessionPreviewUrl`, `writeSessionPreviewUrl`, `readSessionBranch`, `writeSessionBranch`, `getSessionFromFilesystem`, and `listSessionsFromFilesystem` helpers.
-- **`scripts/claude-worker.ts`**: Removed SQLite (`bun:sqlite`) dependency. Worker now writes `.primordia-status` and `.primordia-preview-url` files instead of calling `UPDATE evolve_sessions`.
-- **`lib/evolve-sessions.ts`**: Removed `getDb()` usage. `persist()` now writes to filesystem files. `reconnectRunningWorkers()` uses `listSessionsFromFilesystem()`. Added `worktreeAlreadyCreated` option so the POST handlers can create the worktree synchronously before fire-and-forget.
-- **All API routes** (`route.ts`, `manage`, `stream`, `abort`, `followup`, `diff`, `diff-summary`, `upstream-sync`, `attachment`, `kill-restart`, `from-branch`): Replaced `db.getEvolveSession/updateEvolveSession/createEvolveSession/listEvolveSessions` with the new filesystem functions.
-- **`app/branches/page.tsx`**: Uses `listSessionsFromFilesystem()` instead of `db.listEvolveSessions()`.
-- **`app/evolve/session/[id]/page.tsx`**: Uses `getSessionFromFilesystem()` instead of `db.getEvolveSession()`.
-- **`lib/db/sqlite.ts`**: Removed `evolve_sessions` table creation, all migrations for that table, and all four CRUD method implementations.
-- **`lib/db/types.ts`**: Removed `createEvolveSession`, `updateEvolveSession`, `getEvolveSession`, `listEvolveSessions` from the `DbAdapter` interface. The `EvolveSession` type itself is retained for use in UI components.
+- **`lib/session-events.ts`**: Removed `readSessionStatus`, `writeSessionStatus`, `readSessionPreviewUrl`, `writeSessionPreviewUrl`, `readSessionBranch`, `writeSessionBranch`. Added `inferStatusFromEvents()`. `buildSessionFromWorktreePath` now checks for `.primordia-session.ndjson` as the session existence marker and derives branch from git. `listSessionsFromFilesystem` extracts branch from porcelain output.
+- **`scripts/claude-worker.ts`**: Removed `writeSessionStatus` and `writeSessionPreviewUrl` calls. Removed `setReadyOnSuccess` and `publicOrigin` from `WorkerConfig` — the worker just writes events; the server infers state from them.
+- **`lib/evolve-sessions.ts`**: Removed `persist()` helpers. `startLocalEvolve` now accepts `initialEventAlreadyWritten` option so the route handler can write the initial event synchronously before fire-and-forget (avoiding a race window). `runFollowupInWorktree` detects worker success by checking the last result event's subtype instead of reading a status file. `reconnectRunningWorkers` no longer calls `writeSessionStatus` — the recovery event it appends already makes the inferred status `ready`.
+- **`app/api/evolve/route.ts`** and **`from-branch/route.ts`**: Write `initial_request` event synchronously before firing off `startLocalEvolve`, so the session is immediately discoverable.
+- **`app/api/evolve/followup/route.ts`**: Removed `writeSessionStatus('running-claude')` — status is inferred from the `section_start:claude` event written by `runFollowupInWorktree`.
+- **`app/api/evolve/abort/route.ts`**: Replaced `writeSessionStatus('ready')` with appending a `result:aborted` event.
+- **`app/api/evolve/manage/route.ts`**: Removed all `writeSessionStatus` calls. `failWithError` now appends a `result:error` event. `logDecision` now only writes the `decision` event (no status file). `retryAcceptAfterFix` guard simplified to `!current` check only (success/failure is detected by `runFollowupInWorktree` before calling the callback).
 
 ### Race-condition fix
 
-Previously, the POST handler created the DB record synchronously and fired `startLocalEvolve()` async. Now the POST handler creates the git worktree synchronously (fast, ~100ms) and writes the initial status files before returning, so the session page is immediately reachable with no race window.
+The POST handler now writes the `initial_request` event synchronously before returning, so the session is immediately discoverable via `getSessionFromFilesystem()` with no race window.
 
 ## Why
 
-The SQLite `evolve_sessions` table was the only remaining obstacle to treating git + filesystem as the sole source of truth. Eliminating it means:
+The three supplementary state files (`.primordia-status`, `.primordia-preview-url`, `.primordia-branch`) were redundant:
 
-- No more schema migrations or VACUUM INTO cleanup when copying the DB to child worktrees
-- Session state survives across server restarts without any DB — just the worktree on disk
-- Simpler reasoning: "the session exists if the worktree exists and has a `.primordia-status` file"
-- The NDJSON log was already the authoritative event record; this change makes the status file the authoritative status record, removing the dual-write inconsistency risk
+- **Status** can be reliably inferred from the sequence of events already written to the NDJSON log by the worker and route handlers.
+- **Preview URL** is structurally always `/preview/<sessionId>` — storing it was cargo-culting the old full-URL approach from when origins could vary.
+- **Branch** is already tracked by git's worktree machinery; reading it from `git worktree list` or `git symbolic-ref HEAD` is more authoritative than a separate file.
+
+Eliminating these files means:
+- Simpler reasoning: the NDJSON log is the only session state artifact
+- No dual-write inconsistency risk between the status file and the event log
+- No stale status files left behind if the worker crashes before writing them

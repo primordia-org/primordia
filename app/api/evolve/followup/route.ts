@@ -13,7 +13,6 @@ import {
 } from '../../../../lib/evolve-sessions';
 import {
   getSessionFromFilesystem,
-  writeSessionStatus,
 } from '../../../../lib/session-events';
 
 export async function POST(request: Request) {
@@ -92,11 +91,8 @@ export async function POST(request: Request) {
     createdAt: record.createdAt,
   };
 
-  // Update status immediately so the UI transitions without waiting.
-  writeSessionStatus(session.worktreePath, 'running-claude');
-
   // Fire-and-forget — runFollowupInWorktree handles all state transitions and
-  // error cases internally, persisting each change to the filesystem.
+  // error cases internally, writing events to the NDJSON log.
   void runFollowupInWorktree(session, requestText, repoRoot, 'running-claude', undefined, false, savedAttachmentPaths);
 
   return Response.json({ ok: true });

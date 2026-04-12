@@ -20,10 +20,9 @@ import {
 import { getSessionUser, hasEvolvePermission } from '../../../lib/auth';
 import {
   getSessionFromFilesystem,
-  writeSessionStatus,
-  writeSessionBranch,
+  appendSessionEvent,
+  getSessionNdjsonPath,
 } from '../../../lib/session-events';
-import { getPublicOrigin } from '../../../lib/public-origin';
 
 /** Ask Claude to choose a short, descriptive kebab-case slug for the request.
  *  Falls back to the first-4-words approach if the API call fails. */
@@ -158,9 +157,10 @@ export async function POST(request: Request) {
     return Response.json({ error: `Failed to create session worktree: ${wtResult.stderr}` }, { status: 500 });
   }
 
-  // Write initial filesystem state so getSessionFromFilesystem() can find it.
-  writeSessionStatus(worktreePath, 'starting');
-  writeSessionBranch(worktreePath, branch);
+  // Write the initial_request event synchronously so getSessionFromFilesystem()
+  // can find the session immediately (the ndjson file is the session existence marker).
+  const ndjsonPath = getSessionNdjsonPath(worktreePath);
+  appendSessionEvent(ndjsonPath, { type: 'initial_request', request: requestText, attachments: savedAttachmentPaths.map(p => path.basename(p)), ts: Date.now() });
 
   const session: LocalSession = {
     id: sessionId,
@@ -174,14 +174,11 @@ export async function POST(request: Request) {
     createdAt: Date.now(),
   };
 
-  // Determine the public origin for preview URLs using x-forwarded-* headers
-  // so the URL is correct when running behind a reverse proxy (e.g. exe.dev).
-  const publicOrigin = getPublicOrigin(request);
-
   // Fire-and-forget — run async so POST returns immediately with the session ID.
   // startLocalEvolve handles all error states internally and writes them to the filesystem.
-  void startLocalEvolve(session, requestText, repoRoot, publicOrigin, savedAttachmentPaths, {
+  void startLocalEvolve(session, requestText, repoRoot, undefined, savedAttachmentPaths, {
     worktreeAlreadyCreated: true,
+    initialEventAlreadyWritten: true,
   });
 
   return Response.json({ sessionId });

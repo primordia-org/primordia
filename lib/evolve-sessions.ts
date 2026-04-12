@@ -10,12 +10,8 @@ import {
   appendSessionEvent,
   readSessionEvents,
   getSessionNdjsonPath,
-  writeSessionStatus,
-  writeSessionPreviewUrl,
-  writeSessionBranch,
-  readSessionStatus,
-  readSessionPreviewUrl,
   listSessionsFromFilesystem,
+  type SessionEvent,
 } from './session-events';
 
 export type LocalSessionStatus =
@@ -109,10 +105,6 @@ interface WorkerConfig {
   repoRoot: string;
   prompt: string;
   timeoutMs: number;
-  /** When true, worker sets status='ready' + previewUrl on success. */
-  setReadyOnSuccess: boolean;
-  /** Public origin for previewUrl construction. Null = don't update previewUrl. */
-  publicOrigin: string | null;
 }
 
 /** Maps session IDs to the PID of their running Claude worker process. */
@@ -228,6 +220,7 @@ export async function reconnectRunningWorkers(repoRoot: string): Promise<void> {
 
     if (livePid === null) {
       // Worker is gone — recover the session so it isn't stuck forever.
+      // Append a 'result: aborted' event so inferStatusFromEvents() returns 'ready'.
       const recoveryMessage = record.status === 'fixing-types'
         ? 'Session recovered after server restart. Auto-accept was cancelled — you can accept or reject manually.'
         : 'Session recovered after server restart.';
@@ -235,7 +228,6 @@ export async function reconnectRunningWorkers(repoRoot: string): Promise<void> {
       if (fs.existsSync(ndjsonPath)) {
         appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'aborted', message: recoveryMessage, ts: Date.now() });
       }
-      writeSessionStatus(record.worktreePath, 'ready');
       if (fs.existsSync(pidFile)) {
         try { fs.rmSync(pidFile, { force: true }); } catch { /* best-effort */ }
       }
@@ -317,11 +309,8 @@ export async function startLocalEvolve(
   session: LocalSession,
   taskRequest: string,
   repoRoot: string,
-  /** Public origin (scheme + host, no trailing slash) to use when constructing
-   *  preview URLs. Derived from x-forwarded-proto / x-forwarded-host request
-   *  headers so the URL is correct behind a reverse proxy (e.g. exe.dev).
-   *  Defaults to "http://localhost". */
-  publicOrigin: string = "http://localhost",
+  /** @deprecated No longer used — preview URLs are derived from the session ID. */
+  _publicOrigin: string = "http://localhost",
   /** Temporary file paths for user-uploaded attachments. Copied into worktree/attachments/ and deleted from /tmp. */
   attachmentPaths: string[] = [],
   /** Extra options for advanced use cases. */
@@ -334,18 +323,15 @@ export async function startLocalEvolve(
     /**
      * When true, skip all worktree creation steps — the worktree was already
      * created by the caller (e.g. the POST handler) before fire-and-forget.
-     * The status and branch files must also have been written by the caller.
      */
     worktreeAlreadyCreated?: boolean;
+    /**
+     * When true, skip writing the initial_request event — the caller already
+     * wrote it synchronously to the NDJSON file before fire-and-forget.
+     */
+    initialEventAlreadyWritten?: boolean;
   } = {},
 ): Promise<void> {
-  /** Write the current session state to the filesystem. */
-  const persist = () => {
-    writeSessionStatus(session.worktreePath, session.status);
-    if (session.previewUrl !== undefined) {
-      writeSessionPreviewUrl(session.worktreePath, session.previewUrl);
-    }
-  };
 
   try {
     // Step 1 — Create a new git worktree (on a fresh branch, or from an existing one)
@@ -367,8 +353,6 @@ export async function startLocalEvolve(
         const existingPath = parseWorktreePathForBranch(listResult.stdout, session.branch);
         if (existingPath) {
           session.worktreePath = existingPath;
-          writeSessionStatus(session.worktreePath, session.status);
-          writeSessionBranch(session.worktreePath, session.branch);
         } else {
           const wtResult = await runGit(
             ['worktree', 'add', session.worktreePath, session.branch],
@@ -377,8 +361,6 @@ export async function startLocalEvolve(
           if (wtResult.code !== 0) {
             throw new Error(`git worktree add failed:\n${wtResult.stderr}`);
           }
-          writeSessionStatus(session.worktreePath, session.status);
-          writeSessionBranch(session.worktreePath, session.branch);
         }
       } else {
         const wtResult = await runGit(
@@ -388,14 +370,17 @@ export async function startLocalEvolve(
         if (wtResult.code !== 0) {
           throw new Error(`git worktree add failed:\n${wtResult.stderr}`);
         }
-        writeSessionStatus(session.worktreePath, session.status);
-        writeSessionBranch(session.worktreePath, session.branch);
       }
     }
 
-    // AFTER worktree is created, write the NDJSON file with all setup events
+    // Write setup events to the NDJSON file.
+    // The initial_request event may already have been written synchronously by the
+    // route handler (options.initialEventAlreadyWritten=true) to avoid a race window
+    // between session creation and the async fire-and-forget.
     const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
-    appendSessionEvent(ndjsonPath, { type: 'initial_request', request: taskRequest, attachments: attachmentPaths.map(p => path.basename(p)), ts: Date.now() });
+    if (!options.initialEventAlreadyWritten) {
+      appendSessionEvent(ndjsonPath, { type: 'initial_request', request: taskRequest, attachments: attachmentPaths.map(p => path.basename(p)), ts: Date.now() });
+    }
     appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'setup', label: 'Setup', ts: Date.now() });
     appendSessionEvent(ndjsonPath, { type: 'setup_step', label: worktreeLabel, done: true, ts: Date.now() });
 
@@ -409,7 +394,6 @@ export async function startLocalEvolve(
     // The port is stable for the lifetime of the branch and is reused if the
     // server restarts. Preview and production servers both use this port.
     session.port = getOrAssignBranchPort(session.branch, repoRoot);
-    await persist();
 
     // Step 2 — Run bun install in the worktree.
     // Bun is fast enough that a full install is preferable to a shared symlink,
@@ -491,11 +475,11 @@ export async function startLocalEvolve(
     }
 
     // Step 6 — Spawn Claude Code as a detached worker process.
-    // The worker writes progress to the NDJSON file and sets status='ready' + previewUrl when done.
+    // The worker writes progress to the NDJSON file. Status is inferred from the
+    // 'result' event it writes on completion.
     // It survives server restarts — on next startup, reconnectRunningWorkers() re-attaches.
     session.status = 'running-claude';
     appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'claude', label: '🤖 Claude Code', ts: Date.now() });
-    await persist();
 
     const attachmentSection = worktreeAttachmentPaths.length > 0
       ? `\n\nThe user has attached the following file(s) to this request (already saved in the worktree):\n` +
@@ -517,24 +501,18 @@ export async function startLocalEvolve(
         repoRoot,
         prompt,
         timeoutMs: 20 * 60 * 1000,
-        setReadyOnSuccess: true,
-        publicOrigin,
       },
       path.join(repoRoot, 'scripts/claude-worker.ts'),
     );
-    // Worker has exited — it already wrote status='ready' and previewUrl to the filesystem.
+    // Worker has exited — 'result' event in the NDJSON log marks completion.
 
   } catch (err) {
-    // Mark the session ready (with an error note in the log) so the UI shows
-    // the failure and allows follow-up requests to retry or recover.
-    session.status = 'ready';
+    // Write error event to NDJSON (makes inferStatusFromEvents return 'ready').
     const msg = err instanceof Error ? err.message : String(err);
-    // Write error event to NDJSON if file exists (worktree may not have been created yet)
     const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
     if (fs.existsSync(ndjsonPath)) {
       appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'error', message: msg, ts: Date.now() });
     }
-    try { persist(); } catch { /* best-effort */ }
   }
 }
 
@@ -545,8 +523,7 @@ export async function startLocalEvolve(
  * The dev server keeps running; this function only re-invokes Claude and
  * persists the result. Status transitions: ready → running-claude → ready | error.
  *
- * @param onSuccess - Optional callback invoked (instead of setting status to 'ready') when Claude
- *   finishes successfully. The callback is responsible for persisting the final session status.
+ * @param onSuccess - Optional callback invoked when Claude finishes successfully.
  *   Used by the type-fix flow to retry Accept server-side without requiring the client tab to be open.
  * @param skipChangelog - When true, instructs Claude NOT to create or update changelog files.
  *   Use for automated fix passes (e.g. type-fix) that are part of the merge pipeline, not
@@ -556,20 +533,13 @@ export async function runFollowupInWorktree(
   session: LocalSession,
   followupRequest: string,
   repoRoot: string,
-  /** Status to persist while Claude is running. Defaults to 'running-claude'. */
+  /** Status used locally while Claude is running. Defaults to 'running-claude'. */
   inProgressStatus: LocalSessionStatus = 'running-claude',
   onSuccess?: (session: LocalSession) => Promise<void>,
   skipChangelog: boolean = false,
   /** Temporary file paths for user-uploaded attachments. Copied into worktree/attachments/ and deleted from /tmp. */
   attachmentPaths: string[] = [],
 ): Promise<void> {
-  const persist = () => {
-    writeSessionStatus(session.worktreePath, session.status);
-    if (session.previewUrl !== undefined) {
-      writeSessionPreviewUrl(session.worktreePath, session.previewUrl);
-    }
-  };
-
   const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
 
   try {
@@ -582,7 +552,6 @@ export async function runFollowupInWorktree(
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'claude', label: '🤖 Claude Code', ts: Date.now() });
     }
     session.status = inProgressStatus;
-    persist();
 
     const changelogInstruction = skipChangelog
       ? `Do NOT create or update any changelog file — this fix is part of the automated merge pipeline, not a user-visible change.`
@@ -667,9 +636,6 @@ export async function runFollowupInWorktree(
       `${changelogInstruction} Commit all changes with a descriptive message.`;
 
     // Spawn a detached worker process — same pattern as startLocalEvolve.
-    // When onSuccess is provided (e.g. type-fix retry), the worker must NOT
-    // mark the session 'ready' itself (setReadyOnSuccess=false) so the server
-    // can call onSuccess after the worker exits.
     await spawnClaudeWorker(
       {
         sessionId: session.id,
@@ -677,29 +643,27 @@ export async function runFollowupInWorktree(
         repoRoot,
         prompt,
         timeoutMs: 20 * 60 * 1000,
-        setReadyOnSuccess: !onSuccess,
-        publicOrigin: null,
       },
       path.join(repoRoot, 'scripts/claude-worker.ts'),
     );
 
     if (onSuccess) {
-      // Worker exited without setting status='ready'. Reload the session state
-      // from the filesystem and hand off to the callback for final status handling
-      // (e.g. retrying the merge after a type-fix pass).
-      session.status = readSessionStatus(session.worktreePath) as LocalSession['status'];
-      session.previewUrl = readSessionPreviewUrl(session.worktreePath);
-      await onSuccess(session);
+      // Only call onSuccess if the worker succeeded — check the last result event.
+      // If the worker failed (error/timeout/abort), the result event's subtype will
+      // not be 'success' and the session is already in a terminal state.
+      const { events } = readSessionEvents(ndjsonPath);
+      const lastResult = [...events].reverse().find(e => e.type === 'result') as
+        Extract<SessionEvent, { type: 'result' }> | undefined;
+      if (lastResult?.subtype === 'success') {
+        await onSuccess(session);
+      }
     }
-    // else: worker already wrote status='ready' to the filesystem.
 
   } catch (err) {
-    session.status = 'ready';
     const msg = err instanceof Error ? err.message : String(err);
     if (fs.existsSync(ndjsonPath)) {
       appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'error', message: msg, ts: Date.now() });
     }
-    try { persist(); } catch { /* best-effort */ }
   }
 }
 
