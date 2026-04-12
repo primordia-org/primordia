@@ -54,6 +54,14 @@ The session page footer now again shows the "Branches" link alongside
 "Changelog", and restores the `branch ▸ sessionBranch` amber monospace
 display in the bottom-right corner.
 
+**TodoWrite display**
+
+`TodoWrite` tool calls are now rendered as a structured checklist instead of
+a raw JSON summary. Each todo item is shown with a status icon (✅ completed,
+🔄 in progress, ⬜ pending) and its text, with completed items shown in
+strikethrough and in-progress items highlighted in amber. The 📋 icon
+replaces the generic 🔧 wrench for these entries.
+
 **Abort recovery**
 
 The server-restart recovery path in `/api/evolve/abort` now appends a

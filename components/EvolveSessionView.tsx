@@ -349,6 +349,24 @@ function groupEventsIntoSections(events: SessionEvent[]): SectionGroup[] {
   return sections;
 }
 
+/** Render a TodoWrite tool call as a structured todo list. */
+function TodoWriteDisplay({ input }: { input: Record<string, unknown> }) {
+  const todos = (input.todos as Array<{ content: string; status: string; priority?: string }> | undefined) ?? [];
+  if (!todos.length) return <span className="text-gray-600">Update todo list</span>;
+  const statusIcon = (status: string) =>
+    status === 'completed' ? '✅' : status === 'in_progress' ? '🔄' : '⬜';
+  return (
+    <span className="inline-flex flex-col gap-0.5">
+      {todos.map((t, i) => (
+        <span key={i} className={`flex items-start gap-1 ${t.status === 'completed' ? 'text-gray-600 line-through' : t.status === 'in_progress' ? 'text-yellow-400' : 'text-gray-400'}`}>
+          <span className="shrink-0">{statusIcon(t.status)}</span>
+          <span>{t.content}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /** Generate a short human-readable description of a tool call's primary argument. */
 function summarizeToolInput(name: string, input: Record<string, unknown>, worktreePath?: string): string {
   const shorten = (p: string): string => {
@@ -460,6 +478,14 @@ function RunningClaudeSection({ events, label, isTypeFixSection, worktreePath }:
       <div className="px-4 py-3 space-y-2">
         {events.map((event, i) => {
           if (event.type === 'tool_use') {
+            if (event.name.toLowerCase() === 'todowrite') {
+              return (
+                <div key={i} className="text-xs font-mono">
+                  <span className="text-gray-400">📋 TodoWrite</span>
+                  <div className="mt-1 ml-4"><TodoWriteDisplay input={event.input} /></div>
+                </div>
+              );
+            }
             const summary = summarizeToolInput(event.name, event.input, worktreePath);
             return (
               <p key={i} className="text-gray-400 text-xs font-mono">
@@ -515,6 +541,14 @@ function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath }: {
           <div className="px-4 py-3 border-t border-gray-800 space-y-2">
             {detailEvents.map((event, i) => {
               if (event.type === 'tool_use') {
+                if (event.name.toLowerCase() === 'todowrite') {
+                  return (
+                    <div key={i} className="text-xs font-mono">
+                      <span className="text-gray-400">📋 TodoWrite</span>
+                      <div className="mt-1 ml-4"><TodoWriteDisplay input={event.input} /></div>
+                    </div>
+                  );
+                }
                 const summary = summarizeToolInput(event.name, event.input, worktreePath);
                 return (
                   <p key={i} className="text-gray-400 text-xs font-mono">
