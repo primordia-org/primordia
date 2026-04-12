@@ -5,6 +5,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import type { EvolveSession } from './db/types';
 
 export type SessionEvent =
   | { type: 'section_start'; sectionType: 'setup' | 'claude' | 'type_fix' | 'followup' | 'deploy'; label: string; ts: number }
@@ -44,4 +45,72 @@ export function readSessionEvents(
   } catch {
     return { events: [], totalLines: 0 };
   }
+}
+
+/**
+ * Returns the candidate worktree path for a session that isn't in the database.
+ * Uses the sibling-directory convention of the flat worktree layout:
+ * all worktrees live alongside the current one under the same parent directory.
+ */
+export function getCandidateWorktreePath(sessionId: string): string {
+  return path.join(path.dirname(process.cwd()), sessionId);
+}
+
+/**
+ * Attempts to reconstruct an EvolveSession record from the NDJSON log alone.
+ * Useful when the session exists in a sibling worktree but not in the local DB
+ * (e.g. the DB was copied before this session was created in a parent worktree).
+ * Returns null if no log file exists or it contains no parseable events.
+ */
+export function deriveSessionFromLog(
+  id: string,
+  worktreePath: string,
+): EvolveSession | null {
+  const ndjsonPath = getSessionNdjsonPath(worktreePath);
+  if (!fs.existsSync(ndjsonPath)) return null;
+
+  const { events } = readSessionEvents(ndjsonPath);
+  if (events.length === 0) return null;
+
+  let request = '';
+  let createdAt = 0;
+  let durationMs: number | null = null;
+  let inputTokens: number | null = null;
+  let outputTokens: number | null = null;
+  let costUsd: number | null = null;
+  let status = 'ready';
+
+  for (const event of events) {
+    // Use the timestamp of the first timestamped event as createdAt
+    if (!createdAt && 'ts' in event) createdAt = (event as { ts: number }).ts;
+
+    if (event.type === 'initial_request') {
+      request = event.request;
+    } else if (event.type === 'metrics') {
+      durationMs = event.durationMs;
+      inputTokens = event.inputTokens;
+      outputTokens = event.outputTokens;
+      costUsd = event.costUsd;
+    } else if (event.type === 'result') {
+      if (event.subtype === 'success') status = 'ready';
+    } else if (event.type === 'decision') {
+      status = event.action === 'accepted' ? 'accepted' : 'rejected';
+    }
+  }
+
+  return {
+    id,
+    branch: id,
+    worktreePath,
+    status,
+    progressText: '',
+    port: null,
+    previewUrl: null,
+    request,
+    createdAt: createdAt || Date.now(),
+    durationMs,
+    inputTokens,
+    outputTokens,
+    costUsd,
+  };
 }

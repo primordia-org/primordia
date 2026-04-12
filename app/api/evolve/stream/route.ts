@@ -12,7 +12,7 @@
 
 import { getSessionUser } from '../../../../lib/auth';
 import { getDb } from '../../../../lib/db';
-import { readSessionEvents, getSessionNdjsonPath } from '../../../../lib/session-events';
+import { readSessionEvents, getSessionNdjsonPath, getCandidateWorktreePath, deriveSessionFromLog } from '../../../../lib/session-events';
 import type { SessionEvent } from '../../../../lib/session-events';
 import * as fs from 'fs';
 
@@ -56,7 +56,12 @@ export async function GET(request: Request) {
           }
 
           const db = await getDb();
-          const session = await db.getEvolveSession(sessionId);
+          let session = await db.getEvolveSession(sessionId);
+
+          if (!session) {
+            // Not in the local DB — try reconstructing from the NDJSON log.
+            session = deriveSessionFromLog(sessionId, getCandidateWorktreePath(sessionId));
+          }
 
           if (!session) {
             sendEvent({ error: 'Session not found', done: true });

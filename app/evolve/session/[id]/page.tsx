@@ -11,7 +11,7 @@ import * as fs from "fs";
 import { getSessionUser, hasEvolvePermission } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { buildPageTitle } from "@/lib/page-title";
-import { readSessionEvents, getSessionNdjsonPath, type SessionEvent } from "@/lib/session-events";
+import { readSessionEvents, getSessionNdjsonPath, getCandidateWorktreePath, deriveSessionFromLog, type SessionEvent } from "@/lib/session-events";
 import EvolveSessionView from "@/components/EvolveSessionView";
 
 export function generateMetadata(): Metadata {
@@ -35,22 +35,18 @@ function readGitBranch(): string | null {
 }
 
 /**
- * Returns true if `sessionBranch` was branched directly off `currentBranch`.
+ * Returns the stored parent branch for a session branch, or null if unknown.
  * Reads the `branch.<name>.parent` git config key that is written when the
  * worktree is created, so no git-graph traversal is required.
  */
-function isSessionBranchChildOfCurrent(
-  currentBranch: string,
-  sessionBranch: string,
-): boolean {
+function getSessionParentBranch(sessionBranch: string): string | null {
   try {
-    const parent = execSync(
+    return execSync(
       `git config branch.${sessionBranch}.parent`,
       { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
-    return parent === currentBranch;
+    ).trim() || null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -129,18 +125,24 @@ export default async function EvolveSessionPage({
   const { id } = await params;
 
   const db = await getDb();
-  const session = await db.getEvolveSession(id);
-  if (!session) notFound();
+  let session = await db.getEvolveSession(id);
+  if (!session) {
+    // The session isn't in the local DB — this can happen when the DB was
+    // copied before the session was created (e.g. viewing a parent worktree's
+    // session from a child worktree). Try to reconstruct from the NDJSON log.
+    session = deriveSessionFromLog(id, getCandidateWorktreePath(id));
+    if (!session) notFound();
+  }
 
   const branch = readGitBranch();
 
+  // Read the stored parent branch for this session branch.  Used both to gate
+  // accept/reject and to correctly label the upstream-changes message.
+  const parentBranch = getSessionParentBranch(session.branch);
+
   // Only allow accept/reject when the session branch was branched directly off
-  // the currently checked-out branch. Checked via `git config branch.<name>.parent`
-  // which is written at worktree-creation time.
-  const canAcceptReject =
-    branch !== null
-      ? isSessionBranchChildOfCurrent(branch, session.branch)
-      : false;
+  // the currently checked-out branch.
+  const canAcceptReject = parentBranch !== null && branch !== null && branch === parentBranch;
 
   const upstreamCommitCount = getUpstreamCommitCount(session.branch);
   const diffSummary = getGitDiffSummary(session.branch);
@@ -167,6 +169,7 @@ export default async function EvolveSessionPage({
       initialStatus={session.status}
       initialPreviewUrl={session.previewUrl}
       branch={branch}
+      parentBranch={parentBranch}
       sessionBranch={session.branch}
       canAcceptReject={canAcceptReject}
       upstreamCommitCount={upstreamCommitCount}

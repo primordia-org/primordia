@@ -669,8 +669,10 @@ interface EvolveSessionViewProps {
   initialLineCount: number;
   initialStatus: string;
   initialPreviewUrl: string | null;
-  /** The currently checked-out branch (parent). Used in confirmation copy and NavHeader. */
+  /** The currently checked-out branch in this instance. Used in confirmation copy and NavHeader. */
   branch?: string | null;
+  /** The branch this session was branched from (from git config). Used in upstream-changes display. */
+  parentBranch?: string | null;
   /** The preview branch name created for this session. */
   sessionBranch: string;
   /** True when the session branch is a direct child of the current branch, so Accept/Reject are safe to show. */
@@ -697,6 +699,7 @@ export default function EvolveSessionView({
   initialStatus,
   initialPreviewUrl,
   branch,
+  parentBranch,
   sessionBranch,
   canAcceptReject,
   upstreamCommitCount,
@@ -1444,7 +1447,12 @@ export default function EvolveSessionView({
                 ⬆ Upstream Changes
               </p>
               <p className="text-blue-200/70 text-xs">
-                <code className="bg-blue-950/60 px-1 rounded">{branch ?? "parent"}</code> is{" "}
+                {parentBranch ? (
+                  <code className="bg-blue-950/60 px-1 rounded">{parentBranch}</code>
+                ) : (
+                  <span className="text-yellow-400">[parent branch unknown]</span>
+                )}{" "}
+                is{" "}
                 <strong>{remainingUpstream}</strong> commit{remainingUpstream === 1 ? "" : "s"} ahead
                 of <code className="bg-blue-950/60 px-1 rounded">{sessionBranch}</code>.
                 Bring those changes into the session branch before accepting.
@@ -1453,16 +1461,18 @@ export default function EvolveSessionView({
                 <p className="text-red-400 text-xs mt-2 whitespace-pre-wrap">{upstreamSyncError}</p>
               )}
             </div>
-            <div className="flex gap-2 flex-shrink-0">
-              <button
-                type="button"
-                onClick={() => handleUpstreamSync()}
-                disabled={upstreamSyncLoading !== null}
-                className="px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-medium transition-colors"
-              >
-                {upstreamSyncLoading === "merge" ? "Applying…" : "Apply Updates"}
-              </button>
-            </div>
+            {canAcceptReject && (
+              <div className="flex gap-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleUpstreamSync()}
+                  disabled={upstreamSyncLoading !== null}
+                  className="px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-medium transition-colors"
+                >
+                  {upstreamSyncLoading === "merge" ? "Applying…" : "Apply Updates"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

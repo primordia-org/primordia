@@ -1,0 +1,39 @@
+# Derive session page from NDJSON log when not in DB
+
+## What changed
+
+Added a fallback path in the session page and SSE stream endpoint so that sessions missing from the local database can still be viewed, as long as their NDJSON log file exists on disk.
+
+### New helpers in `lib/session-events.ts`
+
+- **`getCandidateWorktreePath(sessionId)`** — derives the expected worktree directory path for a given session ID using the flat worktree layout convention (all worktrees are siblings under the same parent directory as the current one).
+
+- **`deriveSessionFromLog(id, worktreePath)`** — reads the `.primordia-session.ndjson` log from the given path and reconstructs a synthetic `EvolveSession` record from it. Extracts:
+  - `request` from `initial_request` event
+  - `createdAt` from the first timestamped event
+  - `status` from `result` / `decision` events (defaults to `'ready'`)
+  - Token usage and cost from `metrics` event
+
+### Updated `app/evolve/session/[id]/page.tsx`
+
+After a failed DB lookup, the page now calls `deriveSessionFromLog` with the candidate worktree path. If a log is found, the session is reconstructed and the page renders normally. Only if both the DB and the log are absent does the page 404.
+
+### Updated `app/api/evolve/stream/route.ts`
+
+Same fallback applied in the SSE polling loop: if the session is not in the DB, attempt log-based reconstruction before reporting "Session not found". Since a log-derived session has no running worker, it will already be in a terminal state, so the stream closes immediately after delivering events.
+
+### Updated `app/api/evolve/attachment/[sessionId]/route.ts`
+
+Same fallback applied to the attachment-serving endpoint: if the session is not in the DB, the candidate worktree path is derived from the session ID and used to locate the `attachments/` directory. This allows attachment thumbnails and downloads to work when viewing log-derived sessions.
+
+### Updated `components/EvolveSessionView.tsx`
+
+The **⬆ Upstream Changes** box now shows whenever `canEvolve` is true and there are upstream commits — it is no longer gated on `canAcceptReject`. This means the box is visible when viewing a session from the session's own preview server, not just from the parent's. The **Apply Updates** button inside the box remains gated on `canAcceptReject`, since that merge action requires being on the parent branch. Additionally, the label in the upstream-changes message now shows the session branch's actual parent (from `git config branch.<name>.parent`) rather than the currently-checked-out branch of the running instance. Previously, if the running instance's branch differed from the session's real parent, the message would nonsensically read "`session-logs-without-db` is 1 commit ahead of `session-logs-without-db`". The session page now passes an explicit `parentBranch` prop derived from git config, and the component displays it in preference to `branch`. If `parentBranch` is `null` (e.g. git config has no parent entry), the upstream-changes label shows a `[parent branch unknown]` warning in yellow rather than silently falling back to the current branch name or a hard-coded placeholder.
+
+### Updated `app/evolve/session/[id]/page.tsx` (branch comparison)
+
+`isSessionBranchChildOfCurrent` has been replaced by `getSessionParentBranch`, which reads `git config branch.<sessionBranch>.parent` once and returns the parent branch name directly. `canAcceptReject` is now derived from a simple `branch === parentBranch` comparison, and `parentBranch` is forwarded to `EvolveSessionView` as its own prop so the upstream-changes label always names the correct branch regardless of which worktree is running.
+
+## Why
+
+The database in each worktree is a copy taken at the moment the worktree was created. Sessions that ran in parent or sibling worktrees after that point are invisible to the local DB. The NDJSON log file lives inside the worktree directory itself, so it persists independently of the DB. This change lets us view those "invisible" sessions directly from the URL (`/evolve/session/<branch-name>`) by deriving everything we need from the log.
