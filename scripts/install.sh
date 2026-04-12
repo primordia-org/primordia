@@ -125,24 +125,31 @@ _dns_check() { getent hosts registry.npmjs.org >/dev/null 2>&1; }
 if ! _dns_check; then
   info "DNS not ready — attempting to fix (systemd-resolved race on fresh VMs)..."
 
-  # Flush stale cache
+  # 1. Use systemd-networkd-wait-online to cleanly wait for the NIC to be
+  #    fully configured before doing anything else.
+  if command -v systemd-networkd-wait-online &>/dev/null; then
+    diag "Waiting for network via systemd-networkd-wait-online (up to 30 s)..."
+    sudo systemd-networkd-wait-online --timeout=30 2>/dev/null || true
+  fi
+
+  # 2. Flush stale cache now that the interface is up
   sudo resolvectl flush-caches 2>/dev/null || true
 
-  # Restore stub-resolver symlink if missing
+  # 3. Restore stub-resolver symlink if missing
   if ! grep -q "127.0.0.53" /etc/resolv.conf 2>/dev/null; then
     sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf 2>/dev/null || true
   fi
 
-  # Restart resolved if it reports no scopes (NIC wasn't ready when it started)
+  # 4. Restart resolved if it still reports no scopes
   if resolvectl status 2>/dev/null | grep -q "Current Scopes: none"; then
     diag "Current Scopes: none — restarting systemd-networkd + systemd-resolved"
     sudo systemctl restart systemd-networkd 2>/dev/null || true
-    sleep 3
+    sudo systemd-networkd-wait-online --timeout=15 2>/dev/null || sleep 5
     sudo systemctl restart systemd-resolved 2>/dev/null || true
     sleep 2
   fi
 
-  # Wait up to 60 s for DNS
+  # 5. Poll up to 60 s as a final safety net
   _DNS_OK=false
   printf "${CYAN}▸${RESET} Waiting for DNS"
   for _i in $(seq 1 30); do

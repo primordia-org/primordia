@@ -85,11 +85,12 @@ Root cause: Ubuntu's `systemd-resolved` starts before the VM's NIC is fully init
 Fixed by adding a `wait for DNS` step in both `install-for-exe-dev.sh` (in the remote heredoc) and `install.sh`, run before any network I/O:
 
 1. **Detect** — `getent hosts registry.npmjs.org` to check if DNS is functional.
-2. **Flush cache** — `sudo resolvectl flush-caches` clears any stale negative entries.
-3. **Restore `/etc/resolv.conf` symlink** — if the file is missing or doesn't point to `127.0.0.53`, restore the symlink to the stub resolver.
-4. **Restart resolved** — if `resolvectl status` shows `Current Scopes: none`, restart `systemd-networkd` (3 s delay) then `systemd-resolved` (2 s delay) to force the race to resolve in the right order.
-5. **Wait up to 60 s** — polling every 2 s with dots printed to the terminal.
-6. **Public DNS fallback** — if DNS is still broken after 60 s, write `1.1.1.1` and `8.8.8.8` directly to `/etc/resolv.conf` to bypass `systemd-resolved` entirely. If that also fails, exit with a diagnostic.
+2. **Wait for NIC** — if DNS is not ready, call `sudo systemd-networkd-wait-online --timeout=30` to cleanly block until systemd-networkd reports the interface is fully configured (avoids polling the interface state manually).
+3. **Flush cache** — `sudo resolvectl flush-caches` clears any stale negative entries now that the NIC is up.
+4. **Restore `/etc/resolv.conf` symlink** — if the file is missing or doesn't point to `127.0.0.53`, restore the symlink to the stub resolver.
+5. **Restart resolved** — if `resolvectl status` still shows `Current Scopes: none`, restart `systemd-networkd`, wait for it with `systemd-networkd-wait-online --timeout=15` (falling back to `sleep 5` if the command is missing), then restart `systemd-resolved`.
+6. **Poll up to 60 s** — fallback polling every 2 s with dots printed to the terminal.
+7. **Public DNS fallback** — if DNS is still broken after 60 s, write `1.1.1.1` and `8.8.8.8` directly to `/etc/resolv.conf` to bypass `systemd-resolved` entirely. If that also fails, exit with a diagnostic.
 
 DNS diagnostic info (`resolv.conf` content, `Current Scopes` from `resolvectl`) is now included in both the remote and server diagnostics sections, making future failures easier to diagnose.
 
