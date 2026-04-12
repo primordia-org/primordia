@@ -43,3 +43,6 @@ next-env.d.ts
 
 # Claude Code worker PID file (written by scripts/claude-worker.ts on startup)
 .primordia-worker.pid
+
+# Structured session event log written to each worktree during Claude sessions
+.primordia-session.ndjson
