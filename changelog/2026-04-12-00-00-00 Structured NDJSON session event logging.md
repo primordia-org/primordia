@@ -28,6 +28,12 @@ their structured `name` + `input` fields; metrics come from dedicated
 `metrics` events. Legacy sessions (no NDJSON file) fall back to the old
 Markdown renderer via a `legacy_text` event.
 
+File paths in tool call summaries are shortened so that the worktree
+directory is displayed as `.` (e.g. `./components/Foo.tsx` instead of the
+full absolute path). The extraneous "Preview ready" block that was embedded
+in the structured section renderer has been removed — the preview server
+status is shown independently via the proxy panel.
+
 **Worker**
 
 `scripts/claude-worker.ts` writes every tool call, text chunk, result, and

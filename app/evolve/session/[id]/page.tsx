@@ -173,6 +173,7 @@ export default async function EvolveSessionPage({
       diffSummary={diffSummary}
       canEvolve={canEvolve}
       isProduction={process.env.NODE_ENV === "production"}
+      worktreePath={session.worktreePath}
     />
   );
 }
