@@ -1426,7 +1426,12 @@ export default function EvolveSessionView({
                 ⬆ Upstream Changes
               </p>
               <p className="text-blue-200/70 text-xs">
-                <code className="bg-blue-950/60 px-1 rounded">{parentBranch ?? branch ?? "parent"}</code> is{" "}
+                {parentBranch ? (
+                  <code className="bg-blue-950/60 px-1 rounded">{parentBranch}</code>
+                ) : (
+                  <span className="text-yellow-400">[parent branch unknown]</span>
+                )}{" "}
+                is{" "}
                 <strong>{remainingUpstream}</strong> commit{remainingUpstream === 1 ? "" : "s"} ahead
                 of <code className="bg-blue-950/60 px-1 rounded">{sessionBranch}</code>.
                 Bring those changes into the session branch before accepting.
