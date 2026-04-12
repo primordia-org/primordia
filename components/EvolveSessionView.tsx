@@ -1732,7 +1732,14 @@ export default function EvolveSessionView({
             <Link href="/changelog" className="text-blue-400 hover:text-blue-300">
               Changelog
             </Link>
+            {" "}·{" "}
+            <Link href="/branches" className="text-blue-400 hover:text-blue-300">
+              Branches
+            </Link>
           </span>
+          <code className="font-mono text-amber-300/60">
+            {branch ? <>{branch} ▸ </> : null}{sessionBranch}
+          </code>
         </div>
       </div>
     </main>

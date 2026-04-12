@@ -46,6 +46,12 @@ proxy panel.
 metrics event directly to the NDJSON file as they arrive, making the event
 log the single source of truth.
 
+**Footer**
+
+The session page footer now again shows the "Branches" link alongside
+"Changelog", and restores the `branch ▸ sessionBranch` amber monospace
+display in the bottom-right corner.
+
 **Abort recovery**
 
 The server-restart recovery path in `/api/evolve/abort` now appends a
