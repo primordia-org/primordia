@@ -34,11 +34,13 @@ full absolute path). This shortening now also applies to absolute paths
 embedded inside Bash command strings. `Read` tool calls include the line
 range when an `offset` is provided (e.g. `./lib/foo.ts:45-94`). `Edit`
 tool calls show a short preview of the first line of `new_string` (e.g.
-`./lib/foo.ts "const foo = …"`). Spacing
-between tool call lines and text blocks is now uniform. The extraneous
-"Preview ready" block that was embedded in the structured section renderer
-has been removed — the preview server status is shown independently via the
-proxy panel.
+`./lib/foo.ts "const foo = …"`). `Grep` tool calls show the search pattern
+and optional path and file filter (e.g. `"summarizeToolInput" in
+./components [*.tsx]`). `Glob` tool calls show the pattern and optional
+path (e.g. `changelog/*.md`). Spacing between tool call lines and text
+blocks is now uniform. The extraneous "Preview ready" block that was
+embedded in the structured section renderer has been removed — the preview
+server status is shown independently via the proxy panel.
 
 **Worker**
 

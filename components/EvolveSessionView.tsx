@@ -370,6 +370,24 @@ function summarizeToolInput(name: string, input: Record<string, unknown>, worktr
     }
     return cmd.length > 100 ? cmd.slice(0, 100) + '…' : cmd;
   }
+  if (lname === 'grep') {
+    const pattern = typeof input.pattern === 'string' ? input.pattern : '';
+    const path = typeof input.path === 'string' ? shorten(input.path) : null;
+    const glob = typeof input.glob === 'string' ? input.glob : null;
+    const type = typeof input.type === 'string' ? input.type : null;
+    const parts: string[] = [`"${pattern.length > 50 ? pattern.slice(0, 50) + '…' : pattern}"`];
+    if (path && path !== '.') parts.push(`in ${path}`);
+    if (glob) parts.push(`[${glob}]`);
+    else if (type) parts.push(`[${type}]`);
+    return parts.join(' ');
+  }
+  if (lname === 'glob') {
+    const pattern = typeof input.pattern === 'string' ? input.pattern : '';
+    const path = typeof input.path === 'string' ? shorten(input.path) : null;
+    const parts: string[] = [pattern.length > 60 ? '…' + pattern.slice(-60) : pattern];
+    if (path && path !== '.') parts.push(`in ${path}`);
+    return parts.join(' ');
+  }
   // For file tools, show the path (with optional line range for Read)
   for (const key of ['file_path', 'path', 'pattern', 'glob']) {
     if (typeof input[key] === 'string') {
