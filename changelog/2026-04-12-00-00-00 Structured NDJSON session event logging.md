@@ -32,7 +32,9 @@ File paths in tool call summaries are shortened so that the worktree
 directory is displayed as `.` (e.g. `./components/Foo.tsx` instead of the
 full absolute path). This shortening now also applies to absolute paths
 embedded inside Bash command strings. `Read` tool calls include the line
-range when an `offset` is provided (e.g. `./lib/foo.ts:45-94`). Spacing
+range when an `offset` is provided (e.g. `./lib/foo.ts:45-94`). `Edit`
+tool calls show a short preview of the first line of `old_string` (e.g.
+`./lib/foo.ts "const foo = …"`). Spacing
 between tool call lines and text blocks is now uniform. The extraneous
 "Preview ready" block that was embedded in the structured section renderer
 has been removed — the preview server status is shown independently via the

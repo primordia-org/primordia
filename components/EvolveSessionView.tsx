@@ -379,6 +379,11 @@ function summarizeToolInput(name: string, input: Record<string, unknown>, worktr
         const end = typeof input.limit === 'number' ? input.offset + input.limit - 1 : null;
         return end != null ? `${shortened}:${input.offset}-${end}` : `${shortened}:${input.offset}`;
       }
+      if (lname === 'edit' && typeof input.old_string === 'string') {
+        const preview = input.old_string.trim().split('\n')[0].trim();
+        const clipped = preview.length > 40 ? preview.slice(0, 40) + '…' : preview;
+        return `${shortened} "${clipped}"`;
+      }
       return shortened;
     }
   }
