@@ -39,10 +39,13 @@ echo "  Installed proxy script: ${PROXY_STABLE}"
 
 # Initialise primordia.productionBranch in git config so the reverse proxy knows
 # which branch is production. Only set on first install — never overwrite a live value.
+# Use the branch currently checked out in REPO_ROOT (e.g. curl-pipe-install-script
+# when installed via a preview URL), falling back to main.
 if ! git -C "${REPO_ROOT}" config --get primordia.productionBranch >/dev/null 2>&1; then
-  git -C "${REPO_ROOT}" config primordia.productionBranch main
-  git -C "${REPO_ROOT}" config --add primordia.productionHistory main
-  echo "  Initialized production branch → main"
+  _CURRENT_BRANCH=$(git -C "${REPO_ROOT}" symbolic-ref --short HEAD 2>/dev/null || echo "main")
+  git -C "${REPO_ROOT}" config primordia.productionBranch "${_CURRENT_BRANCH}"
+  git -C "${REPO_ROOT}" config --add primordia.productionHistory "${_CURRENT_BRANCH}"
+  echo "  Initialized production branch → ${_CURRENT_BRANCH}"
 else
   echo "  Production branch already set → $(git -C "${REPO_ROOT}" config --get primordia.productionBranch)"
 fi
