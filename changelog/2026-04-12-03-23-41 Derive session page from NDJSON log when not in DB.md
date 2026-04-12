@@ -18,15 +18,13 @@ Added a fallback path in the session page and SSE stream endpoint so that sessio
 
 After a failed DB lookup, the page now calls `deriveSessionFromLog` with the candidate worktree path. If a log is found, the session is reconstructed and the page renders normally. Only if both the DB and the log are absent does the page 404.
 
-A `hasLocalProxy` flag is now passed to `EvolveSessionView` — `true` only when the session was found in the local DB (meaning it was started by this instance and is managed by its proxy). Log-derived sessions get `hasLocalProxy: false`.
-
 ### Updated `app/api/evolve/stream/route.ts`
 
 Same fallback applied in the SSE polling loop: if the session is not in the DB, attempt log-based reconstruction before reporting "Session not found". Since a log-derived session has no running worker, it will already be in a terminal state, so the stream closes immediately after delivering events.
 
 ### Updated `components/EvolveSessionView.tsx`
 
-The **🚀 Preview server** box and its associated proxy-polling effects (`/_proxy/preview/{id}/status`, `/_proxy/preview/{id}/logs`) are now gated on `hasLocalProxy`. When viewing a parent or sibling worktree's session from a child instance, the proxy has no record of that session, so showing "Checking…" indefinitely was nonsensical.
+The **⬆ Upstream Changes** box is now gated on `canAcceptReject` in addition to `canEvolve`. When viewing a session where `branch === sessionBranch` (e.g. viewing your own current branch's session from within that worktree), the box would nonsensically display "`session-logs-without-db` is 1 commit ahead of `session-logs-without-db`". Since you can only apply upstream updates to sessions you can accept/reject, gating on `canAcceptReject` prevents this message from appearing.
 
 ## Why
 

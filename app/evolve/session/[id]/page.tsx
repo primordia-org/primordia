@@ -130,8 +130,6 @@ export default async function EvolveSessionPage({
 
   const db = await getDb();
   let session = await db.getEvolveSession(id);
-  // Track whether session came from the local DB (and is therefore managed by this instance's proxy)
-  const sessionFromDb = session != null;
   if (!session) {
     // The session isn't in the local DB — this can happen when the DB was
     // copied before the session was created (e.g. viewing a parent worktree's
@@ -182,7 +180,6 @@ export default async function EvolveSessionPage({
       canEvolve={canEvolve}
       isProduction={process.env.NODE_ENV === "production"}
       worktreePath={session.worktreePath}
-      hasLocalProxy={sessionFromDb}
     />
   );
 }
