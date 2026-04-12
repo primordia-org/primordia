@@ -361,14 +361,30 @@ function summarizeToolInput(name: string, input: Record<string, unknown>, worktr
 
   const lname = name.toLowerCase();
   if (lname === 'bash') {
-    const cmd = typeof input.command === 'string' ? input.command : '';
+    const rawCmd = typeof input.command === 'string' ? input.command : '';
+    let cmd = rawCmd;
+    if (worktreePath) {
+      const prefix = worktreePath.endsWith('/') ? worktreePath : worktreePath + '/';
+      cmd = cmd.split(prefix).join('./');
+      cmd = cmd.split(worktreePath).join('.');
+    }
     return cmd.length > 100 ? cmd.slice(0, 100) + '…' : cmd;
   }
-  // For file tools, show the path
+  // For file tools, show the path (with optional line range for Read)
   for (const key of ['file_path', 'path', 'pattern', 'glob']) {
     if (typeof input[key] === 'string') {
       const val = shorten(input[key] as string);
-      return val.length > 80 ? '…' + val.slice(-80) : val;
+      const shortened = val.length > 80 ? '…' + val.slice(-80) : val;
+      if (lname === 'read' && typeof input.offset === 'number') {
+        const end = typeof input.limit === 'number' ? input.offset + input.limit - 1 : null;
+        return end != null ? `${shortened}:${input.offset}-${end}` : `${shortened}:${input.offset}`;
+      }
+      if (lname === 'edit' && typeof input.new_string === 'string') {
+        const preview = input.new_string.trim().split('\n')[0].trim();
+        const clipped = preview.length > 40 ? preview.slice(0, 40) + '…' : preview;
+        return `${shortened} "${clipped}"`;
+      }
+      return shortened;
     }
   }
   // Generic fallback: first key=value pair
@@ -434,7 +450,7 @@ function RunningClaudeSection({ events, label, isTypeFixSection, worktreePath }:
             );
           }
           if (event.type === 'text') {
-            return <MarkdownContent key={i} text={event.content} />;
+            return <MarkdownContent key={i} text={event.content} className="[&>*:last-child]:mb-0" />;
           }
           if (event.type === 'log_line') {
             return <p key={i} className="text-gray-500 text-xs">{event.content}</p>;
@@ -478,7 +494,7 @@ function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath }: {
             <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
             <span className="text-gray-500">🔧 {toolCallCount} tool call{toolCallCount !== 1 ? "s" : ""} made</span>
           </summary>
-          <div className="px-4 py-3 border-t border-gray-800 space-y-1">
+          <div className="px-4 py-3 border-t border-gray-800 space-y-2">
             {detailEvents.map((event, i) => {
               if (event.type === 'tool_use') {
                 const summary = summarizeToolInput(event.name, event.input, worktreePath);
@@ -489,7 +505,7 @@ function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath }: {
                 );
               }
               if (event.type === 'text') {
-                return <MarkdownContent key={i} text={event.content} />;
+                return <MarkdownContent key={i} text={event.content} className="[&>*:last-child]:mb-0" />;
               }
               return null;
             })}
