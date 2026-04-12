@@ -204,16 +204,25 @@ info "Installing Primordia on ${VM_HOST} (this may take a few minutes)..."
 diag "SSHing into ${VM_HOST} to run remote setup..."
 echo ""
 
-# Run the full setup remotely.  The heredoc is a temporary file created by the
-# local shell — it does not consume the pipe that feeds this script, so the
-# install works correctly when run as `curl … | bash`.
-# Note: -tt allocates a pseudo-TTY so remote output is streamed in real time.
-# No spinner here — remote output streams live, so the user can see progress.
+# We use a two-step approach to avoid a stdin-consumption bug:
+#
+#   Problem: `ssh -tt host bash -s << 'HEREDOC'` feeds the heredoc via the
+#   remote PTY's stdin.  Any subprocess inside the script (e.g. apt-get) that
+#   reads fd 0 will consume part of the heredoc, truncating the script mid-run.
+#   This caused `sudo apt-get install -y locales` to eat the rest of the remote
+#   setup script, leaving the user at a live SSH prompt.
+#
+#   Fix:
+#     Step 1 — upload the script to a temp file on the VM (no PTY, heredoc is
+#               cleanly consumed by `cat > file` and nothing else can grab it).
+#     Step 2 — execute the file with -tt (PTY for live output streaming).
+#               bash reads from the file; subprocesses inherit a clean PTY stdin
+#               (the user's forwarded terminal), not the script content.
 #
 # $1 = PRIMORDIA_GIT_HOST, $2 = PRIMORDIA_GIT_IP (may be empty)
-# bash -s reads commands from stdin (the heredoc) and treats extra args as $1/$2.
-ssh -o StrictHostKeyChecking=accept-new -tt "${VM_HOST}" \
-  bash -s -- "${PRIMORDIA_GIT_HOST}" "${PRIMORDIA_GIT_IP:-}" << 'REMOTE'
+
+ssh -o StrictHostKeyChecking=accept-new "${VM_HOST}" \
+  'cat > /tmp/primordia_setup.sh' << 'REMOTE'
 # Positional args passed from local machine:
 PRIMORDIA_GIT_HOST="${1:-primordia.exe.xyz}"
 PRIMORDIA_GIT_IP="${2:-}"
@@ -224,10 +233,12 @@ set -euo pipefail
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 export LANGUAGE=en_US.UTF-8
-# Install locales package and generate en_US.UTF-8 (non-fatal)
-sudo apt-get install -y locales >/dev/null 2>&1 || true
-sudo locale-gen en_US.UTF-8 >/dev/null 2>&1 || true
-sudo update-locale LANG=en_US.UTF-8 >/dev/null 2>&1 || true
+# Install locales package and generate en_US.UTF-8.
+# DEBIAN_FRONTEND=noninteractive + </dev/null prevent apt-get from reading stdin.
+export DEBIAN_FRONTEND=noninteractive
+sudo apt-get install -y locales </dev/null >/dev/null 2>&1 || true
+sudo locale-gen en_US.UTF-8 </dev/null >/dev/null 2>&1 || true
+sudo update-locale LANG=en_US.UTF-8 </dev/null >/dev/null 2>&1 || true
 
 GREEN="\033[0;32m"; CYAN="\033[0;36m"; RED="\033[0;31m"; DIM="\033[2m"; BOLD="\033[1m"; RESET="\033[0m"
 info()    { echo -e "${CYAN}▸${RESET} $*"; }
@@ -316,7 +327,8 @@ echo ""
 _REMOTE_STEP="install git"
 if ! command -v git &>/dev/null; then
   info "Installing git..."
-  sudo apt-get update -qq && sudo apt-get install -y git curl
+  sudo apt-get update -qq </dev/null && \
+    sudo apt-get install -y git curl </dev/null
 fi
 success "git $(git --version | awk '{print $3}')"
 
@@ -363,6 +375,12 @@ _REMOTE_STEP="run install.sh"
 cd "$HOME/primordia"
 bash scripts/install.sh
 REMOTE
+
+# Step 2: execute the uploaded script with a PTY for live streaming output.
+# bash reads from the file — subprocesses get a clean PTY stdin (the forwarded
+# local terminal), not the script content.
+ssh -tt -o StrictHostKeyChecking=accept-new "${VM_HOST}" \
+  "bash /tmp/primordia_setup.sh '${PRIMORDIA_GIT_HOST}' '${PRIMORDIA_GIT_IP:-}'; rm -f /tmp/primordia_setup.sh"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 

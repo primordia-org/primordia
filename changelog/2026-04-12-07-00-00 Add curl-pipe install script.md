@@ -115,6 +115,25 @@ The reverse proxy was logging `[proxy] cannot start prod server: no worktree for
 
 The readiness wait in `install.sh` was extended from 60 s to 120 s (the production Next.js server can take >60 s to start on a cold VM), and now also matches `✓ Ready` in addition to `Ready`.
 
+## Remote setup drops to interactive SSH prompt (2026-04-12 follow-up #3)
+
+### Root cause
+
+`ssh -tt host bash -s -- args << 'HEREDOC'` feeds the heredoc via the remote PTY's stdin. Any subprocess inside the script that reads fd 0 competes with bash for that same stdin. `sudo apt-get install -y locales` reads from stdin (even with `-y`), consuming the rest of the heredoc — leaving the script truncated and the user dropped into an interactive shell.
+
+The PTY's local-echo feature also reflected the heredoc content back to the terminal, producing the garbled `exedev@primordia2:~$ set -euo pipefail` lines seen in previous output.
+
+### Fix
+
+Replaced the single `ssh -tt ... << 'HEREDOC'` with a two-step approach:
+
+1. **Upload** — `ssh host 'cat > /tmp/primordia_setup.sh' << 'REMOTE'` saves the script to a temp file (no PTY; the heredoc is consumed entirely by `cat` and nothing else can grab it).
+2. **Execute** — `ssh -tt host "bash /tmp/primordia_setup.sh ARGS; rm -f /tmp/primordia_setup.sh"` runs from the file. bash reads the script from the file, so subprocesses inherit a clean PTY stdin (the forwarded local terminal), not the script content.
+
+Side benefit: because bash now reads from a file instead of the PTY, it doesn't enter interactive mode and the PTY echo is suppressed — command names no longer appear garbled in the output.
+
+Belt-and-suspenders: added `DEBIAN_FRONTEND=noninteractive` and `</dev/null` to all `apt-get`, `locale-gen`, and `update-locale` calls in the remote script to prevent any future interactive stdin reads from those commands.
+
 ## Why
 
 The previous design required the script to be run on the server and prompted for API keys upfront. The new installer runs entirely from the user's laptop, orchestrates VM creation automatically, and defers all configuration to the app's own first-run flow.
