@@ -76,16 +76,22 @@ New exe.dev VMs cannot resolve `primordia.exe.xyz` from within the exe.dev netwo
 
 exe.dev VMs don't have a UTF-8 locale set by default, causing Unicode box-drawing characters (`─`, `✓`, `▸`) to render as garbage. Fixed by setting `LANG`, `LC_ALL`, and `LANGUAGE` to `en_US.UTF-8` at the very start of the remote script section, plus running `sudo locale-gen en_US.UTF-8` (non-fatal if it fails).
 
-### `bun install` fails with `ConnectionRefused` on new VMs
+### `bun install` fails with `ConnectionRefused` on new VMs — root cause: DNS race
 
-New exe.dev VMs accept SSH connections immediately, but outbound routing to external services (specifically the npm registry at `registry.npmjs.org`) may not be fully established for the first ~30–60 seconds after creation. This causes `bun install --frozen-lockfile` to fail with `ConnectionRefused` on every package simultaneously.
+The `ConnectionRefused` errors on every npm package were caused by DNS being unavailable, not by a missing outbound route. The symptom (`ConnectionRefused` vs `ETIMEDOUT`) pointed to `getaddrinfo` failing immediately rather than a slow connection.
 
-Fixed by adding two defences in `scripts/install.sh`:
+Root cause: Ubuntu's `systemd-resolved` starts before the VM's NIC is fully initialised (a known race in systemd-257, [issue #35654](https://github.com/systemd/systemd/issues/35654)). This leaves `resolvectl status` reporting `Current Scopes: none` — meaning the resolver has no interface to send queries through — for up to 120 s after VM creation. All DNS lookups fail immediately until either the resolver self-recovers or is restarted.
 
-1. **Network readiness check** — before running `bun install`, poll `https://registry.npmjs.org/` with `curl` (2-second intervals, up to 60s total). If it becomes reachable, proceed immediately; if not, warn and try anyway.
-2. **Retry logic** — `bun install` is attempted up to 3 times with a 15-second delay between failures. On final failure, a connectivity check is printed in the diagnostic output.
+Fixed by adding a `wait for DNS` step in both `install-for-exe-dev.sh` (in the remote heredoc) and `install.sh`, run before any network I/O:
 
-The IP injection for `primordia.exe.xyz` (added in the previous fix) is kept: that's a separate structural issue where VMs in the exe.dev network can't resolve the primordia domain through DNS (it routes through the proxy), and IP injection is the correct long-term fix regardless of timing.
+1. **Detect** — `getent hosts registry.npmjs.org` to check if DNS is functional.
+2. **Flush cache** — `sudo resolvectl flush-caches` clears any stale negative entries.
+3. **Restore `/etc/resolv.conf` symlink** — if the file is missing or doesn't point to `127.0.0.53`, restore the symlink to the stub resolver.
+4. **Restart resolved** — if `resolvectl status` shows `Current Scopes: none`, restart `systemd-networkd` (3 s delay) then `systemd-resolved` (2 s delay) to force the race to resolve in the right order.
+5. **Wait up to 60 s** — polling every 2 s with dots printed to the terminal.
+6. **Public DNS fallback** — if DNS is still broken after 60 s, write `1.1.1.1` and `8.8.8.8` directly to `/etc/resolv.conf` to bypass `systemd-resolved` entirely. If that also fails, exit with a diagnostic.
+
+DNS diagnostic info (`resolv.conf` content, `Current Scopes` from `resolvectl`) is now included in both the remote and server diagnostics sections, making future failures easier to diagnose.
 
 ## Why
 

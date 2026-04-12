@@ -71,6 +71,8 @@ diag "User:      $(whoami)"
 diag "Disk:      $(df -h "${INSTALL_DIR}" 2>/dev/null | awk 'NR==2{print $4" free of "$2}' || echo 'unknown')"
 diag "Memory:    $(free -h 2>/dev/null | awk '/^Mem:/{print $7" free of "$2}' || echo 'unknown')"
 diag "Repo:      $(git -C "${INSTALL_DIR}" log -1 --oneline 2>/dev/null || echo 'unknown')"
+diag "resolv.conf: $(grep -v '^#' /etc/resolv.conf 2>/dev/null | tr '\n' ' ' || echo 'missing')"
+diag "DNS scopes:  $(resolvectl status 2>/dev/null | grep 'Current Scopes' | head -3 | tr '\n' ' ' || echo 'n/a')"
 diag "--------------------------------------------------------------"
 echo ""
 
@@ -112,26 +114,51 @@ else
   info "Using existing ${ENV_FILE}"
 fi
 
-# ── Wait for outbound internet ────────────────────────────────────────────────
-# New VMs may take a few seconds for outbound routing to be fully established.
-# Poll until the npm registry is reachable before attempting bun install.
+# ── Wait for DNS / outbound internet ─────────────────────────────────────────
+# Fresh VMs have a known race: systemd-resolved starts before the NIC is ready,
+# leaving DNS broken for up to 120 s.  We detect this and try to fix it before
+# running bun install (which would fail with ConnectionRefused on every package).
 
-_CURRENT_STEP="wait for outbound internet"
-if ! curl -fsS --max-time 5 https://registry.npmjs.org/ >/dev/null 2>&1; then
-  info "Waiting for outbound internet access..."
-  _NET_OK=false
-  for _i in $(seq 1 30); do
+_CURRENT_STEP="wait for DNS"
+_dns_check() { getent hosts registry.npmjs.org >/dev/null 2>&1; }
+
+if ! _dns_check; then
+  info "DNS not ready — attempting to fix (systemd-resolved race on fresh VMs)..."
+
+  # Flush stale cache
+  sudo resolvectl flush-caches 2>/dev/null || true
+
+  # Restore stub-resolver symlink if missing
+  if ! grep -q "127.0.0.53" /etc/resolv.conf 2>/dev/null; then
+    sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf 2>/dev/null || true
+  fi
+
+  # Restart resolved if it reports no scopes (NIC wasn't ready when it started)
+  if resolvectl status 2>/dev/null | grep -q "Current Scopes: none"; then
+    diag "Current Scopes: none — restarting systemd-networkd + systemd-resolved"
+    sudo systemctl restart systemd-networkd 2>/dev/null || true
+    sleep 3
+    sudo systemctl restart systemd-resolved 2>/dev/null || true
     sleep 2
-    printf "."
-    if curl -fsS --max-time 5 https://registry.npmjs.org/ >/dev/null 2>&1; then
-      echo ""
-      _NET_OK=true
+  fi
+
+  # Wait up to 60 s for DNS
+  _DNS_OK=false
+  printf "${CYAN}▸${RESET} Waiting for DNS"
+  for _i in $(seq 1 30); do
+    if _dns_check; then
+      _DNS_OK=true
       break
     fi
+    printf "."
+    sleep 2
   done
-  if [[ "$_NET_OK" != "true" ]]; then
-    echo ""
-    warn "npm registry still not reachable after 60s — attempting bun install anyway"
+  echo ""
+
+  if [[ "$_DNS_OK" != "true" ]]; then
+    warn "DNS still broken — falling back to public DNS (1.1.1.1 / 8.8.8.8)"
+    echo -e "nameserver 1.1.1.1\nnameserver 8.8.8.8" | sudo tee /etc/resolv.conf >/dev/null
+    sleep 1
   fi
 fi
 

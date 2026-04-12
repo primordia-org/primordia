@@ -231,6 +231,7 @@ GREEN="\033[0;32m"; CYAN="\033[0;36m"; RED="\033[0;31m"; DIM="\033[2m"; BOLD="\0
 info()    { echo -e "${CYAN}▸${RESET} $*"; }
 success() { echo -e "${GREEN}✓${RESET} $*"; }
 diag()    { echo -e "${DIM}  $*${RESET}"; }
+warn_msg(){ echo -e "\033[0;33m⚠${RESET} $*"; }
 
 _REMOTE_STEP="(initialising)"
 trap 'echo -e "\n${RED}✗ Remote setup failed${RESET} at step: ${BOLD}${_REMOTE_STEP}${RESET} (line ${LINENO})" >&2' ERR
@@ -243,7 +244,70 @@ diag "OS:        $(uname -srm)"
 diag "User:      $(whoami)"
 diag "Disk:      $(df -h / 2>/dev/null | awk 'NR==2{print $4" free of "$2}' || echo 'unknown')"
 diag "Memory:    $(free -h 2>/dev/null | awk '/^Mem:/{print $7" free of "$2}' || echo 'unknown')"
+diag "resolv.conf: $(grep -v '^#' /etc/resolv.conf 2>/dev/null | tr '\n' ' ' || echo 'missing')"
+diag "DNS scopes: $(resolvectl status 2>/dev/null | grep 'Current Scopes' | head -3 | tr '\n' ' ' || echo 'n/a')"
 diag "--------------------------------"
+echo ""
+
+# ── Wait for DNS ──────────────────────────────────────────────────────────────
+# Fresh VMs have a known race condition where systemd-resolved starts before
+# the network interface is fully ready, leaving DNS broken for 30-120 seconds.
+# We detect this early and actively fix it before attempting any network I/O.
+_REMOTE_STEP="wait for DNS"
+_dns_ready() { getent hosts registry.npmjs.org >/dev/null 2>&1; }
+
+if ! _dns_ready; then
+  info "DNS not ready yet — attempting to fix..."
+  diag "resolv.conf: $(grep -v '^#' /etc/resolv.conf 2>/dev/null | tr '\n' ' ' || echo 'missing')"
+  diag "DNS scopes:  $(resolvectl status 2>/dev/null | grep 'Current Scopes' | head -5 | tr '\n' ' ' || echo 'n/a')"
+
+  # Fix 1: flush stale cache entries
+  sudo resolvectl flush-caches 2>/dev/null || true
+
+  # Fix 2: if /etc/resolv.conf doesn't point to the stub resolver, restore it
+  if ! grep -q "127.0.0.53" /etc/resolv.conf 2>/dev/null; then
+    diag "Restoring /etc/resolv.conf symlink to stub resolver..."
+    sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf 2>/dev/null || true
+  fi
+
+  # Fix 3: if systemd-resolved reports no scopes, the NIC wasn't ready when it
+  # started (a known systemd-257 race) — restart networkd then resolved.
+  if resolvectl status 2>/dev/null | grep -q "Current Scopes: none"; then
+    diag "Restarting systemd-networkd + systemd-resolved (NIC was not ready at boot)..."
+    sudo systemctl restart systemd-networkd 2>/dev/null || true
+    sleep 3
+    sudo systemctl restart systemd-resolved 2>/dev/null || true
+    sleep 2
+  fi
+
+  # Wait up to 60 s for DNS to become available
+  _dns_ok=false
+  printf "${CYAN}▸${RESET} Waiting for DNS"
+  for _i in $(seq 1 30); do
+    if _dns_ready; then
+      _dns_ok=true
+      break
+    fi
+    printf "."
+    sleep 2
+  done
+  echo ""
+
+  if [[ "$_dns_ok" != "true" ]]; then
+    # Last resort: bypass systemd-resolved entirely and write public DNS directly
+    warn_msg "DNS still broken after 60 s — falling back to public DNS (1.1.1.1 / 8.8.8.8)"
+    diag "resolv.conf was: $(cat /etc/resolv.conf 2>/dev/null | tr '\n' ' ' || echo 'missing')"
+    echo -e "nameserver 1.1.1.1\nnameserver 8.8.8.8" | sudo tee /etc/resolv.conf >/dev/null
+    sleep 1
+    if ! _dns_ready; then
+      diag "ping 1.1.1.1: $(ping -c 1 -W 3 1.1.1.1 2>&1 | tail -1 || echo 'failed')"
+      echo -e "${RED}✗ DNS resolution failed even with public DNS — cannot continue${RESET}" >&2
+      exit 1
+    fi
+    diag "Public DNS fallback is working"
+  fi
+fi
+success "DNS is ready ($(resolvectl status 2>/dev/null | grep -m1 'DNS Servers' | sed 's/.*DNS Servers: //' || echo 'resolver ok'))"
 echo ""
 
 # ── Install git ────────────────────────────────────────────────────────────────
