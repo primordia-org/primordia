@@ -1,7 +1,7 @@
 # Use paperclip emoji for Attach files button
 
-Replaced the inline SVG paperclip icon in the "Attach files" / "Attach" buttons with the 📎 emoji across `EvolveForm.tsx` and `FloatingEvolveDialog.tsx`.
+Replaced the inline SVG paperclip icon with the 📎 emoji across all attach buttons, and standardized the label to "Attach files" in `EvolveForm.tsx`, `FloatingEvolveDialog.tsx`, and `EvolveSessionView.tsx`.
 
-The `EvolveSessionView.tsx` follow-up input already used the emoji, so all three attach buttons are now consistent.
+`FloatingEvolveDialog` previously said "Attach" while the other two said "Attach files"; all three now use the same wording.
 
-This removes ~4 lines of SVG markup per button and keeps the UI visually consistent with the follow-up panel.
+This removes ~4 lines of SVG markup per button and keeps the UI visually consistent across all panels.

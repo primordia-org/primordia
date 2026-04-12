@@ -368,7 +368,7 @@ export function FloatingEvolveDialog({
               disabled={isLoading}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 border border-gray-700 transition-colors disabled:opacity-50"
             >
-              📎 Attach
+              📎 Attach files
             </button>
             <button
               type="submit"
