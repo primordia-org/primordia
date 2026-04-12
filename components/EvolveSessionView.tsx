@@ -350,7 +350,15 @@ function groupEventsIntoSections(events: SessionEvent[]): SectionGroup[] {
 }
 
 /** Generate a short human-readable description of a tool call's primary argument. */
-function summarizeToolInput(name: string, input: Record<string, unknown>): string {
+function summarizeToolInput(name: string, input: Record<string, unknown>, worktreePath?: string): string {
+  const shorten = (p: string): string => {
+    if (!worktreePath || !p) return p;
+    const prefix = worktreePath.endsWith('/') ? worktreePath : worktreePath + '/';
+    if (p === worktreePath) return '.';
+    if (p.startsWith(prefix)) return './' + p.slice(prefix.length);
+    return p;
+  };
+
   const lname = name.toLowerCase();
   if (lname === 'bash') {
     const cmd = typeof input.command === 'string' ? input.command : '';
@@ -359,7 +367,7 @@ function summarizeToolInput(name: string, input: Record<string, unknown>): strin
   // For file tools, show the path
   for (const key of ['file_path', 'path', 'pattern', 'glob']) {
     if (typeof input[key] === 'string') {
-      const val = input[key] as string;
+      const val = shorten(input[key] as string);
       return val.length > 80 ? '…' + val.slice(-80) : val;
     }
   }
@@ -397,10 +405,11 @@ function splitClaudeEventsForDisplay(events: SessionEvent[]): {
 }
 
 /** Render a running Claude/type-fix section (streaming events live). */
-function RunningClaudeSection({ events, label, isTypeFixSection }: {
+function RunningClaudeSection({ events, label, isTypeFixSection, worktreePath }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
+  worktreePath?: string;
 }) {
   const borderClass = isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
   const headingClass = isTypeFixSection ? "text-orange-300" : "text-blue-300";
@@ -417,7 +426,7 @@ function RunningClaudeSection({ events, label, isTypeFixSection }: {
       <div className="px-4 py-3 space-y-2">
         {events.map((event, i) => {
           if (event.type === 'tool_use') {
-            const summary = summarizeToolInput(event.name, event.input);
+            const summary = summarizeToolInput(event.name, event.input, worktreePath);
             return (
               <p key={i} className="text-gray-400 text-xs font-mono">
                 🔧 {event.name}{summary ? <span className="text-gray-600"> {summary}</span> : null}
@@ -438,10 +447,11 @@ function RunningClaudeSection({ events, label, isTypeFixSection }: {
 }
 
 /** Render a completed Claude/type-fix section with tool calls collapsed. */
-function DoneClaudeSection({ events, label, isTypeFixSection }: {
+function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
+  worktreePath?: string;
 }) {
   const resultEvent = events.find((e): e is Extract<SessionEvent, { type: 'result' }> => e.type === 'result');
   const metricsEvent = events.find((e): e is Extract<SessionEvent, { type: 'metrics' }> => e.type === 'metrics');
@@ -471,7 +481,7 @@ function DoneClaudeSection({ events, label, isTypeFixSection }: {
           <div className="px-4 py-3 border-t border-gray-800 space-y-1">
             {detailEvents.map((event, i) => {
               if (event.type === 'tool_use') {
-                const summary = summarizeToolInput(event.name, event.input);
+                const summary = summarizeToolInput(event.name, event.input, worktreePath);
                 return (
                   <p key={i} className="text-gray-400 text-xs font-mono">
                     🔧 {event.name}{summary ? <span className="text-gray-600"> {summary}</span> : null}
@@ -507,11 +517,11 @@ function DoneClaudeSection({ events, label, isTypeFixSection }: {
 function StructuredSection({
   section,
   isActive,
-  previewUrl,
+  worktreePath,
 }: {
   section: SectionGroup;
   isActive: boolean;
-  previewUrl?: string | null;
+  worktreePath?: string;
 }) {
   const { type, label, events } = section;
 
@@ -530,8 +540,8 @@ function StructuredSection({
         )}
         {claudeEvents.length > 0 && (
           isActive && !hasResult
-            ? <RunningClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} />
-            : <DoneClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} />
+            ? <RunningClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} />
+            : <DoneClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} />
         )}
       </>
     );
@@ -541,9 +551,9 @@ function StructuredSection({
   if (type === 'claude' || type === 'type_fix') {
     const hasResult = events.some((e) => e.type === 'result');
     if (isActive && !hasResult) {
-      return <RunningClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} />;
+      return <RunningClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} />;
     }
-    return <DoneClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} />;
+    return <DoneClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} />;
   }
 
   // ── Deploy ───────────────────────────────────────────────────────────────
@@ -598,49 +608,7 @@ function StructuredSection({
     );
   }
 
-  // ── Preview server (legacy deploy type) ──────────────────────────────────
-  const logLines = events
-    .filter((e): e is Extract<SessionEvent, { type: 'log_line' }> => e.type === 'log_line')
-    .map((e) => e.content)
-    .join('\n');
-  if (isActive) {
-    return (
-      <div className="rounded-lg border border-emerald-700/50 bg-gray-900 text-sm overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
-          <span className="font-semibold text-xs text-emerald-300">{label}</span>
-          <span className="ml-auto flex items-center gap-1.5 text-gray-500 text-xs animate-pulse">
-            <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
-            Starting…
-          </span>
-        </div>
-        {logLines && <div className="px-4 py-3"><pre className="text-xs text-gray-400 whitespace-pre-wrap font-mono">{logLines}</pre></div>}
-      </div>
-    );
-  }
-  return (
-    <div className="rounded-lg border border-emerald-700/50 bg-gray-900 text-sm overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-gray-800">
-        <span className="font-semibold text-xs text-emerald-300">🚀 Preview ready</span>
-      </div>
-      {logLines && (
-        <details className="group border-b border-gray-800">
-          <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
-            <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
-            <span className="text-gray-500">🪵 Server logs</span>
-          </summary>
-          <div className="px-4 py-3 border-t border-gray-800">
-            <pre className="text-xs text-gray-400 whitespace-pre-wrap font-mono">{logLines}</pre>
-          </div>
-        </details>
-      )}
-      {previewUrl && (
-        <div className="px-4 py-3">
-          <a href={previewUrl} target="_blank" rel="noopener noreferrer"
-            className="text-emerald-400 hover:text-emerald-200 underline break-all">{previewUrl}</a>
-        </div>
-      )}
-    </div>
-  );
+  return null;
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -668,6 +636,8 @@ interface EvolveSessionViewProps {
   canEvolve: boolean;
   /** True when running in production mode (NODE_ENV=production). Changes accept confirmation copy to describe blue/green cutover instead of a merge. */
   isProduction: boolean;
+  /** Absolute path to the session's worktree, used to shorten file paths in tool call display. */
+  worktreePath: string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -686,6 +656,7 @@ export default function EvolveSessionView({
   diffSummary,
   canEvolve,
   isProduction,
+  worktreePath,
 }: EvolveSessionViewProps) {
   const [events, setEvents] = useState<SessionEvent[]>(initialEvents);
   const [status, setStatus] = useState(initialStatus);
@@ -1302,13 +1273,12 @@ export default function EvolveSessionView({
           // Structured rendering: use event-based section components
           contentSections.map((section, i) => {
             const isSectionActive = i === contentSections.length - 1 && !isTerminal;
-            const isServer = section.type === 'deploy' && section.label.toLowerCase().includes('preview');
             return (
               <StructuredSection
                 key={i}
                 section={section}
                 isActive={isSectionActive}
-                previewUrl={isServer ? previewUrl : undefined}
+                worktreePath={worktreePath}
               />
             );
           })
