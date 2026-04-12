@@ -47,6 +47,16 @@ else
   echo "  Production branch already set → $(git -C "${REPO_ROOT}" config --get primordia.productionBranch)"
 fi
 
+# Assign ports to all local branches (ensures branch.main.port = 3001 is set in git config).
+bash "${SCRIPT_DIR}/assign-branch-ports.sh" "${REPO_ROOT}"
+
+# Symlink bun into /usr/local/bin so spawned child processes (bun run start/dev)
+# can find it even when PATH doesn't include ~/.bun/bin.
+BUN_BIN="$HOME/.bun/bin/bun"
+if [[ -f "$BUN_BIN" ]] && [[ ! -L /usr/local/bin/bun ]]; then
+  sudo ln -sf "$BUN_BIN" /usr/local/bin/bun 2>/dev/null && echo "  Symlinked bun → /usr/local/bin/bun" || true
+fi
+
 # Kill any legacy nohup process so we don't double-run.
 if [[ -f "$HOME/primordia.pid" ]]; then
   OLD_PID=$(cat "$HOME/primordia.pid" 2>/dev/null || true)

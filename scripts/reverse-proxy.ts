@@ -421,7 +421,7 @@ async function startPreviewServer(
   console.log(`[proxy] starting preview server for session ${sessionId} on :${info.port} in ${info.worktreePath}`);
   await killPortOwner(info.port);
 
-  const proc = spawn('bun', ['run', 'dev'], {
+  const proc = spawn(process.execPath, ['run', 'dev'], {
     cwd: info.worktreePath,
     env: {
       ...process.env,
@@ -545,14 +545,33 @@ async function startProdServerIfNeeded(): Promise<void> {
     let curPath: string | undefined;
     let curBranch: string | null = null;
     for (const line of wtOut.split('\n')) {
-      if (line.startsWith('worktree ')) { curPath = line.slice(9); curBranch = null; }
-      else if (line.startsWith('branch ')) { curBranch = line.slice(7).replace('refs/heads/', ''); }
-      else if (line === '' && curPath && curBranch === currentProdBranch) { prodPath = curPath; break; }
+      const trimmed = line.trimEnd();
+      if (trimmed.startsWith('worktree ')) { curPath = trimmed.slice(9).trim(); curBranch = null; }
+      else if (trimmed.startsWith('branch ')) { curBranch = trimmed.slice(7).trim().replace('refs/heads/', ''); }
+      else if (trimmed === '' && curPath && curBranch === currentProdBranch) { prodPath = curPath; break; }
     }
     // Handle last entry (no trailing blank line)
     if (!prodPath && curPath && curBranch === currentProdBranch) prodPath = curPath;
-  } catch {
-    // git not available
+    console.log(`[proxy] worktree lookup for '${currentProdBranch}': found=${prodPath ?? 'none'}`);
+    if (!prodPath) {
+      // Diagnostic: log all worktrees to aid debugging
+      console.log(`[proxy] git worktree list output:\n${wtOut}`);
+    }
+  } catch (err) {
+    console.warn(`[proxy] git worktree list failed: ${(err as Error).message}`);
+  }
+
+  if (!prodPath) {
+    // Fall back to MAIN_REPO itself if it matches the production branch
+    try {
+      const headBranch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+        cwd: MAIN_REPO, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+      if (headBranch === currentProdBranch) {
+        console.log(`[proxy] falling back to MAIN_REPO (${MAIN_REPO}) for branch '${currentProdBranch}'`);
+        prodPath = MAIN_REPO;
+      }
+    } catch { /* ignore */ }
   }
 
   if (!prodPath) {
@@ -562,7 +581,7 @@ async function startProdServerIfNeeded(): Promise<void> {
 
   console.log(`[proxy] starting production server (${currentProdBranch}) on :${upstreamPort} in ${prodPath}`);
   await killPortOwner(upstreamPort);
-  const server = spawn('bun', ['run', 'start'], {
+  const server = spawn(process.execPath, ['run', 'start'], {
     cwd: prodPath,
     env: { ...process.env, PORT: String(upstreamPort), HOSTNAME: '0.0.0.0' },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -675,7 +694,7 @@ async function handleProdSpawn(
     await killPortOwner(port);
 
     // Spawn new prod server — proxy owns this process.
-    const newServer = spawn('bun', ['run', 'start'], {
+    const newServer = spawn(process.execPath, ['run', 'start'], {
       cwd: path.resolve(worktreePath),
       env: { ...process.env, PORT: String(port), HOSTNAME: '0.0.0.0' },
       stdio: ['ignore', 'pipe', 'pipe'],

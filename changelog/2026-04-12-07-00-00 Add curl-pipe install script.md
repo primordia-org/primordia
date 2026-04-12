@@ -94,6 +94,27 @@ Fixed by adding a `wait for DNS` step in both `install-for-exe-dev.sh` (in the r
 
 DNS diagnostic info (`resolv.conf` content, `Current Scopes` from `resolvectl`) is now included in both the remote and server diagnostics sections, making future failures easier to diagnose.
 
+## Proxy fails to start production server: "no worktree for branch 'main'" (2026-04-12 follow-up #2)
+
+The reverse proxy was logging `[proxy] cannot start prod server: no worktree for branch 'main'` on every fresh install, leaving the app unreachable.
+
+### Root causes
+
+1. **`spawn('bun', ...)` fails with ENOENT** — The proxy systemd service doesn't have `~/.bun/bin` in its PATH. When the proxy called `spawn('bun', ['run', 'start'], ...)` to start the production Next.js server, the OS couldn't find the `bun` binary. Fixed by:
+   - Replacing `spawn('bun', ...)` with `spawn(process.execPath, ...)` across all three call sites — `process.execPath` is the absolute path to the running bun binary, always correct regardless of PATH.
+   - Creating a symlink `/usr/local/bin/bun → ~/.bun/bin/bun` in `install-service.sh` as a belt-and-suspenders fix.
+   - Adding explicit `PATH` and `HOME` to the systemd unit so the service environment is predictable.
+
+2. **Worktree line parsing lacked `.trim()`** — `git worktree list --porcelain` output parsing in `startProdServerIfNeeded` used `.slice(9)` / `.slice(7)` without trimming. Any trailing whitespace or carriage return would cause the branch comparison to fail silently. Fixed with `.trimEnd()` + `.trim()` on parsed values.
+
+3. **`branch.main.port` never set** — `install-service.sh` initialised `primordia.productionBranch = main` but never ran `assign-branch-ports.sh`, so `branch.main.port = 3001` was absent from git config. While the proxy defaults to port 3001, the missing entry caused unnecessary uncertainty. Fixed by calling `assign-branch-ports.sh` from `install-service.sh`.
+
+4. **Fallback for edge cases** — Added a secondary fallback in `startProdServerIfNeeded`: if the worktree list lookup fails to find a worktree for the production branch, the proxy now checks whether `MAIN_REPO`'s own HEAD matches and uses it directly. Covers any edge case where the freshly-cloned repo doesn't appear in the worktree list output.
+
+### Additional improvement
+
+The readiness wait in `install.sh` was extended from 60 s to 120 s (the production Next.js server can take >60 s to start on a cold VM), and now also matches `✓ Ready` in addition to `Ready`.
+
 ## Why
 
 The previous design required the script to be run on the server and prompted for API keys upfront. The new installer runs entirely from the user's laptop, orchestrates VM creation automatically, and defers all configuration to the app's own first-run flow.

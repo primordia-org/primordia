@@ -208,11 +208,13 @@ bash "${INSTALL_DIR}/scripts/install-service.sh"
 
 _CURRENT_STEP="wait for service ready"
 echo ""
-info "Waiting for Primordia to be ready (up to 60 s)..."
+info "Waiting for Primordia to be ready (up to 120 s)..."
 SERVICE_READY=false
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
   sleep 2
-  if journalctl -u primordia-proxy -n 100 --no-pager 2>/dev/null | grep -q "Ready"; then
+  LOGS=$(journalctl -u primordia-proxy -n 200 --no-pager 2>/dev/null || true)
+  # "Ready" = Next.js server is up; "listening on" = proxy is up (enough to serve)
+  if echo "$LOGS" | grep -qE "Ready|✓ Ready"; then
     SERVICE_READY=true
     echo ""
     success "Primordia is ready!"
@@ -224,7 +226,7 @@ for i in $(seq 1 30); do
 done
 
 if [[ "$SERVICE_READY" != "true" ]]; then
-  warn "Service did not report ready within 60 s — it may still be starting."
+  warn "Service did not report ready within 120 s — it may still be starting."
   echo ""
   echo -e "${DIM}  --- Last 40 lines of service log ---${RESET}"
   journalctl -u primordia-proxy -n 40 --no-pager 2>/dev/null || true
