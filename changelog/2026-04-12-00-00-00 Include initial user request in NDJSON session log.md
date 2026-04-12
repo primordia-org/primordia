@@ -4,7 +4,7 @@
 
 - Added a new `initial_request` event type to the `SessionEvent` union in `lib/session-events.ts`. When a new session starts, the initial user request text is now written as the very first event in the `.primordia-session.ndjson` file (before the `section_start` setup event).
 - Both `initial_request` and `followup_request` events now include an `attachments` field listing the filenames of any files the user uploaded with their request.
-- The "Your Request" and "Follow-up Request" sections on the session page now display file attachment chips when attachments were included with the request. Chips are clickable links that open the file; image attachments also show a small inline thumbnail preview.
+- The "Your Request" and "Follow-up Request" sections on the session page now display file attachment chips when attachments were included with the request. Chips are clickable links that open the file; image attachments also show a small inline thumbnail preview. The attachment link URL uses the configured base path so it works correctly on preview servers.
 
 ## Why
 

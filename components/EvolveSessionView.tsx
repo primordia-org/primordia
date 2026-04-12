@@ -532,7 +532,7 @@ function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath }: {
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.avif', '.bmp', '.ico']);
 
 function AttachmentChip({ name, sessionId }: { name: string; sessionId: string }) {
-  const url = `/api/evolve/attachment/${encodeURIComponent(sessionId)}?file=${encodeURIComponent(name)}`;
+  const url = withBasePath(`/api/evolve/attachment/${encodeURIComponent(sessionId)}?file=${encodeURIComponent(name)}`);
   const ext = name.includes('.') ? ('.' + name.split('.').pop()!.toLowerCase()) : '';
   const isImage = IMAGE_EXTENSIONS.has(ext);
   return (
