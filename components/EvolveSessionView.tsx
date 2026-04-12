@@ -529,14 +529,38 @@ function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath }: {
   );
 }
 
+const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.avif', '.bmp', '.ico']);
+
+function AttachmentChip({ name, sessionId }: { name: string; sessionId: string }) {
+  const url = withBasePath(`/api/evolve/attachment/${encodeURIComponent(sessionId)}?file=${encodeURIComponent(name)}`);
+  const ext = name.includes('.') ? ('.' + name.split('.').pop()!.toLowerCase()) : '';
+  const isImage = IMAGE_EXTENSIONS.has(ext);
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-800 border border-gray-700 text-xs text-gray-300 font-mono hover:bg-gray-700 hover:border-gray-600 transition-colors"
+    >
+      {isImage && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt="" className="h-4 w-4 rounded object-cover flex-shrink-0" />
+      )}
+      {name}
+    </a>
+  );
+}
+
 /** Render a single non-setup, non-legacy section. */
 function StructuredSection({
   section,
   isActive,
+  sessionId,
   worktreePath,
 }: {
   section: SectionGroup;
   isActive: boolean;
+  sessionId: string;
   worktreePath?: string;
 }) {
   const { type, label, events } = section;
@@ -555,9 +579,7 @@ function StructuredSection({
             {requestEvent.attachments && requestEvent.attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
                 {requestEvent.attachments.map((name) => (
-                  <span key={name} className="flex items-center gap-1 px-2 py-1 rounded-md bg-gray-800 border border-gray-700 text-xs text-gray-300 font-mono">
-                    {name}
-                  </span>
+                  <AttachmentChip key={name} name={name} sessionId={sessionId} />
                 ))}
               </div>
             )}
@@ -1229,9 +1251,7 @@ export default function EvolveSessionView({
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
                 {attachments.map((name) => (
-                  <span key={name} className="flex items-center gap-1 px-2 py-1 rounded-md bg-gray-800 border border-gray-700 text-xs text-gray-300 font-mono">
-                    {name}
-                  </span>
+                  <AttachmentChip key={name} name={name} sessionId={sessionId} />
                 ))}
               </div>
             )}
@@ -1321,6 +1341,7 @@ export default function EvolveSessionView({
                 key={i}
                 section={section}
                 isActive={isSectionActive}
+                sessionId={sessionId}
                 worktreePath={worktreePath}
               />
             );
