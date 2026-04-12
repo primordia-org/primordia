@@ -112,12 +112,48 @@ else
   info "Using existing ${ENV_FILE}"
 fi
 
+# ── Wait for outbound internet ────────────────────────────────────────────────
+# New VMs may take a few seconds for outbound routing to be fully established.
+# Poll until the npm registry is reachable before attempting bun install.
+
+_CURRENT_STEP="wait for outbound internet"
+if ! curl -fsS --max-time 5 https://registry.npmjs.org/ >/dev/null 2>&1; then
+  info "Waiting for outbound internet access..."
+  _NET_OK=false
+  for _i in $(seq 1 30); do
+    sleep 2
+    printf "."
+    if curl -fsS --max-time 5 https://registry.npmjs.org/ >/dev/null 2>&1; then
+      echo ""
+      _NET_OK=true
+      break
+    fi
+  done
+  if [[ "$_NET_OK" != "true" ]]; then
+    echo ""
+    warn "npm registry still not reachable after 60s — attempting bun install anyway"
+  fi
+fi
+
 # ── Install dependencies ──────────────────────────────────────────────────────
 
 _CURRENT_STEP="bun install"
 info "Installing dependencies (bun install)..."
 cd "${INSTALL_DIR}"
-bun install --frozen-lockfile
+_BUN_OK=false
+for _attempt in 1 2 3; do
+  if bun install --frozen-lockfile; then
+    _BUN_OK=true
+    break
+  fi
+  if [[ $_attempt -lt 3 ]]; then
+    warn "bun install failed (attempt ${_attempt}/3) — retrying in 15s..."
+    sleep 15
+  else
+    diag "npm registry: $(curl -fsS --max-time 5 https://registry.npmjs.org/ >/dev/null 2>&1 && echo 'reachable' || echo 'UNREACHABLE')"
+  fi
+done
+[[ "$_BUN_OK" == "true" ]] || exit 1
 success "Dependencies installed"
 
 # ── Build production bundle ───────────────────────────────────────────────────

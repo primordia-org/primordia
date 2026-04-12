@@ -76,6 +76,17 @@ New exe.dev VMs cannot resolve `primordia.exe.xyz` from within the exe.dev netwo
 
 exe.dev VMs don't have a UTF-8 locale set by default, causing Unicode box-drawing characters (`─`, `✓`, `▸`) to render as garbage. Fixed by setting `LANG`, `LC_ALL`, and `LANGUAGE` to `en_US.UTF-8` at the very start of the remote script section, plus running `sudo locale-gen en_US.UTF-8` (non-fatal if it fails).
 
+### `bun install` fails with `ConnectionRefused` on new VMs
+
+New exe.dev VMs accept SSH connections immediately, but outbound routing to external services (specifically the npm registry at `registry.npmjs.org`) may not be fully established for the first ~30–60 seconds after creation. This causes `bun install --frozen-lockfile` to fail with `ConnectionRefused` on every package simultaneously.
+
+Fixed by adding two defences in `scripts/install.sh`:
+
+1. **Network readiness check** — before running `bun install`, poll `https://registry.npmjs.org/` with `curl` (2-second intervals, up to 60s total). If it becomes reachable, proceed immediately; if not, warn and try anyway.
+2. **Retry logic** — `bun install` is attempted up to 3 times with a 15-second delay between failures. On final failure, a connectivity check is printed in the diagnostic output.
+
+The IP injection for `primordia.exe.xyz` (added in the previous fix) is kept: that's a separate structural issue where VMs in the exe.dev network can't resolve the primordia domain through DNS (it routes through the proxy), and IP injection is the correct long-term fix regardless of timing.
+
 ## Why
 
 The previous design required the script to be run on the server and prompted for API keys upfront. The new installer runs entirely from the user's laptop, orchestrates VM creation automatically, and defers all configuration to the app's own first-run flow.
