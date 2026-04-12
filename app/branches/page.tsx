@@ -6,14 +6,12 @@
 //      most recent first, each with any accepted/rejected sibling branches nested
 //      beneath them.
 
-import * as fs from "fs";
 import { spawnSync } from "child_process";
 import { headers } from "next/headers";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { getDb } from "@/lib/db";
 import type { EvolveSession } from "@/lib/db/types";
-import { getCandidateWorktreePath, getSessionNdjsonPath } from "@/lib/session-events";
+import { listSessionsFromFilesystem } from "@/lib/session-events";
 import { PageNavBar } from "@/components/PageNavBar";
 import { PruneBranchesButton } from "@/components/PruneBranchesButton";
 import { CreateSessionFromBranchButton } from "@/components/CreateSessionFromBranchButton";
@@ -118,10 +116,11 @@ async function getBranchData(): Promise<{
   const productionBranch =
     gitConfigValue("primordia.productionBranch", cwd) ?? "main";
 
-  // Load all evolve sessions from SQLite and build a lookup by branch name.
-  const db = await getDb();
-  const dbSessions = await db.listEvolveSessions();
-  const sessionByBranch = new Map(dbSessions.map((s) => [s.branch, s]));
+  // Load all evolve sessions from the filesystem and build a lookup by branch name.
+  const fsSessions = listSessionsFromFilesystem(cwd);
+  const sessionByBranch = new Map(fsSessions.map((s) => [s.branch, s]));
+  // Also index by session ID for branches whose branch !== id (from-branch sessions)
+  const sessionById = new Map(fsSessions.map((s) => [s.id, s]));
 
   const diag: DiagnosticInfo = {
     cwd,
@@ -129,8 +128,8 @@ async function getBranchData(): Promise<{
     gitVersion,
     branchList,
     currentBranch: currentBranchResult,
-    activeSessions: dbSessions.length,
-    sessions: dbSessions,
+    activeSessions: fsSessions.length,
+    sessions: fsSessions,
   };
 
   const branches: BranchData[] = allBranchNames.map((name) => {
@@ -140,15 +139,12 @@ async function getBranchData(): Promise<{
     let sessionId = session?.id ?? null;
     const sessionStatus = session?.status ?? null;
 
-    // For branches not in the DB, check if there's a git-config sessionId with
-    // a corresponding worktree+NDJSON log so we can link to it.
+    // For branches not found by branch name, check if there's a git-config sessionId
+    // pointing to a session worktree (used for from-branch sessions).
     if (!sessionId) {
       const gitSessionId = gitConfigValue(`branch.${name}.sessionId`, cwd);
-      if (gitSessionId) {
-        const ndjsonPath = getSessionNdjsonPath(getCandidateWorktreePath(gitSessionId));
-        if (fs.existsSync(ndjsonPath)) {
-          sessionId = gitSessionId;
-        }
+      if (gitSessionId && sessionById.has(gitSessionId)) {
+        sessionId = gitSessionId;
       }
     }
 

@@ -14,7 +14,11 @@ import {
   type LocalSession,
 } from '../../../../lib/evolve-sessions';
 import { getSessionUser, hasEvolvePermission } from '../../../../lib/auth';
-import { getDb } from '../../../../lib/db';
+import {
+  writeSessionStatus,
+  writeSessionBranch,
+  getCandidateWorktreePath,
+} from '../../../../lib/session-events';
 import { getPublicOrigin } from '../../../../lib/public-origin';
 
 /** Ask Haiku to choose a short kebab-case slug from a branch name.
@@ -57,14 +61,15 @@ async function slugFromBranchName(branchName: string): Promise<string> {
     .slice(0, 60);
 }
 
-/** Return a session ID that doesn't already exist in the DB or as a branch. */
+/** Return a session ID that doesn't already exist as a branch or worktree. */
 async function findUniqueSessionId(base: string, repoRoot: string): Promise<string> {
-  const db = await getDb();
   const taken = async (id: string): Promise<boolean> => {
-    const existing = await db.getEvolveSession(id);
-    if (existing) return true;
     const r = await runGit(['branch', '--list', id], repoRoot);
-    return r.stdout.trim().length > 0;
+    if (r.stdout.trim().length > 0) return true;
+    // Also check if the candidate worktree path already has a status file
+    const { existsSync } = await import('fs');
+    const candidatePath = getCandidateWorktreePath(id);
+    return existsSync(path.join(candidatePath, '.primordia-status'));
   };
   if (!(await taken(base))) return base;
   for (let i = 2; i <= 99; i++) {
@@ -119,10 +124,41 @@ export async function POST(request: Request) {
       ? path.join(path.dirname(mainRepoRoot), sessionId)
       : path.join(mainRepoRoot, '..', 'primordia-worktrees', sessionId);
 
+  // Check if a worktree for this branch is already registered (e.g. a previous session).
+  // If so, reuse that path; otherwise create a new worktree checkout.
+  const listResult = await runGit(['worktree', 'list', '--porcelain'], repoRoot);
+  let actualWorktreePath = worktreePath;
+  let worktreeAlreadyCreated = false;
+
+  // Find existing worktree for this branch from porcelain output
+  let curPath: string | null = null;
+  for (const line of listResult.stdout.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      curPath = line.slice('worktree '.length).trim();
+    } else if (line.startsWith('branch refs/heads/') && curPath) {
+      if (line.slice('branch refs/heads/'.length).trim() === branchName) {
+        actualWorktreePath = curPath;
+        worktreeAlreadyCreated = true;
+        break;
+      }
+    }
+  }
+
+  if (!worktreeAlreadyCreated) {
+    const wtResult = await runGit(['worktree', 'add', actualWorktreePath, branchName], repoRoot);
+    if (wtResult.code !== 0) {
+      return Response.json({ error: `Failed to create session worktree: ${wtResult.stderr}` }, { status: 500 });
+    }
+  }
+
+  // Write initial filesystem state
+  writeSessionStatus(actualWorktreePath, 'starting');
+  writeSessionBranch(actualWorktreePath, branchName);
+
   const session: LocalSession = {
     id: sessionId,
     branch: branchName,
-    worktreePath,
+    worktreePath: actualWorktreePath,
     status: 'starting',
     devServerStatus: 'none',
     port: null,
@@ -131,27 +167,10 @@ export async function POST(request: Request) {
     createdAt: Date.now(),
   };
 
-  const db = await getDb();
-  await db.createEvolveSession({
-    id: session.id,
-    branch: session.branch,
-    worktreePath: session.worktreePath,
-    status: session.status,
-    progressText: '',
-    port: session.port,
-    previewUrl: session.previewUrl,
-    request: session.request,
-    createdAt: session.createdAt,
-    durationMs: null,
-    inputTokens: null,
-    outputTokens: null,
-    costUsd: null,
-  });
-
   const publicOrigin = getPublicOrigin(request);
 
   void startLocalEvolve(session, requestText, repoRoot, publicOrigin, [], {
-    skipBranchCreation: true,
+    worktreeAlreadyCreated: true,
   });
 
   return Response.json({ sessionId });

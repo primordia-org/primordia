@@ -2,7 +2,7 @@
 // Uses bun:sqlite which is built into Bun and requires no npm package.
 // Only imported when DATABASE_URL is not set (i.e., local dev without Neon).
 
-import type { DbAdapter, Role, User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession } from "./types";
+import type { DbAdapter, Role, User, Passkey, Challenge, Session, CrossDeviceToken } from "./types";
 
 let dbInstance: DbAdapter | null = null;
 
@@ -66,31 +66,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       granted_at INTEGER NOT NULL,
       PRIMARY KEY (user_id, role_name)
     );
-    CREATE TABLE IF NOT EXISTS evolve_sessions (
-      id TEXT PRIMARY KEY,
-      branch TEXT NOT NULL,
-      worktree_path TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'starting',
-      progress_text TEXT NOT NULL DEFAULT '',
-      port INTEGER,
-      preview_url TEXT,
-      request TEXT NOT NULL DEFAULT '',
-      created_at INTEGER NOT NULL
-    );
   `);
-
-  // Migration: add dev_server_status column if it doesn't exist (added in refactor)
-  try {
-    db.exec("ALTER TABLE evolve_sessions ADD COLUMN dev_server_status TEXT NOT NULL DEFAULT 'none'");
-  } catch {
-    // Column already exists — ignore
-  }
-
-  // Migration: add usage metrics columns (duration, tokens, cost)
-  try { db.exec("ALTER TABLE evolve_sessions ADD COLUMN duration_ms INTEGER"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE evolve_sessions ADD COLUMN input_tokens INTEGER"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE evolve_sessions ADD COLUMN output_tokens INTEGER"); } catch { /* already exists */ }
-  try { db.exec("ALTER TABLE evolve_sessions ADD COLUMN cost_usd REAL"); } catch { /* already exists */ }
 
   // Migration: add id and display_name columns to roles (added when roles got UUIDs + customizable names)
   // Must run before the seed inserts below so existing DBs have the columns ready.
@@ -397,104 +373,6 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       return rows.map((r) => r.user_id);
     },
 
-    // ── Evolve sessions ──────────────────────────────────────────────────────
-
-    async createEvolveSession(session: EvolveSession) {
-      db.prepare(
-        `INSERT INTO evolve_sessions
-           (id, branch, worktree_path, status, progress_text, port, preview_url, request, created_at,
-            duration_ms, input_tokens, output_tokens, cost_usd)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        session.id,
-        session.branch,
-        session.worktreePath,
-        session.status,
-        session.progressText,
-        session.port ?? null,
-        session.previewUrl ?? null,
-        session.request,
-        session.createdAt,
-        session.durationMs ?? null,
-        session.inputTokens ?? null,
-        session.outputTokens ?? null,
-        session.costUsd ?? null,
-      );
-    },
-
-    async updateEvolveSession(
-      id: string,
-      updates: Partial<Pick<EvolveSession, "status" | "port" | "previewUrl" | "worktreePath" | "durationMs" | "inputTokens" | "outputTokens" | "costUsd">>,
-    ) {
-      const sets: string[] = [];
-      const values: unknown[] = [];
-      if (updates.status !== undefined)       { sets.push("status = ?");          values.push(updates.status); }
-      if (updates.port !== undefined)          { sets.push("port = ?");             values.push(updates.port); }
-      if (updates.previewUrl !== undefined)    { sets.push("preview_url = ?");      values.push(updates.previewUrl); }
-      if (updates.worktreePath !== undefined)  { sets.push("worktree_path = ?");    values.push(updates.worktreePath); }
-      if (updates.durationMs !== undefined)    { sets.push("duration_ms = ?");      values.push(updates.durationMs); }
-      if (updates.inputTokens !== undefined)   { sets.push("input_tokens = ?");     values.push(updates.inputTokens); }
-      if (updates.outputTokens !== undefined)  { sets.push("output_tokens = ?");    values.push(updates.outputTokens); }
-      if (updates.costUsd !== undefined)       { sets.push("cost_usd = ?");         values.push(updates.costUsd); }
-      if (sets.length === 0) return;
-      values.push(id);
-      db.prepare(`UPDATE evolve_sessions SET ${sets.join(", ")} WHERE id = ?`).run(...values);
-    },
-
-    async getEvolveSession(id: string) {
-      const r = db
-        .prepare("SELECT * FROM evolve_sessions WHERE id = ?")
-        .get(id) as {
-        id: string; branch: string; worktree_path: string; status: string;
-        progress_text: string; port: number | null; preview_url: string | null;
-        request: string; created_at: number;
-        duration_ms: number | null; input_tokens: number | null;
-        output_tokens: number | null; cost_usd: number | null;
-      } | null;
-      if (!r) return null;
-      return {
-        id: r.id,
-        branch: r.branch,
-        worktreePath: r.worktree_path,
-        status: r.status,
-        progressText: r.progress_text,
-        port: r.port,
-        previewUrl: r.preview_url,
-        request: r.request,
-        createdAt: r.created_at,
-        durationMs: r.duration_ms,
-        inputTokens: r.input_tokens,
-        outputTokens: r.output_tokens,
-        costUsd: r.cost_usd,
-      };
-    },
-
-    async listEvolveSessions(limit = 50) {
-      const rows = db
-        .prepare("SELECT * FROM evolve_sessions ORDER BY created_at DESC LIMIT ?")
-        .all(limit) as Array<{
-        id: string; branch: string; worktree_path: string; status: string;
-        progress_text: string; port: number | null; preview_url: string | null;
-        request: string; created_at: number;
-        duration_ms: number | null; input_tokens: number | null;
-        output_tokens: number | null; cost_usd: number | null;
-      }>;
-      return rows.map((r) => ({
-        id: r.id,
-        branch: r.branch,
-        worktreePath: r.worktree_path,
-        status: r.status,
-        progressText: r.progress_text,
-        port: r.port,
-        previewUrl: r.preview_url,
-        request: r.request,
-        createdAt: r.created_at,
-        durationMs: r.duration_ms,
-        inputTokens: r.input_tokens,
-        outputTokens: r.output_tokens,
-        costUsd: r.cost_usd,
-      }));
-    },
   };
 
   dbInstance = adapter;

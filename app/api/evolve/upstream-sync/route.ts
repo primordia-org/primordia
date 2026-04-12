@@ -6,7 +6,7 @@
 
 import { runGit, resolveConflictsWithClaude } from '../../../../lib/evolve-sessions';
 import { getSessionUser } from '../../../../lib/auth';
-import { getDb } from '../../../../lib/db';
+import { getSessionFromFilesystem } from '../../../../lib/session-events';
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -22,8 +22,8 @@ export async function POST(request: Request) {
     return Response.json({ error: 'action must be "merge"' }, { status: 400 });
   }
 
-  const db = await getDb();
-  const session = await db.getEvolveSession(body.sessionId);
+  const repoRoot = process.cwd();
+  const session = getSessionFromFilesystem(body.sessionId, repoRoot);
   if (!session) {
     return Response.json({ error: 'Session not found' }, { status: 404 });
   }

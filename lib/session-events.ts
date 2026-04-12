@@ -2,6 +2,12 @@
 // Structured event types for session progress logs.
 // Events are stored as NDJSON (one JSON object per line) in
 // {worktreePath}/.primordia-session.ndjson
+//
+// Session state is stored entirely on the filesystem:
+//   .primordia-status      — current status string (plain text)
+//   .primordia-preview-url — preview URL when ready (plain text, absent = null)
+//   .primordia-branch      — branch name (plain text, absent = sessionId)
+//   .primordia-session.ndjson — structured event log
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -47,6 +53,69 @@ export function readSessionEvents(
   }
 }
 
+// ─── Filesystem state helpers ─────────────────────────────────────────────────
+
+/** Read the current session status from the filesystem. Defaults to 'starting'. */
+export function readSessionStatus(worktreePath: string): string {
+  try {
+    return fs.readFileSync(path.join(worktreePath, '.primordia-status'), 'utf8').trim() || 'starting';
+  } catch {
+    return 'starting';
+  }
+}
+
+/** Write the current session status to the filesystem. */
+export function writeSessionStatus(worktreePath: string, status: string): void {
+  try {
+    fs.writeFileSync(path.join(worktreePath, '.primordia-status'), status, 'utf8');
+  } catch { /* best-effort */ }
+}
+
+/** Read the preview URL from the filesystem. Returns null if not set. */
+export function readSessionPreviewUrl(worktreePath: string): string | null {
+  try {
+    const url = fs.readFileSync(path.join(worktreePath, '.primordia-preview-url'), 'utf8').trim();
+    return url || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write the preview URL to the filesystem. Pass null to clear it. */
+export function writeSessionPreviewUrl(worktreePath: string, url: string | null): void {
+  const filePath = path.join(worktreePath, '.primordia-preview-url');
+  try {
+    if (url) {
+      fs.writeFileSync(filePath, url, 'utf8');
+    } else {
+      fs.rmSync(filePath, { force: true });
+    }
+  } catch { /* best-effort */ }
+}
+
+/**
+ * Read the branch name from the filesystem.
+ * For normal sessions, branch === sessionId. For from-branch sessions,
+ * the branch name is stored explicitly since it may differ from the session ID.
+ */
+export function readSessionBranch(worktreePath: string, sessionId: string): string {
+  try {
+    const branch = fs.readFileSync(path.join(worktreePath, '.primordia-branch'), 'utf8').trim();
+    return branch || sessionId;
+  } catch {
+    return sessionId;
+  }
+}
+
+/** Write the branch name to the filesystem. */
+export function writeSessionBranch(worktreePath: string, branch: string): void {
+  try {
+    fs.writeFileSync(path.join(worktreePath, '.primordia-branch'), branch, 'utf8');
+  } catch { /* best-effort */ }
+}
+
+// ─── Session lookup / enumeration ────────────────────────────────────────────
+
 /**
  * Returns the candidate worktree path for a session that isn't in the database.
  * Uses the sibling-directory convention of the flat worktree layout:
@@ -57,10 +126,130 @@ export function getCandidateWorktreePath(sessionId: string): string {
 }
 
 /**
+ * Build an EvolveSession from the filesystem state files and NDJSON log.
+ * Returns null if the worktree doesn't exist or has no status file.
+ */
+function buildSessionFromWorktreePath(
+  id: string,
+  worktreePath: string,
+  repoRoot: string,
+): EvolveSession | null {
+  if (!fs.existsSync(path.join(worktreePath, '.primordia-status'))) return null;
+
+  const status = readSessionStatus(worktreePath);
+  const previewUrl = readSessionPreviewUrl(worktreePath);
+  const branch = readSessionBranch(worktreePath, id);
+
+  let request = '';
+  let createdAt = 0;
+  let durationMs: number | null = null;
+  let inputTokens: number | null = null;
+  let outputTokens: number | null = null;
+  let costUsd: number | null = null;
+
+  const ndjsonPath = getSessionNdjsonPath(worktreePath);
+  if (fs.existsSync(ndjsonPath)) {
+    const { events } = readSessionEvents(ndjsonPath);
+    for (const event of events) {
+      if (!createdAt && 'ts' in event) createdAt = (event as { ts: number }).ts;
+      if (event.type === 'initial_request') {
+        request = event.request;
+      } else if (event.type === 'metrics') {
+        durationMs = event.durationMs;
+        inputTokens = event.inputTokens;
+        outputTokens = event.outputTokens;
+        costUsd = event.costUsd;
+      }
+    }
+  }
+
+  // Read port from git config (stored when the worktree was created).
+  let port: number | null = null;
+  try {
+    const { execFileSync } = require('child_process') as typeof import('child_process');
+    const out = execFileSync('git', ['config', '--get', `branch.${branch}.port`], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    if (out) port = parseInt(out, 10);
+  } catch { /* not set */ }
+
+  return {
+    id,
+    branch,
+    worktreePath,
+    status,
+    progressText: '',
+    port,
+    previewUrl,
+    request,
+    createdAt: createdAt || Date.now(),
+    durationMs,
+    inputTokens,
+    outputTokens,
+    costUsd,
+  };
+}
+
+/**
+ * Look up a session by ID from the filesystem.
+ * Uses the sibling-directory convention to find the worktree.
+ * Returns null if the session doesn't exist on disk.
+ */
+export function getSessionFromFilesystem(id: string, repoRoot: string): EvolveSession | null {
+  const worktreePath = getCandidateWorktreePath(id);
+  return buildSessionFromWorktreePath(id, worktreePath, repoRoot);
+}
+
+/**
+ * Enumerate all active sessions by scanning git worktrees.
+ * A worktree is considered a session if it has a .primordia-status file.
+ * Returns sessions sorted by createdAt descending.
+ */
+export function listSessionsFromFilesystem(repoRoot: string): EvolveSession[] {
+  const { execFileSync } = require('child_process') as typeof import('child_process');
+  let porcelain: string;
+  try {
+    porcelain = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  } catch {
+    return [];
+  }
+
+  const sessions: EvolveSession[] = [];
+
+  // Parse porcelain output: blocks are separated by blank lines.
+  let currentPath: string | null = null;
+  const processBlock = () => {
+    if (!currentPath) return;
+    const session = buildSessionFromWorktreePath(path.basename(currentPath), currentPath, repoRoot);
+    if (session) sessions.push(session);
+    currentPath = null;
+  };
+
+  for (const line of porcelain.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      currentPath = line.slice('worktree '.length).trim();
+    } else if (line === '') {
+      processBlock();
+    }
+  }
+  processBlock(); // handle last block (no trailing blank line)
+
+  return sessions.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/**
  * Attempts to reconstruct an EvolveSession record from the NDJSON log alone.
  * Useful when the session exists in a sibling worktree but not in the local DB
  * (e.g. the DB was copied before this session was created in a parent worktree).
  * Returns null if no log file exists or it contains no parseable events.
+ *
+ * @deprecated Prefer getSessionFromFilesystem() which also reads the status file.
  */
 export function deriveSessionFromLog(
   id: string,
@@ -78,7 +267,10 @@ export function deriveSessionFromLog(
   let inputTokens: number | null = null;
   let outputTokens: number | null = null;
   let costUsd: number | null = null;
-  let status = 'ready';
+
+  // Prefer the status file when available; fall back to inferring from events.
+  let status = readSessionStatus(worktreePath);
+  const hasStatusFile = fs.existsSync(path.join(worktreePath, '.primordia-status'));
 
   for (const event of events) {
     // Use the timestamp of the first timestamped event as createdAt
@@ -91,10 +283,13 @@ export function deriveSessionFromLog(
       inputTokens = event.inputTokens;
       outputTokens = event.outputTokens;
       costUsd = event.costUsd;
-    } else if (event.type === 'result') {
-      if (event.subtype === 'success') status = 'ready';
-    } else if (event.type === 'decision') {
-      status = event.action === 'accepted' ? 'accepted' : 'rejected';
+    } else if (!hasStatusFile) {
+      // Only infer status from events when no status file exists (legacy sessions).
+      if (event.type === 'result') {
+        if (event.subtype === 'success') status = 'ready';
+      } else if (event.type === 'decision') {
+        status = event.action === 'accepted' ? 'accepted' : 'rejected';
+      }
     }
   }
 
@@ -105,7 +300,7 @@ export function deriveSessionFromLog(
     status,
     progressText: '',
     port: null,
-    previewUrl: null,
+    previewUrl: readSessionPreviewUrl(worktreePath),
     request,
     createdAt: createdAt || Date.now(),
     durationMs,

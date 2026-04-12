@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { execSync } from "child_process";
-import { getDb } from "@/lib/db";
+import { getSessionFromFilesystem } from "@/lib/session-events";
 import type { DiffFileSummary } from "@/app/evolve/session/[id]/page";
 
 export async function GET(req: NextRequest) {
@@ -18,8 +18,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
   }
 
-  const db = await getDb();
-  const session = await db.getEvolveSession(sessionId);
+  const session = getSessionFromFilesystem(sessionId, process.cwd());
   if (!session) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }

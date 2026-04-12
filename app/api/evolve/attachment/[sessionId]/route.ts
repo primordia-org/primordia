@@ -10,8 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { type NextRequest } from 'next/server';
 import { getSessionUser } from '../../../../../lib/auth';
-import { getDb } from '../../../../../lib/db';
-import { getCandidateWorktreePath, deriveSessionFromLog } from '../../../../../lib/session-events';
+import { getSessionFromFilesystem } from '../../../../../lib/session-events';
 
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.avif', '.bmp', '.ico']);
 
@@ -57,11 +56,7 @@ export async function GET(
     return new Response('Invalid filename', { status: 400 });
   }
 
-  const db = await getDb();
-  let session = await db.getEvolveSession(sessionId);
-  if (!session) {
-    session = deriveSessionFromLog(sessionId, getCandidateWorktreePath(sessionId));
-  }
+  const session = getSessionFromFilesystem(sessionId, process.cwd());
   if (!session) {
     return new Response('Session not found', { status: 404 });
   }

@@ -9,7 +9,7 @@
 // authenticated wrapper around POST /_proxy/preview/:id/restart.
 
 import { getSessionUser } from '../../../../lib/auth';
-import { getDb } from '../../../../lib/db';
+import { getSessionFromFilesystem } from '../../../../lib/session-events';
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -22,8 +22,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'sessionId string required' }, { status: 400 });
   }
 
-  const db = await getDb();
-  const record = await db.getEvolveSession(body.sessionId);
+  const record = getSessionFromFilesystem(body.sessionId, process.cwd());
   if (!record) {
     return Response.json({ error: 'Session not found' }, { status: 404 });
   }

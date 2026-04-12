@@ -7,9 +7,13 @@
 //   Returns: { ok: true } or { error: string }
 
 import { getSessionUser } from '../../../../lib/auth';
-import { getDb } from '../../../../lib/db';
 import { abortClaudeRun } from '../../../../lib/evolve-sessions';
-import { appendSessionEvent, getSessionNdjsonPath } from '../../../../lib/session-events';
+import {
+  appendSessionEvent,
+  getSessionNdjsonPath,
+  getSessionFromFilesystem,
+  writeSessionStatus,
+} from '../../../../lib/session-events';
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -22,8 +26,8 @@ export async function POST(request: Request) {
     return Response.json({ error: 'sessionId string required' }, { status: 400 });
   }
 
-  const db = await getDb();
-  const record = await db.getEvolveSession(body.sessionId);
+  const repoRoot = process.cwd();
+  const record = getSessionFromFilesystem(body.sessionId, repoRoot);
   if (!record) {
     return Response.json({ error: 'Session not found' }, { status: 404 });
   }
@@ -43,7 +47,7 @@ export async function POST(request: Request) {
   if (!aborted) {
     // No in-memory abort controller found — the server likely restarted while the
     // Claude Code process was running, wiping in-memory state but leaving the session
-    // stuck in 'running-claude' or 'starting' in SQLite.
+    // stuck in 'running-claude' or 'starting' in the filesystem.
     // Recover by transitioning the session to 'ready' directly so the user can
     // accept, reject, or submit a follow-up on whatever work was completed.
     const ndjsonPath = getSessionNdjsonPath(record.worktreePath);
@@ -55,11 +59,7 @@ export async function POST(request: Request) {
         (record.status === 'fixing-types' ? ' (Auto-accept was cancelled — you can accept or reject manually.)' : ''),
       ts: Date.now(),
     });
-    await db.updateEvolveSession(body.sessionId, {
-      status: 'ready',
-      port: record.port,
-      previewUrl: record.previewUrl,
-    });
+    writeSessionStatus(record.worktreePath, 'ready');
     return Response.json({ ok: true });
   }
 

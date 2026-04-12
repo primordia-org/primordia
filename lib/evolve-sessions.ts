@@ -6,8 +6,17 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import { getDb } from './db';
-import { appendSessionEvent, readSessionEvents, getSessionNdjsonPath } from './session-events';
+import {
+  appendSessionEvent,
+  readSessionEvents,
+  getSessionNdjsonPath,
+  writeSessionStatus,
+  writeSessionPreviewUrl,
+  writeSessionBranch,
+  readSessionStatus,
+  readSessionPreviewUrl,
+  listSessionsFromFilesystem,
+} from './session-events';
 
 export type LocalSessionStatus =
   | 'starting'
@@ -98,7 +107,6 @@ interface WorkerConfig {
   sessionId: string;
   worktreePath: string;
   repoRoot: string;
-  dbPath: string;
   prompt: string;
   timeoutMs: number;
   /** When true, worker sets status='ready' + previewUrl on success. */
@@ -201,8 +209,7 @@ async function spawnClaudeWorker(
  * Call this once from instrumentation.ts when the server starts.
  */
 export async function reconnectRunningWorkers(repoRoot: string): Promise<void> {
-  const db = await getDb();
-  const sessions = await db.listEvolveSessions(200);
+  const sessions = listSessionsFromFilesystem(repoRoot);
   const runningStatuses = new Set(['running-claude', 'fixing-types', 'starting']);
 
   for (const record of sessions) {
@@ -228,7 +235,7 @@ export async function reconnectRunningWorkers(repoRoot: string): Promise<void> {
       if (fs.existsSync(ndjsonPath)) {
         appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'aborted', message: recoveryMessage, ts: Date.now() });
       }
-      await db.updateEvolveSession(record.id, { status: 'ready' });
+      writeSessionStatus(record.worktreePath, 'ready');
       if (fs.existsSync(pidFile)) {
         try { fs.rmSync(pidFile, { force: true }); } catch { /* best-effort */ }
       }
@@ -324,17 +331,21 @@ export async function startLocalEvolve(
      * Instead runs `git worktree add <path> <branch>` to check out the existing branch.
      */
     skipBranchCreation?: boolean;
+    /**
+     * When true, skip all worktree creation steps — the worktree was already
+     * created by the caller (e.g. the POST handler) before fire-and-forget.
+     * The status and branch files must also have been written by the caller.
+     */
+    worktreeAlreadyCreated?: boolean;
   } = {},
 ): Promise<void> {
-  const db = await getDb();
-
-  /** Write the current session state to SQLite. */
-  const persist = () =>
-    db.updateEvolveSession(session.id, {
-      status: session.status,
-      port: session.port,
-      previewUrl: session.previewUrl,
-    });
+  /** Write the current session state to the filesystem. */
+  const persist = () => {
+    writeSessionStatus(session.worktreePath, session.status);
+    if (session.previewUrl !== undefined) {
+      writeSessionPreviewUrl(session.worktreePath, session.previewUrl);
+    }
+  };
 
   try {
     // Step 1 — Create a new git worktree (on a fresh branch, or from an existing one)
@@ -350,28 +361,35 @@ export async function startLocalEvolve(
     // a worktree (e.g. a previous session left the worktree behind). If so,
     // reuse that worktree path instead of trying to add a new one — git would
     // reject the attempt with "already used by worktree at <path>".
-    if (options.skipBranchCreation) {
-      const listResult = await runGit(['worktree', 'list', '--porcelain'], repoRoot);
-      const existingPath = parseWorktreePathForBranch(listResult.stdout, session.branch);
-      if (existingPath) {
-        session.worktreePath = existingPath;
-        await db.updateEvolveSession(session.id, { worktreePath: existingPath });
+    if (!options.worktreeAlreadyCreated) {
+      if (options.skipBranchCreation) {
+        const listResult = await runGit(['worktree', 'list', '--porcelain'], repoRoot);
+        const existingPath = parseWorktreePathForBranch(listResult.stdout, session.branch);
+        if (existingPath) {
+          session.worktreePath = existingPath;
+          writeSessionStatus(session.worktreePath, session.status);
+          writeSessionBranch(session.worktreePath, session.branch);
+        } else {
+          const wtResult = await runGit(
+            ['worktree', 'add', session.worktreePath, session.branch],
+            repoRoot,
+          );
+          if (wtResult.code !== 0) {
+            throw new Error(`git worktree add failed:\n${wtResult.stderr}`);
+          }
+          writeSessionStatus(session.worktreePath, session.status);
+          writeSessionBranch(session.worktreePath, session.branch);
+        }
       } else {
         const wtResult = await runGit(
-          ['worktree', 'add', session.worktreePath, session.branch],
+          ['worktree', 'add', session.worktreePath, '-b', session.branch],
           repoRoot,
         );
         if (wtResult.code !== 0) {
           throw new Error(`git worktree add failed:\n${wtResult.stderr}`);
         }
-      }
-    } else {
-      const wtResult = await runGit(
-        ['worktree', 'add', session.worktreePath, '-b', session.branch],
-        repoRoot,
-      );
-      if (wtResult.code !== 0) {
-        throw new Error(`git worktree add failed:\n${wtResult.stderr}`);
+        writeSessionStatus(session.worktreePath, session.status);
+        writeSessionBranch(session.worktreePath, session.branch);
       }
     }
 
@@ -432,14 +450,6 @@ export async function startLocalEvolve(
         } finally {
           srcDbHandle.close();
         }
-
-        // Delete this session from the copied DB so the child worktree doesn't
-        // start with an incomplete in-progress session visible in its history.
-        // The copy was taken mid-session (after "creating worktree" and "bun install"
-        // were already logged), so the row is confusing noise in the child instance.
-        const childDb = new Database(dstDb);
-        childDb.prepare('DELETE FROM evolve_sessions WHERE id = ?').run(session.id);
-        childDb.close();
       } catch {
         // Non-fatal — the child worktree will just have a stale partial session.
       }
@@ -505,7 +515,6 @@ export async function startLocalEvolve(
         sessionId: session.id,
         worktreePath: session.worktreePath,
         repoRoot,
-        dbPath: path.join(repoRoot, '.primordia-auth.db'),
         prompt,
         timeoutMs: 20 * 60 * 1000,
         setReadyOnSuccess: true,
@@ -513,7 +522,7 @@ export async function startLocalEvolve(
       },
       path.join(repoRoot, 'scripts/claude-worker.ts'),
     );
-    // Worker has exited — it already set status='ready' and previewUrl in the DB.
+    // Worker has exited — it already wrote status='ready' and previewUrl to the filesystem.
 
   } catch (err) {
     // Mark the session ready (with an error note in the log) so the UI shows
@@ -525,7 +534,7 @@ export async function startLocalEvolve(
     if (fs.existsSync(ndjsonPath)) {
       appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'error', message: msg, ts: Date.now() });
     }
-    await persist().catch(() => {});
+    try { persist(); } catch { /* best-effort */ }
   }
 }
 
@@ -554,14 +563,12 @@ export async function runFollowupInWorktree(
   /** Temporary file paths for user-uploaded attachments. Copied into worktree/attachments/ and deleted from /tmp. */
   attachmentPaths: string[] = [],
 ): Promise<void> {
-  const db = await getDb();
-
-  const persist = () =>
-    db.updateEvolveSession(session.id, {
-      status: session.status,
-      port: session.port,
-      previewUrl: session.previewUrl,
-    });
+  const persist = () => {
+    writeSessionStatus(session.worktreePath, session.status);
+    if (session.previewUrl !== undefined) {
+      writeSessionPreviewUrl(session.worktreePath, session.previewUrl);
+    }
+  };
 
   const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
 
@@ -575,7 +582,7 @@ export async function runFollowupInWorktree(
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'claude', label: '🤖 Claude Code', ts: Date.now() });
     }
     session.status = inProgressStatus;
-    await persist();
+    persist();
 
     const changelogInstruction = skipChangelog
       ? `Do NOT create or update any changelog file — this fix is part of the automated merge pipeline, not a user-visible change.`
@@ -668,7 +675,6 @@ export async function runFollowupInWorktree(
         sessionId: session.id,
         worktreePath: session.worktreePath,
         repoRoot,
-        dbPath: path.join(repoRoot, '.primordia-auth.db'),
         prompt,
         timeoutMs: 20 * 60 * 1000,
         setReadyOnSuccess: !onSuccess,
@@ -678,18 +684,14 @@ export async function runFollowupInWorktree(
     );
 
     if (onSuccess) {
-      // Worker exited without setting status='ready'. Reload the session from
-      // the DB (the worker has been writing progress to NDJSON) and hand off to
-      // the callback for final status handling (e.g. retrying the merge).
-      const updated = await db.getEvolveSession(session.id);
-      if (updated) {
-        session.status = updated.status as LocalSession['status'];
-        session.port = updated.port;
-        session.previewUrl = updated.previewUrl;
-      }
+      // Worker exited without setting status='ready'. Reload the session state
+      // from the filesystem and hand off to the callback for final status handling
+      // (e.g. retrying the merge after a type-fix pass).
+      session.status = readSessionStatus(session.worktreePath) as LocalSession['status'];
+      session.previewUrl = readSessionPreviewUrl(session.worktreePath);
       await onSuccess(session);
     }
-    // else: worker already set status='ready' in the DB.
+    // else: worker already wrote status='ready' to the filesystem.
 
   } catch (err) {
     session.status = 'ready';
@@ -697,7 +699,7 @@ export async function runFollowupInWorktree(
     if (fs.existsSync(ndjsonPath)) {
       appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'error', message: msg, ts: Date.now() });
     }
-    await persist().catch(() => {});
+    try { persist(); } catch { /* best-effort */ }
   }
 }
 

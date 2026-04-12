@@ -18,7 +18,11 @@ import {
   type LocalSession,
 } from '../../../lib/evolve-sessions';
 import { getSessionUser, hasEvolvePermission } from '../../../lib/auth';
-import { getDb } from '../../../lib/db';
+import {
+  getSessionFromFilesystem,
+  writeSessionStatus,
+  writeSessionBranch,
+} from '../../../lib/session-events';
 import { getPublicOrigin } from '../../../lib/public-origin';
 
 /** Ask Claude to choose a short, descriptive kebab-case slug for the request.
@@ -62,20 +66,13 @@ async function generateSlug(text: string): Promise<string> {
     .join('-');
 }
 
-/** Return a branch name that doesn't already exist in the repo or the DB.
- *  Tries `{slug}` first, then `{slug}-2`, `-3`, … up to -99.
- *  Since sessionId === branch, we check both git and the evolve_sessions table
- *  to avoid UNIQUE constraint failures when a slug is reused after rejection. */
-async function findUniqueBranch(
-  slug: string,
-  repoRoot: string,
-  sessionExists: (id: string) => Promise<boolean>,
-): Promise<string> {
+/** Return a branch name that doesn't already exist in the repo.
+ *  Tries `{slug}` first, then `{slug}-2`, `-3`, … up to -99. */
+async function findUniqueBranch(slug: string, repoRoot: string): Promise<string> {
   const base = slug;
   const taken = async (name: string): Promise<boolean> => {
     const r = await runGit(['branch', '--list', name], repoRoot);
-    if (r.stdout.trim().length > 0) return true;
-    return sessionExists(name);
+    return r.stdout.trim().length > 0;
   };
   if (!(await taken(base))) return base;
   for (let i = 2; i <= 99; i++) {
@@ -133,11 +130,7 @@ export async function POST(request: Request) {
 
   const repoRoot = process.cwd();
   const slug = await generateSlug(requestText);
-  const db = await getDb();
-  const branch = await findUniqueBranch(slug, repoRoot, async (id) => {
-    const existing = await db.getEvolveSession(id);
-    return existing !== null;
-  });
+  const branch = await findUniqueBranch(slug, repoRoot);
   const sessionId = branch;
 
   // Derive the worktree path from the git common dir so it is stable even when
@@ -158,6 +151,17 @@ export async function POST(request: Request) {
       ? path.join(path.dirname(mainRepoRoot), branch)           // flat layout
       : path.join(mainRepoRoot, '..', 'primordia-worktrees', branch); // legacy
 
+  // Create the git worktree synchronously before returning so the session page
+  // is immediately reachable when the client navigates to it after the redirect.
+  const wtResult = await runGit(['worktree', 'add', worktreePath, '-b', branch], repoRoot);
+  if (wtResult.code !== 0) {
+    return Response.json({ error: `Failed to create session worktree: ${wtResult.stderr}` }, { status: 500 });
+  }
+
+  // Write initial filesystem state so getSessionFromFilesystem() can find it.
+  writeSessionStatus(worktreePath, 'starting');
+  writeSessionBranch(worktreePath, branch);
+
   const session: LocalSession = {
     id: sessionId,
     branch,
@@ -170,30 +174,15 @@ export async function POST(request: Request) {
     createdAt: Date.now(),
   };
 
-  // Persist to DB so the session page is reachable immediately after redirect.
-  await db.createEvolveSession({
-    id: session.id,
-    branch: session.branch,
-    worktreePath: session.worktreePath,
-    status: session.status,
-    progressText: '',
-    port: session.port,
-    previewUrl: session.previewUrl,
-    request: session.request,
-    createdAt: session.createdAt,
-    durationMs: null,
-    inputTokens: null,
-    outputTokens: null,
-    costUsd: null,
-  });
-
   // Determine the public origin for preview URLs using x-forwarded-* headers
   // so the URL is correct when running behind a reverse proxy (e.g. exe.dev).
   const publicOrigin = getPublicOrigin(request);
 
   // Fire-and-forget — run async so POST returns immediately with the session ID.
-  // startLocalEvolve handles all error states internally and writes them to SQLite.
-  void startLocalEvolve(session, requestText, repoRoot, publicOrigin, savedAttachmentPaths);
+  // startLocalEvolve handles all error states internally and writes them to the filesystem.
+  void startLocalEvolve(session, requestText, repoRoot, publicOrigin, savedAttachmentPaths, {
+    worktreeAlreadyCreated: true,
+  });
 
   return Response.json({ sessionId });
 }
@@ -209,21 +198,18 @@ export async function GET(request: Request) {
     return Response.json({ error: 'sessionId query param required' }, { status: 400 });
   }
 
-  try {
-    const db = await getDb();
-    const session = await db.getEvolveSession(sessionId);
-    if (!session) {
-      return Response.json({ error: 'Session not found' }, { status: 404 });
-    }
-    return Response.json({
-      status: session.status,
-      progressText: session.progressText,
-      port: session.port,
-      previewUrl: session.previewUrl,
-      branch: session.branch,
-      request: session.request,
-    });
-  } catch {
+  const repoRoot = process.cwd();
+  const session = getSessionFromFilesystem(sessionId, repoRoot);
+  if (!session) {
     return Response.json({ error: 'Session not found' }, { status: 404 });
   }
+
+  return Response.json({
+    status: session.status,
+    progressText: session.progressText,
+    port: session.port,
+    previewUrl: session.previewUrl,
+    branch: session.branch,
+    request: session.request,
+  });
 }

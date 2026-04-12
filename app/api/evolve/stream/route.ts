@@ -11,8 +11,7 @@
 //   data: { events: SessionEvent[], lineCount: number, status: string, previewUrl: string | null, done: true }
 
 import { getSessionUser } from '../../../../lib/auth';
-import { getDb } from '../../../../lib/db';
-import { readSessionEvents, getSessionNdjsonPath, getCandidateWorktreePath, deriveSessionFromLog } from '../../../../lib/session-events';
+import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem } from '../../../../lib/session-events';
 import type { SessionEvent } from '../../../../lib/session-events';
 import * as fs from 'fs';
 
@@ -37,6 +36,7 @@ export async function GET(request: Request) {
 
   const abortSignal = request.signal;
   const encoder = new TextEncoder();
+  const repoRoot = process.cwd();
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -55,13 +55,7 @@ export async function GET(request: Request) {
             return;
           }
 
-          const db = await getDb();
-          let session = await db.getEvolveSession(sessionId);
-
-          if (!session) {
-            // Not in the local DB — try reconstructing from the NDJSON log.
-            session = deriveSessionFromLog(sessionId, getCandidateWorktreePath(sessionId));
-          }
+          const session = getSessionFromFilesystem(sessionId, repoRoot);
 
           if (!session) {
             sendEvent({ error: 'Session not found', done: true });
@@ -80,11 +74,6 @@ export async function GET(request: Request) {
             const result = readSessionEvents(ndjsonPath, lastSentLineCount);
             events = result.events;
             totalLines = result.totalLines;
-          } else if (session.progressText) {
-            // Legacy fallback: serve progressText as a single legacy_text event
-            // Always resend the full content (lineCount stays at 0)
-            events = [{ type: 'legacy_text', content: session.progressText }];
-            totalLines = 0;
           }
 
           const hasChange =
