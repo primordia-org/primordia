@@ -194,17 +194,6 @@ success() { echo -e "  ${GREEN}✓${RESET} $*"; }
 _REMOTE_STEP="(initialising)"
 trap 'echo -e "\n${RED}✗ Remote setup failed${RESET} at step: ${BOLD}${_REMOTE_STEP}${RESET} (line ${LINENO})" >&2' ERR
 
-# ── Set locale ────────────────────────────────────────────────────────────────
-# Install and generate en_US.UTF-8 BEFORE exporting LC_ALL to avoid the
-# "setlocale: LC_ALL: cannot change locale" bash warning.
-_REMOTE_STEP="set locale"
-_step "Setting locale..."
-sudo apt-get install -y locales </dev/null >/dev/null 2>&1 || true
-sudo locale-gen en_US.UTF-8 </dev/null >/dev/null 2>&1 || true
-sudo update-locale LANG=en_US.UTF-8 </dev/null >/dev/null 2>&1 || true
-export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LANGUAGE=en_US.UTF-8
-_done "Updated locale to en_US.UTF-8 for better character support"
-
 # ── Wait for DNS ──────────────────────────────────────────────────────────────
 # Fresh VMs have a race where systemd-resolved starts before the NIC is ready,
 # leaving DNS broken for up to 120 s.
@@ -239,6 +228,17 @@ else
   fi
   _done "DNS is ready"
 fi
+
+# ── Set locale ────────────────────────────────────────────────────────────────
+# Install and generate en_US.UTF-8 BEFORE exporting LC_ALL to avoid the
+# "setlocale: LC_ALL: cannot change locale" bash warning.
+_REMOTE_STEP="set locale"
+_step "Setting locale..."
+sudo apt-get install -y locales </dev/null >/dev/null 2>&1 || true
+sudo locale-gen en_US.UTF-8 </dev/null >/dev/null 2>&1 || true
+sudo update-locale LANG=en_US.UTF-8 </dev/null >/dev/null 2>&1 || true
+export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LANGUAGE=en_US.UTF-8
+_done "Updated locale to en_US.UTF-8 for better character support"
 
 # ── Install git ───────────────────────────────────────────────────────────────
 _REMOTE_STEP="install git"
