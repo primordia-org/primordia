@@ -116,11 +116,21 @@ export async function POST(request: Request) {
     if (files.length > 0) {
       const uploadDir = path.join('/tmp', `primordia-upload-${crypto.randomUUID()}`);
       fs.mkdirSync(uploadDir, { recursive: true });
+      const usedNames = new Set<string>();
       for (const file of files) {
         if (!(file instanceof File) || file.size === 0) continue;
         const buffer = Buffer.from(await file.arrayBuffer());
         // Sanitize filename to prevent path traversal
-        const safeName = path.basename(file.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+        let safeName = path.basename(file.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+        // Deduplicate: append _1, _2, etc. if the name was already used
+        if (usedNames.has(safeName)) {
+          const ext = path.extname(safeName);
+          const stem = safeName.slice(0, safeName.length - ext.length);
+          let counter = 1;
+          while (usedNames.has(`${stem}_${counter}${ext}`)) counter++;
+          safeName = `${stem}_${counter}${ext}`;
+        }
+        usedNames.add(safeName);
         const filePath = path.join(uploadDir, safeName);
         fs.writeFileSync(filePath, buffer);
         savedAttachmentPaths.push(filePath);

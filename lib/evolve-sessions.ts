@@ -469,8 +469,20 @@ export async function startLocalEvolve(
     if (attachmentPaths.length > 0) {
       const attachmentsDir = path.join(session.worktreePath, 'attachments');
       fs.mkdirSync(attachmentsDir, { recursive: true });
+      // Collect existing filenames to avoid overwriting previous attachments
+      const usedNames = new Set<string>(
+        fs.existsSync(attachmentsDir) ? fs.readdirSync(attachmentsDir) : []
+      );
       for (const srcPath of attachmentPaths) {
-        const filename = path.basename(srcPath);
+        let filename = path.basename(srcPath);
+        if (usedNames.has(filename)) {
+          const ext = path.extname(filename);
+          const stem = filename.slice(0, filename.length - ext.length);
+          let counter = 1;
+          while (usedNames.has(`${stem}_${counter}${ext}`)) counter++;
+          filename = `${stem}_${counter}${ext}`;
+        }
+        usedNames.add(filename);
         const dstPath = path.join(attachmentsDir, filename);
         fs.copyFileSync(srcPath, dstPath);
         worktreeAttachmentPaths.push(`attachments/${filename}`);
@@ -580,8 +592,20 @@ export async function runFollowupInWorktree(
     if (attachmentPaths.length > 0) {
       const attachmentsDir = path.join(session.worktreePath, 'attachments');
       fs.mkdirSync(attachmentsDir, { recursive: true });
+      // Collect existing filenames to avoid overwriting previous attachments
+      const usedNames = new Set<string>(
+        fs.existsSync(attachmentsDir) ? fs.readdirSync(attachmentsDir) : []
+      );
       for (const srcPath of attachmentPaths) {
-        const filename = path.basename(srcPath);
+        let filename = path.basename(srcPath);
+        if (usedNames.has(filename)) {
+          const ext = path.extname(filename);
+          const stem = filename.slice(0, filename.length - ext.length);
+          let counter = 1;
+          while (usedNames.has(`${stem}_${counter}${ext}`)) counter++;
+          filename = `${stem}_${counter}${ext}`;
+        }
+        usedNames.add(filename);
         const dstPath = path.join(attachmentsDir, filename);
         fs.copyFileSync(srcPath, dstPath);
         worktreeAttachmentPaths.push(`attachments/${filename}`);
