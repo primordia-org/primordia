@@ -156,6 +156,32 @@ The installer output was verbose and repetitive. Cleaned up:
 - **Redundant "done" message removed** — `install-for-exe-dev.sh` was printing its own "Primordia is running!" after the SSH session closed, duplicating `install.sh`'s done message. Removed.
 - **Minor diag noise removed** — `Running: ssh exe.dev new ...` and `SSHing into ...` lines removed; the surrounding info/spinner lines already communicate the same thing.
 
+## VM SSH not ready — script exits 0 with no error (2026-04-13 follow-up)
+
+### Root cause
+
+After the output cleanup removed the `share port` / `share set-public` steps, there was no longer any delay between VM creation and the script upload SSH command (Step 1). On a freshly created VM the SSH daemon takes 15–30 s to start, so Step 1 was failing immediately with connection refused.
+
+This should have triggered `set -e` + the ERR trap, but there was a second bug masking it: Step 2's command was:
+
+```bash
+ssh -tt "${VM_HOST}" "bash /tmp/primordia_setup.sh '${PROXY_PORT}'; rm -f /tmp/primordia_setup.sh"
+```
+
+The `;` means `rm -f` always runs and its exit code (always 0, even for missing files) becomes the exit code of the whole compound command. SSH returns 0. The local script sees 0, never fires the ERR trap, and exits cleanly — producing `✓` in the shell prompt with no indication of failure.
+
+The user sees `bash: /tmp/primordia_setup.sh: No such file or directory` from the remote side (because Step 1 never wrote the file) but the local script has already exited 0 so there's no matching error message.
+
+### Fix
+
+1. **SSH readiness check added** — before Step 1, the installer now polls `ssh … exit 0` in a loop (up to 60 s with dots printed) and fails loudly if the VM never becomes reachable. This eliminates the race condition cleanly.
+
+2. **Step 2 exit code no longer masked** — `rm -f` is now a separate `ssh` call (with `|| true` so cleanup failure is non-fatal) rather than being chained with `;` after the `bash` call. Step 2's ssh now returns the real exit code of the setup script.
+
+### bun install moved to `install.sh`
+
+Bun was installed twice: once in the remote heredoc in `install-for-exe-dev.sh` and again in `install.sh`. The redundant bun install block has been removed from `install-for-exe-dev.sh`; `install.sh` already handles it as part of its own setup sequence.
+
 ## Why
 
 The previous design required the script to be run on the server and prompted for API keys upfront. The new installer runs entirely from the user's laptop, orchestrates VM creation automatically, and defers all configuration to the app's own first-run flow.

@@ -154,6 +154,26 @@ fi
 diag "Resolved hostname: ${VM_HOST}"
 diag "Proxy port: ${PROXY_PORT}"
 
+# ── Wait for VM SSH ───────────────────────────────────────────────────────────
+# Newly created VMs may take 15-30 s before their SSH daemon is ready.
+# Without this check, the upload step (Step 1) can fail and the failure is
+# masked by the rm -f in Step 2 returning exit 0.
+
+_CURRENT_STEP="wait for VM SSH"
+_SSH_READY=false
+printf "${CYAN}▸${RESET} Waiting for VM SSH to be ready"
+for _i in $(seq 1 30); do
+  if ssh -n -o BatchMode=yes -o ConnectTimeout=5 \
+         -o StrictHostKeyChecking=accept-new "${VM_HOST}" exit 0 2>/dev/null; then
+    _SSH_READY=true
+    break
+  fi
+  printf "."
+  sleep 2
+done
+echo ""
+[[ "$_SSH_READY" == "true" ]] || die "VM SSH did not become ready after 60 s"
+
 # ── Install Primordia on the VM ───────────────────────────────────────────────
 
 _CURRENT_STEP="install Primordia on VM"
@@ -272,23 +292,6 @@ if ! command -v git &>/dev/null; then
 fi
 success "git $(git --version | awk '{print $3}')"
 
-# ── Install bun ────────────────────────────────────────────────────────────────
-_REMOTE_STEP="install bun"
-export PATH="$HOME/.bun/bin:$PATH"
-if ! command -v bun &>/dev/null; then
-  _bun_install_log=$(mktemp)
-  if ! bash -c 'curl -fsSL https://bun.sh/install | bash' > "$_bun_install_log" 2>&1; then
-    echo -e "${DIM}  --- bun install output ---${RESET}" >&2
-    cat "$_bun_install_log" >&2
-    echo -e "${DIM}  --------------------------${RESET}" >&2
-    rm -f "$_bun_install_log"
-    exit 1
-  fi
-  rm -f "$_bun_install_log"
-  export PATH="$HOME/.bun/bin:$PATH"
-fi
-success "bun $(bun --version)"
-
 git config --global user.name  "Primordia" 2>/dev/null || true
 git config --global user.email "primordia@localhost" 2>/dev/null || true
 
@@ -324,6 +327,10 @@ REMOTE
 # Step 2: execute the uploaded script with a PTY for live streaming output.
 # bash reads from the file — subprocesses get a clean PTY stdin (the forwarded
 # local terminal), not the script content.
+# Note: rm -f is run in a separate ssh call so it cannot mask the exit code of
+# the setup script (bash FILE; rm -f FILE would always exit 0 from rm -f).
 ssh -tt -o StrictHostKeyChecking=accept-new "${VM_HOST}" \
-  "bash /tmp/primordia_setup.sh '${PROXY_PORT}'; rm -f /tmp/primordia_setup.sh"
+  "bash /tmp/primordia_setup.sh '${PROXY_PORT}'"
+ssh -n -o StrictHostKeyChecking=accept-new "${VM_HOST}" \
+  "rm -f /tmp/primordia_setup.sh" 2>/dev/null || true
 
