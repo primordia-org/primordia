@@ -287,6 +287,14 @@ async function moveMainAndPush(
   if (pushResult.code !== 0) {
     await onStep(`  ⚠ Could not push main branch: ${pushResult.stderr.trim()}\n`);
   }
+
+  // Check out `main` in the main repo dir (~/primordia) so it tracks the
+  // latest production code and doesn't stay on a detached HEAD or old branch.
+  await onStep('- Checking out main in ~/primordia…\n');
+  const checkoutResult = await runGit(['checkout', 'main'], mainRepoRoot);
+  if (checkoutResult.code !== 0) {
+    await onStep(`  ⚠ Could not checkout main in ${mainRepoRoot}: ${checkoutResult.stderr.trim()}\n`);
+  }
 }
 
 /**
