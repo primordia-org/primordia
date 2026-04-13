@@ -105,6 +105,8 @@ interface WorkerConfig {
   repoRoot: string;
   prompt: string;
   timeoutMs: number;
+  /** When true, continue the most recent Claude Code session in the worktree directory. */
+  useContinue?: boolean;
 }
 
 /** Maps session IDs to the PID of their running Claude worker process. */
