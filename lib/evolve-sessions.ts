@@ -519,6 +519,10 @@ export async function startLocalEvolve(
       `1. Create a new changelog file in the \`changelog/\` directory named \`YYYY-MM-DD-HH-MM-SS Description of change.md\` (UTC time, e.g. \`2026-03-16-21-00-00 Fix login bug.md\`). The filename is the short description; the file body is the full "what changed + why" detail in markdown. Do NOT add changelog entries to CLAUDE.md itself.\n` +
       `2. Commit all changes with a descriptive message.`;
 
+    const workerScript = (harnessId === 'pi')
+      ? path.join(repoRoot, 'scripts/pi-worker.ts')
+      : path.join(repoRoot, 'scripts/claude-worker.ts');
+
     await spawnClaudeWorker(
       {
         sessionId: session.id,
@@ -528,7 +532,7 @@ export async function startLocalEvolve(
         timeoutMs: 20 * 60 * 1000,
         model: session.model,
       },
-      path.join(repoRoot, 'scripts/claude-worker.ts'),
+      workerScript,
     );
     // Worker has exited — 'result' event in the NDJSON log marks completion.
 
@@ -568,6 +572,8 @@ export async function runFollowupInWorktree(
 ): Promise<void> {
   const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
 
+  const fuHarnessId = session.harness ?? DEFAULT_HARNESS;
+
   try {
     if (skipChangelog) {
       // Type-fix passes get their own section heading instead of the user-facing follow-up format.
@@ -575,7 +581,6 @@ export async function runFollowupInWorktree(
     } else {
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'followup', label: '🔄 Follow-up Request', ts: Date.now() });
       appendSessionEvent(ndjsonPath, { type: 'followup_request', request: followupRequest, attachments: attachmentPaths.map(p => path.basename(p)), ts: Date.now() });
-      const fuHarnessId = session.harness ?? DEFAULT_HARNESS;
       const fuModelId = session.model ?? DEFAULT_MODEL;
       const fuHarnessLabel = HARNESS_OPTIONS.find((h) => h.id === fuHarnessId)?.label ?? fuHarnessId;
       const fuModelLabel = (MODEL_OPTIONS_BY_HARNESS[fuHarnessId] ?? []).find((m) => m.id === fuModelId)?.label ?? fuModelId;
@@ -632,8 +637,12 @@ export async function runFollowupInWorktree(
       `${changelogInstruction} Commit all changes with a descriptive message.`;
 
     // Spawn a detached worker process — same pattern as startLocalEvolve.
-    // useContinue resumes the most recent Claude Code session in the worktree
-    // so Claude has full conversation history without us re-injecting it.
+    // useContinue resumes the most recent session in the worktree so the agent
+    // has full conversation history without us having to reconstruct it.
+    const fuWorkerScript = (fuHarnessId === 'pi')
+      ? path.join(repoRoot, 'scripts/pi-worker.ts')
+      : path.join(repoRoot, 'scripts/claude-worker.ts');
+
     await spawnClaudeWorker(
       {
         sessionId: session.id,
@@ -644,7 +653,7 @@ export async function runFollowupInWorktree(
         model: session.model,
         useContinue: true,
       },
-      path.join(repoRoot, 'scripts/claude-worker.ts'),
+      fuWorkerScript,
     );
 
     if (onSuccess) {
