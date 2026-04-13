@@ -24,6 +24,19 @@
 
 - **`scripts/claude-worker.ts`**: Reads the optional `model` field from its config file and passes it as `options.model` to the `query()` call, letting the SDK use the caller-specified model instead of the harness default.
 
+- **`lib/session-events.ts`**: Added a new `sectionType: 'agent'` variant for `section_start` events. Unlike the legacy `'claude'` type, agent sections carry explicit `harness` and `model` fields (human-readable labels, e.g. `"Claude Code"` and `"Claude Sonnet 4"`) alongside the pre-built `label` string (e.g. `"🤖 Claude Code (Claude Sonnet 4)"`). The legacy `'claude'` variant is retained for backward-compatibility with existing session logs. `inferStatusFromEvents` now treats `'agent'` sections identically to `'claude'` (→ `running-claude`).
+
+- **`lib/evolve-sessions.ts`**: The two places that previously wrote `{ sectionType: 'claude', label: '🤖 Claude Code' }` now write `{ sectionType: 'agent', harness: <label>, model: <label>, label: '🤖 <harness> (<model>)' }` using the human-readable labels from `agent-config.ts`. This applies to both the initial run and follow-up runs.
+
+- **`components/EvolveSessionView.tsx`**: `SectionGroup` now carries optional `harness` and `model` string fields populated from `agent` section events by `groupEventsIntoSections`. `RunningClaudeSection` and `DoneClaudeSection` use these directly to render context-aware titles:
+  - Running: `🤖 Claude Code (Claude Sonnet 4) running…`
+  - Finished: `🤖 Claude Code (Claude Sonnet 4) finished`
+  - Errored: `❌ Claude Code (Claude Sonnet 4) errored`
+
+  Legacy `'claude'` sections fall back to `"Claude Code"` as the agent label.
+
 ## Why
 
 The system previously had only one hardwired path: Claude Code using its built-in default model. This change lays the structural groundwork to support additional harnesses and gives users (with a non-coder-friendly UI) the ability to choose the model used for a session — useful for trading off capability vs. speed vs. cost.
+
+The session view now shows which harness and model were actually used, so users can correlate session outcomes with their configuration choices. Harness/model are stored directly in the `section_start` event (the natural source of truth for a section's identity) rather than redundantly on a separate `initial_request` event.
