@@ -10,7 +10,7 @@
 
   A `compact` prop adjusts sizing for the floating dialog. Harness and model option labels are shown without descriptions to keep the UI terse.
 
-- **`components/EvolveSessionView.tsx`**: The follow-up changes panel now includes the same collapsible **"Advanced"** section, letting users choose harness and model for a follow-up pass. The selected harness and model are sent to the `/api/evolve/followup` endpoint and applied to the worker spawned for that follow-up. The advanced options reset to defaults after each successful submission.
+- **`components/EvolveSessionView.tsx`**: The follow-up changes panel now includes the same collapsible **"Advanced"** section, letting users choose harness and model for a follow-up pass. The panel layout mirrors the evolve form: Attach files button (left) and Submit button (right) on one row, followed by a horizontal separator and the Advanced toggle. The selected harness and model are sent to the `/api/evolve/followup` endpoint and applied to the worker spawned for that follow-up. The advanced options reset to defaults after each successful submission.
 
 - **`app/api/evolve/followup/route.ts`**: Now reads optional `harness` and `model` fields from the multipart form data and attaches them to the `LocalSession` object, so the follow-up worker runs with the user's chosen agent configuration.
 

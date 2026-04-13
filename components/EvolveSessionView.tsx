@@ -1348,8 +1348,34 @@ export default function EvolveSessionView({
               {followupError && (
                 <p className="text-red-400 text-xs mb-2">{followupError}</p>
               )}
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <input
+                  ref={followupFileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,application/pdf,.txt,.md,.csv,.json,.ts,.tsx,.js,.jsx,.py,.sh,.yaml,.yml"
+                  className="hidden"
+                  onChange={(e) => { if (e.target.files) handleFollowupFilesAdded(e.target.files); e.target.value = ""; }}
+                />
+                <button
+                  type="button"
+                  onClick={() => followupFileInputRef.current?.click()}
+                  disabled={isClaudeRunning || isSubmittingFollowup}
+                  className="px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-600 disabled:opacity-40 text-xs transition-colors"
+                >
+                  📎 Attach files
+                </button>
+                <button
+                  type="button"
+                  onClick={handleFollowupSubmit}
+                  disabled={isClaudeRunning || isSubmittingFollowup || !followupText.trim()}
+                  className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium transition-colors"
+                >
+                  {isSubmittingFollowup ? "Submitting…" : isClaudeRunning ? "Waiting for Claude to finish…" : "Submit follow-up"}
+                </button>
+              </div>
               {/* Advanced options */}
-              <div className="border-t border-gray-700 pt-2 mt-1 mb-2">
+              <div className="border-t border-gray-700 pt-2 mt-1">
                 <button
                   type="button"
                   onClick={() => setFollowupShowAdvanced((v) => !v)}
@@ -1397,32 +1423,6 @@ export default function EvolveSessionView({
                     </div>
                   </div>
                 )}
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  ref={followupFileInputRef}
-                  type="file"
-                  multiple
-                  accept="image/*,application/pdf,.txt,.md,.csv,.json,.ts,.tsx,.js,.jsx,.py,.sh,.yaml,.yml"
-                  className="hidden"
-                  onChange={(e) => { if (e.target.files) handleFollowupFilesAdded(e.target.files); e.target.value = ""; }}
-                />
-                <button
-                  type="button"
-                  onClick={() => followupFileInputRef.current?.click()}
-                  disabled={isClaudeRunning || isSubmittingFollowup}
-                  className="px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-600 disabled:opacity-40 text-xs transition-colors"
-                >
-                  📎 Attach files
-                </button>
-                <button
-                  type="button"
-                  onClick={handleFollowupSubmit}
-                  disabled={isClaudeRunning || isSubmittingFollowup || !followupText.trim()}
-                  className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium transition-colors"
-                >
-                  {isSubmittingFollowup ? "Submitting…" : isClaudeRunning ? "Waiting for Claude to finish…" : "Submit follow-up"}
-                </button>
               </div>
             </div>
           )}
