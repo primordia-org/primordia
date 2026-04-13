@@ -46,7 +46,7 @@ function LoginPageInner({ initialUser, exeDevEmail }: LoginClientProps) {
   // If user dismisses the "already logged in" banner, show the normal form.
   const [ignoringSession, setIgnoringSession] = useState(false);
 
-  const [tab, setTab] = useState<Tab>("passkey");
+  const [tab, setTab] = useState<Tab>("exe-dev");
 
   // --- Passkey state ---
   const [username, setUsername] = useState("");
@@ -300,6 +300,17 @@ function LoginPageInner({ initialUser, exeDevEmail }: LoginClientProps) {
         <div className="flex rounded-lg bg-gray-800 p-1 gap-1">
           <button
             type="button"
+            onClick={() => { stopPolling(); setTab("exe-dev"); }}
+            className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              tab === "exe-dev"
+                ? "bg-gray-700 text-white"
+                : "text-gray-400 hover:text-gray-200"
+            }`}
+          >
+            exe.dev
+          </button>
+          <button
+            type="button"
             onClick={switchToPasskey}
             className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
               tab === "passkey"
@@ -319,17 +330,6 @@ function LoginPageInner({ initialUser, exeDevEmail }: LoginClientProps) {
             }`}
           >
             QR Code
-          </button>
-          <button
-            type="button"
-            onClick={() => { stopPolling(); setTab("exe-dev"); }}
-            className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              tab === "exe-dev"
-                ? "bg-gray-700 text-white"
-                : "text-gray-400 hover:text-gray-200"
-            }`}
-          >
-            exe.dev
           </button>
         </div>
 
