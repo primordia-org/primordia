@@ -69,8 +69,10 @@ function MetricsRow({ metrics }: { metrics: SectionMetrics }) {
 
 /** A logical section derived from structured session events. */
 interface SectionGroup {
-  type: 'setup' | 'claude' | 'type_fix' | 'followup' | 'deploy';
+  type: 'setup' | 'agent' | 'claude' | 'type_fix' | 'followup' | 'deploy';
   label: string;
+  harness?: string;
+  model?: string;
   events: SessionEvent[];
 }
 
@@ -79,7 +81,12 @@ function groupEventsIntoSections(events: SessionEvent[]): SectionGroup[] {
   const sections: SectionGroup[] = [{ type: 'setup', label: 'Setup', events: [] }];
   for (const event of events) {
     if (event.type === 'section_start') {
-      sections.push({ type: event.sectionType, label: event.label, events: [] });
+      const group: SectionGroup = { type: event.sectionType, label: event.label, events: [] };
+      if (event.sectionType === 'agent') {
+        group.harness = event.harness;
+        group.model = event.model;
+      }
+      sections.push(group);
     } else {
       sections[sections.length - 1].events.push(event);
     }
@@ -195,22 +202,25 @@ function splitClaudeEventsForDisplay(events: SessionEvent[]): {
 }
 
 /** Render a running Claude/type-fix section (streaming events live). */
-function RunningClaudeSection({ events, label, isTypeFixSection, worktreePath }: {
+function RunningClaudeSection({ events, label, isTypeFixSection, worktreePath, harness, model }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
   worktreePath?: string;
+  harness?: string;
+  model?: string;
 }) {
   const borderClass = isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
   const headingClass = isTypeFixSection ? "text-orange-300" : "text-blue-300";
+  const agentLabel = harness ? (model ? `${harness} (${model})` : harness) : 'Claude Code';
+  const runningLabel = isTypeFixSection ? label : `🤖 ${agentLabel} running…`;
 
   return (
     <div className={`rounded-lg border ${borderClass} bg-gray-900 text-sm overflow-hidden`}>
       <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
-        <span className={`font-semibold text-xs ${headingClass}`}>{label}</span>
+        <span className={`font-semibold text-xs ${headingClass}`}>{runningLabel}</span>
         <span className="ml-auto flex items-center gap-1.5 text-gray-500 text-xs animate-pulse">
           <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
-          Running…
         </span>
       </div>
       <div className="px-4 py-3 space-y-2">
@@ -245,11 +255,13 @@ function RunningClaudeSection({ events, label, isTypeFixSection, worktreePath }:
 }
 
 /** Render a completed Claude/type-fix section with tool calls collapsed. */
-function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath }: {
+function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath, harness, model }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
   worktreePath?: string;
+  harness?: string;
+  model?: string;
 }) {
   const resultEvent = events.find((e): e is Extract<SessionEvent, { type: 'result' }> => e.type === 'result');
   const metricsEvent = events.find((e): e is Extract<SessionEvent, { type: 'metrics' }> => e.type === 'metrics');
@@ -259,9 +271,10 @@ function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath }: {
   const headingClass = isTypeFixSection ? "text-orange-300" : "text-blue-300";
   const doneBorderClass = hasError ? "border-red-700/50" : borderClass;
   const doneHeadingClass = hasError ? "text-red-400" : headingClass;
+  const agentLabel = harness ? (model ? `${harness} (${model})` : harness) : 'Claude Code';
   const doneTitle = hasError
-    ? (isTypeFixSection ? "❌ Auto-fix failed" : "❌ Claude Code failed")
-    : (isTypeFixSection ? "🔧 Type errors fixed" : "🤖 Claude Code finished");
+    ? (isTypeFixSection ? "❌ Auto-fix failed" : `❌ ${agentLabel} errored`)
+    : (isTypeFixSection ? "🔧 Type errors fixed" : `🤖 ${agentLabel} finished`);
 
   const { detailEvents, finalEvents, toolCallCount } = splitClaudeEventsForDisplay(events);
 
@@ -353,7 +366,7 @@ function StructuredSection({
   sessionId: string;
   worktreePath?: string;
 }) {
-  const { type, label, events } = section;
+  const { type, label, harness, model, events } = section;
 
   // ── Follow-up request ────────────────────────────────────────────────────
   if (type === 'followup') {
@@ -377,20 +390,20 @@ function StructuredSection({
         )}
         {claudeEvents.length > 0 && (
           isActive && !hasResult
-            ? <RunningClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} />
-            : <DoneClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} />
+            ? <RunningClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} />
+            : <DoneClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} />
         )}
       </>
     );
   }
 
-  // ── Claude Code / type_fix ───────────────────────────────────────────────
-  if (type === 'claude' || type === 'type_fix') {
+  // ── Agent / Claude Code (legacy) / type_fix ──────────────────────────────
+  if (type === 'agent' || type === 'claude' || type === 'type_fix') {
     const hasResult = events.some((e) => e.type === 'result');
     if (isActive && !hasResult) {
-      return <RunningClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} />;
+      return <RunningClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} />;
     }
-    return <DoneClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} />;
+    return <DoneClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} />;
   }
 
   // ── Deploy ───────────────────────────────────────────────────────────────

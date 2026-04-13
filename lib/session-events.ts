@@ -17,7 +17,9 @@ import * as path from 'path';
 import type { EvolveSession } from './db/types';
 
 export type SessionEvent =
-  | { type: 'section_start'; sectionType: 'setup' | 'claude' | 'type_fix' | 'followup' | 'deploy'; label: string; ts: number }
+  | { type: 'section_start'; sectionType: 'setup' | 'type_fix' | 'followup' | 'deploy'; label: string; ts: number }
+  | { type: 'section_start'; sectionType: 'agent'; harness: string; model: string; label: string; ts: number }
+  | { type: 'section_start'; sectionType: 'claude'; label: string; ts: number } // legacy
   | { type: 'setup_step'; label: string; done: boolean; ts: number }
   | { type: 'text'; content: string; ts: number }
   | { type: 'tool_use'; name: string; input: Record<string, unknown>; ts: number }
@@ -66,8 +68,9 @@ export function readSessionEvents(
  *   3. Last `section_start` type:
  *        'deploy'    → 'accepting'
  *        'type_fix'  → 'fixing-types'
- *        'claude'    → 'running-claude'
- *        'followup'  → 'running-claude' (immediately followed by 'claude' in practice)
+ *        'claude'    → 'running-claude' (legacy)
+ *        'agent'     → 'running-claude'
+ *        'followup'  → 'running-claude' (immediately followed by 'agent'/'claude' in practice)
  *   4. Default → 'starting'
  */
 export function inferStatusFromEvents(events: SessionEvent[]): string {
@@ -90,7 +93,7 @@ export function inferStatusFromEvents(events: SessionEvent[]): string {
   if (lastResultIdx >= 0 && lastSectionStartIdx <= lastResultIdx) return 'ready';
   if (lastSectionType === 'deploy') return 'accepting';
   if (lastSectionType === 'type_fix') return 'fixing-types';
-  if (lastSectionType === 'claude' || lastSectionType === 'followup') return 'running-claude';
+  if (lastSectionType === 'agent' || lastSectionType === 'claude' || lastSectionType === 'followup') return 'running-claude';
   return 'starting';
 }
 
