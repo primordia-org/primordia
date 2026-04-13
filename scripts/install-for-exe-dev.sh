@@ -83,6 +83,7 @@ SSH_TEST_OUTPUT=$(ssh -n -o BatchMode=yes -o ConnectTimeout=10 exe.dev help 2>&1
 }
 _done "Connected to exe.dev"
 echo ""
+echo "First let's create a VM to install Primordia on."
 
 # ── Prompt for VM name ────────────────────────────────────────────────────────
 
@@ -139,6 +140,7 @@ if [[ "$_SSH_READY" != "true" ]]; then
 fi
 _done "VM SSH ready"
 echo ""
+echo "Next, we'll run a short script to install git and clone the Primordia repo."
 
 # ── Upload bootstrap script ───────────────────────────────────────────────────
 # Two-step approach:
@@ -272,6 +274,7 @@ echo ""
 
 # ── Run install.sh ────────────────────────────────────────────────────────────
 _REMOTE_STEP="run install.sh"
+echo "Now we install Primordia using its installer."
 echo "Running ~/primordia/scripts/install.sh:"
 echo ""
 export INSTALL_PREFIX="  "

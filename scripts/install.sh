@@ -216,6 +216,7 @@ _done "Build complete"
 
 _CURRENT_STEP="install systemd service"
 echo ""
+echo "Finally, let's ensure Primordia is automatically started on boot."
 _step "Running ~/primordia/scripts/install-service.sh..."
 _svc_log=$(mktemp)
 if ! bash "${INSTALL_DIR}/scripts/install-service.sh" > "$_svc_log" 2>&1; then

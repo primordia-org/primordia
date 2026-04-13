@@ -237,6 +237,15 @@ The remote setup script now shows `✓ Updated locale to en_US.UTF-8 for better 
 
 The `journalctl`/`systemctl` tips at the end of `install.sh` have been removed — they aren't timely information for a first-run install flow.
 
+## Phase context sentences (2026-04-13 follow-up)
+
+Added short expectation-setting sentences before each major phase of the installer, so the user knows what's about to happen before it starts:
+
+- **Before VM name prompt**: "First let's create a VM to install Primordia on."
+- **Before bootstrap upload**: "Next, we'll run a short script to install git and clone the Primordia repo."
+- **Before `install.sh`**: "Now we install Primordia using its installer."
+- **Before `install-service.sh`**: "Finally, let's ensure Primordia is automatically started on boot."
+
 ## Spinner and label polish (2026-04-13 follow-up)
 
 ### ASCII spinner instead of static `▸`
