@@ -41,6 +41,10 @@ export interface LocalSession {
   request: string;
   /** Unix timestamp (ms) when the session was created. */
   createdAt: number;
+  /** Coding agent harness to use (e.g. 'claude-code'). Defaults to 'claude-code'. */
+  harness?: string;
+  /** Model ID to pass to the harness (e.g. 'claude-sonnet-4-6'). Harness default if omitted. */
+  model?: string;
 }
 
 // ─── Branch port management ────────────────────────────────────────────────────
@@ -105,6 +109,8 @@ interface WorkerConfig {
   repoRoot: string;
   prompt: string;
   timeoutMs: number;
+  /** Model ID to use for the agent run. Omit to use the harness default. */
+  model?: string;
 }
 
 /** Maps session IDs to the PID of their running Claude worker process. */
@@ -501,6 +507,7 @@ export async function startLocalEvolve(
         repoRoot,
         prompt,
         timeoutMs: 20 * 60 * 1000,
+        model: session.model,
       },
       path.join(repoRoot, 'scripts/claude-worker.ts'),
     );
@@ -643,6 +650,7 @@ export async function runFollowupInWorktree(
         repoRoot,
         prompt,
         timeoutMs: 20 * 60 * 1000,
+        model: session.model,
       },
       path.join(repoRoot, 'scripts/claude-worker.ts'),
     );

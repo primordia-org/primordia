@@ -23,6 +23,7 @@ import {
   appendSessionEvent,
   getSessionNdjsonPath,
 } from '../../../lib/session-events';
+import { DEFAULT_HARNESS, DEFAULT_MODEL } from '../../../lib/agent-config';
 
 /** Ask Claude to choose a short, descriptive kebab-case slug for the request.
  *  Falls back to the first-4-words approach if the API call fails. */
@@ -94,6 +95,8 @@ export async function POST(request: Request) {
 
   // Parse request body — supports both JSON (legacy) and multipart/form-data (with file attachments).
   let requestText: string;
+  let harness: string = DEFAULT_HARNESS;
+  let model: string = DEFAULT_MODEL;
   const savedAttachmentPaths: string[] = [];
 
   const contentType = request.headers.get('content-type') ?? '';
@@ -104,6 +107,10 @@ export async function POST(request: Request) {
       return Response.json({ error: 'request string required' }, { status: 400 });
     }
     requestText = reqField;
+    const harnessField = formData.get('harness');
+    if (typeof harnessField === 'string' && harnessField) harness = harnessField;
+    const modelField = formData.get('model');
+    if (typeof modelField === 'string' && modelField) model = modelField;
 
     const files = formData.getAll('attachments');
     if (files.length > 0) {
@@ -172,6 +179,8 @@ export async function POST(request: Request) {
     previewUrl: null,
     request: requestText,
     createdAt: Date.now(),
+    harness,
+    model,
   };
 
   // Fire-and-forget — run async so POST returns immediately with the session ID.

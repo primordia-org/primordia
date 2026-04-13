@@ -31,6 +31,8 @@ interface WorkerConfig {
   repoRoot: string;
   prompt: string;
   timeoutMs?: number;
+  /** Model ID to use for this run. Omit to use the SDK/harness default. */
+  model?: string;
 }
 
 function makeWorktreeBoundaryHook(worktreePath: string, repoRoot: string): HookCallback {
@@ -89,6 +91,7 @@ async function main(): Promise<void> {
 
   const { sessionId, worktreePath, repoRoot, prompt } = config;
   const timeoutMs = config.timeoutMs ?? 20 * 60 * 1000;
+  const model = config.model;
 
   const ndjsonPath = getSessionNdjsonPath(worktreePath);
   const ts = () => Date.now();
@@ -134,6 +137,7 @@ async function main(): Promise<void> {
       prompt,
       options: {
         cwd: worktreePath,
+        ...(model ? { model } : {}),
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',

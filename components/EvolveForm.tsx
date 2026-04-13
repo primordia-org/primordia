@@ -14,6 +14,12 @@ import { NavHeader } from "./NavHeader";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import { useSessionUser } from "../lib/hooks";
 import { withBasePath } from "../lib/base-path";
+import {
+  HARNESS_OPTIONS,
+  MODEL_OPTIONS_BY_HARNESS,
+  DEFAULT_HARNESS,
+  DEFAULT_MODEL,
+} from "../lib/agent-config";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +37,9 @@ export default function EvolveForm({ branch }: EvolveFormProps = {}) {
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [selectedHarness, setSelectedHarness] = useState(DEFAULT_HARNESS);
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
   const { sessionUser, handleLogout } = useSessionUser();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -56,6 +65,8 @@ export default function EvolveForm({ branch }: EvolveFormProps = {}) {
     try {
       const formData = new FormData();
       formData.append("request", trimmed);
+      formData.append("harness", selectedHarness);
+      formData.append("model", selectedModel);
       for (const file of attachedFiles) {
         formData.append("attachments", file);
       }
@@ -233,6 +244,62 @@ export default function EvolveForm({ branch }: EvolveFormProps = {}) {
           >
             {isLoading ? "Submitting…" : "Submit Request"}
           </button>
+        </div>
+
+        {/* Advanced options */}
+        <div className="border-t border-gray-800 pt-2 mt-1">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors select-none"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+              <path fillRule="evenodd" d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .205 1.251l-1.18 2.044a1 1 0 0 1-1.186.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.33 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.114a7.05 7.05 0 0 1 0-2.227L1.821 7.773a1 1 0 0 1-.205-1.251l1.18-2.044a1 1 0 0 1 1.186-.447l1.598.54A6.992 6.992 0 0 1 7.51 3.456l.33-1.652ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" clipRule="evenodd" />
+            </svg>
+            Advanced
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-3 h-3 transition-transform ${showAdvanced ? "rotate-180" : ""}`}>
+              <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+            </svg>
+          </button>
+
+          {showAdvanced && (
+            <div className="mt-3 flex flex-col gap-3">
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-gray-400 w-14 flex-shrink-0">Harness</label>
+                <select
+                  value={selectedHarness}
+                  onChange={(e) => {
+                    setSelectedHarness(e.target.value);
+                    const models = MODEL_OPTIONS_BY_HARNESS[e.target.value];
+                    if (models?.length) setSelectedModel(models[0].id);
+                  }}
+                  disabled={isLoading}
+                  className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
+                >
+                  {HARNESS_OPTIONS.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.label} — {h.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-gray-400 w-14 flex-shrink-0">Model</label>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  disabled={isLoading}
+                  className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
+                >
+                  {(MODEL_OPTIONS_BY_HARNESS[selectedHarness] ?? []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label} — {m.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
         </div>
       </form>
     </main>
