@@ -24,6 +24,8 @@ export async function POST(request: Request) {
   // Parse request body — supports both JSON (legacy) and multipart/form-data (with file attachments).
   let sessionId: string;
   let requestText: string;
+  let harness: string | undefined;
+  let model: string | undefined;
   const savedAttachmentPaths: string[] = [];
 
   const contentType = request.headers.get('content-type') ?? '';
@@ -39,6 +41,10 @@ export async function POST(request: Request) {
     }
     sessionId = sidField;
     requestText = reqField;
+    const harnessField = formData.get('harness');
+    const modelField = formData.get('model');
+    if (typeof harnessField === 'string' && harnessField) harness = harnessField;
+    if (typeof modelField === 'string' && modelField) model = modelField;
 
     const files = formData.getAll('attachments');
     if (files.length > 0) {
@@ -89,6 +95,8 @@ export async function POST(request: Request) {
     previewUrl: record.previewUrl,
     request: record.request,
     createdAt: record.createdAt,
+    harness,
+    model,
   };
 
   // Fire-and-forget — runFollowupInWorktree handles all state transitions and

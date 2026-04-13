@@ -12,6 +12,12 @@ import { FloatingEvolveDialog } from "./FloatingEvolveDialog";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import { useSessionUser } from "../lib/hooks";
 import { withBasePath } from "../lib/base-path";
+import {
+  HARNESS_OPTIONS,
+  MODEL_OPTIONS_BY_HARNESS,
+  DEFAULT_HARNESS,
+  DEFAULT_MODEL,
+} from "../lib/agent-config";
 import Link from "next/link";
 import type { DiffFileSummary } from "../app/evolve/session/[id]/page";
 import { DiffFileExpander } from "./DiffFileExpander";
@@ -513,6 +519,9 @@ export default function EvolveSessionView({
   const [followupFiles, setFollowupFiles] = useState<File[]>([]);
   const [isSubmittingFollowup, setIsSubmittingFollowup] = useState(false);
   const [followupError, setFollowupError] = useState<string | null>(null);
+  const [followupShowAdvanced, setFollowupShowAdvanced] = useState(false);
+  const [followupHarness, setFollowupHarness] = useState(DEFAULT_HARNESS);
+  const [followupModel, setFollowupModel] = useState(DEFAULT_MODEL);
   const [acceptRejectLoading, setAcceptRejectLoading] = useState(false);
   const [acceptRejectError, setAcceptRejectError] = useState<string | null>(null);
   /** Which of the three action panels is currently expanded, or null if all collapsed. */
@@ -862,6 +871,8 @@ export default function EvolveSessionView({
       const formData = new FormData();
       formData.append('sessionId', sessionId);
       formData.append('request', trimmed);
+      formData.append('harness', followupHarness);
+      formData.append('model', followupModel);
       for (const file of followupFiles) {
         formData.append('attachments', file);
       }
@@ -878,6 +889,9 @@ export default function EvolveSessionView({
 
       setFollowupText('');
       setFollowupFiles([]);
+      setFollowupShowAdvanced(false);
+      setFollowupHarness(DEFAULT_HARNESS);
+      setFollowupModel(DEFAULT_MODEL);
       setStatus('running-claude');
       void startStreaming();
     } catch (err) {
@@ -1334,6 +1348,56 @@ export default function EvolveSessionView({
               {followupError && (
                 <p className="text-red-400 text-xs mb-2">{followupError}</p>
               )}
+              {/* Advanced options */}
+              <div className="border-t border-gray-700 pt-2 mt-1 mb-2">
+                <button
+                  type="button"
+                  onClick={() => setFollowupShowAdvanced((v) => !v)}
+                  className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors select-none"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5" aria-hidden="true">
+                    <path fillRule="evenodd" d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .205 1.251l-1.18 2.044a1 1 0 0 1-1.186.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.33 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.114a7.05 7.05 0 0 1 0-2.227L1.821 7.773a1 1 0 0 1-.205-1.251l1.18-2.044a1 1 0 0 1 1.186-.447l1.598.54A6.992 6.992 0 0 1 7.51 3.456l.33-1.652ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" clipRule="evenodd" />
+                  </svg>
+                  Advanced
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-3 h-3 transition-transform${followupShowAdvanced ? " rotate-180" : ""}`} aria-hidden="true">
+                    <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                  </svg>
+                </button>
+                {followupShowAdvanced && (
+                  <div className="mt-3 flex flex-col gap-3">
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs text-gray-400 w-14 flex-shrink-0">Harness</label>
+                      <select
+                        value={followupHarness}
+                        onChange={(e) => {
+                          setFollowupHarness(e.target.value);
+                          const models = MODEL_OPTIONS_BY_HARNESS[e.target.value];
+                          if (models?.length) setFollowupModel(models[0].id);
+                        }}
+                        disabled={isSubmittingFollowup}
+                        className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
+                      >
+                        {HARNESS_OPTIONS.map((h) => (
+                          <option key={h.id} value={h.id}>{h.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs text-gray-400 w-14 flex-shrink-0">Model</label>
+                      <select
+                        value={followupModel}
+                        onChange={(e) => setFollowupModel(e.target.value)}
+                        disabled={isSubmittingFollowup}
+                        className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
+                      >
+                        {(MODEL_OPTIONS_BY_HARNESS[followupHarness] ?? []).map((m) => (
+                          <option key={m.id} value={m.id}>{m.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <input
                   ref={followupFileInputRef}
