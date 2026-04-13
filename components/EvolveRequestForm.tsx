@@ -187,7 +187,7 @@ export function EvolveRequestForm({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`flex flex-col gap-3 rounded-xl ${compact ? "flex-1 min-h-0" : ""} transition-all ${isDragging ? "bg-amber-950/10 ring-2 ring-amber-500/60" : ""}`}
+        className={`flex flex-col gap-3 rounded-xl ${compact ? "flex-1 min-h-0" : ""} transition-all ${isDragging ? "bg-amber-950/10 ring-2 ring-amber-500/60 ring-offset-2 ring-offset-gray-950" : ""}`}
       >
         <textarea
           ref={textareaRef}
