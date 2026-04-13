@@ -6,7 +6,7 @@
 
 > A self-modifying web application. Describe changes in plain English — Primordia builds them for you.
 
-Primordia is a chat interface powered by Claude. Users can click the **Edit (pencil) icon** in the header to navigate to the `/evolve` page and describe changes they want made to the app itself. Those requests are automatically built as local git worktree previews via the Claude Agent SDK — no coding or git knowledge required.
+Primordia is a chat interface powered by Claude. Users can open the **hamburger (☰) menu** in the header and choose **"Propose a change"** to open the evolve dialog and describe changes they want made to the app itself. Those requests are automatically built as local git worktree previews via the Claude Agent SDK — no coding or git knowledge required.
 
 ## How It Works
 
@@ -28,7 +28,7 @@ You can attach images or files to any request. Follow-up requests on the same br
 
 | Layer | Technology |
 |---|---|
-| Framework | Next.js 15 (App Router) |
+| Framework | Next.js 16 (App Router) |
 | Styling | Tailwind CSS |
 | Language | TypeScript |
 | AI (chat) | Anthropic SDK — `claude-sonnet-4-6` via SSE |
@@ -70,7 +70,7 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 
 | Capability | How Primordia uses it |
 |---|---|
-| Persistent remote dev server | Runs `bun run dev` as a `systemd` service (`NODE_ENV=development`) |
+| Persistent remote dev server | Runs as a `systemd` service (`primordia-proxy`) in production mode (`bun run build && bun run start`); blue/green slot swap on accept |
 | Built-in LLM gateway | Chat is routed through the exe.dev proxy — no `ANTHROPIC_API_KEY` needed for chat. The evolve pipeline (Claude Code) still requires `ANTHROPIC_API_KEY`. |
 | SSO login | The proxy injects an `X-ExeDev-Email` header; Primordia finds or creates a user automatically |
 
