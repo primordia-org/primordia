@@ -4,7 +4,7 @@
 // Shared evolve request form body used by the /evolve page, the floating
 // dialog, and the follow-up panel on session detail pages.
 
-import { useState, useRef, useEffect, useCallback, FormEvent } from "react";
+import { useState, useRef, useEffect, useCallback, FormEvent, memo } from "react";
 import { useRouter } from "next/navigation";
 import { withBasePath } from "../lib/base-path";
 import {
@@ -13,6 +13,20 @@ import {
   DEFAULT_HARNESS,
   DEFAULT_MODEL,
 } from "../lib/agent-config";
+
+// ─── ImagePreview ─────────────────────────────────────────────────────────────
+
+/** Renders a tiny thumbnail for a local File, managing its object URL lifetime. */
+const ImagePreview = memo(function ImagePreview({ file }: { file: File }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  if (!url) return null;
+  return <img src={url} alt="" className="h-4 w-4 rounded object-cover flex-shrink-0" />;
+});
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -157,8 +171,23 @@ export function EvolveRequestForm({
   }
 
   function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    const files = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
-    if (files.length > 0) handleFilesAdded(files);
+    const imageFiles = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
+    if (imageFiles.length === 0) return;
+    // Rename clipboard images to clipboard.png / clipboard_2.png / etc.
+    // Browsers assign generic names like "image.png"; give them something meaningful.
+    const usedNames = new Set(attachedFiles.map((f) => f.name));
+    const renamed = imageFiles.map((file) => {
+      const ext = file.type === "image/jpeg" ? ".jpg" : file.type === "image/gif" ? ".gif" : file.type === "image/webp" ? ".webp" : ".png";
+      let name = `clipboard${ext}`;
+      if (usedNames.has(name)) {
+        let counter = 2;
+        while (usedNames.has(`clipboard_${counter}${ext}`)) counter++;
+        name = `clipboard_${counter}${ext}`;
+      }
+      usedNames.add(name);
+      return new File([file], name, { type: file.type });
+    });
+    handleFilesAdded(renamed);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -208,8 +237,9 @@ export function EvolveRequestForm({
             {attachedFiles.map((file, i) => (
               <span
                 key={i}
-                className={`flex items-center gap-1 px-2 py-1 ${compact ? "rounded" : "rounded-md"} bg-gray-800 border border-gray-700 text-xs text-gray-300`}
+                className={`flex items-center gap-1.5 px-2 py-1 ${compact ? "rounded" : "rounded-md"} bg-gray-800 border border-gray-700 text-xs text-gray-300`}
               >
+                {file.type.startsWith("image/") && <ImagePreview file={file} />}
                 <span className={`truncate ${compact ? "max-w-[140px]" : "max-w-[180px]"}`}>{file.name}</span>
                 <button
                   type="button"
