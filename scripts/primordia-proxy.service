@@ -8,6 +8,8 @@ User=exedev
 WorkingDirectory=/home/exedev/primordia
 EnvironmentFile=/home/exedev/primordia/.env.local
 Environment=PRIMORDIA_WORKTREES_DIR=/home/exedev/primordia-worktrees
+Environment=HOME=/home/exedev
+Environment=PATH=/home/exedev/.bun/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/home/exedev/.bun/bin/bun /home/exedev/primordia-proxy.ts
 Restart=always
 RestartSec=5

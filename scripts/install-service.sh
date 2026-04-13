@@ -39,12 +39,25 @@ echo "  Installed proxy script: ${PROXY_STABLE}"
 
 # Initialise primordia.productionBranch in git config so the reverse proxy knows
 # which branch is production. Only set on first install — never overwrite a live value.
+# Use the branch currently checked out in REPO_ROOT (e.g. curl-pipe-install-script
+# when installed via a preview URL), falling back to main.
 if ! git -C "${REPO_ROOT}" config --get primordia.productionBranch >/dev/null 2>&1; then
-  git -C "${REPO_ROOT}" config primordia.productionBranch main
-  git -C "${REPO_ROOT}" config --add primordia.productionHistory main
-  echo "  Initialized production branch → main"
+  _CURRENT_BRANCH=$(git -C "${REPO_ROOT}" symbolic-ref --short HEAD 2>/dev/null || echo "main")
+  git -C "${REPO_ROOT}" config primordia.productionBranch "${_CURRENT_BRANCH}"
+  git -C "${REPO_ROOT}" config --add primordia.productionHistory "${_CURRENT_BRANCH}"
+  echo "  Initialized production branch → ${_CURRENT_BRANCH}"
 else
   echo "  Production branch already set → $(git -C "${REPO_ROOT}" config --get primordia.productionBranch)"
+fi
+
+# Assign ports to all local branches (ensures branch.main.port = 3001 is set in git config).
+bash "${SCRIPT_DIR}/assign-branch-ports.sh" "${REPO_ROOT}"
+
+# Symlink bun into /usr/local/bin so spawned child processes (bun run start/dev)
+# can find it even when PATH doesn't include ~/.bun/bin.
+BUN_BIN="$HOME/.bun/bin/bun"
+if [[ -f "$BUN_BIN" ]] && [[ ! -L /usr/local/bin/bun ]]; then
+  sudo ln -sf "$BUN_BIN" /usr/local/bin/bun 2>/dev/null && echo "  Symlinked bun → /usr/local/bin/bun" || true
 fi
 
 # Kill any legacy nohup process so we don't double-run.
@@ -63,9 +76,3 @@ sudo systemctl enable primordia-proxy
 echo "  Enabled on boot."
 
 sudo systemctl restart primordia-proxy
-echo ""
-echo "Done! Useful commands:"
-echo "  sudo systemctl restart primordia-proxy  # restart proxy (also restarts prod app if down)"
-echo "  sudo systemctl stop primordia-proxy     # stop proxy"
-echo "  sudo systemctl status primordia-proxy   # proxy status"
-echo "  journalctl -u primordia-proxy -f        # tail proxy logs"

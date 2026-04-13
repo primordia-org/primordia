@@ -33,6 +33,8 @@ interface WorkerConfig {
   timeoutMs?: number;
   /** Model ID to use for this run. Omit to use the SDK/harness default. */
   model?: string;
+  /** When true, continue the most recent Claude Code session in the worktree directory. */
+  useContinue?: boolean;
 }
 
 function makeWorktreeBoundaryHook(worktreePath: string, repoRoot: string): HookCallback {
@@ -89,7 +91,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const { sessionId, worktreePath, repoRoot, prompt } = config;
+  const { sessionId, worktreePath, repoRoot, prompt, useContinue } = config;
   const timeoutMs = config.timeoutMs ?? 20 * 60 * 1000;
   const model = config.model;
 
@@ -146,6 +148,7 @@ async function main(): Promise<void> {
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         abortController,
+        continue: useContinue ?? false,
         stderr: (data: string) => {
           stderrLines.push(data.trimEnd());
         },

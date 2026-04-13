@@ -111,6 +111,8 @@ interface WorkerConfig {
   timeoutMs: number;
   /** Model ID to use for the agent run. Omit to use the harness default. */
   model?: string;
+  /** When true, continue the most recent Claude Code session in the worktree directory. */
+  useContinue?: boolean;
 }
 
 /** Maps session IDs to the PID of their running Claude worker process. */
@@ -588,61 +590,17 @@ export async function runFollowupInWorktree(
         `\n\nRead and use these files as needed. If they are images or assets that should be added to the project, copy them to an appropriate location (e.g., \`public/\`) with a descriptive filename.`
       : '';
 
-    // Build a session context block so Claude knows the original request, any
-    // prior follow-ups, and what has already been committed. Without this,
-    // short follow-ups like "retry" give Claude no way to know what to retry.
-    // Skip for skipChangelog (type-fix) passes — they don't need this context.
-    let sessionContextSection = '';
-    if (!skipChangelog) {
-      const { events: priorEvents } = readSessionEvents(getSessionNdjsonPath(session.worktreePath));
-      const priorFollowups = priorEvents
-        .filter((e): e is Extract<typeof e, { type: 'followup_request' }> => e.type === 'followup_request')
-        .map(e => e.request);
-
-      // Commits made so far in this session only (exclude parent-branch history).
-      const parentConfigResult = await runGit(
-        ['config', `branch.${session.branch}.parent`],
-        session.worktreePath,
-      );
-      const parentBranch = parentConfigResult.stdout.trim();
-      const logArgs = parentBranch
-        ? ['log', '--oneline', `${parentBranch}..HEAD`]
-        : ['log', '--oneline', '-10'];
-      const logResult = await runGit(logArgs, session.worktreePath);
-      const gitLog = logResult.stdout.trim() || '(no commits yet in this session)';
-
-      const contextLines: string[] = [
-        '---',
-        '',
-        '**Context from this evolve session:**',
-        '',
-        `**Original request:** ${session.request}`,
-        '',
-      ];
-      if (priorFollowups.length > 0) {
-        contextLines.push('**Previous follow-up requests in this session:**');
-        priorFollowups.forEach((req, i) => {
-          contextLines.push(`${i + 1}. ${req}`);
-        });
-        contextLines.push('');
-      }
-      contextLines.push('**Commits made so far in this session:**');
-      contextLines.push('```');
-      contextLines.push(gitLog);
-      contextLines.push('```');
-      contextLines.push('');
-      contextLines.push('---');
-      contextLines.push('');
-      sessionContextSection = contextLines.join('\n');
-    }
-
+    // With `continue: true`, Claude Code resumes the existing session in this
+    // worktree and already has full context (original request, prior follow-ups,
+    // everything it did). No need to manually reconstruct session history.
     const prompt =
       `Address the following follow-up request:\n\n` +
-      `${sessionContextSection}` +
-      `**Follow-up request:**\n\n${followupRequest}${attachmentSection}\n\n` +
+      `${followupRequest}${attachmentSection}\n\n` +
       `${changelogInstruction} Commit all changes with a descriptive message.`;
 
     // Spawn a detached worker process — same pattern as startLocalEvolve.
+    // useContinue resumes the most recent Claude Code session in the worktree
+    // so Claude has full conversation history without us re-injecting it.
     await spawnClaudeWorker(
       {
         sessionId: session.id,
@@ -651,6 +609,7 @@ export async function runFollowupInWorktree(
         prompt,
         timeoutMs: 20 * 60 * 1000,
         model: session.model,
+        useContinue: true,
       },
       path.join(repoRoot, 'scripts/claude-worker.ts'),
     );

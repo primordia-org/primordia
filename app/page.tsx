@@ -1,11 +1,12 @@
 // app/page.tsx — Fancy landing page for Primordia
-// Server component — no client JS needed.
-// The actual chat lives at /chat.
+// Server component. The actual chat lives at /chat.
 
 import type { Metadata } from "next";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { buildPageTitle } from "@/lib/page-title";
-import { withBasePath } from "@/lib/base-path";
+import { basePath, withBasePath } from "@/lib/base-path";
+import CopyButton from "@/components/CopyButton";
 
 export function generateMetadata(): Metadata {
   return { title: buildPageTitle() };
@@ -71,7 +72,15 @@ const STEPS = [
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const headerStore = await headers();
+  const proto = headerStore.get("x-forwarded-proto") ?? "https";
+  const host =
+    headerStore.get("x-forwarded-host") ??
+    headerStore.get("host") ??
+    "primordia.exe.xyz";
+  const installUrl = `${proto}://${host}${basePath}/install-for-exe-dev.sh`;
+  const curlCmd = `curl -fsSL ${installUrl} | bash`;
   return (
     <div className="min-h-dvh bg-gray-950 text-gray-100 overflow-x-hidden">
 
@@ -125,11 +134,32 @@ export default function LandingPage() {
           The web application that rewrites itself on demand.
         </p>
 
-        {/* CTAs */}
-        <div className="animate-fade-up-4 relative flex flex-wrap items-center justify-center gap-4">
+        {/* Primary CTA — curl install command */}
+        <div className="animate-fade-up-4 relative w-full max-w-xl">
+          <p className="text-xs font-mono text-gray-500 mb-2 text-center uppercase tracking-widest">
+            Deploy your own instance
+          </p>
+          <div className="group relative flex items-center rounded-xl border border-white/10 bg-gray-900/80 backdrop-blur px-4 py-3 gap-3 hover:border-white/20 transition-colors">
+            {/* Terminal prompt */}
+            <span className="select-none text-gray-600 font-mono text-sm shrink-0">$</span>
+            <code className="flex-1 font-mono text-sm text-green-400 truncate">{curlCmd}</code>
+            {/* Copy button */}
+            <CopyButton text={curlCmd} />
+          </div>
+          <p className="text-xs text-gray-600 text-center mt-2 font-mono">
+            Runs on your laptop · requires an{" "}
+            <a href="https://exe.dev" className="text-gray-500 hover:text-gray-300 underline underline-offset-2 transition-colors">
+              exe.dev
+            </a>{" "}
+            account with SSH configured
+          </p>
+        </div>
+
+        {/* Secondary CTAs */}
+        <div className="animate-fade-up-4 relative flex flex-wrap items-center justify-center gap-4 mt-2">
           <Link
             href="/chat"
-            className="group inline-flex items-center gap-2 px-6 py-3 rounded-xl font-mono font-semibold text-sm bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-lg shadow-blue-600/25 hover:shadow-blue-500/40 hover:-translate-y-0.5"
+            className="group inline-flex items-center gap-2 px-6 py-3 rounded-xl font-mono font-semibold text-sm bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-gray-300 hover:text-white transition-all hover:-translate-y-0.5"
           >
             Start chatting
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-hover:translate-x-0.5" aria-hidden="true">
@@ -218,17 +248,21 @@ export default function LandingPage() {
 
           <div className="relative px-8 py-16 text-center">
             <h2 className="font-mono font-black text-3xl sm:text-4xl text-white mb-4 tracking-tight">
-              Ready to evolve?
+              Ready to deploy?
             </h2>
             <p className="text-gray-400 max-w-md mx-auto mb-8 leading-relaxed">
-              Jump in, have a conversation, and propose your first change.
-              Sign in with a passkey to start chatting and proposing changes.
+              One command sets up a new VM in your exe.dev account and installs Primordia end-to-end.
             </p>
+            <div className="flex items-center rounded-xl border border-white/10 bg-black/40 px-4 py-3 gap-3 max-w-lg mx-auto mb-4">
+              <span className="select-none text-gray-600 font-mono text-sm shrink-0">$</span>
+              <code className="flex-1 font-mono text-sm text-green-400 text-left truncate">{curlCmd}</code>
+              <CopyButton text={curlCmd} />
+            </div>
             <Link
               href="/chat"
-              className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl font-mono font-semibold text-sm bg-white text-gray-950 hover:bg-gray-100 transition-all shadow-lg hover:-translate-y-0.5"
+              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-mono font-semibold text-sm bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all"
             >
-              Open Primordia
+              Already have an instance? Open Primordia
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <line x1="5" y1="12" x2="19" y2="12"/>
                 <polyline points="12 5 19 12 12 19"/>
