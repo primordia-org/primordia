@@ -260,8 +260,18 @@ async function moveMainAndPush(
 
   await onStep('- Advancing main branch pointer…\n');
 
-  // Force-move the `main` branch ref to the accepted session branch HEAD.
-  const moveResult = await runGit(['branch', '-f', 'main', branch], mainRepoRoot);
+  // Resolve the SHA for the accepted branch so we can update the ref at the
+  // plumbing level.  `git branch -f main <branch>` would fail when `main` is
+  // currently checked out in the main repo; `git update-ref` bypasses that.
+  const resolveResult = await runGit(['rev-parse', branch], mainRepoRoot);
+  if (resolveResult.code !== 0) {
+    await onStep(`  ⚠ Could not resolve ${branch} SHA: ${resolveResult.stderr.trim()}\n`);
+    return;
+  }
+  const branchSha = resolveResult.stdout.trim();
+
+  // Force-update the `main` ref directly — safe even when main is checked out.
+  const moveResult = await runGit(['update-ref', 'refs/heads/main', branchSha], mainRepoRoot);
   if (moveResult.code !== 0) {
     await onStep(`  ⚠ Could not move main branch: ${moveResult.stderr.trim()}\n`);
     return;

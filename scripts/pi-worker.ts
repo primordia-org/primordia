@@ -134,8 +134,10 @@ async function main(): Promise<void> {
       (pi) => { pi.registerProvider('anthropic', { baseUrl: GATEWAY_BASE_URL }); },
     ];
 
-    // Resource loader: use the worktree as cwd so pi discovers CLAUDE.md and
-    // other project context, and append the working-directory line.
+    // Resource loader: use the worktree as cwd so pi discovers AGENTS.md
+    // (symlinked to CLAUDE.md) and other project context, and append the
+    // working-directory line. Skills are discovered from .pi/skills/ which
+    // is symlinked to .claude/skills/ — no code changes needed for either.
     const loader = new DefaultResourceLoader({
       cwd: worktreePath,
       agentDir: getAgentDir(),

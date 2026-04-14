@@ -438,7 +438,7 @@ function StructuredSection({
   if (type === 'deploy') {
     const logLines = events
       .filter((e): e is Extract<SessionEvent, { type: 'log_line' }> => e.type === 'log_line')
-      .map((e) => e.content)
+      .map((e) => e.content.replace(/\n+$/, ''))
       .join('\n');
     const resultEvent = events.find((e): e is Extract<SessionEvent, { type: 'result' }> => e.type === 'result');
     const isProduction = label.includes("production");
