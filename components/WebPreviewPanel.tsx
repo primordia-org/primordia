@@ -104,7 +104,7 @@ export function WebPreviewPanel({ src, fullHeight = false, className }: WebPrevi
         <button
           type="button"
           onClick={handleRefresh}
-          className={`p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors flex-shrink-0 ${isLoading ? "animate-spin" : ""}`}
+          className={`p-1.5 hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors flex-shrink-0 ${isLoading ? "animate-spin rounded-full" : "rounded"}`}
           title="Refresh"
         >
           <RotateCw size={14} />
