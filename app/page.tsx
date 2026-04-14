@@ -73,25 +73,6 @@ export default async function LandingPage() {
       {/* ── Hero ── */}
       <section className="relative flex flex-col items-center justify-center min-h-dvh px-6 text-center overflow-hidden">
 
-        {/* Animated gradient blobs */}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
-          {/* Blob A - blue/indigo, top-left */}
-          <div className="animate-blob-a absolute -top-32 -left-32 w-[600px] h-[600px] rounded-full bg-blue-600/15 blur-3xl" />
-          {/* Blob B - violet/purple, top-right */}
-          <div className="animate-blob-b absolute -top-16 -right-40 w-[500px] h-[500px] rounded-full bg-violet-600/15 blur-3xl" />
-          {/* Blob C - fuchsia/pink, bottom-center */}
-          <div className="animate-blob-c absolute bottom-0 left-1/2 -translate-x-1/2 w-[700px] h-[400px] rounded-full bg-fuchsia-700/10 blur-3xl" />
-          {/* Subtle grid overlay */}
-          <div
-            className="absolute inset-0 opacity-[0.03]"
-            style={{
-              backgroundImage:
-                "linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)",
-              backgroundSize: "40px 40px",
-            }}
-          />
-        </div>
-
         {/* Logo */}
         <div className="animate-fade-up relative mb-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
