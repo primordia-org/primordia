@@ -240,9 +240,8 @@ async function main(): Promise<void> {
       appendSessionEvent(ndjsonPath, {
         type: 'text',
         content:
-          '\n\n❌ **Truncated by `max_tokens`**: Pi hit the output token limit and ' +
-          'stopped mid-response without finishing its work. Submit a follow-up ' +
-          'request (e.g. "continue") to resume from where it left off.',
+          "\n\n\u274c The AI's response was longer than expected, so it was paused. " +
+          "Follow-up with 'continue' and it'll pick up right where it left off.",
         ts: ts(),
       });
     }
