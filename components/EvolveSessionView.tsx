@@ -9,7 +9,7 @@ import { GitBranch } from "lucide-react";
 import { MarkdownContent } from "./SimpleMarkdown";
 import { NavHeader } from "./NavHeader";
 
-import { FloatingEvolveDialog } from "./FloatingEvolveDialog";
+import { FloatingEvolveDialog, EvolveSubmitToast } from "./FloatingEvolveDialog";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import { useSessionUser } from "../lib/hooks";
 import { withBasePath } from "../lib/base-path";
@@ -551,6 +551,7 @@ export default function EvolveSessionView({
 
   const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
   const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
+  const [toastSessionId, setToastSessionId] = useState<string | null>(null);
   const hamburgerRef = useRef<HTMLDivElement>(null);
   const { sessionUser, handleLogout } = useSessionUser();
   const [acceptRejectLoading, setAcceptRejectLoading] = useState(false);
@@ -947,6 +948,13 @@ export default function EvolveSessionView({
           <FloatingEvolveDialog
             onClose={() => setEvolveDialogOpen(false)}
             anchorRect={evolveAnchorRect}
+            onSessionCreated={(id) => setToastSessionId(id)}
+          />
+        )}
+        {toastSessionId && (
+          <EvolveSubmitToast
+            sessionId={toastSessionId}
+            onDismiss={() => setToastSessionId(null)}
           />
         )}
       </header>

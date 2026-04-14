@@ -9,8 +9,10 @@
 // Docking: four corner buttons in the title bar snap the dialog to a corner.
 
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { EvolveRequestForm } from "./EvolveRequestForm";
-import { X } from "lucide-react";
+import { withBasePath } from "../lib/base-path";
+import { X, ExternalLink } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,10 +30,17 @@ interface DragOrigin {
 export function FloatingEvolveDialog({
   onClose,
   anchorRect,
+  onSessionCreated,
 }: {
   onClose: () => void;
   /** When provided, the dialog opens with its top-right corner aligned to the bottom-right of this rect. */
   anchorRect?: DOMRect | null;
+  /**
+   * Called with the new sessionId when a request is submitted successfully.
+   * The dialog calls onClose() before this, so the caller should render a toast
+   * independently (e.g. <EvolveSubmitToast>) to survive dialog unmount.
+   */
+  onSessionCreated?: (sessionId: string) => void;
 }) {
   const [isDragging, setIsDragging] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -47,6 +56,14 @@ export function FloatingEvolveDialog({
 
   // Suppress unused warning — isDragging used only for cursor style via CSS
   void isDragging;
+
+  // When a session is created: close the dialog then notify the parent so it
+  // can show a persistent toast (which must live outside this component to
+  // survive its unmount).
+  function handleSessionCreated(sessionId: string) {
+    onClose();
+    onSessionCreated?.(sessionId);
+  }
 
   // Position the dialog under the hamburger button on first render if anchorRect is provided.
   useLayoutEffect(() => {
@@ -228,7 +245,7 @@ export function FloatingEvolveDialog({
 
       {/* Form body — flex-1 so it fills available height when dialog is resized */}
       <div className="p-3 flex flex-col flex-1 overflow-y-auto min-h-0">
-        <EvolveRequestForm compact />
+        <EvolveRequestForm compact onSessionCreated={handleSessionCreated} />
       </div>
 
       {/* Bottom resize handle — drag up/down to resize the dialog vertically */}
@@ -241,6 +258,67 @@ export function FloatingEvolveDialog({
         <div className="w-8 h-1 rounded-full bg-gray-700" />
       </div>
     </div>
+  );
+}
+
+// ─── EvolveSubmitToast ────────────────────────────────────────────────────────
+
+/**
+ * A self-contained fixed toast shown after a request is submitted via the
+ * floating dialog. Renders as a portal on document.body so it persists after
+ * the dialog unmounts. Fades out after 5 s and calls onDismiss when done.
+ *
+ * Usage:
+ *   const [toastSessionId, setToastSessionId] = useState<string | null>(null);
+ *   {toastSessionId && <EvolveSubmitToast sessionId={toastSessionId} onDismiss={() => setToastSessionId(null)} />}
+ */
+export function EvolveSubmitToast({
+  sessionId,
+  onDismiss,
+}: {
+  sessionId: string;
+  onDismiss: () => void;
+}) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    // Trigger enter animation on the next frame.
+    const enter = requestAnimationFrame(() => setVisible(true));
+    // Begin fade-out just before the 5 s mark.
+    const fadeOut = setTimeout(() => setVisible(false), 4500);
+    // Remove from DOM after the transition completes.
+    const remove = setTimeout(() => onDismiss(), 5000);
+    return () => {
+      cancelAnimationFrame(enter);
+      clearTimeout(fadeOut);
+      clearTimeout(remove);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (typeof document === "undefined") return null;
+
+  const sessionUrl = withBasePath(`/evolve/session/${sessionId}`);
+
+  return createPortal(
+    <div
+      role="status"
+      aria-live="polite"
+      style={{ transition: "opacity 0.5s ease, transform 0.5s ease" }}
+      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 px-4 py-3 rounded-xl bg-gray-900 border border-amber-600/60 shadow-2xl text-sm text-gray-100 whitespace-nowrap pointer-events-auto ${
+        visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
+      }`}
+    >
+      <span className="text-amber-400 font-medium">Request submitted!</span>
+      <a
+        href={sessionUrl}
+        className="flex items-center gap-1.5 text-amber-300 hover:text-amber-200 underline underline-offset-2 transition-colors"
+      >
+        View session
+        <ExternalLink size={13} strokeWidth={2} aria-hidden="true" />
+      </a>
+    </div>,
+    document.body,
   );
 }
 

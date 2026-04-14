@@ -43,6 +43,11 @@ interface EvolveRequestFormProps {
   /** Submit button label. */
   submitLabel?: string;
   /**
+   * When provided, called with the new sessionId instead of navigating to the
+   * session page. The form resets automatically on success.
+   */
+  onSessionCreated?: (sessionId: string) => void;
+  /**
    * When provided, called on submit instead of POSTing to /api/evolve and
    * navigating to the new session. Should throw on error (message shown in the
    * form). On success the form resets automatically.
@@ -71,6 +76,7 @@ export function EvolveRequestForm({
   placeholder = "Describe the change you want to make to this app…",
   submitLabel = "Submit Request",
   onSubmit,
+  onSessionCreated,
   disabled = false,
   disabledLabel,
   autoFocus = false,
@@ -143,7 +149,17 @@ export function EvolveRequestForm({
           throw new Error(data.error ?? `API error: ${res.statusText}`);
         }
 
-        router.push(`/evolve/session/${data.sessionId}`);
+        if (onSessionCreated) {
+          setInput("");
+          setAttachedFiles([]);
+          setShowAdvanced(false);
+          setSelectedHarness(DEFAULT_HARNESS);
+          setSelectedModel(DEFAULT_MODEL);
+          setCavemanMode(false);
+          onSessionCreated(data.sessionId!);
+        } else {
+          router.push(`/evolve/session/${data.sessionId}`);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");

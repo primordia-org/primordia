@@ -18,7 +18,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { NavHeader } from "./NavHeader";
-import { FloatingEvolveDialog } from "./FloatingEvolveDialog";
+import { FloatingEvolveDialog, EvolveSubmitToast } from "./FloatingEvolveDialog";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import type { SessionUser } from "../lib/hooks";
 import { withBasePath } from "../lib/base-path";
@@ -48,6 +48,7 @@ interface PageNavBarProps {
 export function PageNavBar({ subtitle, branch, currentPage, initialSession }: PageNavBarProps) {
   const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
   const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
+  const [toastSessionId, setToastSessionId] = useState<string | null>(null);
   const hamburgerRef = useRef<HTMLDivElement>(null);
   // undefined = still loading; null = not logged in; object = logged in
   // If initialSession was passed by the server, use it directly — no fetch needed.
@@ -94,6 +95,13 @@ export function PageNavBar({ subtitle, branch, currentPage, initialSession }: Pa
         <FloatingEvolveDialog
           onClose={() => setEvolveDialogOpen(false)}
           anchorRect={evolveAnchorRect}
+          onSessionCreated={(id) => setToastSessionId(id)}
+        />
+      )}
+      {toastSessionId && (
+        <EvolveSubmitToast
+          sessionId={toastSessionId}
+          onDismiss={() => setToastSessionId(null)}
         />
       )}
     </header>

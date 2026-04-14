@@ -12,7 +12,7 @@
 
 import { useState, useRef, useEffect, FormEvent } from "react";
 import { SimpleMarkdown } from "./SimpleMarkdown";
-import { FloatingEvolveDialog } from "./FloatingEvolveDialog";
+import { FloatingEvolveDialog, EvolveSubmitToast } from "./FloatingEvolveDialog";
 import { NavHeader } from "./NavHeader";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import { useSessionUser } from "../lib/hooks";
@@ -38,6 +38,7 @@ interface GitContext {
 export default function ChatInterface({ branch, commitMessage }: GitContext) {
   const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
   const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
+  const [toastSessionId, setToastSessionId] = useState<string | null>(null);
   const hamburgerRef = useRef<HTMLDivElement>(null);
   const { sessionUser, handleLogout } = useSessionUser();
 
@@ -243,6 +244,13 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
           <FloatingEvolveDialog
             onClose={() => setEvolveDialogOpen(false)}
             anchorRect={evolveAnchorRect}
+            onSessionCreated={(id) => setToastSessionId(id)}
+          />
+        )}
+        {toastSessionId && (
+          <EvolveSubmitToast
+            sessionId={toastSessionId}
+            onDismiss={() => setToastSessionId(null)}
           />
         )}
       </header>
