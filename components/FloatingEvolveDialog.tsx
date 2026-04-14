@@ -305,8 +305,8 @@ export function EvolveSubmitToast({
       role="status"
       aria-live="polite"
       style={{ transition: "opacity 0.5s ease, transform 0.5s ease" }}
-      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 px-4 py-3 rounded-xl bg-gray-900 border border-amber-600/60 shadow-2xl text-sm text-gray-100 whitespace-nowrap pointer-events-auto ${
-        visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
+      className={`fixed top-6 right-6 z-[9999] flex items-center gap-3 px-4 py-3 rounded-xl bg-gray-900 border border-amber-600/60 shadow-2xl text-sm text-gray-100 whitespace-nowrap pointer-events-auto ${
+        visible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2"
       }`}
     >
       <span className="text-amber-400 font-medium">Request submitted!</span>
