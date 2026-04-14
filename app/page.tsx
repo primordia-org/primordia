@@ -119,7 +119,7 @@ export default async function LandingPage() {
         </p>
 
         {/* Primary CTA — curl install command */}
-        <div className="animate-fade-up-4 relative w-full max-w-xl">
+        <div className="animate-fade-up-4 relative w-full max-w-2xl">
           <p className="text-xs font-mono text-gray-500 mb-2 text-center uppercase tracking-widest">
             Deploy your own instance
           </p>
@@ -229,18 +229,12 @@ export default async function LandingPage() {
             <p className="text-gray-400 max-w-md mx-auto mb-8 leading-relaxed">
               One command sets up a new VM in your exe.dev account and installs Primordia end-to-end.
             </p>
-            <div className="flex items-center rounded-xl border border-white/10 bg-black/40 px-4 py-3 gap-3 max-w-lg mx-auto mb-4">
+            <div className="flex items-center rounded-xl border border-white/10 bg-black/40 px-4 py-3 gap-3 max-w-2xl mx-auto mb-4">
               <span className="select-none text-gray-600 font-mono text-sm shrink-0">$</span>
               <code className="flex-1 font-mono text-sm text-green-400 text-left truncate">{curlCmd}</code>
               <CopyButton text={curlCmd} />
             </div>
-            <Link
-              href="/chat"
-              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-mono font-semibold text-sm bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all"
-            >
-              Already have an instance? Open Primordia
-              <ArrowRight size={16} strokeWidth={2.5} aria-hidden="true" />
-            </Link>
+
           </div>
         </div>
       </section>
