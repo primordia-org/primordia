@@ -16,6 +16,32 @@ import {
   DEFAULT_MODEL,
 } from "../lib/agent-config";
 
+// ─── Sticky preference storage ────────────────────────────────────────────────
+
+const STORAGE_KEY_HARNESS = 'evolve:preferred-harness';
+const STORAGE_KEY_MODEL = 'evolve:preferred-model';
+
+function readStoredHarness(): string | null {
+  try {
+    const v = localStorage.getItem(STORAGE_KEY_HARNESS);
+    return v && HARNESS_OPTIONS.find((h) => h.id === v) ? v : null;
+  } catch { return null; }
+}
+
+function readStoredModel(harness: string): string | null {
+  try {
+    const v = localStorage.getItem(STORAGE_KEY_MODEL);
+    return v && MODEL_OPTIONS_BY_HARNESS[harness]?.find((m) => m.id === v) ? v : null;
+  } catch { return null; }
+}
+
+function saveStoredPreference(harness: string, model: string) {
+  try {
+    localStorage.setItem(STORAGE_KEY_HARNESS, harness);
+    localStorage.setItem(STORAGE_KEY_MODEL, model);
+  } catch { /* ignore */ }
+}
+
 // ─── ImagePreview ─────────────────────────────────────────────────────────────
 
 /** Renders a tiny thumbnail for a local File, managing its object URL lifetime. */
@@ -62,6 +88,17 @@ interface EvolveRequestFormProps {
   disabledLabel?: string;
   /** Auto-focus the textarea on mount. */
   autoFocus?: boolean;
+  /**
+   * Override the initial harness selection. When provided the form starts on
+   * this harness instead of reading from localStorage. Useful for follow-up
+   * forms that should default to the same harness used in the previous agent
+   * run. Changes made by the user are still persisted to localStorage.
+   */
+  defaultHarness?: string;
+  /**
+   * Override the initial model selection. Works in tandem with defaultHarness.
+   */
+  defaultModel?: string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -74,6 +111,8 @@ export function EvolveRequestForm({
   disabled = false,
   disabledLabel,
   autoFocus = false,
+  defaultHarness,
+  defaultModel,
 }: EvolveRequestFormProps) {
   const router = useRouter();
   const [input, setInput] = useState("");
@@ -82,11 +121,31 @@ export function EvolveRequestForm({
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [selectedHarness, setSelectedHarness] = useState(DEFAULT_HARNESS);
-  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
+  // Start with explicit defaults (e.g. from the last agent run) or fall back to
+  // the compile-time defaults; localStorage stickiness is applied in the
+  // useEffect below (only when no explicit defaultHarness was given).
+  const [selectedHarness, setSelectedHarness] = useState(defaultHarness ?? DEFAULT_HARNESS);
+  const [selectedModel, setSelectedModel] = useState(defaultModel ?? DEFAULT_MODEL);
   const [cavemanMode, setCavemanMode] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load sticky harness/model from localStorage on first render.
+  // Skipped when explicit defaults are provided (e.g. follow-up inherits from
+  // the previous agent run — the caller's value takes priority over the sticky).
+  useEffect(() => {
+    if (defaultHarness !== undefined) return;
+    const storedHarness = readStoredHarness();
+    if (storedHarness) {
+      setSelectedHarness(storedHarness);
+      const storedModel = readStoredModel(storedHarness);
+      setSelectedModel(storedModel ?? (MODEL_OPTIONS_BY_HARNESS[storedHarness]?.[0]?.id ?? DEFAULT_MODEL));
+    } else {
+      const storedModel = readStoredModel(DEFAULT_HARNESS);
+      if (storedModel) setSelectedModel(storedModel);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-resize textarea height in page (non-compact) mode.
   useEffect(() => {
@@ -117,12 +176,15 @@ export function EvolveRequestForm({
           model: selectedModel,
           files: attachedFiles,
         });
-        // Reset form on success.
+        // Reset form on success — restore to the caller-provided defaults or
+        // whatever is stored in localStorage (whichever applies to this instance).
+        const resetHarness = defaultHarness ?? readStoredHarness() ?? DEFAULT_HARNESS;
+        const resetModel = defaultModel ?? readStoredModel(resetHarness) ?? (MODEL_OPTIONS_BY_HARNESS[resetHarness]?.[0]?.id ?? DEFAULT_MODEL);
         setInput("");
         setAttachedFiles([]);
         setShowAdvanced(false);
-        setSelectedHarness(DEFAULT_HARNESS);
-        setSelectedModel(DEFAULT_MODEL);
+        setSelectedHarness(resetHarness);
+        setSelectedModel(resetModel);
         setCavemanMode(false);
       } else {
         const formData = new FormData();
@@ -312,9 +374,12 @@ export function EvolveRequestForm({
                 <select
                   value={selectedHarness}
                   onChange={(e) => {
-                    setSelectedHarness(e.target.value);
-                    const models = MODEL_OPTIONS_BY_HARNESS[e.target.value];
-                    if (models?.length) setSelectedModel(models[0].id);
+                    const harness = e.target.value;
+                    const models = MODEL_OPTIONS_BY_HARNESS[harness];
+                    const newModel = models?.[0]?.id ?? DEFAULT_MODEL;
+                    setSelectedHarness(harness);
+                    setSelectedModel(newModel);
+                    saveStoredPreference(harness, newModel);
                   }}
                   disabled={isLoading}
                   className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
@@ -328,7 +393,10 @@ export function EvolveRequestForm({
                 <label className="text-xs text-gray-400 w-14 flex-shrink-0">Model</label>
                 <select
                   value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedModel(e.target.value);
+                    saveStoredPreference(selectedHarness, e.target.value);
+                  }}
                   disabled={isLoading}
                   className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
                 >

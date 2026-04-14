@@ -919,6 +919,16 @@ export default function EvolveSessionView({
   const sections = groupEventsIntoSections(events);
   const setupSection = sections[0] ?? null;
   const contentSections = sections.slice(1);
+
+  // Find the harness/model from the most-recent agent section so the follow-up
+  // form can default to the same agent run config, making it easy to continue
+  // work without accidentally switching harness.
+  const lastAgentSection = [...sections].reverse().find(
+    (s): s is SectionGroup & { harness: string; model: string } =>
+      s.type === 'agent' && s.harness !== undefined,
+  );
+  const sessionHarness = lastAgentSection?.harness;
+  const sessionModel = lastAgentSection?.model;
   // Setup is active while it's the only section and session isn't terminal
   const isSetupActive = !isTerminal && contentSections.length === 0;
   const setupStepCount = setupSection
@@ -1269,6 +1279,8 @@ export default function EvolveSessionView({
                 disabled={isClaudeRunning}
                 disabledLabel="Waiting for Claude to finish…"
                 autoFocus
+                defaultHarness={sessionHarness}
+                defaultModel={sessionModel}
                 onSubmit={async ({ request, harness, model, files }) => {
                   const formData = new FormData();
                   formData.append('sessionId', sessionId);
