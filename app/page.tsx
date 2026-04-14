@@ -234,13 +234,7 @@ export default async function LandingPage() {
               <code className="flex-1 font-mono text-sm text-green-400 text-left truncate">{curlCmd}</code>
               <CopyButton text={curlCmd} />
             </div>
-            <Link
-              href="/chat"
-              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-mono font-semibold text-sm bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all"
-            >
-              Already have an instance? Open Primordia
-              <ArrowRight size={16} strokeWidth={2.5} aria-hidden="true" />
-            </Link>
+
           </div>
         </div>
       </section>
