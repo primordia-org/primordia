@@ -46,6 +46,13 @@ export interface LocalSession {
   harness?: string;
   /** Model ID to pass to the harness (e.g. 'claude-sonnet-4-6'). Harness default if omitted. */
   model?: string;
+  /**
+   * Decrypted Anthropic API key supplied by the user for this request.
+   * Transient — never persisted to the NDJSON log or SQLite.
+   * When set, the worker bypasses the exe.dev gateway and calls the
+   * Anthropic API directly. When omitted, the gateway is used.
+   */
+  apiKey?: string;
 }
 
 // ─── Branch port management ────────────────────────────────────────────────────
@@ -114,6 +121,12 @@ interface WorkerConfig {
   model?: string;
   /** When true, continue the most recent Claude Code session in the worktree directory. */
   useContinue?: boolean;
+  /**
+   * Decrypted Anthropic API key to pass to the worker via environment variable.
+   * NOT written to the JSON config file on disk — only passed in the worker
+   * process environment so it is never at rest in a temp file.
+   */
+  apiKey?: string;
 }
 
 /** Maps session IDs to the PID of their running Claude worker process. */
@@ -161,13 +174,24 @@ async function spawnClaudeWorker(
 ): Promise<void> {
   checkWorktreeNotBusy(config.worktreePath);
 
+  // Strip the API key from the JSON config file so it is never written to disk
+  // in plaintext. Pass it instead as a process environment variable.
+  const { apiKey: workerApiKey, ...configWithoutKey } = config;
   const configFile = `/tmp/primordia-worker-${config.sessionId}.json`;
-  fs.writeFileSync(configFile, JSON.stringify(config), 'utf8');
+  fs.writeFileSync(configFile, JSON.stringify(configWithoutKey), 'utf8');
+
+  // Build the worker's environment: inherit server env, then optionally inject
+  // the user's API key. The worker reads and immediately deletes this var.
+  const workerEnv: NodeJS.ProcessEnv = { ...process.env };
+  if (workerApiKey) {
+    workerEnv['PRIMORDIA_USER_API_KEY'] = workerApiKey;
+  }
 
   return new Promise<void>((resolve, reject) => {
     const proc = spawn('bun', ['run', workerScriptPath, configFile], {
       cwd: config.repoRoot,
       detached: true,
+      env: workerEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -531,6 +555,7 @@ export async function startLocalEvolve(
         prompt,
         timeoutMs: 20 * 60 * 1000,
         model: session.model,
+        apiKey: session.apiKey,
       },
       workerScript,
     );
@@ -652,6 +677,7 @@ export async function runFollowupInWorktree(
         timeoutMs: 20 * 60 * 1000,
         model: session.model,
         useContinue: true,
+        apiKey: session.apiKey,
       },
       fuWorkerScript,
     );

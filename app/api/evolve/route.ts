@@ -12,6 +12,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { getLlmClient } from '../../../lib/llm-client';
+import { decryptApiKey } from '../../../lib/llm-encryption';
 import {
   startLocalEvolve,
   runGit,
@@ -97,6 +98,7 @@ export async function POST(request: Request) {
   let requestText: string;
   let harness: string = DEFAULT_HARNESS;
   let model: string = DEFAULT_MODEL;
+  let encryptedApiKey: string | null = null;
   const savedAttachmentPaths: string[] = [];
 
   const contentType = request.headers.get('content-type') ?? '';
@@ -111,6 +113,8 @@ export async function POST(request: Request) {
     if (typeof harnessField === 'string' && harnessField) harness = harnessField;
     const modelField = formData.get('model');
     if (typeof modelField === 'string' && modelField) model = modelField;
+    const encKeyField = formData.get('encryptedApiKey');
+    if (typeof encKeyField === 'string' && encKeyField) encryptedApiKey = encKeyField;
 
     const files = formData.getAll('attachments');
     if (files.length > 0) {
@@ -137,11 +141,25 @@ export async function POST(request: Request) {
       }
     }
   } else {
-    const body = (await request.json()) as { request?: string };
+    const body = (await request.json()) as { request?: string; encryptedApiKey?: string };
     if (!body.request || typeof body.request !== 'string') {
       return Response.json({ error: 'request string required' }, { status: 400 });
     }
     requestText = body.request;
+    if (body.encryptedApiKey) encryptedApiKey = body.encryptedApiKey;
+  }
+
+  // Decrypt the user's API key (if provided) right before use.
+  // Store in a local variable and let it go out of scope as soon as the
+  // session object is created so the GC can reclaim it promptly.
+  let decryptedApiKey: string | undefined;
+  if (encryptedApiKey) {
+    try {
+      decryptedApiKey = await decryptApiKey(encryptedApiKey);
+    } catch {
+      return Response.json({ error: 'Could not decrypt API key. Please try submitting again.' }, { status: 400 });
+    }
+    encryptedApiKey = null; // clear ciphertext from memory
   }
 
   const repoRoot = process.cwd();
@@ -191,7 +209,11 @@ export async function POST(request: Request) {
     createdAt: Date.now(),
     harness,
     model,
+    apiKey: decryptedApiKey,
   };
+  // Clear the decrypted key from this scope immediately after assigning it to
+  // the session object (the worker will consume it via env var then delete it).
+  decryptedApiKey = undefined;
 
   // Fire-and-forget — run async so POST returns immediately with the session ID.
   // startLocalEvolve handles all error states internally and writes them to the filesystem.

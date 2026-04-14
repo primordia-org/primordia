@@ -8,6 +8,7 @@
 
 import * as path from 'path';
 import { getLlmClient } from '../../../../lib/llm-client';
+import { decryptApiKey } from '../../../../lib/llm-encryption';
 import {
   startLocalEvolve,
   runGit,
@@ -88,7 +89,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'You do not have permission to use the evolve flow' }, { status: 403 });
   }
 
-  const body = (await request.json()) as { branchName?: string; request?: string };
+  const body = (await request.json()) as { branchName?: string; request?: string; encryptedApiKey?: string };
   if (!body.branchName || typeof body.branchName !== 'string') {
     return Response.json({ error: 'branchName is required' }, { status: 400 });
   }
@@ -96,6 +97,16 @@ export async function POST(request: Request) {
   const branchName = body.branchName.trim();
   const requestText = (body.request ?? '').trim() ||
     `Review and continue development on branch \`${branchName}\`.`;
+
+  // Decrypt the user's API key right before use.
+  let decryptedApiKey: string | undefined;
+  if (body.encryptedApiKey) {
+    try {
+      decryptedApiKey = await decryptApiKey(body.encryptedApiKey);
+    } catch {
+      return Response.json({ error: 'Could not decrypt API key. Please try submitting again.' }, { status: 400 });
+    }
+  }
 
   const repoRoot = process.cwd();
 
@@ -165,7 +176,9 @@ export async function POST(request: Request) {
     previewUrl: null,
     request: requestText,
     createdAt: Date.now(),
+    apiKey: decryptedApiKey,
   };
+  decryptedApiKey = undefined;
 
   void startLocalEvolve(session, requestText, repoRoot, undefined, [], {
     worktreeAlreadyCreated: true,

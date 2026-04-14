@@ -17,6 +17,7 @@ import { NavHeader } from "./NavHeader";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import { useSessionUser } from "../lib/hooks";
 import { withBasePath } from "../lib/base-path";
+import { encryptStoredApiKey } from "../lib/api-key-client";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -140,11 +141,13 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
     ]);
 
     try {
+      const encryptedApiKey = await encryptStoredApiKey();
       const response = await fetch(withBasePath("/api/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: newMessages.filter((m) => m.role !== "system"),
+          ...(encryptedApiKey ? { encryptedApiKey } : {}),
         }),
       });
 

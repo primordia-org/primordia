@@ -20,11 +20,23 @@
 // Session status is inferred from the NDJSON log by the server — no status
 // files are written by this worker.
 
-// Point the claude-agent-sdk (and the Claude Code subprocess it spawns) at the
-// exe.dev LLM gateway. Must be set before any SDK import resolves its config.
+// Configure the LLM backend before any SDK import resolves its config.
+// If the caller injected PRIMORDIA_USER_API_KEY via env, use the direct
+// Anthropic API with that key.  Otherwise fall back to the exe.dev gateway.
 const GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
-process.env.ANTHROPIC_BASE_URL = GATEWAY_BASE_URL;
-process.env.ANTHROPIC_API_KEY = 'gateway'; // SDK requires non-empty; gateway handles auth
+const _userApiKey = process.env.PRIMORDIA_USER_API_KEY;
+if (_userApiKey) {
+  // Direct Anthropic API — set the key and make sure no gateway URL is set.
+  process.env.ANTHROPIC_API_KEY = _userApiKey;
+  delete process.env.ANTHROPIC_BASE_URL;
+} else {
+  // exe.dev LLM gateway — no real API key required.
+  process.env.ANTHROPIC_BASE_URL = GATEWAY_BASE_URL;
+  process.env.ANTHROPIC_API_KEY = 'gateway'; // SDK requires non-empty
+}
+// Clear from process env immediately so it does not appear in any child
+// processes spawned by Claude Code (e.g. bash tool invocations).
+delete process.env.PRIMORDIA_USER_API_KEY;
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
