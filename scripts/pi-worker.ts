@@ -134,13 +134,10 @@ async function main(): Promise<void> {
       (pi) => { pi.registerProvider('anthropic', { baseUrl: GATEWAY_BASE_URL }); },
     ];
 
-    // Resource loader: use the worktree as cwd so pi discovers project context
-    // files and skills. We also inject CLAUDE.md explicitly as a context file
-    // because pi's DefaultResourceLoader only auto-discovers AGENTS.md files,
-    // not Claude Code's CLAUDE.md convention.
-    //
-    // Skills are loaded from .claude/skills/ via .pi/settings.json which
-    // configures the skills path: { "skills": ["..\.claude/skills"] }.
+    // Resource loader: use the worktree as cwd so pi discovers AGENTS.md
+    // (symlinked to CLAUDE.md) and other project context, and append the
+    // working-directory line. Skills are discovered from .pi/skills/ which
+    // is symlinked to .claude/skills/ — no code changes needed for either.
     const loader = new DefaultResourceLoader({
       cwd: worktreePath,
       agentDir: getAgentDir(),
@@ -149,23 +146,6 @@ async function main(): Promise<void> {
       // and may require interactive input or write to unexpected locations.
       noExtensions: true,
       extensionFactories,
-      // Inject CLAUDE.md as a context file. Pi only auto-discovers AGENTS.md,
-      // so we read and inject CLAUDE.md explicitly here if it exists.
-      agentsFilesOverride: (current) => {
-        const claudeMdPath = path.join(worktreePath, 'CLAUDE.md');
-        const additionalFiles: { path: string; content: string }[] = [];
-        if (fs.existsSync(claudeMdPath)) {
-          try {
-            const content = fs.readFileSync(claudeMdPath, 'utf8');
-            additionalFiles.push({ path: claudeMdPath, content });
-          } catch {
-            // Non-fatal — proceed without CLAUDE.md if it can't be read.
-          }
-        }
-        // Put CLAUDE.md first so it serves as the primary project context,
-        // followed by any AGENTS.md files discovered by pi walking up from cwd.
-        return { agentsFiles: [...additionalFiles, ...current.agentsFiles] };
-      },
     });
     await loader.reload();
 
