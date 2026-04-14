@@ -14,7 +14,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { SessionUser } from "../lib/hooks";
-import { MessageSquare, Edit, Shield, Terminal, X, Menu, LogOut, LogIn } from "lucide-react";
+import { MessageSquare, Edit, Shield, Terminal, X, Menu, LogOut, LogIn, Key } from "lucide-react";
+import { ApiKeyDialog } from "./ApiKeyDialog";
 
 export type { SessionUser };
 
@@ -85,6 +86,7 @@ export function buildStandardMenuItems({
 
 export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: HamburgerMenuProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
   const localRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const menuRef = containerRef ?? localRef;
@@ -146,6 +148,18 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
             </Link>
           )}
 
+          {/* API Key settings — available to any logged-in user */}
+          {sessionUser && (
+            <button
+              type="button"
+              onClick={() => { setMenuOpen(false); setApiKeyDialogOpen(true); }}
+              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-amber-400 hover:bg-gray-800 transition-colors"
+            >
+              <Key size={16} strokeWidth={2} aria-hidden="true" />
+              API Key
+            </button>
+          )}
+
           {/* Page-specific items */}
           {items.map((item, i) =>
             item.href ? (
@@ -171,6 +185,11 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
             )
           )}
         </div>
+      )}
+
+      {/* API Key dialog — rendered outside the dropdown so it is not clipped */}
+      {apiKeyDialogOpen && (
+        <ApiKeyDialog onClose={() => setApiKeyDialogOpen(false)} />
       )}
     </div>
   );

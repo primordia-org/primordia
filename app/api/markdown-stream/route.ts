@@ -200,7 +200,6 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor i
 
    | Key                  | Required | Description              |
    |----------------------|----------|--------------------------|
-   | \`ANTHROPIC_API_KEY\` | Yes      | Chat + evolve pipeline   |
    | \`REVERSE_PROXY_PORT\`| Yes      | Blue/green proxy port    |
 
 3. **Step three** — Run locally

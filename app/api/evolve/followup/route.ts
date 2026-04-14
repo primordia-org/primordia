@@ -7,6 +7,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { getSessionUser } from '../../../../lib/auth';
+import { decryptApiKey } from '../../../../lib/llm-encryption';
 import {
   runFollowupInWorktree,
   type LocalSession,
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
   let requestText: string;
   let harness: string | undefined;
   let model: string | undefined;
+  let encryptedApiKey: string | null = null;
   const savedAttachmentPaths: string[] = [];
 
   const contentType = request.headers.get('content-type') ?? '';
@@ -45,6 +47,8 @@ export async function POST(request: Request) {
     const modelField = formData.get('model');
     if (typeof harnessField === 'string' && harnessField) harness = harnessField;
     if (typeof modelField === 'string' && modelField) model = modelField;
+    const encKeyField = formData.get('encryptedApiKey');
+    if (typeof encKeyField === 'string' && encKeyField) encryptedApiKey = encKeyField;
 
     const files = formData.getAll('attachments');
     if (files.length > 0) {
@@ -70,7 +74,7 @@ export async function POST(request: Request) {
       }
     }
   } else {
-    const body = (await request.json()) as { sessionId?: string; request?: string };
+    const body = (await request.json()) as { sessionId?: string; request?: string; encryptedApiKey?: string };
     if (!body.sessionId || typeof body.sessionId !== 'string') {
       return Response.json({ error: 'sessionId string required' }, { status: 400 });
     }
@@ -79,6 +83,18 @@ export async function POST(request: Request) {
     }
     sessionId = body.sessionId;
     requestText = body.request;
+    if (body.encryptedApiKey) encryptedApiKey = body.encryptedApiKey;
+  }
+
+  // Decrypt the user's API key right before use.
+  let decryptedApiKey: string | undefined;
+  if (encryptedApiKey) {
+    try {
+      decryptedApiKey = await decryptApiKey(encryptedApiKey);
+    } catch {
+      return Response.json({ error: 'Could not decrypt API key. Please try submitting again.' }, { status: 400 });
+    }
+    encryptedApiKey = null;
   }
 
   const repoRoot = process.cwd();
@@ -107,7 +123,10 @@ export async function POST(request: Request) {
     createdAt: record.createdAt,
     harness,
     model,
+    apiKey: decryptedApiKey,
+    userId: user.id,
   };
+  decryptedApiKey = undefined;
 
   // Fire-and-forget — runFollowupInWorktree handles all state transitions and
   // error cases internally, writing events to the NDJSON log.

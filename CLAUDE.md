@@ -25,7 +25,7 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 | Frontend framework | Next.js 16 (App Router) | AI models write Next.js well |
 | Styling | Tailwind CSS | AI models write Tailwind well; no CSS files to manage |
 | Language | TypeScript | Catches mistakes; Claude Code understands it well |
-| AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Streaming chat via `claude-sonnet-4-6`; prefers exe.dev LLM gateway, falls back to `ANTHROPIC_API_KEY` |
+| AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Streaming chat via `claude-sonnet-4-6`; routes through exe.dev LLM gateway by default; users may override with their own Anthropic API key (stored in localStorage, encrypted in transit via RSA-OAEP) |
 | Hosting | exe.dev | Production builds via `bun run build && bun run start`; single systemd service (`primordia-proxy`) manages both proxy and production app; blue/green slot swap on accept |
 | AI code gen | `@anthropic-ai/claude-agent-sdk` | `query()` runs Claude Code in git worktrees for evolve requests |
 | Database | bun:sqlite | Local SQLite for passkey auth **and evolve session persistence**; same adapter on exe.dev and local dev |
@@ -68,6 +68,9 @@ primordia/
 │   ├── hooks.ts                   ← Shared React hooks: useSessionUser (fetches session on mount, provides logout)
 │   ├── evolve-sessions.ts         ← Shared session state + business logic for local evolve; persists to SQLite
 │   ├── page-title.ts              ← Utility: buildPageTitle() — formats <title> with port/branch suffix in development mode; clean title in production
+│   ├── llm-client.ts              ← Creates Anthropic client: gateway (default) or direct API with user-supplied key
+│   ├── llm-encryption.ts          ← Server-side RSA-OAEP keypair (ephemeral, per process); getPublicKeyJwk() + decryptApiKey()
+│   ├── api-key-client.ts          ← Client-side helpers: getStoredApiKey/setStoredApiKey (localStorage) + encryptStoredApiKey() (RSA-OAEP)
 │   └── db/
 │       ├── index.ts               ← Factory: getDb() → SQLite (always)
 │       ├── types.ts               ← Shared DB types: User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession, Role; DbAdapter includes role methods
@@ -127,6 +130,9 @@ primordia/
 │       │   │   └── route.ts       ← GET list previous prod slots from primordia.productionHistory; POST apply deep rollback to any slot; admin only
 │       │   └── server-health/
 │       │       └── route.ts       ← GET disk/memory usage + oldest non-prod worktree; POST delete oldest non-prod worktree (kill dev server, git worktree remove, git branch -D); admin only
+│       ├── llm-key/
+│       │   └── public-key/
+│       │       └── route.ts       ← GET server's ephemeral RSA-OAEP public key as JWK; used by clients to encrypt API keys before sending
 │       ├── prune-branches/
 │       │   └── route.ts           ← POST delete all local branches merged into main; streams SSE progress
 │       ├── auth/
@@ -174,6 +180,7 @@ primordia/
 │
 ├── components/
 │   ├── AcceptRejectBar.tsx        ← Accept/reject bar for local preview worktrees
+│   ├── ApiKeyDialog.tsx           ← Modal for setting/clearing user Anthropic API key; stores in localStorage; opened from hamburger menu
 │   ├── AdminPermissionsClient.tsx ← Client component: grant/revoke 'can_evolve' role per user (used by /admin)
 │   ├── AdminRollbackClient.tsx    ← Client component: deep rollback UI; lists previous production slots from primordia.productionHistory with roll-back buttons (used by /admin/rollback)
 │   ├── AdminServerHealthClient.tsx ← Client component: disk/memory usage bars and oldest non-prod worktree delete button (used by /admin/server-health)
@@ -348,7 +355,6 @@ These must be set in:
 
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Required for evolve | Required for the evolve pipeline (`@anthropic-ai/claude-agent-sdk`) in **all environments**. Not required for chat on exe.dev — the built-in LLM gateway is used instead. Required for chat outside exe.dev. |
 | `REVERSE_PROXY_PORT` | Yes | Port the reverse proxy listens on (e.g. `3000`). Blue/green accepts and rollbacks use zero-downtime cutover via the proxy. |
 | `PRIMORDIA_WORKTREES_DIR` | No | Path to the worktrees directory (default `/home/exedev/primordia-worktrees`). Set automatically by the systemd service files. |
 | `NEXT_BASE_PATH` | No | URL sub-path prefix (e.g. `/primordia`) for hosting the app at a non-root path. Leave unset to serve from `/` (default). Sets both Next.js `basePath` config and `NEXT_PUBLIC_BASE_PATH` for client-side `fetch()` calls. Also set automatically on preview dev servers to `/preview/{sessionId}` when `REVERSE_PROXY_PORT` is active. |
@@ -358,7 +364,7 @@ These must be set in:
 ## Setup Checklist (One-Time)
 
 1. **Clone** this repo.
-2. **Copy** `.env.example` to `.env.local` and fill in `ANTHROPIC_API_KEY` (required for the evolve pipeline in all environments; chat on exe.dev uses the built-in gateway instead).
+2. **Copy** `.env.example` to `.env.local` and fill in `REVERSE_PROXY_PORT`.
 3. **Run** `bun install && bun run dev`.
 4. The app is live at `http://localhost:3000`.
 

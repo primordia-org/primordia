@@ -556,6 +556,7 @@ async function runAcceptAsync(
   branch: string,
   parentBranch: string,
   repoRoot: string,
+  userId: string,
 ): Promise<void> {
   const step = (text: string) => appendLogLine(sessionId, text);
 
@@ -593,6 +594,7 @@ async function runAcceptAsync(
           previewUrl: session.previewUrl,
           request: session.request,
           createdAt: session.createdAt,
+          userId,
         };
         console.log(`[runAcceptAsync] type errors for session ${sessionId}, starting auto-fix`);
         void runFollowupInWorktree(
@@ -624,6 +626,7 @@ async function runAcceptAsync(
           previewUrl: session.previewUrl,
           request: session.request,
           createdAt: session.createdAt,
+          userId,
         };
         console.log(`[runAcceptAsync] build errors for session ${sessionId}, starting auto-fix`);
         void runFollowupInWorktree(
@@ -874,7 +877,7 @@ export async function POST(request: Request) {
           appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'deploy', label: isProduction ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``, ts: Date.now() });
         }
       }
-      void runAcceptAsync(body.sessionId, worktreePath, branch, parentBranch, repoRoot);
+      void runAcceptAsync(body.sessionId, worktreePath, branch, parentBranch, repoRoot, user.id);
       return Response.json({ outcome: 'accepting' });
     }
 

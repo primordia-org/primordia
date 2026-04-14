@@ -3,18 +3,10 @@
 // Called on page load by ChatInterface so users get an immediate warning
 // if the app is misconfigured.
 //
-// ANTHROPIC_API_KEY is only required when the exe.dev LLM gateway is not available.
-
-import { isGatewayAvailable } from "@/lib/llm-client";
+// All LLM traffic now routes through the exe.dev gateway — no API key is needed.
 
 export async function GET() {
-  const gatewayUp = await isGatewayAvailable();
-
   const missing: Array<{ key: string; description: string }> = [];
-
-  if (!gatewayUp && !process.env.ANTHROPIC_API_KEY) {
-    missing.push({ key: "ANTHROPIC_API_KEY", description: "Chat (Anthropic API)" });
-  }
-
+  // No required API keys — the exe.dev LLM gateway handles all auth.
   return Response.json({ missing });
 }

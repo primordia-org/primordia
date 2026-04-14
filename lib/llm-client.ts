@@ -1,65 +1,37 @@
 // lib/llm-client.ts
-// Creates an Anthropic client, preferring the exe.dev LLM gateway when running
-// on an exe.dev VM. Falls back to ANTHROPIC_API_KEY if the gateway is not reachable.
+// Creates an Anthropic client, either pointed at the exe.dev LLM gateway
+// (default) or directly at the Anthropic API with a user-supplied key.
 //
 // The gateway is available at http://169.254.169.254/gateway/llm/anthropic inside
-// exe.dev VMs and requires no API key. Outside of exe.dev the link-local address
-// is unreachable, so the probe fails quickly and the API key is used instead.
+// exe.dev VMs and requires no API key. All chat requests are routed through it
+// unless the caller provides an explicit apiKey override.
 
 import Anthropic from "@anthropic-ai/sdk";
 
 const GATEWAY_BASE_URL = "http://169.254.169.254/gateway/llm/anthropic";
-const PROBE_TIMEOUT_MS = 2000;
-
-// Cached per server process. null = not yet checked.
-let gatewayAvailable: boolean | null = null;
-
-async function probeGateway(): Promise<boolean> {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
-    await fetch(GATEWAY_BASE_URL, { method: "HEAD", signal: controller.signal });
-    clearTimeout(timeoutId);
-    return true; // any HTTP response means the gateway is reachable
-  } catch {
-    return false;
-  }
-}
 
 /**
- * Returns an Anthropic client and the source that will be used.
+ * Returns an Anthropic client.
+ *
+ * - When `apiKey` is provided, the client calls the Anthropic API directly
+ *   using that key (no gateway).
+ * - When `apiKey` is omitted or falsy, the client routes through the exe.dev
+ *   LLM gateway (no API key required).
  */
-export async function getLlmClient(): Promise<{
-  client: Anthropic;
-  source: "gateway" | "api-key";
-}> {
-  if (gatewayAvailable === null) {
-    gatewayAvailable = await probeGateway();
-  }
-
-  if (gatewayAvailable) {
+export function getLlmClient(
+  apiKey?: string,
+): { client: Anthropic; source: "gateway" | "user-key" } {
+  if (apiKey) {
     return {
-      client: new Anthropic({
-        baseURL: GATEWAY_BASE_URL,
-        apiKey: "gateway", // gateway handles auth; SDK requires a non-empty value
-      }),
-      source: "gateway",
+      client: new Anthropic({ apiKey }),
+      source: "user-key",
     };
   }
-
   return {
-    client: new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }),
-    source: "api-key",
+    client: new Anthropic({
+      baseURL: GATEWAY_BASE_URL,
+      apiKey: "gateway", // gateway handles auth; SDK requires a non-empty value
+    }),
+    source: "gateway",
   };
-}
-
-/**
- * Returns true if the exe.dev gateway is reachable.
- * Useful for optional-key checks (check-keys endpoint).
- */
-export async function isGatewayAvailable(): Promise<boolean> {
-  if (gatewayAvailable === null) {
-    gatewayAvailable = await probeGateway();
-  }
-  return gatewayAvailable;
 }

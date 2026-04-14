@@ -34,10 +34,15 @@ import {
 } from '../lib/session-events';
 
 // ---------------------------------------------------------------------------
-// exe.dev LLM gateway
+// LLM backend configuration
 // ---------------------------------------------------------------------------
 
 const GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
+
+// Capture and immediately clear the injected user API key so it does not
+// persist in process.env (and cannot leak to child processes).
+const _userApiKey = process.env.PRIMORDIA_USER_API_KEY;
+delete process.env.PRIMORDIA_USER_API_KEY;
 
 interface WorkerConfig {
   sessionId: string;
@@ -110,11 +115,16 @@ async function main(): Promise<void> {
   }, timeoutMs);
 
   try {
-    // Auth — the exe.dev LLM gateway handles authentication; the SDK requires a
-    // non-empty key value so we supply a placeholder.
+    // Auth — use the user-supplied API key when available, otherwise fall back
+    // to the exe.dev LLM gateway (which handles auth with any non-empty key).
     const authStorage = AuthStorage.create();
-    authStorage.setRuntimeApiKey('anthropic', 'gateway');
-    process.stderr.write('Using exe.dev LLM gateway\n');
+    if (_userApiKey) {
+      authStorage.setRuntimeApiKey('anthropic', _userApiKey);
+      process.stderr.write('Using user-supplied Anthropic API key\n');
+    } else {
+      authStorage.setRuntimeApiKey('anthropic', 'gateway');
+      process.stderr.write('Using exe.dev LLM gateway\n');
+    }
 
     const modelRegistry = ModelRegistry.create(authStorage);
 
@@ -134,11 +144,12 @@ async function main(): Promise<void> {
       : SessionManager.create(worktreePath);
 
     // Register the gateway as the Anthropic provider base URL via an inline
-    // extension factory. extensionFactories are always applied even when
-    // noExtensions is true (which only disables file-based extension discovery).
-    const extensionFactories: ExtensionFactory[] = [
-      (pi) => { pi.registerProvider('anthropic', { baseUrl: GATEWAY_BASE_URL }); },
-    ];
+    // extension factory — only when NOT using a direct user API key.
+    // extensionFactories are always applied even when noExtensions is true
+    // (which only disables file-based extension discovery).
+    const extensionFactories: ExtensionFactory[] = _userApiKey
+      ? [] // direct Anthropic API — no custom baseUrl needed
+      : [(pi: Parameters<ExtensionFactory>[0]) => { pi.registerProvider('anthropic', { baseUrl: GATEWAY_BASE_URL }); }];
 
     // Resource loader: use the worktree as cwd so pi discovers AGENTS.md
     // (symlinked to CLAUDE.md) and other project context, and append the

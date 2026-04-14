@@ -17,6 +17,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { getLlmClient } from "@/lib/llm-client";
+import { decryptApiKey } from "@/lib/llm-encryption";
 import fs from "fs";
 import path from "path";
 import { getSessionUser } from "@/lib/auth";
@@ -142,6 +143,8 @@ export async function POST(request: Request) {
     messages: Array<{ role: "user" | "assistant"; content: string }>;
     // Optional extra context appended to the system prompt (e.g. deploy preview info).
     systemContext?: string;
+    // Optional encrypted Anthropic API key (RSA-OAEP, base64) to use instead of gateway.
+    encryptedApiKey?: string;
   };
 
   if (!body.messages || !Array.isArray(body.messages)) {
@@ -151,7 +154,20 @@ export async function POST(request: Request) {
     });
   }
 
-  const { client } = await getLlmClient();
+  // Decrypt the user's API key right before creating the client, then clear it.
+  let userApiKey: string | undefined;
+  if (body.encryptedApiKey) {
+    try {
+      userApiKey = await decryptApiKey(body.encryptedApiKey);
+    } catch {
+      return new Response(
+        JSON.stringify({ error: "Could not decrypt API key. Please try again." }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+  }
+  const { client } = getLlmClient(userApiKey);
+  userApiKey = undefined; // clear from memory
 
   const basePrompt = buildSystemPrompt();
   const systemPrompt = body.systemContext

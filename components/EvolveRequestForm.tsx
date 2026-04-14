@@ -8,6 +8,7 @@ import { useState, useRef, useEffect, useCallback, FormEvent, memo } from "react
 import { Paperclip, Settings, ChevronDown } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { withBasePath } from "../lib/base-path";
+import { encryptStoredApiKey } from "../lib/api-key-client";
 import {
   HARNESS_OPTIONS,
   MODEL_OPTIONS_BY_HARNESS,
@@ -131,6 +132,9 @@ export function EvolveRequestForm({
         for (const file of attachedFiles) {
           formData.append("attachments", file);
         }
+        // Encrypt and include the user's API key if one is stored.
+        const encryptedApiKey = await encryptStoredApiKey();
+        if (encryptedApiKey) formData.append("encryptedApiKey", encryptedApiKey);
 
         const res = await fetch(withBasePath("/api/evolve"), { method: "POST", body: formData });
         const data = (await res.json()) as { sessionId?: string; error?: string };

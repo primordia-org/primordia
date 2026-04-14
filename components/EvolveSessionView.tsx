@@ -13,6 +13,7 @@ import { FloatingEvolveDialog } from "./FloatingEvolveDialog";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import { useSessionUser } from "../lib/hooks";
 import { withBasePath } from "../lib/base-path";
+import { encryptStoredApiKey } from "../lib/api-key-client";
 import { EvolveRequestForm } from "./EvolveRequestForm";
 import Link from "next/link";
 import type { DiffFileSummary } from "../app/evolve/session/[id]/page";
@@ -1275,6 +1276,8 @@ export default function EvolveSessionView({
                   formData.append('harness', harness);
                   formData.append('model', model);
                   for (const file of files) formData.append('attachments', file);
+                  const encryptedApiKey = await encryptStoredApiKey();
+                  if (encryptedApiKey) formData.append('encryptedApiKey', encryptedApiKey);
                   const res = await fetch(withBasePath('/api/evolve/followup'), {
                     method: 'POST',
                     body: formData,
