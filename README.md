@@ -46,7 +46,7 @@ You can attach images or files to any request. Follow-up requests on the same br
 
 ```bash
 cp .env.example .env.local
-# Fill in ANTHROPIC_API_KEY (and optionally GITHUB_TOKEN + GITHUB_REPO)
+# Fill in ANTHROPIC_API_KEY
 
 bun install
 bun run dev
@@ -80,8 +80,6 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 2. **Create a server** on [exe.dev](https://exe.dev). Note the server name (e.g. `myapp` → `myapp.exe.xyz`).
 3. **Configure `.env.local`** — copy `.env.example` and set at minimum:
    - `ANTHROPIC_API_KEY` — required for the evolve (Claude Code) pipeline
-   - `GITHUB_REPO=your-username/primordia` — used by the deploy script to clone your fork onto the server
-   - `GITHUB_TOKEN` (optional) — PAT with `repo` scope; enables git pull/push from the server via the Git Sync dialog
 4. **Deploy:**
    ```bash
    bun run deploy-to-exe.dev <server-name>
@@ -101,8 +99,6 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 | Variable | Required | Description |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Required for evolve | Required for the evolve pipeline (Claude Code) in all environments. Not required for chat on exe.dev — the built-in gateway is used instead. |
-| `GITHUB_TOKEN` | No | PAT (repo scope) — enables authenticated git pull/push in the Git Sync dialog. |
-| `GITHUB_REPO` | No | `owner/repo` slug — used with `GITHUB_TOKEN` to build the authenticated remote URL. |
 
 ## Features
 
