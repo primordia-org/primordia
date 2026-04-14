@@ -10,9 +10,17 @@ import { ArrowLeft, ArrowRight, RotateCw, ExternalLink } from "lucide-react";
 interface WebPreviewPanelProps {
   /** Initial URL to load in the iframe. */
   src: string;
+  /**
+   * When true the panel fills its container vertically (flex-1 on the iframe
+   * container) instead of using a fixed 600 px height. Use this when the panel
+   * is mounted inside a full-height sidebar.
+   */
+  fullHeight?: boolean;
+  /** Extra classes applied to the outer wrapper element. */
+  className?: string;
 }
 
-export function WebPreviewPanel({ src }: WebPreviewPanelProps) {
+export function WebPreviewPanel({ src, fullHeight = false, className }: WebPreviewPanelProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // The URL shown in the address bar — starts as the initial src.
   const [urlBarValue, setUrlBarValue] = useState(src);
@@ -73,7 +81,7 @@ export function WebPreviewPanel({ src }: WebPreviewPanelProps) {
   };
 
   return (
-    <div className="rounded-lg border border-emerald-700/50 bg-gray-900 overflow-hidden">
+    <div className={`${fullHeight ? 'flex flex-col h-full' : ''} rounded-lg border border-emerald-700/50 bg-gray-900 overflow-hidden${className ? ` ${className}` : ''}`}>
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-800 bg-gray-950">
         {/* Nav buttons */}
@@ -129,7 +137,7 @@ export function WebPreviewPanel({ src }: WebPreviewPanelProps) {
       </div>
 
       {/* ── iframe ── */}
-      <div className="relative" style={{ height: "600px" }}>
+      <div className={`relative ${fullHeight ? 'flex-1' : ''}`} style={fullHeight ? undefined : { height: "600px" }}>
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10 pointer-events-none">
             <span className="text-gray-500 text-xs animate-pulse">Loading preview…</span>

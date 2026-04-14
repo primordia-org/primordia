@@ -907,6 +907,9 @@ export default function EvolveSessionView({
     status === "rejected" ||
     status === "ready";
 
+  /** Whether to show the preview as a desktop sidebar. */
+  const showPreviewSidebar = status === "ready" && !!previewUrl;
+
   /** True while the session pipeline is actively running (not yet ready for action). */
   const isClaudeRunning = status === "starting" || status === "running-claude" || status === "fixing-types";
 
@@ -922,7 +925,8 @@ export default function EvolveSessionView({
     : 0;
 
   return (
-    <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
+    <div className={`flex min-h-dvh w-full${showPreviewSidebar ? ' xl:flex-row xl:items-start' : ''}`}>
+    <main className={`flex flex-col w-full px-4 py-6${showPreviewSidebar ? ' xl:max-w-[560px] xl:flex-shrink-0' : ' max-w-3xl mx-auto'}`}>
       {/* Header */}
       <header className="flex items-center justify-between mb-8 flex-shrink-0">
         <NavHeader branch={branch} subtitle="Session" />
@@ -1028,9 +1032,11 @@ export default function EvolveSessionView({
           </div>
         )}
 
-        {/* Web preview — inline browser shown once server is running */}
+        {/* Web preview — shown inline on mobile only; desktop uses sidebar */}
         {status === "ready" && previewUrl && proxyServerStatus === "running" && (
-          <WebPreviewPanel src={previewUrl} />
+          <div className="xl:hidden">
+            <WebPreviewPanel src={previewUrl} />
+          </div>
         )}
 
         {/* Preview server status + logs — shown when session is ready and proxy is managing the server */}
@@ -1389,5 +1395,21 @@ export default function EvolveSessionView({
         </div>
       </div>
     </main>
+
+    {/* ── Desktop preview sidebar ── */}
+    {showPreviewSidebar && (
+      <aside className="hidden xl:flex xl:flex-col xl:flex-1 xl:sticky xl:top-0 xl:h-dvh border-l border-gray-800 bg-gray-950 p-4">
+        {proxyServerStatus === "running" ? (
+          <WebPreviewPanel src={previewUrl!} fullHeight />
+        ) : (
+          <div className="flex flex-col flex-1 items-center justify-center gap-2 text-gray-500">
+            <span className={`text-sm ${proxyServerStatus === 'starting' ? 'animate-pulse' : ''}`}>
+              {proxyServerStatus === 'starting' ? '⏳ Starting preview server…' : '🔍 Checking preview server…'}
+            </span>
+          </div>
+        )}
+      </aside>
+    )}
+    </div>
   );
 }
