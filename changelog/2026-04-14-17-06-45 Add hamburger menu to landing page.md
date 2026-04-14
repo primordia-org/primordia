@@ -2,11 +2,9 @@
 
 ## What changed
 
-- Updated `components/LandingNav.tsx` to use the shared `HamburgerMenu` component (with `useSessionUser` for session awareness) instead of a custom mobile-only hamburger toggle.
-- Added `<LandingNav />` to `app/page.tsx` — the landing page previously had no top navigation at all.
+- Replaced `components/LandingNav.tsx` with a minimal fixed-position wrapper: a single `HamburgerMenu` floating in the top-right corner (`fixed top-4 right-4 z-50`) — no navbar bar, no brand, no extra links.
+- Added `<LandingNav />` to `app/page.tsx` — the landing page previously had no navigation at all.
 
 ## Why
 
-The landing page lacked the standard navigation header present on other pages. Adding the session-aware `HamburgerMenu` gives visitors access to the same navigation items (Go to chat, Propose a change, Admin/Shell for admins, sign in/out) from the landing page, consistent with the rest of the app.
-
-The desktop nav retains the Changelog link and "Open app →" button; the hamburger sits alongside them and handles auth state + app navigation.
+The landing page lacked any navigation. A full navbar felt too heavy for the hero-focused design, so instead a subtle floating hamburger in the top-right corner gives visitors access to the session-aware standard menu (Go to chat, Propose a change, Admin/Shell for admins, sign in/out) without adding visual clutter.
