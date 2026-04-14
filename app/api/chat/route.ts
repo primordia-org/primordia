@@ -169,6 +169,12 @@ export async function POST(request: Request) {
         );
       }
 
+      // Send a no-op SSE comment to keep the connection alive through proxies
+      // that close idle connections (typically after 60-120 s).
+      function keepAlive() {
+        controller.enqueue(encoder.encode(": ping\n\n"));
+      }
+
       try {
         // messages is mutated when tools are used (Claude turn + tool result turn).
         // The input messages use simple string content; tool turns use block arrays.
@@ -202,6 +208,10 @@ export async function POST(request: Request) {
             break;
           }
 
+          // Send a keep-alive ping before executing tools so the connection
+          // doesn't time out during a long tool-execution + re-prompt cycle.
+          keepAlive();
+
           // Execute every tool the model requested and collect results.
           const toolResults: Anthropic.ToolResultBlockParam[] = [];
           for (const block of finalMsg.content) {
@@ -216,6 +226,9 @@ export async function POST(request: Request) {
               content: result,
             });
           }
+
+          // Another keep-alive after tool execution, before the follow-up API call.
+          keepAlive();
 
           // Append Claude's turn (with tool_use blocks) and our tool results turn.
           messages.push({ role: "assistant", content: finalMsg.content });

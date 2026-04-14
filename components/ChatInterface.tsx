@@ -163,32 +163,37 @@ export default function ChatInterface({ branch, commitMessage }: GitContext) {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantText = "";
+      let streamDone = false;
 
-      while (true) {
+      while (!streamDone) {
         const { done, value } = await reader.read();
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
-        // Each chunk is a line of SSE: "data: <text>\n\n"
+        // Each chunk may contain one or more SSE lines: "data: <json>\n\n"
+        // SSE comment lines (starting with ":") are keep-alives and are ignored.
         const lines = chunk.split("\n");
         for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6);
-            if (data === "[DONE]") break;
-            try {
-              const parsed = JSON.parse(data) as { text: string };
-              assistantText += parsed.text;
-              setMessages((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: "assistant",
-                  content: assistantText,
-                };
-                return updated;
-              });
-            } catch {
-              // Ignore parse errors for partial chunks
-            }
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6);
+          if (data === "[DONE]") {
+            // Signal the outer loop to stop after this chunk is fully processed.
+            streamDone = true;
+            break;
+          }
+          try {
+            const parsed = JSON.parse(data) as { text: string };
+            assistantText += parsed.text;
+            setMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                role: "assistant",
+                content: assistantText,
+              };
+              return updated;
+            });
+          } catch {
+            // Ignore parse errors for partial chunks
           }
         }
       }
