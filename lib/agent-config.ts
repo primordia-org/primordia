@@ -64,5 +64,5 @@ export const MODEL_OPTIONS_BY_HARNESS: Record<string, ModelOption[]> = {
   ],
 };
 
-export const DEFAULT_HARNESS = 'claude-code';
+export const DEFAULT_HARNESS = 'pi';
 export const DEFAULT_MODEL = 'claude-sonnet-4-6';
