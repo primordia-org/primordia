@@ -7,16 +7,16 @@ Each Claude worker process now runs with a dedicated `CLAUDE_CONFIG_DIR` environ
 ### Files modified
 
 - **`lib/evolve-sessions.ts`**
-  - Added `userId?: string` field to the `LocalSession` interface.
-  - Added `userId?: string` field to the internal `WorkerConfig` interface.
-  - In `spawnClaudeWorker`, when `config.userId` is set, `CLAUDE_CONFIG_DIR` is added to the worker's environment, pointing to `$HOME/.claude-users/<userId>`.
-  - Both `spawnClaudeWorker` call sites (`startLocalEvolve` and `runFollowupInWorktree`) now forward `session.userId` into the worker config.
+  - Added `userId: string` field (required) to the `LocalSession` interface.
+  - Added `userId: string` field (required) to the internal `WorkerConfig` interface.
+  - In `spawnClaudeWorker`, `CLAUDE_CONFIG_DIR` is unconditionally set in the worker's environment to `$HOME/.claude-users/<userId>`.
+  - Both `spawnClaudeWorker` call sites (`startLocalEvolve` and `runFollowupInWorktree`) forward `session.userId` into the worker config.
 
 - **`app/api/evolve/route.ts`** — sets `userId: user.id` on the new `LocalSession`.
 - **`app/api/evolve/from-branch/route.ts`** — sets `userId: user.id` on the new `LocalSession`.
 - **`app/api/evolve/followup/route.ts`** — sets `userId: user.id` on the `LocalSession` built for the follow-up run.
 - **`app/api/evolve/manage/route.ts`**
-  - `runAcceptAsync` now accepts an optional `userId` parameter.
+  - `runAcceptAsync` now accepts a required `userId` parameter.
   - Both auto-fix `LocalSession` objects (type-error fix and build-error fix) include `userId` so the repair worker also uses the per-user config directory.
   - The `runAcceptAsync` call site passes `user.id`.
 

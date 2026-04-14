@@ -58,7 +58,7 @@ export interface LocalSession {
    * Used to set CLAUDE_CONFIG_DIR so each user's Claude configuration
    * (settings, tool approvals, conversation history) is isolated.
    */
-  userId?: string;
+  userId: string;
 }
 
 // ─── Branch port management ────────────────────────────────────────────────────
@@ -134,11 +134,11 @@ interface WorkerConfig {
    */
   apiKey?: string;
   /**
-   * Primordia user ID. When set, CLAUDE_CONFIG_DIR is pointed at a
-   * per-user directory so each user's Claude config is isolated.
+   * Primordia user ID. CLAUDE_CONFIG_DIR is pointed at a per-user directory
+   * so each user's Claude config is isolated.
    * NOT written to the JSON config file — only used to derive the env var.
    */
-  userId?: string;
+  userId: string;
 }
 
 /** Maps session IDs to the PID of their running Claude worker process. */
@@ -198,10 +198,8 @@ async function spawnClaudeWorker(
   if (workerApiKey) {
     workerEnv['PRIMORDIA_USER_API_KEY'] = workerApiKey;
   }
-  if (config.userId) {
-    const homeDir = process.env.HOME ?? '/home/exedev';
-    workerEnv['CLAUDE_CONFIG_DIR'] = path.join(homeDir, '.claude-users', config.userId);
-  }
+  const homeDir = process.env.HOME ?? '/home/exedev';
+  workerEnv['CLAUDE_CONFIG_DIR'] = path.join(homeDir, '.claude-users', config.userId);
 
   return new Promise<void>((resolve, reject) => {
     const proc = spawn('bun', ['run', workerScriptPath, configFile], {

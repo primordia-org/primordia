@@ -556,7 +556,7 @@ async function runAcceptAsync(
   branch: string,
   parentBranch: string,
   repoRoot: string,
-  userId?: string,
+  userId: string,
 ): Promise<void> {
   const step = (text: string) => appendLogLine(sessionId, text);
 
