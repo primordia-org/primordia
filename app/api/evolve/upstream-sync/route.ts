@@ -29,6 +29,7 @@ export async function POST(request: Request) {
   }
 
   const { worktreePath, branch } = session;
+  const sessionContext = { id: session.id, userId: user.id };
 
   // Read the parent branch from git config (written at worktree-creation time).
   const parentBranchResult = await runGit(
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
     if (result.code !== 0) {
       // Merge produced conflicts — attempt auto-resolution with Claude before giving up.
       // resolveConflictsWithClaude(root, mergedBranch, targetBranch) resolves in-place.
-      const resolution = await resolveConflictsWithClaude(worktreePath, parentBranch, branch, repoRoot);
+      const resolution = await resolveConflictsWithClaude(worktreePath, parentBranch, branch, sessionContext, repoRoot);
       if (!resolution.success) {
         await runGit(['merge', '--abort'], worktreePath);
         return Response.json(

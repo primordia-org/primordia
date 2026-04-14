@@ -37,7 +37,6 @@ import * as path from 'path';
 import { Database } from 'bun:sqlite';
 import {
   runGit,
-  resolveConflictsWithClaude,
   runFollowupInWorktree,
   type LocalSession,
 } from '../../../../lib/evolve-sessions';
@@ -472,17 +471,15 @@ async function retryAcceptAfterFix(
     console.log(`[retryAcceptAfterFix] merge exit code=${mergeResult.code}${mergeResult.code !== 0 ? ` stderr=${mergeResult.stderr}` : ''}`);
 
     if (mergeResult.code !== 0) {
-      const resolution = await resolveConflictsWithClaude(mergeRoot, branch, parentBranch);
-      console.log(`[retryAcceptAfterFix] conflict resolution success=${resolution.success}`);
-      if (!resolution.success) {
-        await runGit(['merge', '--abort'], mergeRoot);
-        if (stashed) await runGit(['stash', 'pop'], mergeRoot);
-        await failWithError(
-          `❌ Accept failed: merge failed and automatic conflict resolution also failed.\n` +
-          `Merge error:\n${mergeResult.stderr}\n\nAuto-resolution log:\n${resolution.log}`,
-        );
-        return;
-      }
+      await runGit(['merge', '--abort'], mergeRoot);
+      if (stashed) await runGit(['stash', 'pop'], mergeRoot);
+      await failWithError(
+        `❌ Accept failed: merge conflict in ${mergeRoot}.\n` +
+        `This should not happen when the branch is up-to-date. ` +
+        `Use Apply Updates on the session page to resolve conflicts before accepting.\n\n` +
+        `Merge error:\n${mergeResult.stderr}`,
+      );
+      return;
     }
 
     if (stashed) await runGit(['stash', 'pop'], mergeRoot);
@@ -686,16 +683,15 @@ async function runAcceptAsync(
       );
 
       if (mergeResult.code !== 0) {
-        const resolution = await resolveConflictsWithClaude(mergeRoot, branch, parentBranch);
-        if (!resolution.success) {
-          await runGit(['merge', '--abort'], mergeRoot);
-          if (stashed) await runGit(['stash', 'pop'], mergeRoot);
-          await failWithError(
-            `❌ Accept failed: merge failed and automatic conflict resolution also failed.\n` +
-            `Merge error:\n${mergeResult.stderr}\n\nAuto-resolution log:\n${resolution.log}`,
-          );
-          return;
-        }
+        await runGit(['merge', '--abort'], mergeRoot);
+        if (stashed) await runGit(['stash', 'pop'], mergeRoot);
+        await failWithError(
+          `❌ Accept failed: merge conflict in ${mergeRoot}.\n` +
+          `This should not happen when the branch is up-to-date. ` +
+          `Use Apply Updates on the session page to resolve conflicts before accepting.\n\n` +
+          `Merge error:\n${mergeResult.stderr}`,
+        );
+        return;
       }
 
       if (stashed) {

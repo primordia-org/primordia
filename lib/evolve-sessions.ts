@@ -747,16 +747,22 @@ export async function restartDevServerInWorktree(
 /**
  * When `git merge` leaves the repo in a conflicted state, run Claude Code
  * inside `mergeRoot` to resolve all conflicts and complete the merge commit.
+ * Progress is streamed to the session's NDJSON log as a `conflict_resolution`
+ * section, so the user can see what the agent is doing in real time.
  *
- * Returns { success: true } when Claude committed the resolved merge, or
+ * Returns { success: true } when the agent committed the resolved merge, or
  * { success: false, log } with a human-readable explanation when it could not.
  */
 export async function resolveConflictsWithClaude(
   mergeRoot: string,
   branch: string,
   parentBranch: string,
+  sessionContext: { id: string; harness?: string; model?: string; apiKey?: string; userId: string },
   repoRoot?: string,
 ): Promise<{ success: boolean; log: string }> {
+  const root = repoRoot ?? process.cwd();
+  const ndjsonPath = getSessionNdjsonPath(mergeRoot);
+
   const prompt =
     `A \`git merge ${branch}\` into \`${parentBranch}\` has produced merge conflicts ` +
     `in the repository at \`${mergeRoot}\`.\n\n` +
@@ -768,59 +774,62 @@ export async function resolveConflictsWithClaude(
     `4. Finish the merge with \`git commit --no-edit\`.\n\n` +
     `Work only inside \`${mergeRoot}\`. Do not touch any files outside that directory.`;
 
-  const root = repoRoot ?? process.cwd();
-  const workerScript = path.join(root, 'scripts/conflict-worker.ts');
-  const runId = `conflict-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const configFile = `/tmp/primordia-${runId}-config.json`;
-  const resultFile = `/tmp/primordia-${runId}-result.json`;
+  // Write a section header so the conflict resolution run appears as a named
+  // block in the session progress log.
+  if (fs.existsSync(ndjsonPath)) {
+    appendSessionEvent(ndjsonPath, {
+      type: 'section_start',
+      sectionType: 'conflict_resolution',
+      label: '🔀 Resolving merge conflicts…',
+      ts: Date.now(),
+    });
+  }
+
+  const harnessId = sessionContext.harness ?? DEFAULT_HARNESS;
+  const workerScript = (harnessId === 'pi')
+    ? path.join(root, 'scripts/pi-worker.ts')
+    : path.join(root, 'scripts/claude-worker.ts');
 
   try {
-    fs.writeFileSync(
-      configFile,
-      JSON.stringify({ prompt, worktreePath: mergeRoot, repoRoot: root, resultFile }),
-      'utf8',
+    await spawnClaudeWorker(
+      {
+        sessionId: sessionContext.id,
+        worktreePath: mergeRoot,
+        repoRoot: root,
+        prompt,
+        timeoutMs: 10 * 60 * 1000,
+        model: sessionContext.model,
+        apiKey: sessionContext.apiKey,
+        userId: sessionContext.userId,
+      },
+      workerScript,
     );
-
-    await new Promise<void>((resolve, reject) => {
-      const proc = spawn('bun', ['run', workerScript, configFile], {
-        cwd: root,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      proc.stdout?.on('data', (d: Buffer) => process.stdout.write(d));
-      proc.stderr?.on('data', (d: Buffer) => process.stderr.write(d));
-      proc.on('exit', () => resolve());
-      proc.on('error', (err: Error) => reject(err));
-    });
-
-    let result: { success: boolean; log: string } = { success: false, log: '' };
-    try {
-      result = JSON.parse(fs.readFileSync(resultFile, 'utf8')) as typeof result;
-    } catch {
-      return { success: false, log: 'Conflict worker did not produce a result file.' };
-    }
-
-    if (!result.success) {
-      return result;
-    }
-
-    // Verify the merge was committed: MERGE_HEAD must no longer exist.
-    const mergeHeadResult = await runGit(['rev-parse', '--verify', 'MERGE_HEAD'], mergeRoot);
-    if (mergeHeadResult.code === 0) {
-      return {
-        success: false,
-        log:
-          result.log +
-          '\nMerge was not committed: MERGE_HEAD still exists after conflict resolution attempt.',
-      };
-    }
-
-    return { success: true, log: result.log };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { success: false, log: `Error during conflict resolution: ${msg}` };
-  } finally {
-    try { fs.rmSync(configFile, { force: true }); } catch { /* best-effort */ }
-    try { fs.rmSync(resultFile, { force: true }); } catch { /* best-effort */ }
+    return { success: false, log: `Error spawning conflict resolution worker: ${msg}` };
   }
+
+  // Read the result from the NDJSON log — the worker writes a 'result' event on exit.
+  const { events } = readSessionEvents(ndjsonPath);
+  const lastResult = [...events].reverse().find(
+    (e): e is Extract<SessionEvent, { type: 'result' }> => e.type === 'result',
+  );
+  if (lastResult?.subtype !== 'success') {
+    return {
+      success: false,
+      log: lastResult?.message ?? 'Conflict resolution worker did not report success.',
+    };
+  }
+
+  // Verify the merge was actually committed: MERGE_HEAD must no longer exist.
+  const mergeHeadResult = await runGit(['rev-parse', '--verify', 'MERGE_HEAD'], mergeRoot);
+  if (mergeHeadResult.code === 0) {
+    return {
+      success: false,
+      log: 'Merge was not committed: MERGE_HEAD still exists after conflict resolution attempt.',
+    };
+  }
+
+  return { success: true, log: '' };
 }
 

@@ -72,7 +72,7 @@ function MetricsRow({ metrics }: { metrics: SectionMetrics }) {
 
 /** A logical section derived from structured session events. */
 interface SectionGroup {
-  type: 'setup' | 'agent' | 'claude' | 'type_fix' | 'followup' | 'deploy';
+  type: 'setup' | 'agent' | 'claude' | 'type_fix' | 'followup' | 'deploy' | 'conflict_resolution';
   label: string;
   harness?: string;
   model?: string;
@@ -427,8 +427,8 @@ function StructuredSection({
     );
   }
 
-  // ── Agent / Claude Code (legacy) / type_fix ──────────────────────────────
-  if (type === 'agent' || type === 'claude' || type === 'type_fix') {
+  // ── Agent / Claude Code (legacy) / type_fix / conflict_resolution ─────────
+  if (type === 'agent' || type === 'claude' || type === 'type_fix' || type === 'conflict_resolution') {
     const hasResult = events.some((e) => e.type === 'result');
     if (isActive && !hasResult) {
       return <RunningClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} />;
@@ -1232,10 +1232,11 @@ export default function EvolveSessionView({
                 Follow-up Changes
               </button>
               <button
-                onClick={isClaudeRunning ? undefined : () => toggleAction("accept")}
-                disabled={isClaudeRunning}
+                onClick={(isClaudeRunning || remainingUpstream > 0) ? undefined : () => toggleAction("accept")}
+                disabled={isClaudeRunning || remainingUpstream > 0}
+                title={remainingUpstream > 0 ? `Apply the ${remainingUpstream} upstream commit${remainingUpstream === 1 ? "" : "s"} before accepting` : undefined}
                 className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
-                  isClaudeRunning
+                  isClaudeRunning || remainingUpstream > 0
                     ? "text-gray-600 cursor-not-allowed"
                     : activeAction === "accept"
                     ? "bg-green-900/40 text-green-200"
@@ -1244,7 +1245,7 @@ export default function EvolveSessionView({
                     : "text-green-300 bg-green-900/10 hover:bg-green-900/25"
                 }`}
               >
-                Accept Changes
+                {remainingUpstream > 0 ? "Apply Updates First" : "Accept Changes"}
               </button>
               <button
                 onClick={isClaudeRunning ? undefined : () => toggleAction("reject")}
