@@ -2,7 +2,6 @@
 // Helpers for the local evolve flow.
 // Only used when NODE_ENV=development.
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -756,9 +755,8 @@ export async function resolveConflictsWithClaude(
   mergeRoot: string,
   branch: string,
   parentBranch: string,
+  repoRoot?: string,
 ): Promise<{ success: boolean; log: string }> {
-  let log = '';
-
   const prompt =
     `A \`git merge ${branch}\` into \`${parentBranch}\` has produced merge conflicts ` +
     `in the repository at \`${mergeRoot}\`.\n\n` +
@@ -770,43 +768,39 @@ export async function resolveConflictsWithClaude(
     `4. Finish the merge with \`git commit --no-edit\`.\n\n` +
     `Work only inside \`${mergeRoot}\`. Do not touch any files outside that directory.`;
 
+  const root = repoRoot ?? process.cwd();
+  const workerScript = path.join(root, 'scripts/conflict-worker.ts');
+  const runId = `conflict-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const configFile = `/tmp/primordia-${runId}-config.json`;
+  const resultFile = `/tmp/primordia-${runId}-result.json`;
+
   try {
-    const run = query({
-      prompt,
-      options: {
-        cwd: mergeRoot,
-        systemPrompt: {
-          type: 'preset',
-          preset: 'claude_code',
-          append: `The current working directory is: ${mergeRoot}`,
-        },
-        permissionMode: 'bypassPermissions',
-        allowDangerouslySkipPermissions: true,
-      },
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ prompt, worktreePath: mergeRoot, repoRoot: root, resultFile }),
+      'utf8',
+    );
+
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn('bun', ['run', workerScript, configFile], {
+        cwd: root,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      proc.stdout?.on('data', (d: Buffer) => process.stdout.write(d));
+      proc.stderr?.on('data', (d: Buffer) => process.stderr.write(d));
+      proc.on('exit', () => resolve());
+      proc.on('error', (err: Error) => reject(err));
     });
 
-    for await (const message of run) {
-      if (message.type === 'assistant') {
-        for (const block of message.message.content) {
-          if (block.type === 'text' && block.text.trim()) {
-            // If the previous content ended a list (single trailing newline), add
-            // a blank line so the list renders correctly in markdown.
-            if (log.endsWith('\n') && !log.endsWith('\n\n')) {
-              log += '\n';
-            }
-            log += block.text.trimEnd() + '\n\n';
-          } else if (block.type === 'tool_use') {
-            log += `- 🔧 ${block.name}\n`;
-          }
-        }
-      } else if (message.type === 'result') {
-        if (message.subtype !== 'success') {
-          return {
-            success: false,
-            log: log + `\nClaude Code ended with subtype: ${message.subtype}`,
-          };
-        }
-      }
+    let result: { success: boolean; log: string } = { success: false, log: '' };
+    try {
+      result = JSON.parse(fs.readFileSync(resultFile, 'utf8')) as typeof result;
+    } catch {
+      return { success: false, log: 'Conflict worker did not produce a result file.' };
+    }
+
+    if (!result.success) {
+      return result;
     }
 
     // Verify the merge was committed: MERGE_HEAD must no longer exist.
@@ -815,15 +809,18 @@ export async function resolveConflictsWithClaude(
       return {
         success: false,
         log:
-          log +
+          result.log +
           '\nMerge was not committed: MERGE_HEAD still exists after conflict resolution attempt.',
       };
     }
 
-    return { success: true, log };
+    return { success: true, log: result.log };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { success: false, log: log + `\nError during conflict resolution: ${msg}` };
+    return { success: false, log: `Error during conflict resolution: ${msg}` };
+  } finally {
+    try { fs.rmSync(configFile, { force: true }); } catch { /* best-effort */ }
+    try { fs.rmSync(resultFile, { force: true }); } catch { /* best-effort */ }
   }
 }
 

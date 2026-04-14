@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     if (result.code !== 0) {
       // Merge produced conflicts — attempt auto-resolution with Claude before giving up.
       // resolveConflictsWithClaude(root, mergedBranch, targetBranch) resolves in-place.
-      const resolution = await resolveConflictsWithClaude(worktreePath, parentBranch, branch);
+      const resolution = await resolveConflictsWithClaude(worktreePath, parentBranch, branch, repoRoot);
       if (!resolution.success) {
         await runGit(['merge', '--abort'], worktreePath);
         return Response.json(
