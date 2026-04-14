@@ -24,7 +24,7 @@ import {
  *  Falls back to sanitising the branch name directly. */
 async function slugFromBranchName(branchName: string): Promise<string> {
   try {
-    const { client } = await getLlmClient();
+    const { client } = getLlmClient();
     const response = await client.messages.create({
       model: 'claude-haiku-4-5',
       max_tokens: 32,

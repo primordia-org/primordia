@@ -151,7 +151,7 @@ export async function POST(request: Request) {
     });
   }
 
-  const { client } = await getLlmClient();
+  const { client } = getLlmClient();
 
   const basePrompt = buildSystemPrompt();
   const systemPrompt = body.systemContext

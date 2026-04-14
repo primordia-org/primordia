@@ -2,6 +2,10 @@
 // Standalone Claude Code worker process. Spawned by the app server as a
 // detached child so it survives server restarts.
 //
+// Uses the exe.dev LLM gateway (http://169.254.169.254/gateway/llm/anthropic)
+// unconditionally. The gateway handles authentication; no ANTHROPIC_API_KEY is
+// required.
+//
 // Usage: bun scripts/claude-worker.ts <config-file>
 //
 // Process lifecycle:
@@ -15,6 +19,12 @@
 //
 // Session status is inferred from the NDJSON log by the server — no status
 // files are written by this worker.
+
+// Point the claude-agent-sdk (and the Claude Code subprocess it spawns) at the
+// exe.dev LLM gateway. Must be set before any SDK import resolves its config.
+const GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
+process.env.ANTHROPIC_BASE_URL = GATEWAY_BASE_URL;
+process.env.ANTHROPIC_API_KEY = 'gateway'; // SDK requires non-empty; gateway handles auth
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
