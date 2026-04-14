@@ -97,6 +97,12 @@ async function main(): Promise<void> {
   let userAborted = false;
   // Holds the session reference once created so signal handlers can abort it.
   let activeSession: { abort(): Promise<void> } | null = null;
+  // Track the last assistant message stop reason so we can detect max_tokens
+  // truncation after session.prompt() resolves. When the model hits max_tokens
+  // the response is cut off mid-generation; no tool calls are included, so the
+  // agent loop exits cleanly and prompt() resolves without throwing — but the
+  // task is not complete.
+  let lastAssistantStopReason: string | null = null;
 
   process.on('SIGTERM', () => {
     userAborted = true;
@@ -186,6 +192,14 @@ async function main(): Promise<void> {
           input: (event.args ?? {}) as Record<string, unknown>,
           ts: ts(),
         });
+      } else if (event.type === 'message_end') {
+        // Track stop reason for post-prompt truncation detection.
+        // Cast to a plain object because the union type doesn't expose stopReason
+        // directly — only AssistantMessage has it.
+        const msg = event.message as unknown as Record<string, unknown>;
+        if (msg['role'] === 'assistant' && typeof msg['stopReason'] === 'string') {
+          lastAssistantStopReason = msg['stopReason'];
+        }
       }
     });
 
@@ -216,7 +230,30 @@ async function main(): Promise<void> {
     const stats = session.getSessionStats();
     const durationMs = ts() - startTime;
 
-    appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'success', ts: ts() });
+    // Detect max_tokens truncation: if the model's last response had
+    // stopReason 'length', it was cut off before completing its work.
+    // The agent loop exits normally in this case (no tool calls → done),
+    // so we must detect it here and surface an error so the user knows
+    // a follow-up is needed to continue.
+    const truncated = lastAssistantStopReason === 'length';
+    if (truncated) {
+      appendSessionEvent(ndjsonPath, {
+        type: 'text',
+        content:
+          "\n\n\u274c The AI's response was longer than expected, so it was paused. " +
+          "Follow-up with 'continue' and it'll pick up right where it left off.",
+        ts: ts(),
+      });
+    }
+
+    appendSessionEvent(ndjsonPath, {
+      type: 'result',
+      subtype: truncated ? 'error' : 'success',
+      ...(truncated
+        ? { message: 'Pi hit the output token limit (max_tokens) and stopped mid-response.' }
+        : {}),
+      ts: ts(),
+    });
     appendSessionEvent(ndjsonPath, {
       type: 'metrics',
       durationMs,
