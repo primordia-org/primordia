@@ -8,7 +8,7 @@ import { buildPageTitle } from "@/lib/page-title";
 import { basePath, withBasePath } from "@/lib/base-path";
 import CopyButton from "@/components/CopyButton";
 import { LandingNav } from "@/components/LandingNav";
-import { MessageSquare, RefreshCw, GitBranch, ArrowRight, Edit, ChevronDown } from "lucide-react";
+import { MessageSquare, RefreshCw, GitBranch, ChevronDown } from "lucide-react";
 
 export function generateMetadata(): Metadata {
   return { title: buildPageTitle() };
@@ -139,24 +139,6 @@ export default async function LandingPage() {
             </a>{" "}
             account with SSH configured
           </p>
-        </div>
-
-        {/* Secondary CTAs */}
-        <div className="animate-fade-up-4 relative flex flex-wrap items-center justify-center gap-4 mt-2">
-          <Link
-            href="/chat"
-            className="group inline-flex items-center gap-2 px-6 py-3 rounded-xl font-mono font-semibold text-sm bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-gray-300 hover:text-white transition-all hover:-translate-y-0.5"
-          >
-            Start chatting
-            <ArrowRight size={16} strokeWidth={2.5} className="transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-          </Link>
-          <Link
-            href="/evolve"
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-mono font-semibold text-sm bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-gray-300 hover:text-white transition-all hover:-translate-y-0.5"
-          >
-            Propose a change
-            <Edit size={16} strokeWidth={2} aria-hidden="true" />
-          </Link>
         </div>
 
         {/* Scroll hint */}
