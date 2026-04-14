@@ -34,23 +34,10 @@ import {
 } from '../lib/session-events';
 
 // ---------------------------------------------------------------------------
-// exe.dev LLM gateway probe
+// exe.dev LLM gateway
 // ---------------------------------------------------------------------------
 
 const GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
-const PROBE_TIMEOUT_MS = 2000;
-
-async function probeGateway(): Promise<boolean> {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
-    await fetch(GATEWAY_BASE_URL, { method: 'HEAD', signal: controller.signal });
-    clearTimeout(timeoutId);
-    return true; // any HTTP response means the gateway is reachable
-  } catch {
-    return false;
-  }
-}
 
 interface WorkerConfig {
   sessionId: string;
@@ -117,20 +104,11 @@ async function main(): Promise<void> {
   }, timeoutMs);
 
   try {
-    // Auth — prefer the exe.dev LLM gateway; fall back to ANTHROPIC_API_KEY.
-    // The gateway is available at http://169.254.169.254/gateway/llm/anthropic inside
-    // exe.dev VMs and requires no API key. Outside of exe.dev the link-local address
-    // is unreachable, so the probe fails quickly and the API key is used instead.
-    const gatewayAvailable = await probeGateway();
+    // Auth — the exe.dev LLM gateway handles authentication; the SDK requires a
+    // non-empty key value so we supply a placeholder.
     const authStorage = AuthStorage.create();
-
-    if (gatewayAvailable) {
-      // Set a placeholder key — the gateway handles auth; SDK requires a non-empty value.
-      authStorage.setRuntimeApiKey('anthropic', 'gateway');
-      process.stderr.write('Using exe.dev LLM gateway\n');
-    } else {
-      authStorage.setRuntimeApiKey('anthropic', process.env.ANTHROPIC_API_KEY ?? '');
-    }
+    authStorage.setRuntimeApiKey('anthropic', 'gateway');
+    process.stderr.write('Using exe.dev LLM gateway\n');
 
     const modelRegistry = ModelRegistry.create(authStorage);
 
@@ -149,15 +127,12 @@ async function main(): Promise<void> {
       ? SessionManager.continueRecent(worktreePath)
       : SessionManager.create(worktreePath);
 
-    // When the gateway is available, register it as the Anthropic provider base URL
-    // via an inline extension factory. extensionFactories are always applied even
-    // when noExtensions is true (which only disables file-based extension discovery).
-    const extensionFactories: ExtensionFactory[] = [];
-    if (gatewayAvailable) {
-      extensionFactories.push((pi) => {
-        pi.registerProvider('anthropic', { baseUrl: GATEWAY_BASE_URL });
-      });
-    }
+    // Register the gateway as the Anthropic provider base URL via an inline
+    // extension factory. extensionFactories are always applied even when
+    // noExtensions is true (which only disables file-based extension discovery).
+    const extensionFactories: ExtensionFactory[] = [
+      (pi) => { pi.registerProvider('anthropic', { baseUrl: GATEWAY_BASE_URL }); },
+    ];
 
     // Resource loader: use the worktree as cwd so pi discovers CLAUDE.md and
     // other project context, and append the working-directory line.
