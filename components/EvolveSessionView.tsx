@@ -1398,9 +1398,9 @@ export default function EvolveSessionView({
 
     {/* ── Desktop preview sidebar ── */}
     {showPreviewSidebar && (
-      <aside className="hidden xl:flex xl:flex-col xl:flex-1 xl:sticky xl:top-0 xl:h-dvh border-l border-gray-800 bg-gray-950">
+      <aside className="hidden xl:flex xl:flex-col xl:flex-1 xl:sticky xl:top-0 xl:h-dvh border-l border-gray-800 bg-gray-950 p-4">
         {proxyServerStatus === "running" ? (
-          <WebPreviewPanel src={previewUrl!} fullHeight className="rounded-none border-0" />
+          <WebPreviewPanel src={previewUrl!} fullHeight />
         ) : (
           <div className="flex flex-col flex-1 items-center justify-center gap-2 text-gray-500">
             <span className={`text-sm ${proxyServerStatus === 'starting' ? 'animate-pulse' : ''}`}>
