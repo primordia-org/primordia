@@ -1249,12 +1249,12 @@ export default function EvolveSessionView({
           {/* ── Button row (or fixing-types indicator) ── */}
           {status === "accepting" ? (
             <div className="px-4 py-3 flex items-center gap-2 text-sm text-green-300">
-              <span className="animate-spin inline-block">⟳</span>
+              <span className="animate-spin inline-block w-4 h-4 rounded-full border-2 border-green-300/30 border-t-green-300 flex-shrink-0" />
               Accepting changes…
             </div>
           ) : status === "fixing-types" ? (
             <div className="px-4 py-3 flex items-center gap-2 text-sm text-amber-300">
-              <span className="animate-spin inline-block">⟳</span>
+              <span className="animate-spin inline-block w-4 h-4 rounded-full border-2 border-amber-300/30 border-t-amber-300 flex-shrink-0" />
               Fixing type errors… will auto-accept when complete.
             </div>
           ) : (
