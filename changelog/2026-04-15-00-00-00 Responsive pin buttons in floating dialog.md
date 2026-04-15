@@ -8,7 +8,7 @@ On small screens (viewport < 452 px, where the "Propose a change" floating dialo
 
 - Added `"top"` and `"bottom"` to the `DockPosition` union type.
 - Added an `isSmallScreen` state driven by a `resize` event listener (threshold: 452 px = dialog natural width 420 px + 32 px side margins).
-- When `isSmallScreen` is `true`, the title bar shows the two pin buttons instead of the four corner buttons, and any free-floating position is cleared so the dialog always snaps to an edge.
+- When `isSmallScreen` is `true`, the title bar shows the two pin buttons instead of the four corner buttons. Any free-floating position is preserved — the dialog stays where it is rather than being forced to an edge.
 - Added `width: "auto"` to the inline position style for `"top"` / `"bottom"` docks so the dialog stretches edge-to-edge (overriding the Tailwind `w-[420px]` class).
 - Added automatic dock conversion: switching to small screen maps corner docks → nearest top/bottom; switching back maps them to the top-right / bottom-right corner.
 

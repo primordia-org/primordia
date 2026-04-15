@@ -72,11 +72,11 @@ export function FloatingEvolveDialog({
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // When switching to small screen: clear free position and convert corner docks to
-  // top/bottom. When switching back to large screen: convert top/bottom back to corners.
+  // When switching to small screen: convert corner docks to top/bottom (free position
+  // is preserved so the dialog stays where it is). When switching back to large screen:
+  // convert top/bottom back to corners.
   useEffect(() => {
     if (isSmallScreen) {
-      setFreePos(null);
       setDock((prev) => {
         if (prev === "top-left" || prev === "top-right") return "top";
         if (prev === "bottom-left" || prev === "bottom-right") return "bottom";
