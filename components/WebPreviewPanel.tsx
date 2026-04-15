@@ -12,12 +12,19 @@ import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Crosshair } from "lucide
 // ─── Element Inspector script ─────────────────────────────────────────────────
 // Injected into the iframe's document when inspector mode is activated.
 // Communicates results back to the parent via postMessage.
+// Mouse: hover to highlight, click to select.
+// Touch: drag to highlight, long-press (600 ms hold) to select.
 const INSPECTOR_SCRIPT = `
 (function() {
   if (window.__primordiaInspectorActive) return;
   window.__primordiaInspectorActive = true;
 
   var hovered = null;
+  var longPressTimer = null;
+  var touchStartX = 0;
+  var touchStartY = 0;
+  var LONG_PRESS_MS = 600;
+  var MOVE_CANCEL_PX = 12; // cancel long-press if finger drifts more than this
 
   // Inject crosshair cursor style
   var styleEl = document.createElement('style');
@@ -89,6 +96,16 @@ const INSPECTOR_SCRIPT = `
     return null;
   }
 
+  function setHighlight(el) {
+    if (el === hovered) return;
+    clearHighlight();
+    hovered = el;
+    if (hovered && hovered.style) {
+      hovered.style.outline = '2px solid #3b82f6';
+      hovered.style.outlineOffset = '1px';
+    }
+  }
+
   function clearHighlight() {
     if (hovered && hovered.style) {
       hovered.style.outline = '';
@@ -97,13 +114,21 @@ const INSPECTOR_SCRIPT = `
     hovered = null;
   }
 
+  function selectElement(el) {
+    var component = getReactComponentName(el) || 'Unknown';
+    var selector = getCssSelector(el);
+    window.parent.postMessage({
+      type: 'primordia-element-selected',
+      component: component,
+      selector: selector,
+    }, '*');
+    deactivate();
+  }
+
+  // ── Mouse handlers ──────────────────────────────────────────────────────────
+
   function onMouseOver(e) {
-    clearHighlight();
-    hovered = e.target;
-    if (hovered && hovered.style) {
-      hovered.style.outline = '2px solid #3b82f6';
-      hovered.style.outlineOffset = '1px';
-    }
+    setHighlight(e.target);
     e.stopPropagation();
   }
 
@@ -115,21 +140,61 @@ const INSPECTOR_SCRIPT = `
   function onClick(e) {
     e.preventDefault();
     e.stopPropagation();
-    var el = e.target;
-    var component = getReactComponentName(el) || 'Unknown';
-    var selector = getCssSelector(el);
-    window.parent.postMessage({
-      type: 'primordia-element-selected',
-      component: component,
-      selector: selector,
-    }, '*');
-    deactivate();
+    selectElement(e.target);
   }
+
+  // ── Touch handlers ──────────────────────────────────────────────────────────
+  // Drag finger to highlight; hold still for LONG_PRESS_MS to select.
+
+  function cancelLongPress() {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  }
+
+  function onTouchStart(e) {
+    e.preventDefault(); // prevent scroll + default tap while in inspector mode
+    var touch = e.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+    var el = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (el) setHighlight(el);
+    cancelLongPress();
+    longPressTimer = setTimeout(function() {
+      longPressTimer = null;
+      if (hovered) selectElement(hovered);
+    }, LONG_PRESS_MS);
+  }
+
+  function onTouchMove(e) {
+    e.preventDefault();
+    var touch = e.touches[0];
+    // Cancel long-press if finger drifted enough (user is scanning, not holding)
+    var dx = touch.clientX - touchStartX;
+    var dy = touch.clientY - touchStartY;
+    if (Math.sqrt(dx * dx + dy * dy) > MOVE_CANCEL_PX) {
+      cancelLongPress();
+    }
+    var el = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (el) setHighlight(el);
+  }
+
+  function onTouchEnd(e) {
+    e.preventDefault();
+    cancelLongPress();
+  }
+
+  // ── Deactivate ──────────────────────────────────────────────────────────────
 
   function deactivate() {
     document.removeEventListener('mouseover', onMouseOver, true);
     document.removeEventListener('mouseout', onMouseOut, true);
     document.removeEventListener('click', onClick, true);
+    document.removeEventListener('touchstart', onTouchStart, true);
+    document.removeEventListener('touchmove', onTouchMove, true);
+    document.removeEventListener('touchend', onTouchEnd, true);
+    cancelLongPress();
     clearHighlight();
     document.body.classList.remove('primordia-inspecting');
     var s = document.getElementById('primordia-inspector-style');
@@ -147,6 +212,10 @@ const INSPECTOR_SCRIPT = `
   document.addEventListener('mouseover', onMouseOver, true);
   document.addEventListener('mouseout', onMouseOut, true);
   document.addEventListener('click', onClick, true);
+  // passive: false required so preventDefault() works on touch events
+  document.addEventListener('touchstart', onTouchStart, { capture: true, passive: false });
+  document.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
+  document.addEventListener('touchend', onTouchEnd, { capture: true, passive: false });
 })();
 `;
 
@@ -378,7 +447,9 @@ export function WebPreviewPanel({ src, fullHeight = false, className, onElementS
       {inspectorActive && (
         <div className="px-3 py-1.5 bg-blue-950/60 border-b border-blue-700/40 text-xs text-blue-300 flex items-center gap-2">
           <Crosshair size={11} className="flex-shrink-0" />
-          Click an element to capture its component and selector. Press Esc to cancel.
+          <span className="hidden sm:inline">Click an element to capture it. On touch: drag to highlight, hold to select.</span>
+          <span className="sm:hidden">Drag to highlight · Hold to select</span>
+          <span className="hidden sm:inline text-blue-500 ml-1">Esc to cancel.</span>
         </div>
       )}
 
