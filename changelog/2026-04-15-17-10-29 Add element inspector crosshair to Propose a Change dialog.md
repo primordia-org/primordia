@@ -1,38 +1,61 @@
-# Add element inspector crosshair to "Propose a Change" dialog
+# Add element inspector crosshair to "Propose a Change" dialog and session follow-up form
 
 ## What changed
 
-Added an element-picker (crosshair) tool to the floating "Propose a change" dialog so users can quickly select any visible element on the current page and automatically insert its context into their evolve request.
+Added a **Pick element** (crosshair) tool to every evolve request form — the floating "Propose a change" dialog, the `/evolve` standalone page, and the session follow-up form — so users can click any visible element on the current page and automatically attach its details to their request.
 
 ### New file: `components/PageElementInspector.tsx`
 
-A full-screen transparent portal overlay that activates on top of the page when the crosshair button is clicked.
+A full-screen transparent portal overlay that activates on top of the page.
 
 - **Mouse:** move cursor to highlight elements; click to select.
 - **Touch:** drag to highlight; hold 600 ms to select.
 - **Keyboard:** `Esc` to cancel.
 
-Uses `document.elementsFromPoint()` to resolve the element under the pointer, filtering out the inspector overlay itself and the calling dialog (passed as `skipElement`).  Walks the React fibre tree to detect the nearest named React component (same approach as `WebPreviewPanel`'s iframe inspector).
+Uses `document.elementsFromPoint()` to resolve the element under the pointer, filtering out the inspector overlay itself and an optional `skipElement` (the calling form panel) so dialog chrome is never returned as a selection. Walks the React fibre tree to detect the nearest named React component.
 
-When an element is selected, an `onSelect(PageElementInfo)` callback fires with:
-- `component` — nearest React component display-name (or tag name fallback)
-- `selector` — compact CSS path (up to 5 ancestors, skipping Tailwind utility classes)
-- `html` — `outerHTML` truncated to 600 characters
-- `text` — visible `innerText` truncated to 200 characters
+Also exports the following utilities used at capture time:
+
+| Export | Purpose |
+|---|---|
+| `getReactComponentChain(el)` | Array of all named React component ancestors, root → leaf |
+| `generateFiberTreeText(el)` | JSX-like tree rendered from the nearest React component boundary down, with the selected element marked `← SELECTED` |
+| `captureElementFiles(el, info)` | Async; returns `File[]`: a PNG screenshot + a Markdown details file |
+| `getCssSelector(el)` | Compact CSS path (up to 5 ancestors, skipping Tailwind utility classes) |
+| `getReactComponentName(el)` | Nearest named React component from fibre tree |
+
+#### Screenshot approach (`element-{name}-screenshot.png`)
+Uses SVG `<foreignObject>` + Canvas: embeds the element's `outerHTML` along with all same-origin CSS rules (capped at 300 KB) into an SVG, renders it to an `<img>`, then draws it to a Canvas and exports as PNG. Works best for elements with inline structure; Tailwind classes are preserved when the stylesheet is accessible (dev mode). Falls back silently on failure.
+
+#### Details Markdown (`element-{name}-details.md`)
+Contains:
+- React component chain (e.g. `App > Layout > NavHeader > [span]`)
+- CSS selector
+- `outerHTML` (up to 600 chars)
+- React fibre tree (JSX-like, up to 12 levels deep, 400 nodes) with the selected element marked
 
 ### Modified: `components/EvolveRequestForm.tsx`
 
-- Converted the component to use `React.forwardRef` so callers can hold an imperative handle.
-- Added `EvolveRequestFormHandle` interface with `insertElementContext(text: string)`.
-  - Prepends the element-context block to the textarea (with a blank-line separator if text already exists) and moves the cursor to just after the block so the user can immediately type their request.
+- Reverted from `forwardRef` back to a plain function export (no longer needed — inspector is now internal).
+- Added `inspectorSkipElement?: HTMLElement | null` prop — passed in from `FloatingEvolveDialog` so the dialog itself is excluded from element picking.
+- New internal state: `inspectorActive` (boolean) + `elementAttachments: ElementAttachmentDraft[]`.
+- **Pick element** button added to the action row (between "Attach files" and the submit button). Compact label: "Pick". Full label: "Pick element".
+- When an element is selected, an `ElementAttachmentDraft` is created immediately with `status: "generating"`, then `captureElementFiles()` runs asynchronously to produce the PNG + Markdown files.
+- **Element attachment chips** (blue, with Crosshair icon and spinner during generation) appear in the chip row alongside regular file chips. Tooltip shows the CSS selector and file names.
+- On submit, `elementAttachments` files (status `"ready"`) are merged with regular `attachedFiles` and sent through the existing attachment mechanism (FormData `attachments[]` for new sessions; `files` array for follow-up `onSubmit` callbacks).
+- Form reset clears `elementAttachments` alongside the other fields.
 
 ### Modified: `components/FloatingEvolveDialog.tsx`
 
-- Added a **Crosshair** button in the title bar (between the dock buttons and the close button).
-- When clicked, the form body is replaced by a brief hint panel and `PageElementInspector` is rendered as a portal.  The dialog's title bar text changes to "Click an element on the page…".
-- On element selection: formats a compact context block (`[Inspected element: <ComponentName> at \`selector\`]` + HTML preview) and calls `formRef.current.insertElementContext(text)` to insert it into the textarea before restoring the form.
-- Escape / Cancel button deactivates the inspector without inserting anything.
+- Removed all previous inspector state (`crosshairActive`, `formRef`) and the title-bar Crosshair button (inspector is now inside the form).
+- Passes `inspectorSkipElement={dialogRef.current}` to `EvolveRequestForm` so the dialog container is excluded from element picking.
+- Form body is no longer conditionally hidden; the dialog renders the full form at all times.
 
 ## Why
 
-Users often want to reference a specific UI element in their change request ("make this button blue", "move this nav item to the left"). Previously they had to manually describe the element in words. The crosshair tool lets them click the exact element, and the resulting context snippet gives Claude Code precise component + selector + HTML information to act on without ambiguity.
+Previously, element selection only inserted a short text snippet into the textarea. This follow-up redesigns the feature so:
+
+1. **No clutter in the request text** — the element details are stored as file attachments (screenshot + Markdown) that Claude Code can open if it needs them, rather than inline prose that pads the user's message.
+2. **Richer context** — the Markdown file includes the full React component chain, the CSS selector, truncated `outerHTML`, and a fibre-tree JSX snapshot, giving Claude Code precise multi-dimensional context to locate and edit the right element.
+3. **Visual attachment chip** — a single blue `<ComponentName>` chip in the form's attachment row shows exactly what was captured, with a spinner during async file generation and a tooltip listing the generated file names.
+4. **Works everywhere** — the inspector is embedded in `EvolveRequestForm` itself, so it works in the floating dialog, the `/evolve` page, and the session follow-up form without any duplication.

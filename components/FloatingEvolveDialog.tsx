@@ -10,10 +10,9 @@
 
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
-import { EvolveRequestForm, EvolveRequestFormHandle } from "./EvolveRequestForm";
-import { PageElementInspector, PageElementInfo } from "./PageElementInspector";
+import { EvolveRequestForm } from "./EvolveRequestForm";
 import { withBasePath } from "../lib/base-path";
-import { X, ExternalLink, PanelTop, PanelBottom, Crosshair } from "lucide-react";
+import { X, ExternalLink, PanelTop, PanelBottom } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,9 +50,7 @@ export function FloatingEvolveDialog({
 }) {
   const [isDragging, setIsDragging] = useState(false);
   const [isSmallScreen, setIsSmallScreen] = useState(false);
-  const [crosshairActive, setCrosshairActive] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
-  const formRef = useRef<EvolveRequestFormHandle>(null);
 
   // null = docked; {x,y} = free-floating (px from viewport top-left)
   const [freePos, setFreePos] = useState<{ x: number; y: number } | null>(null);
@@ -100,19 +97,6 @@ export function FloatingEvolveDialog({
   function handleSessionCreated(sessionId: string) {
     onClose();
     onSessionCreated?.(sessionId);
-  }
-
-  // ── Element inspector ──────────────────────────────────────────────────────
-
-  function handleElementSelected(info: PageElementInfo) {
-    setCrosshairActive(false);
-    // Format a compact context block that Claude can read alongside the request.
-    const htmlPreview = info.html.length > 300 ? info.html.slice(0, 300) + "…" : info.html;
-    const text = [
-      `[Inspected element: <${info.component}> at \`${info.selector}\`]`,
-      `HTML: \`${htmlPreview}\``,
-    ].join("\n");
-    formRef.current?.insertElementContext(text);
   }
 
   // Position the dialog under the hamburger button on first render if anchorRect is provided.
@@ -264,7 +248,7 @@ export function FloatingEvolveDialog({
         className="flex items-center gap-2 px-4 py-2.5 bg-gray-900 border-b border-gray-800 cursor-grab active:cursor-grabbing select-none touch-none"
       >
         <span className="flex-1 text-sm font-medium text-amber-400">
-          {crosshairActive ? "Click an element on the page…" : "Propose a change"}
+          Propose a change
         </span>
 
         {/* Dock buttons — corners on large screens; top/bottom on small screens */}
@@ -306,21 +290,6 @@ export function FloatingEvolveDialog({
           </div>
         )}
 
-        {/* Element picker (crosshair) button */}
-        <button
-          type="button"
-          onClick={() => setCrosshairActive((prev) => !prev)}
-          className={`w-6 h-6 rounded flex items-center justify-center transition-colors ${
-            crosshairActive
-              ? "bg-blue-600 text-white hover:bg-blue-500"
-              : "text-gray-500 hover:text-white hover:bg-gray-700"
-          }`}
-          title={crosshairActive ? "Cancel element selection (Esc)" : "Pick an element on the page"}
-          aria-label={crosshairActive ? "Cancel element selection" : "Pick an element"}
-        >
-          <Crosshair size={12} strokeWidth={2} aria-hidden="true" />
-        </button>
-
         {/* Close button */}
         <button
           type="button"
@@ -333,44 +302,15 @@ export function FloatingEvolveDialog({
       </div>
 
       {/* Form body — flex-1 so it fills available height when dialog is resized */}
-      {!crosshairActive && (
-        <div className="p-3 flex flex-col flex-1 overflow-y-auto min-h-0">
-          <EvolveRequestForm
-            ref={formRef}
-            compact
-            initialHarness={initialHarness}
-            initialModel={initialModel}
-            onSessionCreated={handleSessionCreated}
-          />
-        </div>
-      )}
-
-      {/* Hint shown inside dialog when inspector is active */}
-      {crosshairActive && (
-        <div className="p-4 flex flex-col items-center gap-3 text-center">
-          <Crosshair size={28} className="text-blue-400 animate-pulse" aria-hidden="true" />
-          <p className="text-xs text-gray-300 leading-relaxed">
-            Hover over any element on the page and click it to capture its
-            details into your request.
-          </p>
-          <button
-            type="button"
-            onClick={() => setCrosshairActive(false)}
-            className="text-xs text-gray-500 hover:text-gray-200 underline underline-offset-2 transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-
-      {/* Inspector overlay — rendered when crosshair mode is active */}
-      {crosshairActive && (
-        <PageElementInspector
-          onSelect={handleElementSelected}
-          onCancel={() => setCrosshairActive(false)}
-          skipElement={dialogRef.current}
+      <div className="p-3 flex flex-col flex-1 overflow-y-auto min-h-0">
+        <EvolveRequestForm
+          compact
+          initialHarness={initialHarness}
+          initialModel={initialModel}
+          onSessionCreated={handleSessionCreated}
+          inspectorSkipElement={dialogRef.current}
         />
-      )}
+      </div>
 
       {/* Bottom resize handle — drag up/down to resize the dialog vertically */}
       <div

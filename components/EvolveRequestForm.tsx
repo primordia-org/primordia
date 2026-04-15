@@ -3,9 +3,15 @@
 // components/EvolveRequestForm.tsx
 // Shared evolve request form body used by the /evolve page, the floating
 // dialog, and the follow-up panel on session detail pages.
+//
+// The Crosshair button (in the action row) activates a full-screen element
+// inspector.  When the user clicks a page element, a screenshot + Markdown
+// details file are generated and shown as a blue "element chip" alongside any
+// file attachments.  Both types of attachment are included in the request on
+// submit.
 
-import { useState, useRef, useEffect, useCallback, FormEvent, memo, forwardRef, useImperativeHandle } from "react";
-import { Paperclip, Settings, ChevronDown } from "lucide-react";
+import { useState, useRef, useEffect, useCallback, FormEvent, memo } from "react";
+import { Paperclip, Settings, ChevronDown, Crosshair, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { withBasePath } from "../lib/base-path";
 import { encryptStoredApiKey } from "../lib/api-key-client";
@@ -15,12 +21,24 @@ import {
   DEFAULT_HARNESS,
   DEFAULT_MODEL,
 } from "../lib/agent-config";
+import { PageElementInspector, PageElementInfo, captureElementFiles } from "./PageElementInspector";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
 
+/** One element selection that the user has "attached" to their request. */
+interface ElementAttachmentDraft {
+  id: string;
+  /** Display label, e.g. "<NavHeader>" */
+  label: string;
+  /** CSS selector shown in tooltip */
+  selector: string;
+  status: "generating" | "ready" | "failed";
+  /** Generated files (screenshot PNG + details Markdown) */
+  files: File[];
+}
 
 // ─── ImagePreview ─────────────────────────────────────────────────────────────
 
-/** Renders a tiny thumbnail for a local File, managing its object URL lifetime. */
 const ImagePreview = memo(function ImagePreview({ file }: { file: File }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
@@ -31,16 +49,6 @@ const ImagePreview = memo(function ImagePreview({ file }: { file: File }) {
   if (!url) return null;
   return <img src={url} alt="" className="h-4 w-4 rounded object-cover flex-shrink-0" />;
 });
-
-// ─── Imperative handle ───────────────────────────────────────────────────────
-
-export interface EvolveRequestFormHandle {
-  /**
-   * Prepend an element-context block (from the page inspector) to the textarea
-   * and focus it so the user can continue typing their request immediately.
-   */
-  insertElementContext: (text: string) => void;
-}
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -98,12 +106,18 @@ interface EvolveRequestFormProps {
   initialHarness?: string;
   /** Works in tandem with `initialHarness`. */
   initialModel?: string;
+  /**
+   * When the Crosshair element inspector is activated, this element (and all
+   * its descendants) will be excluded from selection — typically the dialog or
+   * panel that contains the form so the user doesn't accidentally pick UI
+   * chrome instead of page content.
+   */
+  inspectorSkipElement?: HTMLElement | null;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveRequestFormProps>(
-  function EvolveRequestFormInner({
+export function EvolveRequestForm({
   compact = false,
   placeholder = "Describe the change you want to make to this app…",
   submitLabel = "Submit Request",
@@ -116,7 +130,8 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
   defaultModel,
   initialHarness,
   initialModel,
-}: EvolveRequestFormProps, ref: React.Ref<EvolveRequestFormHandle>) {
+  inspectorSkipElement,
+}: EvolveRequestFormProps) {
   const router = useRouter();
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -133,25 +148,38 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
   );
   const [cavemanMode, setCavemanMode] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // ── Imperative handle ─────────────────────────────────────────────────────
-
-  useImperativeHandle(ref, () => ({
-    insertElementContext: (text: string) => {
-      // Prepend the context block then focus with cursor after the block.
-      setInput((prev) => text + (prev ? "\n\n" + prev : ""));
-      requestAnimationFrame(() => {
-        const ta = textareaRef.current;
-        if (!ta) return;
-        ta.focus();
-        // cursor after text + "\n\n" (or just text if prev was empty)
-        ta.setSelectionRange(text.length + 2, text.length + 2);
-      });
-    },
-  }));
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-resize textarea height in page (non-compact) mode.
+  // ── Element inspector ─────────────────────────────────────────────────────
+
+  const [inspectorActive, setInspectorActive] = useState(false);
+  const [elementAttachments, setElementAttachments] = useState<ElementAttachmentDraft[]>([]);
+
+  async function handleElementSelected(info: PageElementInfo) {
+    setInspectorActive(false);
+    const id = `elem-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const label = `<${info.component}>`;
+
+    // Show "generating" chip immediately so the user gets instant feedback.
+    setElementAttachments((prev) => [
+      ...prev,
+      { id, label, selector: info.selector, status: "generating", files: [] },
+    ]);
+
+    try {
+      const files = await captureElementFiles(info.element, info);
+      setElementAttachments((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, status: "ready", files } : a)),
+      );
+    } catch {
+      setElementAttachments((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, status: "failed" } : a)),
+      );
+    }
+  }
+
+  // ── Auto-resize textarea (page/non-compact mode) ──────────────────────────
+
   useEffect(() => {
     if (compact) return;
     const textarea = textareaRef.current;
@@ -172,18 +200,26 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
 
     const effectiveRequest = cavemanMode ? `/caveman\n\n${trimmed}` : trimmed;
 
+    // Merge regular files + all ready element attachment files.
+    const allFiles: File[] = [
+      ...attachedFiles,
+      ...elementAttachments
+        .filter((a) => a.status === "ready")
+        .flatMap((a) => a.files),
+    ];
+
     try {
       if (onSubmit) {
         await onSubmit({
           request: effectiveRequest,
           harness: selectedHarness,
           model: selectedModel,
-          files: attachedFiles,
+          files: allFiles,
         });
-        // Reset form on success. Keep harness/model as-is so subsequent
-        // follow-ups default to the same agent without extra clicks.
+        // Reset form on success.
         setInput("");
         setAttachedFiles([]);
+        setElementAttachments([]);
         setShowAdvanced(false);
         setCavemanMode(false);
       } else {
@@ -191,10 +227,9 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
         formData.append("request", effectiveRequest);
         formData.append("harness", selectedHarness);
         formData.append("model", selectedModel);
-        for (const file of attachedFiles) {
+        for (const file of allFiles) {
           formData.append("attachments", file);
         }
-        // Encrypt and include the user's API key if one is stored.
         const encryptedApiKey = await encryptStoredApiKey();
         if (encryptedApiKey) formData.append("encryptedApiKey", encryptedApiKey);
 
@@ -208,6 +243,7 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
         if (onSessionCreated) {
           setInput("");
           setAttachedFiles([]);
+          setElementAttachments([]);
           setShowAdvanced(false);
           setSelectedHarness(DEFAULT_HARNESS);
           setSelectedModel(DEFAULT_MODEL);
@@ -240,9 +276,7 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
   }
 
   function handleDragLeave(e: React.DragEvent) {
-    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-      setIsDragging(false);
-    }
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false);
   }
 
   function handleDrop(e: React.DragEvent) {
@@ -252,13 +286,20 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
   }
 
   function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    const imageFiles = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
+    const imageFiles = Array.from(e.clipboardData.files).filter((f) =>
+      f.type.startsWith("image/"),
+    );
     if (imageFiles.length === 0) return;
-    // Rename clipboard images to clipboard.png / clipboard_2.png / etc.
-    // Browsers assign generic names like "image.png"; give them something meaningful.
     const usedNames = new Set(attachedFiles.map((f) => f.name));
     const renamed = imageFiles.map((file) => {
-      const ext = file.type === "image/jpeg" ? ".jpg" : file.type === "image/gif" ? ".gif" : file.type === "image/webp" ? ".webp" : ".png";
+      const ext =
+        file.type === "image/jpeg"
+          ? ".jpg"
+          : file.type === "image/gif"
+            ? ".gif"
+            : file.type === "image/webp"
+              ? ".webp"
+              : ".png";
       let name = `clipboard${ext}`;
       if (usedNames.has(name)) {
         let counter = 2;
@@ -284,10 +325,23 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
   const buttonLabel =
     disabled && disabledLabel ? disabledLabel : isLoading ? "Submitting…" : submitLabel;
 
+  const hasAttachments = attachedFiles.length > 0 || elementAttachments.length > 0;
+
   return (
     <div className={`flex flex-col gap-2${compact ? " flex-1 min-h-0" : ""}`}>
+      {/* Page element inspector portal */}
+      {inspectorActive && (
+        <PageElementInspector
+          onSelect={handleElementSelected}
+          onCancel={() => setInspectorActive(false)}
+          skipElement={inspectorSkipElement}
+        />
+      )}
+
       {error && (
-        <div className={`px-3 py-2 rounded-lg bg-red-900/40 border border-red-700/50 text-red-300 ${compact ? "text-xs" : "text-sm"}`}>
+        <div
+          className={`px-3 py-2 rounded-lg bg-red-900/40 border border-red-700/50 text-red-300 ${compact ? "text-xs" : "text-sm"}`}
+        >
           ❌ {error}
         </div>
       )}
@@ -313,15 +367,19 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
           className={`w-full resize-none bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 leading-relaxed outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50${compact ? " flex-1 min-h-0" : " max-h-64"}`}
         />
 
-        {attachedFiles.length > 0 && (
+        {/* Attachment chips — file attachments (gray) + element attachments (blue) */}
+        {hasAttachments && (
           <div className="flex flex-wrap gap-1.5">
+            {/* Regular file chips */}
             {attachedFiles.map((file, i) => (
               <span
                 key={i}
                 className={`flex items-center gap-1.5 px-2 py-1 ${compact ? "rounded" : "rounded-md"} bg-gray-800 border border-gray-700 text-xs text-gray-300`}
               >
                 {file.type.startsWith("image/") && <ImagePreview file={file} />}
-                <span className={`truncate ${compact ? "max-w-[140px]" : "max-w-[180px]"}`}>{file.name}</span>
+                <span className={`truncate ${compact ? "max-w-[140px]" : "max-w-[180px]"}`}>
+                  {file.name}
+                </span>
                 <button
                   type="button"
                   onClick={() => setAttachedFiles((prev) => prev.filter((_, j) => j !== i))}
@@ -332,10 +390,52 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
                 </button>
               </span>
             ))}
+
+            {/* Element attachment chips */}
+            {elementAttachments.map((attachment) => (
+              <span
+                key={attachment.id}
+                title={
+                  attachment.status === "ready"
+                    ? `${attachment.selector}\n${attachment.files.map((f) => f.name).join(", ")}`
+                    : attachment.status === "generating"
+                      ? "Capturing element…"
+                      : "Capture failed — element info may be incomplete"
+                }
+                className={`flex items-center gap-1.5 px-2 py-1 ${compact ? "rounded" : "rounded-md"} border text-xs ${
+                  attachment.status === "failed"
+                    ? "bg-red-950 border-red-700/60 text-red-300"
+                    : "bg-blue-950 border-blue-700/60 text-blue-300"
+                }`}
+              >
+                {attachment.status === "generating" ? (
+                  <Loader2 size={11} className="animate-spin flex-shrink-0" aria-hidden="true" />
+                ) : (
+                  <Crosshair size={11} className="flex-shrink-0" aria-hidden="true" />
+                )}
+                <span className={`truncate ${compact ? "max-w-[120px]" : "max-w-[160px]"}`}>
+                  {attachment.label}
+                </span>
+                {attachment.status === "generating" && (
+                  <span className="text-blue-500 text-[10px]">…</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setElementAttachments((prev) => prev.filter((a) => a.id !== attachment.id))
+                  }
+                  className="text-blue-500 hover:text-blue-200 ml-0.5 flex-shrink-0"
+                  aria-label={`Remove element ${attachment.label}`}
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-2">
+        {/* Action row */}
+        <div className="flex items-center gap-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -347,6 +447,8 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
               e.target.value = "";
             }}
           />
+
+          {/* File attach button */}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -356,6 +458,27 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
             <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
             {compact ? "Attach" : "Attach files"}
           </button>
+
+          {/* Element inspector (crosshair) button */}
+          <button
+            type="button"
+            onClick={() => setInspectorActive(true)}
+            disabled={isLoading || inspectorActive}
+            title="Pick an element on the page to attach its details to this request"
+            className={`flex items-center gap-1.5 ${compact ? "px-2.5" : "px-3"} py-1.5 rounded-lg text-xs transition-colors border disabled:opacity-50 ${
+              inspectorActive
+                ? "bg-blue-600/20 border-blue-600 text-blue-300"
+                : "text-gray-400 hover:text-gray-200 hover:bg-gray-800 border-gray-700"
+            }`}
+          >
+            <Crosshair size={14} strokeWidth={2} aria-hidden="true" />
+            {compact ? "Pick" : "Pick element"}
+          </button>
+
+          {/* Spacer pushes submit to the right */}
+          <div className="flex-1" />
+
+          {/* Submit button */}
           <button
             type="submit"
             disabled={isSubmitDisabled}
@@ -374,7 +497,12 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
           >
             <Settings size={14} strokeWidth={2} aria-hidden="true" />
             Advanced
-            <ChevronDown size={12} strokeWidth={2} className={`transition-transform${showAdvanced ? " rotate-180" : ""}`} aria-hidden="true" />
+            <ChevronDown
+              size={12}
+              strokeWidth={2}
+              className={`transition-transform${showAdvanced ? " rotate-180" : ""}`}
+              aria-hidden="true"
+            />
           </button>
 
           {showAdvanced && (
@@ -394,7 +522,9 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
                   className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
                 >
                   {HARNESS_OPTIONS.map((h) => (
-                    <option key={h.id} value={h.id}>{h.label}</option>
+                    <option key={h.id} value={h.id}>
+                      {h.label}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -402,14 +532,14 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
                 <label className="text-xs text-gray-400 w-14 flex-shrink-0">Model</label>
                 <select
                   value={selectedModel}
-                  onChange={(e) => {
-                    setSelectedModel(e.target.value);
-                  }}
+                  onChange={(e) => setSelectedModel(e.target.value)}
                   disabled={isLoading}
                   className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
                 >
                   {(MODEL_OPTIONS_BY_HARNESS[selectedHarness] ?? []).map((m) => (
-                    <option key={m.id} value={m.id}>{m.label}</option>
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -434,5 +564,4 @@ export const EvolveRequestForm = forwardRef<EvolveRequestFormHandle, EvolveReque
       </form>
     </div>
   );
-  }
-);
+}
