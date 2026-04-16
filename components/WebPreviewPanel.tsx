@@ -209,7 +209,8 @@ const INSPECTOR_SCRIPT = `
 
   function updateComponentHighlight(el) {
     var compEl = getComponentRootDomEl(el);
-    if (!compEl || compEl === el) { removeComponentHighlight(); return; }
+    // Always show blue component outline (even same element as hovered — creates nested look).
+    if (!compEl) { removeComponentHighlight(); return; }
     var rect = compEl.getBoundingClientRect();
     if (!componentHighlightEl) {
       componentHighlightEl = document.createElement('div');

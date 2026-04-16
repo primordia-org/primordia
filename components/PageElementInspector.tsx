@@ -649,8 +649,8 @@ export function PageElementInspector({
   const rect = hoveredEl?.getBoundingClientRect() ?? null;
   // Blue highlight: nearest React component's root DOM element (if distinct from hovered).
   const componentEl = hoveredEl ? getComponentRootElement(hoveredEl) : null;
-  const componentRect =
-    componentEl && componentEl !== hoveredEl ? componentEl.getBoundingClientRect() : null;
+  // Always show blue component rect (even when same element as hovered — creates nested outline).
+  const componentRect = componentEl ? componentEl.getBoundingClientRect() : null;
 
   return createPortal(
     <>
