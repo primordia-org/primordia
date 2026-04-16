@@ -20,7 +20,7 @@ import {
 } from '../../../lib/evolve-sessions';
 import { getSessionUser, hasEvolvePermission } from '../../../lib/auth';
 import { getDb } from '../../../lib/db';
-import { PREF_HARNESS, PREF_MODEL } from '../../../lib/user-prefs';
+import { PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY, CAVEMAN_INTENSITIES, DEFAULT_CAVEMAN_INTENSITY, type CavemanIntensity } from '../../../lib/user-prefs';
 import {
   getSessionFromFilesystem,
   appendSessionEvent,
@@ -100,6 +100,8 @@ export async function POST(request: Request) {
   let requestText: string;
   let harness: string = DEFAULT_HARNESS;
   let model: string = DEFAULT_MODEL;
+  let cavemanMode = false;
+  let cavemanIntensity: CavemanIntensity = DEFAULT_CAVEMAN_INTENSITY;
   let encryptedApiKey: string | null = null;
   const savedAttachmentPaths: string[] = [];
 
@@ -115,6 +117,12 @@ export async function POST(request: Request) {
     if (typeof harnessField === 'string' && harnessField) harness = harnessField;
     const modelField = formData.get('model');
     if (typeof modelField === 'string' && modelField) model = modelField;
+    const cavemanModeField = formData.get('cavemanMode');
+    if (cavemanModeField === 'true') cavemanMode = true;
+    const cavemanIntensityField = formData.get('cavemanIntensity');
+    if (typeof cavemanIntensityField === 'string' && (CAVEMAN_INTENSITIES as readonly string[]).includes(cavemanIntensityField)) {
+      cavemanIntensity = cavemanIntensityField as CavemanIntensity;
+    }
     const encKeyField = formData.get('encryptedApiKey');
     if (typeof encKeyField === 'string' && encKeyField) encryptedApiKey = encKeyField;
 
@@ -225,12 +233,17 @@ export async function POST(request: Request) {
     initialEventAlreadyWritten: true,
   });
 
-  // Persist the chosen harness/model as the user's sticky preference.
+  // Persist the chosen harness/model/caveman as the user's sticky preference.
   // Fire-and-forget — a failure here must not break session creation.
   void (async () => {
     try {
       const db = await getDb();
-      await db.setUserPreferences(user.id, { [PREF_HARNESS]: harness, [PREF_MODEL]: model });
+      await db.setUserPreferences(user.id, {
+        [PREF_HARNESS]: harness,
+        [PREF_MODEL]: model,
+        [PREF_CAVEMAN]: String(cavemanMode),
+        [PREF_CAVEMAN_INTENSITY]: cavemanIntensity,
+      });
     } catch { /* ignore */ }
   })();
 

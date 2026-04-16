@@ -65,5 +65,5 @@ export default async function EvolvePage() {
 
   const branch = runGit("git branch --show-current");
 
-  return <EvolveForm branch={branch ?? null} initialHarness={evolvePrefs.initialHarness} initialModel={evolvePrefs.initialModel} />;
+  return <EvolveForm branch={branch ?? null} initialHarness={evolvePrefs.initialHarness} initialModel={evolvePrefs.initialModel} initialCavemanMode={evolvePrefs.initialCavemanMode} initialCavemanIntensity={evolvePrefs.initialCavemanIntensity} />;
 }

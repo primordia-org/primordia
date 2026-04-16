@@ -16,11 +16,13 @@ interface EvolveFormProps {
   branch?: string | null;
   initialHarness?: string;
   initialModel?: string;
+  initialCavemanMode?: boolean;
+  initialCavemanIntensity?: import("../lib/user-prefs").CavemanIntensity;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function EvolveForm({ branch, initialHarness, initialModel }: EvolveFormProps = {}) {
+export default function EvolveForm({ branch, initialHarness, initialModel, initialCavemanMode, initialCavemanIntensity }: EvolveFormProps = {}) {
   const { sessionUser, handleLogout } = useSessionUser();
 
   return (
@@ -45,7 +47,7 @@ export default function EvolveForm({ branch, initialHarness, initialModel }: Evo
       </div>
 
       <div className="border border-gray-800 rounded-xl bg-gray-900 p-4">
-        <EvolveRequestForm initialHarness={initialHarness} initialModel={initialModel} />
+        <EvolveRequestForm initialHarness={initialHarness} initialModel={initialModel} initialCavemanMode={initialCavemanMode} initialCavemanIntensity={initialCavemanIntensity} />
       </div>
     </main>
   );

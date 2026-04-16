@@ -45,11 +45,15 @@ interface PageNavBarProps {
   initialHarness?: string;
   /** Sticky model preference loaded server-side. Forwarded to FloatingEvolveDialog. */
   initialModel?: string;
+  /** Sticky caveman mode preference loaded server-side. Forwarded to FloatingEvolveDialog. */
+  initialCavemanMode?: boolean;
+  /** Sticky caveman intensity preference loaded server-side. Forwarded to FloatingEvolveDialog. */
+  initialCavemanIntensity?: import("../lib/user-prefs").CavemanIntensity;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export function PageNavBar({ subtitle, branch, currentPage, initialSession, initialHarness, initialModel }: PageNavBarProps) {
+export function PageNavBar({ subtitle, branch, currentPage, initialSession, initialHarness, initialModel, initialCavemanMode, initialCavemanIntensity }: PageNavBarProps) {
   const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
   const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
   const [toastSessionId, setToastSessionId] = useState<string | null>(null);
@@ -101,6 +105,8 @@ export function PageNavBar({ subtitle, branch, currentPage, initialSession, init
           anchorRect={evolveAnchorRect}
           initialHarness={initialHarness}
           initialModel={initialModel}
+          initialCavemanMode={initialCavemanMode}
+          initialCavemanIntensity={initialCavemanIntensity}
           onSessionCreated={(id) => setToastSessionId(id)}
         />
       )}

@@ -21,6 +21,11 @@ import {
   DEFAULT_HARNESS,
   DEFAULT_MODEL,
 } from "../lib/agent-config";
+import {
+  CAVEMAN_INTENSITIES,
+  DEFAULT_CAVEMAN_INTENSITY,
+  type CavemanIntensity,
+} from "../lib/user-prefs";
 import { PageElementInspector, PageElementInfo, captureElementFiles } from "./PageElementInspector";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -106,6 +111,10 @@ interface EvolveRequestFormProps {
   initialHarness?: string;
   /** Works in tandem with `initialHarness`. */
   initialModel?: string;
+  /** Sticky caveman mode preference loaded server-side. */
+  initialCavemanMode?: boolean;
+  /** Sticky caveman intensity preference loaded server-side. */
+  initialCavemanIntensity?: CavemanIntensity;
   /**
    * When the Crosshair element inspector is activated, this element (and all
    * its descendants) will be excluded from selection — typically the dialog or
@@ -130,6 +139,8 @@ export function EvolveRequestForm({
   defaultModel,
   initialHarness,
   initialModel,
+  initialCavemanMode,
+  initialCavemanIntensity,
   inspectorSkipElement,
 }: EvolveRequestFormProps) {
   const router = useRouter();
@@ -146,7 +157,10 @@ export function EvolveRequestForm({
   const [selectedModel, setSelectedModel] = useState(
     defaultModel ?? initialModel ?? DEFAULT_MODEL,
   );
-  const [cavemanMode, setCavemanMode] = useState(false);
+  const [cavemanMode, setCavemanMode] = useState(initialCavemanMode ?? false);
+  const [cavemanIntensity, setCavemanIntensity] = useState<CavemanIntensity>(
+    initialCavemanIntensity ?? DEFAULT_CAVEMAN_INTENSITY,
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -198,7 +212,7 @@ export function EvolveRequestForm({
     setIsLoading(true);
     setError(null);
 
-    const effectiveRequest = cavemanMode ? `/caveman\n\n${trimmed}` : trimmed;
+    const effectiveRequest = cavemanMode ? `/caveman ${cavemanIntensity}\n\n${trimmed}` : trimmed;
 
     // Merge regular files + all ready element attachment files.
     const allFiles: File[] = [
@@ -216,17 +230,18 @@ export function EvolveRequestForm({
           model: selectedModel,
           files: allFiles,
         });
-        // Reset form on success.
+        // Reset form on success (caveman mode/intensity are sticky — not reset).
         setInput("");
         setAttachedFiles([]);
         setElementAttachments([]);
         setShowAdvanced(false);
-        setCavemanMode(false);
       } else {
         const formData = new FormData();
         formData.append("request", effectiveRequest);
         formData.append("harness", selectedHarness);
         formData.append("model", selectedModel);
+        formData.append("cavemanMode", String(cavemanMode));
+        formData.append("cavemanIntensity", cavemanIntensity);
         for (const file of allFiles) {
           formData.append("attachments", file);
         }
@@ -247,7 +262,7 @@ export function EvolveRequestForm({
           setShowAdvanced(false);
           setSelectedHarness(DEFAULT_HARNESS);
           setSelectedModel(DEFAULT_MODEL);
-          setCavemanMode(false);
+          // caveman mode/intensity are sticky — not reset
           onSessionCreated(data.sessionId!);
         } else {
           router.push(`/evolve/session/${data.sessionId}`);
@@ -557,6 +572,20 @@ export function EvolveRequestForm({
                     Caveman mode — cuts ~75% output tokens
                   </span>
                 </label>
+                {cavemanMode && (
+                  <select
+                    value={cavemanIntensity}
+                    onChange={(e) => setCavemanIntensity(e.target.value as CavemanIntensity)}
+                    disabled={isLoading}
+                    className="text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1 focus:outline-none focus:border-gray-500 disabled:opacity-50"
+                  >
+                    {CAVEMAN_INTENSITIES.map((level) => (
+                      <option key={level} value={level}>
+                        {level}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             </div>
           )}

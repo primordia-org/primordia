@@ -532,6 +532,10 @@ interface EvolveSessionViewProps {
   initialHarness?: string;
   /** Sticky model preference loaded server-side. Forwarded to FloatingEvolveDialog. */
   initialModel?: string;
+  /** Sticky caveman mode preference loaded server-side. Forwarded to FloatingEvolveDialog. */
+  initialCavemanMode?: boolean;
+  /** Sticky caveman intensity preference loaded server-side. Forwarded to FloatingEvolveDialog. */
+  initialCavemanIntensity?: import("../lib/user-prefs").CavemanIntensity;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -554,6 +558,8 @@ export default function EvolveSessionView({
   worktreePath,
   initialHarness,
   initialModel,
+  initialCavemanMode,
+  initialCavemanIntensity,
 }: EvolveSessionViewProps) {
   const [events, setEvents] = useState<SessionEvent[]>(initialEvents);
   const [status, setStatus] = useState(initialStatus);
@@ -996,6 +1002,8 @@ export default function EvolveSessionView({
             anchorRect={evolveAnchorRect}
             initialHarness={initialHarness}
             initialModel={initialModel}
+            initialCavemanMode={initialCavemanMode}
+            initialCavemanIntensity={initialCavemanIntensity}
             onSessionCreated={(id) => setToastSessionId(id)}
           />
         )}
