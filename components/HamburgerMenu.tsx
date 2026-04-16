@@ -14,7 +14,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { SessionUser } from "../lib/hooks";
-import { MessageSquare, Edit, Shield, Terminal, X, Menu, LogOut, LogIn, Key, GitBranch } from "lucide-react";
+import { MessageSquare, Edit, Shield, X, Menu, LogOut, LogIn, Key, GitBranch } from "lucide-react";
 import { ApiKeyDialog } from "./ApiKeyDialog";
 
 export type { SessionUser };
@@ -79,12 +79,6 @@ export function buildStandardMenuItems({
       hoverColor: "hover:text-purple-400",
       href: "/admin",
       icon: <Shield size={16} strokeWidth={2} aria-hidden="true" />,
-    });
-    items.push({
-      label: "Shell",
-      hoverColor: "hover:text-orange-400",
-      href: "/oops",
-      icon: <Terminal size={16} strokeWidth={2} aria-hidden="true" />,
     });
   }
   return items.filter((item) => !item.href || item.href !== currentPath);

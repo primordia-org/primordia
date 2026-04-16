@@ -14,7 +14,7 @@ interface NavHeaderProps {
    * Which page we're currently on — used to suppress self-referential nav
    * links (e.g. don't show "Changelog" link on the changelog page itself).
    */
-  currentPage?: "changelog" | "branches" | "admin" | "oops";
+  currentPage?: "changelog" | "branches" | "admin";
 }
 
 export function NavHeader({

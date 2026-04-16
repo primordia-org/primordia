@@ -98,8 +98,6 @@ primordia/
 │   │   │   └── page.tsx           ← Server health: disk/memory usage and oldest non-prod worktree cleanup; admin only
 │   │   └── git-mirror/
 │   │       └── page.tsx           ← Git Mirror: shows current mirror remote status and SSH instructions for adding a mirror remote; admin only
-│   ├── oops/
-│   │   └── page.tsx               ← Owner-only mobile shell: run occasional system commands without SSH
 │   ├── evolve/
 │   │   ├── page.tsx               ← Dedicated "propose a change" page; renders <EvolveForm>; requires evolve permission
 │   │   └── session/
@@ -157,8 +155,6 @@ primordia/
 │       ├── git/
 │       │   └── [...path]/
 │       │       └── route.ts       ← GET/POST git http-backend proxy (read-only clone/fetch); push (receive-pack) blocked with 403
-│       ├── oops/
-│       │   └── route.ts           ← POST run shell command (streams SSE stdout+stderr); admin only
 │       └── evolve/
 │               ├── route.ts       ← POST start session (requires can_evolve permission), GET status (legacy poll)
 │               ├── stream/
@@ -194,7 +190,6 @@ primordia/
 │   ├── GitMirrorClient.tsx        ← Client component: Git Mirror admin panel; shows mirror remote status and SSH instructions
 │   ├── HamburgerMenu.tsx          ← Reusable hamburger button + dropdown; used by ChatInterface, EvolveForm, EvolveSessionView, PageNavBar
 │   ├── LandingNav.tsx             ← Landing page navbar with mobile hamburger collapse
-│   ├── OopsShell.tsx              ← Client component: mobile-friendly shell for /oops; streams command output via SSE
 │   ├── ServerLogsClient.tsx       ← Client component: live tail of primordia systemd journal via SSE (/admin/logs)
 │   ├── NavHeader.tsx              ← Shared nav header (title, branch name, nav links)
 │   ├── PageNavBar.tsx             ← Shared nav header + hamburger for /changelog and /branches pages
@@ -407,7 +402,6 @@ When implementing changes, follow these principles:
 | Passkey authentication | ✅ Live | WebAuthn passkeys via /login; sessions stored in SQLite |
 | Cross-device QR sign-in | ✅ Live | Laptop shows QR code; authenticated phone scans it and approves; laptop gets a session |
 | RBAC (roles) | ✅ Live | Simple role system: `admin` (auto-granted to first user) and `can_evolve`; /admin page lets admin grant/revoke roles; protected pages show informative 403 instead of redirecting |
-| Owner shell (/oops) | ✅ Live | Mobile-friendly shell at `/oops`; admin-only; run system commands (e.g. `sudo systemctl restart primordia`) without SSH; streams stdout+stderr via SSE |
 | Server logs (/admin/logs) | ✅ Live | Admin-only; live tail of production server stdout/stderr via SSE; in production routes through `/_proxy/prod/logs` on the reverse proxy; falls back to `journalctl -u primordia` in local dev; accessible from the admin subnav |
 | Proxy logs (/admin/proxy-logs) | ✅ Live | Admin-only; live tail of `journalctl -u primordia-proxy -f -n 100` via SSE; accessible from the admin subnav |
 | Deep rollback (/admin/rollback) | ✅ Live | Admin-only; lists all previous production slots from primordia.productionHistory in git config; "Roll back" button for each target; zero-downtime cutover via reverse proxy |
