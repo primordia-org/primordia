@@ -139,6 +139,10 @@ export default function AdminServerHealthClient() {
         ) : (
           <p className="text-sm text-gray-500">Disk info unavailable.</p>
         )}
+        <p className="text-xs text-gray-500 mt-3">
+          Disk usage is checked every 5 minutes and the oldest non-production worktrees are
+          deleted until usage drops below 90%.
+        </p>
       </section>
 
       {/* Memory */}
@@ -165,13 +169,9 @@ export default function AdminServerHealthClient() {
       {/* Worktree cleanup */}
       <section>
         <h2 className="text-base font-medium text-gray-200 mb-1">Worktree cleanup</h2>
-        <p className="text-sm text-gray-500 mb-2">
+        <p className="text-sm text-gray-500 mb-4">
           Old non-prod worktrees accumulate on disk after evolve sessions are accepted or
           abandoned. Deleting the oldest one frees disk space.
-        </p>
-        <p className="text-xs text-gray-600 mb-4">
-          Auto-cleanup is active: the proxy checks disk usage every 5 minutes and deletes
-          the oldest non-prod worktrees until usage drops below 90%.
         </p>
         {oldestNonProdWorktree ? (
           <div className="p-4 rounded border border-gray-700 bg-gray-900 flex items-start justify-between gap-4">
