@@ -1,8 +1,8 @@
 "use client";
 // components/AdminServerHealthClient.tsx
-// Shows server disk/memory usage and a button to delete the oldest non-prod worktree.
+// Shows server disk/memory usage, configurable proxy thresholds, and worktree cleanup.
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { withBasePath } from "@/lib/base-path";
 
 interface DiskInfo {
@@ -50,6 +50,8 @@ function UsageBar({ percent, threshold = 90 }: { percent: number; threshold?: nu
   );
 }
 
+type SaveStatus = "idle" | "saving" | "saved" | "error";
+
 export default function AdminServerHealthClient() {
   const [data, setData] = useState<HealthData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -57,7 +59,13 @@ export default function AdminServerHealthClient() {
   const [deleting, setDeleting] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [diskCleanupThresholdPct, setDiskCleanupThresholdPct] = useState<number>(90);
+
+  // Configurable proxy settings
+  const [diskCleanupThresholdPct, setDiskCleanupThresholdPct] = useState(90);
+  const [previewInactivityMin, setPreviewInactivityMin] = useState(30);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -74,8 +82,9 @@ export default function AdminServerHealthClient() {
       setData(await healthRes.json());
       if (settingsRes.ok) {
         const s = await settingsRes.json().catch(() => null);
-        if (s && typeof s.diskCleanupThresholdPct === 'number') {
-          setDiskCleanupThresholdPct(s.diskCleanupThresholdPct);
+        if (s) {
+          if (typeof s.diskCleanupThresholdPct === "number") setDiskCleanupThresholdPct(s.diskCleanupThresholdPct);
+          if (typeof s.previewInactivityMin === "number") setPreviewInactivityMin(s.previewInactivityMin);
         }
       }
     } catch (e) {
@@ -88,6 +97,29 @@ export default function AdminServerHealthClient() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  function scheduleSettingsSave(patch: { diskCleanupThresholdPct?: number; previewInactivityMin?: number }) {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+    setSaveStatus("saving");
+    saveTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(withBasePath("/api/admin/proxy-settings"), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (!res.ok) {
+          const rb = await res.json().catch(() => ({}));
+          throw new Error((rb as { error?: string }).error ?? `HTTP ${res.status}`);
+        }
+        setSaveStatus("saved");
+        savedTimer.current = setTimeout(() => setSaveStatus("idle"), 2000);
+      } catch {
+        setSaveStatus("error");
+      }
+    }, 500);
+  }
 
   async function handleDeleteOldest() {
     if (!data?.oldestNonProdWorktree) return;
@@ -130,6 +162,15 @@ export default function AdminServerHealthClient() {
 
   const { disk, memory, oldestNonProdWorktree } = data;
 
+  const saveIndicator =
+    saveStatus === "saving" ? (
+      <span className="text-xs text-gray-500">Saving…</span>
+    ) : saveStatus === "saved" ? (
+      <span className="text-xs text-green-500">Saved</span>
+    ) : saveStatus === "error" ? (
+      <span className="text-xs text-red-400">Save failed</span>
+    ) : null;
+
   return (
     <div className="flex flex-col gap-6">
       {/* Disk */}
@@ -145,15 +186,44 @@ export default function AdminServerHealthClient() {
             </div>
             <UsageBar percent={disk.usedPercent} threshold={diskCleanupThresholdPct} />
             <p className="text-xs text-gray-500 mt-1">{disk.usedPercent}% used</p>
+
+            <div className="mt-4 pt-4 border-t border-gray-800">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-gray-400">
+                  Auto-cleanup threshold
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-200 tabular-nums w-10 text-right">
+                    {diskCleanupThresholdPct}%
+                  </span>
+                  {saveIndicator}
+                </div>
+              </div>
+              <input
+                type="range"
+                min={50}
+                max={99}
+                step={1}
+                value={diskCleanupThresholdPct}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setDiskCleanupThresholdPct(v);
+                  scheduleSettingsSave({ diskCleanupThresholdPct: v, previewInactivityMin });
+                }}
+                className="w-full h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+              />
+              <div className="flex justify-between text-xs text-gray-600 mt-1">
+                <span>50%</span>
+                <span>99%</span>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                When disk usage reaches this level, the oldest non-production worktrees are deleted automatically. Checked every 5 minutes.
+              </p>
+            </div>
           </div>
         ) : (
           <p className="text-sm text-gray-500">Disk info unavailable.</p>
         )}
-        <p className="text-xs text-gray-500 mt-3">
-          Disk usage is checked every 5 minutes and the oldest non-production worktrees are
-          deleted until usage drops below {diskCleanupThresholdPct}%. Configure this threshold in{" "}
-          <a href="proxy-settings" className="underline hover:text-gray-400">Proxy Settings</a>.
-        </p>
       </section>
 
       {/* Memory */}
@@ -171,6 +241,40 @@ export default function AdminServerHealthClient() {
             </div>
             <UsageBar percent={memory.usedPercent} />
             <p className="text-xs text-gray-500 mt-1">{memory.usedPercent}% used</p>
+
+            <div className="mt-4 pt-4 border-t border-gray-800">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-gray-400">
+                  Preview server inactivity timeout
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-200 tabular-nums w-16 text-right">
+                    {previewInactivityMin} min
+                  </span>
+                  {saveIndicator}
+                </div>
+              </div>
+              <input
+                type="range"
+                min={5}
+                max={240}
+                step={5}
+                value={previewInactivityMin}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setPreviewInactivityMin(v);
+                  scheduleSettingsSave({ diskCleanupThresholdPct, previewInactivityMin: v });
+                }}
+                className="w-full h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+              />
+              <div className="flex justify-between text-xs text-gray-600 mt-1">
+                <span>5 min</span>
+                <span>240 min</span>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Preview dev servers are stopped after this many minutes without traffic. Shorter values free memory sooner; longer values keep servers warm.
+              </p>
+            </div>
           </div>
         ) : (
           <p className="text-sm text-gray-500">Memory info unavailable.</p>

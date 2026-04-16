@@ -1,12 +1,17 @@
 # Make proxy magic numbers configurable in admin UI
 
-Added a new **Proxy Settings** admin page that lets admins tune two key proxy
-behaviours that were previously hardcoded:
+Two key proxy behaviours that were previously hardcoded are now configurable
+directly from the **Server Health** admin page:
 
+- **Disk auto-cleanup threshold** (default: 90%) — automatic worktree cleanup kicks
+  in when disk usage reaches this percentage. Slider embedded in the Disk section.
 - **Preview server inactivity timeout** (default: 30 minutes) — idle preview dev
-  servers are stopped after this many minutes of inactivity.
-- **Disk cleanup threshold** (default: 90%) — automatic worktree cleanup kicks in
-  when disk usage reaches this percentage.
+  servers are stopped after this many minutes of inactivity. Slider embedded in the
+  Memory section.
+
+Both sliders save automatically 500 ms after release and show a brief "Saved"
+confirmation. The reverse proxy picks up changes within seconds via its existing
+git config file-watcher — no restart needed.
 
 ## What changed
 
@@ -25,22 +30,15 @@ behaviours that were previously hardcoded:
 - `GET` — returns current values (or defaults if not yet configured).
 - `PATCH` — validates and writes values to git config under `primordia.*` namespace.
 
-### `app/admin/proxy-settings/page.tsx` *(new)*
-- New admin page (server component) at `/admin/proxy-settings`.
-
-### `components/AdminProxySettingsClient.tsx` *(new)*
-- Client-side form with two numeric inputs; submits a `PATCH` to the API and shows
-  confirmation or error inline.
-
-### `components/AdminSubNav.tsx`
-- Added **Proxy Settings** tab to the admin navigation.
-
 ### `components/AdminServerHealthClient.tsx`
-- Server Health page now fetches the current disk cleanup threshold from the proxy
-  settings API and shows the live value (e.g. "drops below 85%") instead of the
-  hardcoded "90%".
+- Fetches proxy settings alongside health data on load.
+- Disk section: range slider (50–99%) for the auto-cleanup threshold, embedded
+  below the usage bar inside the existing card.
+- Memory section: range slider (5–240 min, step 5) for the preview inactivity
+  timeout, embedded below the usage bar inside the existing card.
+- Both sliders debounce saves by 500 ms and show a shared "Saving…" / "Saved" /
+  "Save failed" indicator next to the value.
 - `UsageBar` colour thresholds now scale relative to the configured disk threshold.
-- Added a link to the Proxy Settings page next to the threshold description.
 
 ## Why
 
@@ -48,4 +46,5 @@ The 30-minute preview inactivity timeout and 90% disk cleanup threshold were
 hardcoded constants in the proxy. Operators running Primordia on machines with
 different disk sizes or usage patterns had no way to tune them without editing
 source code. Storing them in git config means the proxy reloads them live via its
-existing file-watcher, and the admin UI provides a safe, validated editing surface.
+existing file-watcher, and embedding the controls directly in the Server Health
+page keeps the admin UI focused without adding a new tab.
