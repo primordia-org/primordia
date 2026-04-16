@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { snapdom } from "@zumer/snapdom";
+import { getCssSelector as libGetCssSelector } from "css-selector-generator";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,42 +35,48 @@ export interface PageElementInfo {
 
 // ─── CSS selector helper ──────────────────────────────────────────────────────
 
-export function getCssSelector(el: Element): string {
-  const path: string[] = [];
-  let current: Element | null = el;
-  while (current && current.tagName && current.tagName !== "HTML" && current.tagName !== "BODY") {
-    const id = (current as HTMLElement).id;
-    if (id) {
-      path.unshift(`#${id}`);
-      break;
-    }
-    let part = current.tagName.toLowerCase();
-    const classes: string[] = [];
-    for (let i = 0; i < current.classList.length && classes.length < 2; i++) {
-      const c = current.classList[i];
-      // Skip Tailwind utility classes and pseudo-variants
-      if (
-        c.length < 25 &&
-        !c.includes(":") &&
-        !c.includes("/") &&
-        !c.includes("[") &&
-        !c.includes("]")
-      ) {
-        classes.push(c);
-      }
-    }
-    if (classes.length > 0) part += "." + classes.join(".");
-    const siblings = current.parentElement
-      ? Array.from(current.parentElement.children).filter(
-          (s) => s.tagName === (current as Element).tagName,
-        )
-      : [];
-    if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(current) + 1})`;
-    path.unshift(part);
-    if (path.length >= 5) break;
-    current = current.parentElement;
+/**
+ * Tailwind-aware CSS selector generator.
+ *
+ * Uses `css-selector-generator` to produce the shortest unique selector for
+ * `el`, scoped within `root` (the nearest React component's root DOM node).
+ * Scoping to the component root keeps the path short and directly maps to the
+ * JSX written inside that component file — reducing the number of tool calls
+ * an LLM agent needs to locate the element in source code.
+ *
+ * Tailwind utility classes are blacklisted so the selector stays readable and
+ * stable across style changes.
+ */
+export function getCssSelector(el: Element, root?: Element | null): string {
+  // Patterns that identify Tailwind / generated class names we don't want in selectors.
+  // css-selector-generator's blacklist receives the full candidate selector string,
+  // so we match on the class token syntax (e.g. ".hover:text-white").
+  const tailwindBlacklist: ((s: string) => boolean)[] = [
+    // Pseudo-variant prefixes: hover:, sm:, focus:, etc.
+    (s) => /\.\S*:/.test(s),
+    // Arbitrary-value brackets: [#fff], [1.5rem], etc.
+    (s) => /\.\S*\[/.test(s),
+    // Opacity-modifier slash: text-white/50, etc.
+    (s) => /\.\S*\/\S/.test(s),
+    // Very long single-token utility classes (e.g. prose-headings:font-semibold)
+    (s) => /\.([^.\s#>+~[]{25,})/.test(s),
+  ];
+
+  try {
+    return libGetCssSelector(el, {
+      // Scope to the component root so the path is relative to the component,
+      // not the document — mirrors the JSX hierarchy in the source file.
+      root: root ?? document.body,
+      blacklist: tailwindBlacklist,
+      // Prefer readable identifiers over positional nth-child when possible.
+      selectors: ["id", "class", "tag", "attribute", "nthchild"],
+      // Tag names alongside classes improve readability (e.g. button.send-btn).
+      includeTag: true,
+    });
+  } catch {
+    // Fallback: just return the tag name if the library throws (e.g. disconnected node).
+    return el.tagName.toLowerCase();
   }
-  return path.join(" > ");
 }
 
 // ─── React fiber helpers ──────────────────────────────────────────────────────
@@ -443,9 +450,9 @@ async function captureElementScreenshot(el: Element, slug: string): Promise<File
 
 // ─── HoverLabel ───────────────────────────────────────────────────────────────
 
-function HoverLabel({ el, rect }: { el: Element; rect: DOMRect }) {
+function HoverLabel({ el, rect, componentRoot }: { el: Element; rect: DOMRect; componentRoot: Element | null }) {
   const component = getReactComponentName(el) || el.tagName.toLowerCase();
-  const selector = getCssSelector(el);
+  const selector = getCssSelector(el, componentRoot);
 
   const labelH = 22;
   const gap = 3;
@@ -559,7 +566,8 @@ export function PageElementInspector({
 
   function buildInfo(el: Element): PageElementInfo {
     const component = getReactComponentName(el) || el.tagName.toLowerCase();
-    const selector = getCssSelector(el);
+    const componentRoot = getComponentRootElement(el);
+    const selector = getCssSelector(el, componentRoot);
     const html = el.outerHTML.slice(0, 600);
     const text = ((el as HTMLElement).innerText ?? "").slice(0, 200).trim();
     return { component, selector, html, text, element: el };
@@ -697,7 +705,7 @@ export function PageElementInspector({
       )}
 
       {/* Labels */}
-      {hoveredEl && rect && <HoverLabel el={hoveredEl} rect={rect} />}
+      {hoveredEl && rect && <HoverLabel el={hoveredEl} rect={rect} componentRoot={componentEl} />}
 
       {/* Instruction banner */}
       <div

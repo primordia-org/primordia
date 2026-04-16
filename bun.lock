@@ -11,6 +11,7 @@
         "@simplewebauthn/browser": "^13.3.0",
         "@simplewebauthn/server": "^13.3.0",
         "@zumer/snapdom": "^2.8.0",
+        "css-selector-generator": "^3.9.1",
         "lucide-react": "^1.8.0",
         "next": "16.2.2",
         "qrcode": "^1.5.4",
@@ -777,6 +778,8 @@
     "cose-base": ["cose-base@1.0.3", "", { "dependencies": { "layout-base": "^1.0.0" } }, "sha512-s9whTXInMSgAp/NVXVNuVxVKzGH2qck3aQlVHxDCdAEPgtMKwc4Wq6/QKhgdEdgbLSi9rBTAcPoRa6JpiG4ksg=="],
 
     "cross-spawn": ["cross-spawn@7.0.6", "", { "dependencies": { "path-key": "^3.1.0", "shebang-command": "^2.0.0", "which": "^2.0.1" } }, "sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA=="],
+
+    "css-selector-generator": ["css-selector-generator@3.9.1", "", {}, "sha512-4giy+GjICc/J0JxoDgH8zxM1F0Scjsj9dkXnHzrPwcKXN26T8qW+h7megakTr/TqO2tynTYWZq+lcD1me3rShw=="],
 
     "cssesc": ["cssesc@3.0.0", "", { "bin": "bin/cssesc" }, "sha512-/Tb/JcjK111nNScGob5MNtsntNM1aCNUDipB/TkwZFhyDrrE47SOx/18wF2bbjgc3ZzCSKW1T5nt5EbFoAz/Vg=="],
 
