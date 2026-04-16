@@ -96,51 +96,142 @@ const INSPECTOR_SCRIPT = `
     return null;
   }
 
-  // ── Label ───────────────────────────────────────────────────────────────────
+  // Walk fiber tree up to nearest named component, then down to first DOM node.
+  function getComponentRootDomEl(el) {
+    var keys = Object.keys(el);
+    var fiberKey = null;
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].startsWith('__reactFiber$') || keys[i].startsWith('__reactInternalInstance$')) {
+        fiberKey = keys[i];
+        break;
+      }
+    }
+    if (!fiberKey) return null;
+    var fiber = el[fiberKey];
+    // Walk UP to nearest named component fiber
+    var componentFiber = null;
+    var cur = fiber.return;
+    var limit = 60;
+    while (cur && limit-- > 0) {
+      var type = cur.type;
+      var name = null;
+      if (type && typeof type === 'function') {
+        name = type.displayName || type.name;
+      } else if (type && typeof type === 'object') {
+        name = type.displayName;
+        if (!name && type.render) name = type.render.displayName || type.render.name;
+        if (!name && type.type) name = type.type.displayName || type.type.name;
+      }
+      if (name && /^[A-Z]/.test(name) && name.length > 1) {
+        componentFiber = cur;
+        break;
+      }
+      cur = cur.return;
+    }
+    if (!componentFiber) return null;
+    // Walk DOWN from componentFiber to first DOM stateNode
+    function findFirstDom(f) {
+      if (!f) return null;
+      if (typeof f.type === 'string' && f.stateNode && f.stateNode.nodeType === 1) return f.stateNode;
+      var result = findFirstDom(f.child);
+      if (result) return result;
+      return null;
+    }
+    return findFirstDom(componentFiber.child || componentFiber);
+  }
 
-  var labelEl = null;
+  // Walk DOM ancestors looking for data-source-file attribute.
+  function getDataSourceFile(el) {
+    var cur = el;
+    while (cur && cur !== document.body) {
+      var sf = cur.getAttribute && cur.getAttribute('data-source-file');
+      if (sf) return sf;
+      cur = cur.parentElement;
+    }
+    return null;
+  }
 
-  function ensureLabel() {
-    if (labelEl) return labelEl;
-    labelEl = document.createElement('div');
-    labelEl.id = 'primordia-inspector-label';
-    labelEl.style.cssText = [
+  // ── Labels ────────────────────────────────────────────────────────────────────
+  // Blue label: component name. Green label: element CSS path.
+
+  var labelElComponent = null;
+  var labelElElement = null;
+
+  function makeLabel(bgColor) {
+    var lbl = document.createElement('div');
+    lbl.style.cssText = [
       'position:fixed',
       'z-index:2147483647',
-      'background:#3b82f6',
+      'background:' + bgColor,
       'color:#fff',
       'font:bold 11px/1.6 monospace',
       'padding:1px 6px',
-      'border-radius:3px 3px 3px 0',
+      'border-radius:3px',
       'pointer-events:none',
       'white-space:nowrap',
-      'max-width:90vw',
+      'max-width:60vw',
       'overflow:hidden',
       'text-overflow:ellipsis',
       'box-shadow:0 1px 4px rgba(0,0,0,0.5)',
     ].join(';');
-    document.body.appendChild(labelEl);
-    return labelEl;
+    document.body.appendChild(lbl);
+    return lbl;
   }
 
-  function positionLabel(el) {
-    var lbl = ensureLabel();
+  function positionLabels(el) {
     var component = getReactComponentName(el) || 'Unknown';
     var selector = getCssSelector(el);
-    lbl.textContent = '<' + component + '> ' + selector;
+    if (!labelElComponent) labelElComponent = makeLabel('#3b82f6');
+    if (!labelElElement) labelElElement = makeLabel('#16a34a');
+    labelElComponent.textContent = '<' + component + '>';
+    labelElElement.textContent = selector;
     var rect = el.getBoundingClientRect();
-    // Measure after setting text so width is accurate for right-edge clamping
-    var lblW = lbl.offsetWidth;
-    var lblH = lbl.offsetHeight || 18;
-    var top = rect.top - lblH - 3;
-    if (top < 2) top = rect.bottom + 3; // flip below when near top of viewport
-    var left = Math.max(2, Math.min(rect.left, window.innerWidth - lblW - 2));
-    lbl.style.top = top + 'px';
-    lbl.style.left = left + 'px';
+    var lblH = labelElComponent.offsetHeight || 18;
+    var gap = 3;
+    var top = rect.top - lblH * 2 - gap * 2 - 4;
+    if (top < 2) top = rect.bottom + 3;
+    var left = Math.max(2, Math.min(rect.left, window.innerWidth - 200));
+    labelElComponent.style.top = top + 'px';
+    labelElComponent.style.left = left + 'px';
+    labelElElement.style.top = (top + lblH + gap) + 'px';
+    labelElElement.style.left = left + 'px';
   }
 
-  function removeLabel() {
-    if (labelEl) { labelEl.remove(); labelEl = null; }
+  function removeLabels() {
+    if (labelElComponent) { labelElComponent.remove(); labelElComponent = null; }
+    if (labelElElement) { labelElElement.remove(); labelElElement = null; }
+  }
+
+  // ── Component highlight overlay ────────────────────────────────────────────
+  // Blue overlay box covering the nearest React component root element.
+
+  var componentHighlightEl = null;
+
+  function updateComponentHighlight(el) {
+    var compEl = getComponentRootDomEl(el);
+    // Always show blue component outline (even same element as hovered — creates nested look).
+    if (!compEl) { removeComponentHighlight(); return; }
+    var rect = compEl.getBoundingClientRect();
+    if (!componentHighlightEl) {
+      componentHighlightEl = document.createElement('div');
+      componentHighlightEl.id = 'primordia-inspector-comp-highlight';
+      componentHighlightEl.style.cssText = [
+        'position:fixed',
+        'z-index:2147483644',
+        'pointer-events:none',
+        'border:2px solid #3b82f6',
+        'background:rgba(59,130,246,0.05)',
+      ].join(';');
+      document.body.appendChild(componentHighlightEl);
+    }
+    componentHighlightEl.style.left = (rect.left - 2) + 'px';
+    componentHighlightEl.style.top  = (rect.top  - 2) + 'px';
+    componentHighlightEl.style.width  = (rect.width  + 4) + 'px';
+    componentHighlightEl.style.height = (rect.height + 4) + 'px';
+  }
+
+  function removeComponentHighlight() {
+    if (componentHighlightEl) { componentHighlightEl.remove(); componentHighlightEl = null; }
   }
 
   // ── Highlight ────────────────────────────────────────────────────────────────
@@ -150,9 +241,10 @@ const INSPECTOR_SCRIPT = `
     clearHighlight();
     hovered = el;
     if (hovered && hovered.style) {
-      hovered.style.outline = '2px solid #3b82f6';
+      hovered.style.outline = '2px solid #22c55e';  // green for the element
       hovered.style.outlineOffset = '1px';
-      positionLabel(hovered);
+      updateComponentHighlight(hovered);
+      positionLabels(hovered);
     }
   }
 
@@ -162,16 +254,19 @@ const INSPECTOR_SCRIPT = `
       hovered.style.outlineOffset = '';
     }
     hovered = null;
-    removeLabel();
+    removeLabels();
+    removeComponentHighlight();
   }
 
   function selectElement(el) {
     var component = getReactComponentName(el) || 'Unknown';
     var selector = getCssSelector(el);
+    var sourceFile = getDataSourceFile(el);
     window.parent.postMessage({
       type: 'primordia-element-selected',
       component: component,
       selector: selector,
+      sourceFile: sourceFile || null,
     }, '*');
     deactivate();
   }
@@ -246,10 +341,12 @@ const INSPECTOR_SCRIPT = `
     document.removeEventListener('touchmove', onTouchMove, true);
     document.removeEventListener('touchend', onTouchEnd, true);
     cancelLongPress();
-    clearHighlight(); // also calls removeLabel()
+    clearHighlight(); // also calls removeLabels() + removeComponentHighlight()
     document.body.classList.remove('primordia-inspecting');
     var s = document.getElementById('primordia-inspector-style');
     if (s) s.remove();
+    var ch = document.getElementById('primordia-inspector-comp-highlight');
+    if (ch) ch.remove();
     window.__primordiaInspectorActive = false;
   }
 
@@ -275,6 +372,8 @@ const INSPECTOR_SCRIPT = `
 export interface ElementSelection {
   component: string;
   selector: string;
+  /** Source filename from data-source-file attribute, if available. */
+  sourceFile?: string | null;
 }
 
 interface WebPreviewPanelProps {
@@ -402,7 +501,11 @@ export function WebPreviewPanel({ src, fullHeight = false, className, onElementS
       if (!e.data || typeof e.data !== 'object') return;
       if (e.data.type === 'primordia-element-selected' && inspectorActive) {
         setInspectorActive(false);
-        onElementSelected?.({ component: e.data.component, selector: e.data.selector });
+        onElementSelected?.({
+          component: e.data.component,
+          selector: e.data.selector,
+          sourceFile: e.data.sourceFile ?? null,
+        });
       }
     }
     window.addEventListener('message', handleMessage);

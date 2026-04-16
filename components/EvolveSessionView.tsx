@@ -1345,9 +1345,11 @@ export default function EvolveSessionView({
                 defaultModel={sessionModel}
                 onSubmit={async ({ request, harness, model, files }) => {
                   // Prepend element context to the request when present.
-                  const fullRequest = elementContext
-                    ? `Re: <${elementContext.component}> ${elementContext.selector}\n\n${request}`
-                    : request;
+                  let fullRequest = request;
+                  if (elementContext) {
+                    const sourceFilePart = elementContext.sourceFile ? ` (${elementContext.sourceFile})` : '';
+                    fullRequest = `Re: <${elementContext.component}>${sourceFilePart} ${elementContext.selector}\n\n${request}`;
+                  }
                   const formData = new FormData();
                   formData.append('sessionId', sessionId);
                   formData.append('request', fullRequest);

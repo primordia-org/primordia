@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { snapdom } from "@zumer/snapdom";
+import { getCssSelector as libGetCssSelector } from "css-selector-generator";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,47 +35,168 @@ export interface PageElementInfo {
 
 // ─── CSS selector helper ──────────────────────────────────────────────────────
 
-export function getCssSelector(el: Element): string {
-  const path: string[] = [];
-  let current: Element | null = el;
-  while (current && current.tagName && current.tagName !== "HTML" && current.tagName !== "BODY") {
-    const id = (current as HTMLElement).id;
-    if (id) {
-      path.unshift(`#${id}`);
-      break;
-    }
-    let part = current.tagName.toLowerCase();
-    const classes: string[] = [];
-    for (let i = 0; i < current.classList.length && classes.length < 2; i++) {
-      const c = current.classList[i];
-      // Skip Tailwind utility classes and pseudo-variants
-      if (
-        c.length < 25 &&
-        !c.includes(":") &&
-        !c.includes("/") &&
-        !c.includes("[") &&
-        !c.includes("]")
-      ) {
-        classes.push(c);
-      }
-    }
-    if (classes.length > 0) part += "." + classes.join(".");
-    const siblings = current.parentElement
-      ? Array.from(current.parentElement.children).filter(
-          (s) => s.tagName === (current as Element).tagName,
-        )
-      : [];
-    if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(current) + 1})`;
-    path.unshift(part);
-    if (path.length >= 5) break;
-    current = current.parentElement;
+/**
+ * Tailwind-aware CSS selector generator.
+ *
+ * Uses `css-selector-generator` to produce the shortest unique selector for
+ * `el`, scoped within `root` (the nearest React component's root DOM node).
+ * Scoping to the component root keeps the path short and directly maps to the
+ * JSX written inside that component file — reducing the number of tool calls
+ * an LLM agent needs to locate the element in source code.
+ *
+ * Tailwind utility classes are blacklisted so the selector stays readable and
+ * stable across style changes.
+ */
+export function getCssSelector(el: Element, root?: Element | null): string {
+  // Patterns that identify Tailwind / generated class names we don't want in selectors.
+  // css-selector-generator's blacklist receives the full candidate selector string,
+  // so we match on the class token syntax (e.g. ".hover:text-white").
+  const tailwindBlacklist: ((s: string) => boolean)[] = [
+    // Pseudo-variant prefixes: hover:, sm:, focus:, etc.
+    (s) => /\.\S*:/.test(s),
+    // Arbitrary-value brackets: [#fff], [1.5rem], etc.
+    (s) => /\.\S*\[/.test(s),
+    // Opacity-modifier slash: text-white/50, etc.
+    (s) => /\.\S*\/\S/.test(s),
+    // Very long single-token utility classes (e.g. prose-headings:font-semibold)
+    (s) => /\.([^.\s#>+~[]{25,})/.test(s),
+  ];
+
+  try {
+    return libGetCssSelector(el, {
+      // Scope to the component root so the path is relative to the component,
+      // not the document — mirrors the JSX hierarchy in the source file.
+      root: root ?? document.body,
+      blacklist: tailwindBlacklist,
+      // Prefer readable identifiers over positional nth-child when possible.
+      selectors: ["id", "class", "tag", "attribute", "nthchild"],
+      // Tag names alongside classes improve readability (e.g. button.send-btn).
+      includeTag: true,
+    });
+  } catch {
+    // Fallback: just return the tag name if the library throws (e.g. disconnected node).
+    return el.tagName.toLowerCase();
   }
-  return path.join(" > ");
 }
 
 // ─── React fiber helpers ──────────────────────────────────────────────────────
 
+/**
+ * Next.js App Router and React internal component names that should be skipped
+ * when walking the fiber tree, because they are framework plumbing rather than
+ * meaningful application-level components.
+ */
+const INTERNAL_COMPONENT_NAMES = new Set([
+  "SegmentViewNode",
+  "InnerLayoutRouter",
+  "OuterLayoutRouter",
+  "AppRouter",
+  "HotReloader",
+  "ReactDevOverlay",
+  "ServerInsertedHTMLContext",
+  "StylesheetResource",
+  "ScriptResource",
+  "ClientHookContext",
+  "GlobalError",
+  "NotFoundBoundary",
+  "RedirectBoundary",
+  "ErrorBoundary",
+  "LoadingBoundary",
+  "RootLayout",
+]);
+
+/**
+ * Walk DOM ancestors looking for a `data-component` attribute.
+ * This is the preferred label source for server-rendered sections that don't
+ * appear as named components in the client-side fiber tree.
+ */
+function getDataComponentLabel(el: Element): string | null {
+  let cur: Element | null = el;
+  while (cur && cur !== document.body) {
+    const label = cur.getAttribute("data-component");
+    if (label) return label;
+    cur = cur.parentElement;
+  }
+  return null;
+}
+
+/**
+ * Walk DOM ancestors looking for a `data-source-file` attribute injected by
+ * swc-plugin-component-annotate. Returns the filename string or null.
+ */
+function getDataSourceFile(el: Element): string | null {
+  let cur: Element | null = el;
+  while (cur && cur !== document.body) {
+    const sf = cur.getAttribute("data-source-file");
+    if (sf) return sf;
+    cur = cur.parentElement;
+  }
+  return null;
+}
+
+/**
+ * Find the root DOM element of the nearest named React component ancestor.
+ * Walks up the fiber tree to find the component, then down to the first host
+ * (DOM) fiber's stateNode. Returns null if no component or DOM node is found.
+ */
+export function getComponentRootElement(el: Element): Element | null {
+  const elAny = el as unknown as Record<string, unknown>;
+  const keys = Object.keys(elAny);
+  const fiberKey = keys.find(
+    (k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"),
+  );
+  if (!fiberKey) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let fiber: any = elAny[fiberKey];
+
+  // Walk UP to find the nearest named React component fiber
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let componentFiber: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let cur: any = fiber.return;
+  let limit = 60;
+  while (cur && limit-- > 0) {
+    const type = cur.type;
+    if (type && typeof type === "function") {
+      const name = (type.displayName || type.name) as string | undefined;
+      if (name && /^[A-Z]/.test(name) && name.length > 1 && !INTERNAL_COMPONENT_NAMES.has(name)) {
+        componentFiber = cur;
+        break;
+      }
+    }
+    if (type && typeof type === "object") {
+      let name: string | undefined = type.displayName;
+      if (!name && type.render) name = type.render.displayName || type.render.name;
+      if (!name && type.type) name = type.type.displayName || type.type.name;
+      if (name && /^[A-Z]/.test(name) && name.length > 1 && !INTERNAL_COMPONENT_NAMES.has(name)) {
+        componentFiber = cur;
+        break;
+      }
+    }
+    cur = cur.return;
+  }
+
+  if (!componentFiber) return null;
+
+  // Walk DOWN from componentFiber child to find the first DOM stateNode
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function findFirstDom(f: any): Element | null {
+    if (!f) return null;
+    if (typeof f.type === "string" && f.stateNode instanceof Element) return f.stateNode;
+    const fromChild = findFirstDom(f.child);
+    if (fromChild) return fromChild;
+    return null;
+  }
+
+  return findFirstDom(componentFiber.child ?? componentFiber);
+}
+
 export function getReactComponentName(el: Element): string | null {
+  // 1. Check data-component attribute first — reliable for server-rendered content.
+  const label = getDataComponentLabel(el);
+  if (label) return label;
+
+  // 2. Walk React fiber tree, skipping Next.js / React internal names.
   const keys = Object.keys(el as unknown as Record<string, unknown>);
   const fiberKey = keys.find(
     (k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"),
@@ -87,13 +209,13 @@ export function getReactComponentName(el: Element): string | null {
     const type = fiber.type;
     if (type && typeof type === "function") {
       const name = (type.displayName || type.name) as string | undefined;
-      if (name && /^[A-Z]/.test(name) && name.length > 1) return name;
+      if (name && /^[A-Z]/.test(name) && name.length > 1 && !INTERNAL_COMPONENT_NAMES.has(name)) return name;
     }
     if (type && typeof type === "object") {
       let name: string | undefined = type.displayName;
       if (!name && type.render) name = type.render.displayName || type.render.name;
       if (!name && type.type) name = type.type.displayName || type.type.name;
-      if (name && /^[A-Z]/.test(name) && name.length > 1) return name;
+      if (name && /^[A-Z]/.test(name) && name.length > 1 && !INTERNAL_COMPONENT_NAMES.has(name)) return name;
     }
     fiber = fiber.return;
   }
@@ -115,10 +237,13 @@ export function getReactComponentChain(el: Element): string[] {
     const type = fiber.type;
     if (type && typeof type === "function") {
       const name = (type.displayName || type.name) as string | undefined;
-      if (name && /^[A-Z]/.test(name) && name.length > 1) chain.unshift(name);
+      if (name && /^[A-Z]/.test(name) && name.length > 1 && !INTERNAL_COMPONENT_NAMES.has(name)) chain.unshift(name);
     }
     fiber = fiber.return;
   }
+  // Prepend any data-component label found in the DOM ancestry.
+  const label = getDataComponentLabel(el);
+  if (label && !chain.includes(label)) chain.unshift(label);
   return chain;
 }
 
@@ -141,7 +266,8 @@ export function generateFiberTreeText(selectedEl: Element): string {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const selectedFiber: any = elAny[fiberKey];
 
-  // Walk UP to the nearest named React component to use as the rendering root.
+  // Walk UP to the nearest named React component to use as the rendering root,
+  // skipping Next.js / React internal names so we don't end up rooted at SegmentViewNode.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let rootFiber: any = selectedFiber;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -151,7 +277,7 @@ export function generateFiberTreeText(selectedEl: Element): string {
     const type = cur.type;
     if (type && typeof type === "function") {
       const name = (type.displayName || type.name) as string | undefined;
-      if (name && /^[A-Z]/.test(name) && name.length > 1) {
+      if (name && /^[A-Z]/.test(name) && name.length > 1 && !INTERNAL_COMPONENT_NAMES.has(name)) {
         rootFiber = cur;
         break;
       }
@@ -270,6 +396,7 @@ export async function captureElementFiles(el: Element, info: PageElementInfo): P
     chain.length
       ? chain.join(" > ") + ` > [${el.tagName.toLowerCase()}]`
       : el.tagName.toLowerCase();
+  const sourceFile = getDataSourceFile(el);
   const fiberTree = generateFiberTreeText(el);
 
   const md = [
@@ -281,6 +408,7 @@ export async function captureElementFiles(el: Element, info: PageElementInfo): P
     "## React Component Chain",
     chainStr,
     "",
+    ...(sourceFile ? ["## Source File", sourceFile, ""] : []),
     "## CSS Selector",
     `\`${info.selector}\``,
     "",
@@ -322,33 +450,57 @@ async function captureElementScreenshot(el: Element, slug: string): Promise<File
 
 // ─── HoverLabel ───────────────────────────────────────────────────────────────
 
-function HoverLabel({ el, rect }: { el: Element; rect: DOMRect }) {
+function HoverLabel({ el, rect, componentRoot }: { el: Element; rect: DOMRect; componentRoot: Element | null }) {
   const component = getReactComponentName(el) || el.tagName.toLowerCase();
-  const selector = getCssSelector(el);
+  const selector = getCssSelector(el, componentRoot);
 
   const labelH = 22;
-  let top = rect.top - labelH - 4;
-  if (top < 4) top = rect.bottom + 4;
+  const gap = 3;
+  // Stack two labels: blue (component) on top, green (selector) below.
+  let topBlue = rect.top - labelH * 2 - gap * 2 - 4;
+  if (topBlue < 4) topBlue = rect.bottom + 4;
+  const topGreen = topBlue + labelH + gap;
   const left = Math.max(4, Math.min(rect.left, window.innerWidth - 320));
 
   return (
-    <div
-      data-primordia-inspector="label"
-      style={{
-        position: "fixed",
-        top,
-        left,
-        zIndex: 9999,
-        pointerEvents: "none",
-        maxWidth: "90vw",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-      }}
-      className="px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-mono shadow-lg"
-    >
-      &lt;{component}&gt; {selector}
-    </div>
+    <>
+      {/* Blue label: nearest React component name */}
+      <div
+        data-primordia-inspector="label"
+        style={{
+          position: "fixed",
+          top: topBlue,
+          left,
+          zIndex: 9999,
+          pointerEvents: "none",
+          maxWidth: "60vw",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        className="px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-mono shadow-lg"
+      >
+        &lt;{component}&gt;
+      </div>
+      {/* Green label: element CSS path */}
+      <div
+        data-primordia-inspector="label"
+        style={{
+          position: "fixed",
+          top: topGreen,
+          left,
+          zIndex: 9999,
+          pointerEvents: "none",
+          maxWidth: "90vw",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        className="px-2 py-0.5 rounded bg-green-700 text-white text-xs font-mono shadow-lg"
+      >
+        {selector}
+      </div>
+    </>
   );
 }
 
@@ -414,7 +566,8 @@ export function PageElementInspector({
 
   function buildInfo(el: Element): PageElementInfo {
     const component = getReactComponentName(el) || el.tagName.toLowerCase();
-    const selector = getCssSelector(el);
+    const componentRoot = getComponentRootElement(el);
+    const selector = getCssSelector(el, componentRoot);
     const html = el.outerHTML.slice(0, 600);
     const text = ((el as HTMLElement).innerText ?? "").slice(0, 200).trim();
     return { component, selector, html, text, element: el };
@@ -502,6 +655,10 @@ export function PageElementInspector({
   if (typeof document === "undefined") return null;
 
   const rect = hoveredEl?.getBoundingClientRect() ?? null;
+  // Blue highlight: nearest React component's root DOM element (if distinct from hovered).
+  const componentEl = hoveredEl ? getComponentRootElement(hoveredEl) : null;
+  // Always show blue component rect (even when same element as hovered — creates nested outline).
+  const componentRect = componentEl ? componentEl.getBoundingClientRect() : null;
 
   return createPortal(
     <>
@@ -517,7 +674,22 @@ export function PageElementInspector({
         style={{ position: "fixed", inset: 0, zIndex: 9998, background: "transparent", touchAction: "none" }}
       />
 
-      {/* Highlight box */}
+      {/* Blue highlight box — nearest React component root */}
+      {componentRect && (
+        <div
+          data-primordia-inspector="highlight-component"
+          style={{
+            position: "fixed",
+            left: componentRect.left - 2, top: componentRect.top - 2,
+            width: componentRect.width + 4, height: componentRect.height + 4,
+            outline: "2px solid #3b82f6", outlineOffset: "0",
+            background: "rgba(59, 130, 246, 0.05)",
+            pointerEvents: "none", zIndex: 9996,
+          }}
+        />
+      )}
+
+      {/* Green highlight box — hovered element */}
       {rect && (
         <div
           data-primordia-inspector="highlight"
@@ -525,15 +697,15 @@ export function PageElementInspector({
             position: "fixed",
             left: rect.left - 1, top: rect.top - 1,
             width: rect.width + 2, height: rect.height + 2,
-            outline: "2px solid #3b82f6", outlineOffset: "0",
-            background: "rgba(59, 130, 246, 0.08)",
+            outline: "2px solid #22c55e", outlineOffset: "0",
+            background: "rgba(34, 197, 94, 0.08)",
             pointerEvents: "none", zIndex: 9997,
           }}
         />
       )}
 
-      {/* Label */}
-      {hoveredEl && rect && <HoverLabel el={hoveredEl} rect={rect} />}
+      {/* Labels */}
+      {hoveredEl && rect && <HoverLabel el={hoveredEl} rect={rect} componentRoot={componentEl} />}
 
       {/* Instruction banner */}
       <div
