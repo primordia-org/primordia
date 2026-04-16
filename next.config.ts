@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    swcPlugins: [["swc-plugin-component-annotate", {}]],
+  },
   // Optional base path — set NEXT_BASE_PATH=/my-prefix to serve the app at a sub-path.
   // Leave unset (or empty) to serve from the root (default behaviour).
   basePath: process.env.NEXT_BASE_PATH ?? "",

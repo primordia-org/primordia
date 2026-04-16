@@ -1,11 +1,10 @@
 // components/LandingSections.tsx
-// Client components for each section of the landing page.
-// Extracted so the Pick tool can see meaningful component names in the React
-// fiber tree — server components don't appear there.
+// Server components for each section of the landing page.
+// These are server components — they stream their HTML directly and appear in
+// the DOM with data-component attributes added by swc-plugin-component-annotate
+// at build time. The Pick tool reads those attributes for component names.
 // The parent server component (app/page.tsx) handles headers() / curlCmd and
 // passes it down as a prop.
-
-"use client";
 
 import Link from "next/link";
 import { MessageSquare, RefreshCw, GitBranch, ChevronDown } from "lucide-react";
