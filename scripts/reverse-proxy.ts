@@ -463,7 +463,8 @@ async function startPreviewServer(
       for (const w of waiters) w.reject(err);
     }
     entry.status = 'stopped';
-    previewProcesses.delete(sessionId);
+    // Keep the entry in the map so the logBuffer remains accessible for crash debugging.
+    // startPreviewServer will overwrite it with a fresh entry on restart.
     console.log(`[proxy] preview server stopped for session ${sessionId} (code ${code ?? 'unknown'})`);
     for (const sub of entry.logSubscribers) sub.close();
     entry.logSubscribers.clear();
@@ -501,12 +502,17 @@ function stopPreviewServer(sessionId: string): void {
 }
 
 // Kill preview servers that have been inactive for 30 minutes.
+// Also evict stopped entries (kept for crash-log access) after the same timeout.
 setInterval(() => {
   const cutoff = Date.now() - PREVIEW_INACTIVITY_MS;
   for (const [sessionId, entry] of previewProcesses.entries()) {
     if (entry.lastActivityMs < cutoff) {
-      console.log(`[proxy] stopping idle preview server ${sessionId} (30 min inactivity)`);
-      stopPreviewServer(sessionId);
+      if (entry.status === 'stopped') {
+        previewProcesses.delete(sessionId);
+      } else {
+        console.log(`[proxy] stopping idle preview server ${sessionId} (30 min inactivity)`);
+        stopPreviewServer(sessionId);
+      }
     }
   }
 }, 60_000).unref();

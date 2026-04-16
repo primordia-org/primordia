@@ -1127,7 +1127,7 @@ export default function EvolveSessionView({
               </div>
             )}
             {serverLogs && (
-              <details className="group">
+              <details className="group" open={proxyServerStatus === 'stopped'}>
                 <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
                   <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
                   <span className="text-gray-500">🪵 Server logs</span>
