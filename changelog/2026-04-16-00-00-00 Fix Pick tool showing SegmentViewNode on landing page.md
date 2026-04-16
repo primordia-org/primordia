@@ -11,40 +11,44 @@
   named component encountered was always `SegmentViewNode`, which is the
   Next.js internal that wraps all server-rendered segments on the client.
 
-- Added `getDataComponentLabel(el)` — walks DOM ancestors looking for a
-  `data-component` attribute. This is checked *before* the fiber walk, so
-  server-rendered sections that have no meaningful client-side fiber name still
-  produce a readable label.
-
 - Updated `getReactComponentName`, `getReactComponentChain`, and the
-  `generateFiberTreeText` root-finding loop to use both the blocklist and the
-  new DOM-attribute lookup.
+  `generateFiberTreeText` root-finding loop to use the blocklist.
+
+### `components/LandingSections.tsx` *(new file)*
+
+Extracted every landing page section into a named `"use client"` component so
+the Pick tool sees real React component names in the fiber tree — server
+components don't appear there at all:
+
+| Export | Description |
+|---|---|
+| `HeroSection` | Hero with animated blobs, headline, and curl install command |
+| `FeaturesSection` | Three-column feature grid; renders `FeatureCard` per item |
+| `FeatureCard` | Individual feature card (internal, named for the fiber tree) |
+| `HowItWorksSection` | Four-step explainer; renders `HowItWorksStep` per step |
+| `HowItWorksStep` | Individual step card (internal, named for the fiber tree) |
+| `CTABannerSection` | Bottom CTA banner with curl command |
+| `LandingFooter` | Footer with nav links |
 
 ### `app/page.tsx`
 
-Added `data-component` attributes to every major section and repeating card
-on the landing page so the Pick tool shows a meaningful name regardless of
-whether the element is inside a client component:
-
-| Element | `data-component` value |
-|---|---|
-| Hero `<section>` | `HeroSection` |
-| Features `<section>` | `FeaturesSection` |
-| Individual feature `<div>` | `FeatureCard` |
-| How-it-works `<section>` | `HowItWorksSection` |
-| Individual step `<div>` | `HowItWorksStep` |
-| CTA banner `<section>` | `CTABannerSection` |
-| Footer `<footer>` | `LandingFooter` |
+Simplified to a thin server shell: calls `headers()` to build `curlCmd`,
+then renders `<LandingNav>` and the five section components from
+`LandingSections.tsx`. All the JSX that used to live here is gone.
 
 ## Why
 
-The landing page (`app/page.tsx`) is a Next.js server component. On the
-client, its rendered DOM is owned by the `SegmentViewNode` fiber (a Next.js
-App Router internal). The Pick tool's fiber-walking code found that as the
-first uppercase-named component and returned it for every single element on
-the page, making the tool useless there.
+The landing page was previously one large server component with all its JSX
+inline. Server components don't appear in the client-side React fiber tree —
+their DOM is owned by the Next.js internal `SegmentViewNode`, so the Pick
+tool showed that name for every element on the page.
 
-The two-pronged fix (blocklist + `data-component` attributes) ensures that:
-1. Framework internals are never surfaced as component names.
-2. Server-rendered sections get explicit, meaningful labels regardless of
-   what the client fiber tree looks like.
+The fix is to make the sections real client components (`"use client"`).
+Client component fibers are present on the client and carry the correct
+function name, so the Pick tool now shows `HeroSection`, `FeatureCard`,
+`HowItWorksStep`, etc. The `data-component` DOM-attribute approach tried
+earlier was rejected as misleading — it labels things as components when
+they aren't — so it has been removed in favour of this proper refactor.
+
+The blocklist in `PageElementInspector` is still useful as a backstop for
+other pages that may have server-rendered sections the tool encounters.
