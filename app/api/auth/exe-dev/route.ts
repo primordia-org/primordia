@@ -54,7 +54,17 @@ export async function GET(req: NextRequest) {
 
   const sessionId = await createSession(user.id);
 
-  const response = NextResponse.redirect(new URL(next, origin));
+  // After login, send first-time users (no passkeys yet) to the passkey
+  // registration prompt so their exe.dev account becomes accessible via passkey
+  // in future sessions regardless of which login method they choose.
+  const passkeys = await db.getPasskeysByUserId(user.id);
+  const basePath = process.env.NEXT_BASE_PATH ?? "";
+  const redirectPath =
+    passkeys.length === 0
+      ? basePath + "/register-passkey?next=" + encodeURIComponent(next)
+      : next;
+
+  const response = NextResponse.redirect(new URL(redirectPath, origin));
   response.cookies.set(SESSION_COOKIE, sessionId, {
     httpOnly: true,
     sameSite: "lax",
