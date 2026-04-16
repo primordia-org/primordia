@@ -3,32 +3,30 @@
 // components/ApiKeyDialog.tsx
 // Modal dialog that lets users set or clear their personal Anthropic API key.
 //
-// The key is stored in localStorage (client-side only, never sent in plaintext).
-// When set, it overrides the exe.dev LLM gateway for evolve and chat requests —
-// the key is encrypted client-side before transmission using the server's
-// ephemeral RSA-OAEP public key.
+// The key is encrypted with a browser-generated AES-256-GCM key that stays in
+// localStorage on this device. The AES-encrypted ciphertext is stored on the
+// server, bound to the authenticated user. The plaintext key is never stored
+// anywhere and never transmitted in plaintext.
 
 import { useState, useEffect, useCallback } from "react";
 import { Key, X, Eye, EyeOff, ExternalLink } from "lucide-react";
-import { getStoredApiKey, setStoredApiKey } from "../lib/api-key-client";
+import { hasStoredApiKey, setStoredApiKey } from "../lib/api-key-client";
 
 interface ApiKeyDialogProps {
   onClose: () => void;
 }
 
 export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
-  const [currentKey, setCurrentKey] = useState<string | null>(null);
+  const [isKeySet, setIsKeySet] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load current key from localStorage on mount.
+  // Check whether a key is configured on this device.
   useEffect(() => {
-    const key = getStoredApiKey();
-    setCurrentKey(key);
-    // Pre-fill the input so the user can see/edit the existing key.
-    if (key) setInputValue(key);
+    setIsKeySet(hasStoredApiKey());
   }, []);
 
   // Close on Escape key.
@@ -41,7 +39,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
 
-  function handleSave() {
+  async function handleSave() {
     const trimmed = inputValue.trim();
     if (!trimmed) {
       setError("Please enter an API key.");
@@ -52,22 +50,33 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
       return;
     }
     setError(null);
-    setStoredApiKey(trimmed);
-    setCurrentKey(trimmed);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setLoading(true);
+    try {
+      await setStoredApiKey(trimmed);
+      setIsKeySet(true);
+      setInputValue("");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      setError("Failed to save key. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function handleClear() {
-    setStoredApiKey(null);
-    setCurrentKey(null);
-    setInputValue("");
-    setError(null);
+  async function handleClear() {
+    setLoading(true);
+    try {
+      await setStoredApiKey(null);
+      setIsKeySet(false);
+      setInputValue("");
+      setError(null);
+    } catch {
+      setError("Failed to clear key. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   }
-
-  const maskedKey = currentKey
-    ? `${currentKey.slice(0, 12)}${"•".repeat(8)}${currentKey.slice(-4)}`
-    : null;
 
   return (
     // Backdrop
@@ -103,20 +112,20 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
             Anthropic API key
             <ExternalLink size={11} strokeWidth={2} className="inline" aria-hidden="true" />
           </a>
-          . The key is stored in your browser&apos;s localStorage and encrypted
-          before being sent to the server — it is never logged.
+          . The key is encrypted in your browser — the encryption key never leaves
+          this device, and the plaintext key is never stored or transmitted.
         </p>
 
         {/* Current status */}
         <div className={`px-3 py-2 rounded-lg text-sm border ${
-          currentKey
+          isKeySet
             ? "bg-green-900/30 border-green-700/50 text-green-300"
             : "bg-gray-800 border-gray-700 text-gray-400"
         }`}>
-          {currentKey ? (
+          {isKeySet ? (
             <span>
-              <span className="font-medium">Active:</span>{" "}
-              <code className="font-mono text-xs">{maskedKey}</code>
+              <span className="font-medium">Active</span>{" "}
+              <span className="text-green-400/70 text-xs">— key encrypted on this device</span>
             </span>
           ) : (
             <span>No API key set — using exe.dev gateway</span>
@@ -126,7 +135,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
         {/* Input */}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs text-gray-400 font-medium">
-            {currentKey ? "Replace key" : "Enter your API key"}
+            {isKeySet ? "Replace key" : "Enter your API key"}
           </label>
           <div className="relative">
             <input
@@ -138,6 +147,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
               className="w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 pr-9 outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 font-mono"
               autoComplete="off"
               spellCheck={false}
+              disabled={loading}
             />
             <button
               type="button"
@@ -159,10 +169,11 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
         {/* Actions */}
         <div className="flex items-center justify-between gap-3 pt-1">
           <div>
-            {currentKey && (
+            {isKeySet && (
               <button
                 onClick={handleClear}
-                className="px-3 py-1.5 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 border border-red-800/50 transition-colors"
+                disabled={loading}
+                className="px-3 py-1.5 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 border border-red-800/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Clear key
               </button>
@@ -171,16 +182,17 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-gray-200 transition-colors"
+              disabled={loading}
+              className="px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
-              disabled={!inputValue.trim() || saved}
+              disabled={!inputValue.trim() || saved || loading}
               className="px-4 py-1.5 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white transition-colors disabled:cursor-not-allowed"
             >
-              {saved ? "Saved ✓" : "Save key"}
+              {loading ? "Saving…" : saved ? "Saved ✓" : "Save key"}
             </button>
           </div>
         </div>
