@@ -106,8 +106,8 @@ const LISTEN_PORT = parseInt(process.env.REVERSE_PROXY_PORT ?? '3000', 10);
 const WORKTREES_DIR =
   process.env.PRIMORDIA_WORKTREES_DIR ?? '/home/exedev/primordia-worktrees';
 
-/** Disk usage percent above which automatic worktree cleanup is triggered. */
-const DISK_CLEANUP_THRESHOLD_PCT = 90;
+/** Disk usage percent above which automatic worktree cleanup is triggered (configurable via git config primordia.diskCleanupThresholdPct). */
+let diskCleanupThresholdPct = 90;
 /** How often the proxy checks disk usage and cleans up if needed (5 minutes). */
 const DISK_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -171,8 +171,8 @@ function appendProdLog(text: string): void {
 
 /** Rolling log buffer size per preview server (50 KB). */
 const MAX_LOG_BYTES = 50 * 1024;
-/** Inactivity timeout before a preview server is stopped (30 minutes). */
-const PREVIEW_INACTIVITY_MS = 30 * 60 * 1000;
+/** Inactivity timeout in minutes before a preview server is stopped (configurable via git config primordia.previewInactivityMin). */
+let previewInactivityMin = 30;
 /** How long to wait for a preview server to become ready before giving up (2 min). */
 const PREVIEW_START_TIMEOUT_MS = 2 * 60 * 1000;
 
@@ -333,6 +333,20 @@ function readAllPorts(): void {
       upstreamPort = port;
     }
   }
+
+  // Read proxy config settings from git config (updated via admin UI).
+  try {
+    const v = parseInt(execFileSync('git', ['config', '--get', 'primordia.previewInactivityMin'], {
+      cwd: MAIN_REPO, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim(), 10);
+    if (!isNaN(v) && v > 0) previewInactivityMin = v;
+  } catch { /* not set — keep default */ }
+  try {
+    const v = parseInt(execFileSync('git', ['config', '--get', 'primordia.diskCleanupThresholdPct'], {
+      cwd: MAIN_REPO, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim(), 10);
+    if (!isNaN(v) && v > 0 && v <= 100) diskCleanupThresholdPct = v;
+  } catch { /* not set — keep default */ }
 }
 
 function watchGitConfig(configPath: string): void {
@@ -506,16 +520,16 @@ function stopPreviewServer(sessionId: string): void {
   }
 }
 
-// Kill preview servers that have been inactive for 30 minutes.
+// Kill preview servers that have been inactive for previewInactivityMin minutes.
 // Also evict stopped entries (kept for crash-log access) after the same timeout.
 setInterval(() => {
-  const cutoff = Date.now() - PREVIEW_INACTIVITY_MS;
+  const cutoff = Date.now() - previewInactivityMin * 60 * 1000;
   for (const [sessionId, entry] of previewProcesses.entries()) {
     if (entry.lastActivityMs < cutoff) {
       if (entry.status === 'stopped') {
         previewProcesses.delete(sessionId);
       } else {
-        console.log(`[proxy] stopping idle preview server ${sessionId} (30 min inactivity)`);
+        console.log(`[proxy] stopping idle preview server ${sessionId} (${previewInactivityMin} min inactivity)`);
         stopPreviewServer(sessionId);
       }
     }
@@ -1380,16 +1394,16 @@ function deleteWorktreeForCleanup(repoRoot: string, target: CleanupWorktreeTarge
 
 function runDiskCleanup(): void {
   const usedPct = getDiskUsedPercent();
-  if (usedPct === null || usedPct < DISK_CLEANUP_THRESHOLD_PCT) return;
+  if (usedPct === null || usedPct < diskCleanupThresholdPct) return;
 
   console.log(
-    `[disk-cleanup] disk at ${usedPct}% ≥ threshold ${DISK_CLEANUP_THRESHOLD_PCT}% — starting cleanup`,
+    `[disk-cleanup] disk at ${usedPct}% ≥ threshold ${diskCleanupThresholdPct}% — starting cleanup`,
   );
 
   let deleted = 0;
   for (;;) {
     const current = getDiskUsedPercent();
-    if (current === null || current < DISK_CLEANUP_THRESHOLD_PCT) break;
+    if (current === null || current < diskCleanupThresholdPct) break;
 
     const target = getOldestDeletableWorktree(MAIN_REPO);
     if (!target) {

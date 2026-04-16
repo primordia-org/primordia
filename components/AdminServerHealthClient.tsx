@@ -37,9 +37,9 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)} KB`;
 }
 
-function UsageBar({ percent }: { percent: number }) {
+function UsageBar({ percent, threshold = 90 }: { percent: number; threshold?: number }) {
   const color =
-    percent >= 90 ? "bg-red-500" : percent >= 70 ? "bg-amber-500" : "bg-emerald-500";
+    percent >= threshold ? "bg-red-500" : percent >= threshold * 0.78 ? "bg-amber-500" : "bg-emerald-500";
   return (
     <div className="w-full bg-gray-800 rounded-full h-2 mt-2">
       <div
@@ -57,17 +57,27 @@ export default function AdminServerHealthClient() {
   const [deleting, setDeleting] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [diskCleanupThresholdPct, setDiskCleanupThresholdPct] = useState<number>(90);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setFetchError(null);
     try {
-      const res = await fetch(withBasePath("/api/admin/server-health"));
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+      const [healthRes, settingsRes] = await Promise.all([
+        fetch(withBasePath("/api/admin/server-health")),
+        fetch(withBasePath("/api/admin/proxy-settings")),
+      ]);
+      if (!healthRes.ok) {
+        const body = await healthRes.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? `HTTP ${healthRes.status}`);
       }
-      setData(await res.json());
+      setData(await healthRes.json());
+      if (settingsRes.ok) {
+        const s = await settingsRes.json().catch(() => null);
+        if (s && typeof s.diskCleanupThresholdPct === 'number') {
+          setDiskCleanupThresholdPct(s.diskCleanupThresholdPct);
+        }
+      }
     } catch (e) {
       setFetchError(String(e));
     } finally {
@@ -133,7 +143,7 @@ export default function AdminServerHealthClient() {
               </span>
               <span className="text-gray-400">{formatBytes(disk.availableBytes)} free</span>
             </div>
-            <UsageBar percent={disk.usedPercent} />
+            <UsageBar percent={disk.usedPercent} threshold={diskCleanupThresholdPct} />
             <p className="text-xs text-gray-500 mt-1">{disk.usedPercent}% used</p>
           </div>
         ) : (
@@ -141,7 +151,8 @@ export default function AdminServerHealthClient() {
         )}
         <p className="text-xs text-gray-500 mt-3">
           Disk usage is checked every 5 minutes and the oldest non-production worktrees are
-          deleted until usage drops below 90%.
+          deleted until usage drops below {diskCleanupThresholdPct}%. Configure this threshold in{" "}
+          <a href="proxy-settings" className="underline hover:text-gray-400">Proxy Settings</a>.
         </p>
       </section>
 
