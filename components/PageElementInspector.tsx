@@ -113,6 +113,77 @@ function getDataComponentLabel(el: Element): string | null {
   return null;
 }
 
+/**
+ * Walk DOM ancestors looking for a `data-source-file` attribute injected by
+ * swc-plugin-component-annotate. Returns the filename string or null.
+ */
+function getDataSourceFile(el: Element): string | null {
+  let cur: Element | null = el;
+  while (cur && cur !== document.body) {
+    const sf = cur.getAttribute("data-source-file");
+    if (sf) return sf;
+    cur = cur.parentElement;
+  }
+  return null;
+}
+
+/**
+ * Find the root DOM element of the nearest named React component ancestor.
+ * Walks up the fiber tree to find the component, then down to the first host
+ * (DOM) fiber's stateNode. Returns null if no component or DOM node is found.
+ */
+export function getComponentRootElement(el: Element): Element | null {
+  const elAny = el as unknown as Record<string, unknown>;
+  const keys = Object.keys(elAny);
+  const fiberKey = keys.find(
+    (k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"),
+  );
+  if (!fiberKey) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let fiber: any = elAny[fiberKey];
+
+  // Walk UP to find the nearest named React component fiber
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let componentFiber: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let cur: any = fiber.return;
+  let limit = 60;
+  while (cur && limit-- > 0) {
+    const type = cur.type;
+    if (type && typeof type === "function") {
+      const name = (type.displayName || type.name) as string | undefined;
+      if (name && /^[A-Z]/.test(name) && name.length > 1 && !INTERNAL_COMPONENT_NAMES.has(name)) {
+        componentFiber = cur;
+        break;
+      }
+    }
+    if (type && typeof type === "object") {
+      let name: string | undefined = type.displayName;
+      if (!name && type.render) name = type.render.displayName || type.render.name;
+      if (!name && type.type) name = type.type.displayName || type.type.name;
+      if (name && /^[A-Z]/.test(name) && name.length > 1 && !INTERNAL_COMPONENT_NAMES.has(name)) {
+        componentFiber = cur;
+        break;
+      }
+    }
+    cur = cur.return;
+  }
+
+  if (!componentFiber) return null;
+
+  // Walk DOWN from componentFiber child to find the first DOM stateNode
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function findFirstDom(f: any): Element | null {
+    if (!f) return null;
+    if (typeof f.type === "string" && f.stateNode instanceof Element) return f.stateNode;
+    const fromChild = findFirstDom(f.child);
+    if (fromChild) return fromChild;
+    return null;
+  }
+
+  return findFirstDom(componentFiber.child ?? componentFiber);
+}
+
 export function getReactComponentName(el: Element): string | null {
   // 1. Check data-component attribute first — reliable for server-rendered content.
   const label = getDataComponentLabel(el);
@@ -318,6 +389,7 @@ export async function captureElementFiles(el: Element, info: PageElementInfo): P
     chain.length
       ? chain.join(" > ") + ` > [${el.tagName.toLowerCase()}]`
       : el.tagName.toLowerCase();
+  const sourceFile = getDataSourceFile(el);
   const fiberTree = generateFiberTreeText(el);
 
   const md = [
@@ -329,6 +401,7 @@ export async function captureElementFiles(el: Element, info: PageElementInfo): P
     "## React Component Chain",
     chainStr,
     "",
+    ...(sourceFile ? ["## Source File", sourceFile, ""] : []),
     "## CSS Selector",
     `\`${info.selector}\``,
     "",
@@ -375,28 +448,52 @@ function HoverLabel({ el, rect }: { el: Element; rect: DOMRect }) {
   const selector = getCssSelector(el);
 
   const labelH = 22;
-  let top = rect.top - labelH - 4;
-  if (top < 4) top = rect.bottom + 4;
+  const gap = 3;
+  // Stack two labels: blue (component) on top, green (selector) below.
+  let topBlue = rect.top - labelH * 2 - gap * 2 - 4;
+  if (topBlue < 4) topBlue = rect.bottom + 4;
+  const topGreen = topBlue + labelH + gap;
   const left = Math.max(4, Math.min(rect.left, window.innerWidth - 320));
 
   return (
-    <div
-      data-primordia-inspector="label"
-      style={{
-        position: "fixed",
-        top,
-        left,
-        zIndex: 9999,
-        pointerEvents: "none",
-        maxWidth: "90vw",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-      }}
-      className="px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-mono shadow-lg"
-    >
-      &lt;{component}&gt; {selector}
-    </div>
+    <>
+      {/* Blue label: nearest React component name */}
+      <div
+        data-primordia-inspector="label"
+        style={{
+          position: "fixed",
+          top: topBlue,
+          left,
+          zIndex: 9999,
+          pointerEvents: "none",
+          maxWidth: "60vw",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        className="px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-mono shadow-lg"
+      >
+        &lt;{component}&gt;
+      </div>
+      {/* Green label: element CSS path */}
+      <div
+        data-primordia-inspector="label"
+        style={{
+          position: "fixed",
+          top: topGreen,
+          left,
+          zIndex: 9999,
+          pointerEvents: "none",
+          maxWidth: "90vw",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        className="px-2 py-0.5 rounded bg-green-700 text-white text-xs font-mono shadow-lg"
+      >
+        {selector}
+      </div>
+    </>
   );
 }
 
@@ -550,6 +647,10 @@ export function PageElementInspector({
   if (typeof document === "undefined") return null;
 
   const rect = hoveredEl?.getBoundingClientRect() ?? null;
+  // Blue highlight: nearest React component's root DOM element (if distinct from hovered).
+  const componentEl = hoveredEl ? getComponentRootElement(hoveredEl) : null;
+  const componentRect =
+    componentEl && componentEl !== hoveredEl ? componentEl.getBoundingClientRect() : null;
 
   return createPortal(
     <>
@@ -565,7 +666,22 @@ export function PageElementInspector({
         style={{ position: "fixed", inset: 0, zIndex: 9998, background: "transparent", touchAction: "none" }}
       />
 
-      {/* Highlight box */}
+      {/* Blue highlight box — nearest React component root */}
+      {componentRect && (
+        <div
+          data-primordia-inspector="highlight-component"
+          style={{
+            position: "fixed",
+            left: componentRect.left - 2, top: componentRect.top - 2,
+            width: componentRect.width + 4, height: componentRect.height + 4,
+            outline: "2px solid #3b82f6", outlineOffset: "0",
+            background: "rgba(59, 130, 246, 0.05)",
+            pointerEvents: "none", zIndex: 9996,
+          }}
+        />
+      )}
+
+      {/* Green highlight box — hovered element */}
       {rect && (
         <div
           data-primordia-inspector="highlight"
@@ -573,14 +689,14 @@ export function PageElementInspector({
             position: "fixed",
             left: rect.left - 1, top: rect.top - 1,
             width: rect.width + 2, height: rect.height + 2,
-            outline: "2px solid #3b82f6", outlineOffset: "0",
-            background: "rgba(59, 130, 246, 0.08)",
+            outline: "2px solid #22c55e", outlineOffset: "0",
+            background: "rgba(34, 197, 94, 0.08)",
             pointerEvents: "none", zIndex: 9997,
           }}
         />
       )}
 
-      {/* Label */}
+      {/* Labels */}
       {hoveredEl && rect && <HoverLabel el={hoveredEl} rect={rect} />}
 
       {/* Instruction banner */}
