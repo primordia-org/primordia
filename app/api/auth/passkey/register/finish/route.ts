@@ -51,17 +51,25 @@ export async function POST(request: NextRequest) {
     const { credential, credentialDeviceType, credentialBackedUp } =
       verification.registrationInfo;
 
-    // Create user and save passkey
-    const userId = generateId();
-    const isFirstUser = (await db.getAllUsers()).length === 0;
-    await db.createUser({
-      id: userId,
-      username: challengeRecord.username,
-      createdAt: Date.now(),
-    });
-    if (isFirstUser) {
-      await db.grantRole(userId, "admin", "system");
+    let userId: string;
+
+    if (challengeRecord.userId) {
+      // Logged-in user adding a passkey to their existing account.
+      userId = challengeRecord.userId;
+    } else {
+      // New user — create the account.
+      userId = generateId();
+      const isFirstUser = (await db.getAllUsers()).length === 0;
+      await db.createUser({
+        id: userId,
+        username: challengeRecord.username,
+        createdAt: Date.now(),
+      });
+      if (isFirstUser) {
+        await db.grantRole(userId, "admin", "system");
+      }
     }
+
     await db.savePasskey({
       id: generateId(),
       userId,
@@ -76,7 +84,7 @@ export async function POST(request: NextRequest) {
 
     await db.deleteChallenge(challengeId);
 
-    // Issue session
+    // Issue (or refresh) session
     const sessionId = await createSession(userId);
 
     const response = NextResponse.json({
