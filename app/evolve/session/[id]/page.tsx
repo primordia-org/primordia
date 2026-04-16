@@ -121,7 +121,7 @@ export default async function EvolveSessionPage({
 }) {
   const user = await getSessionUser();
   const canEvolve = user ? await hasEvolvePermission(user.id) : false;
-  const evolvePrefs = user ? await getEvolvePrefs(user.id) : { initialHarness: undefined, initialModel: undefined };
+  const evolvePrefs = user ? await getEvolvePrefs(user.id) : { initialHarness: undefined, initialModel: undefined, initialCavemanMode: undefined, initialCavemanIntensity: undefined };
 
   const { id } = await params;
 
@@ -170,6 +170,8 @@ export default async function EvolveSessionPage({
       worktreePath={session.worktreePath}
       initialHarness={evolvePrefs.initialHarness}
       initialModel={evolvePrefs.initialModel}
+      initialCavemanMode={evolvePrefs.initialCavemanMode}
+      initialCavemanIntensity={evolvePrefs.initialCavemanIntensity}
     />
   );
 }

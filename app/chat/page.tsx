@@ -65,6 +65,8 @@ export default async function ChatPage() {
       commitMessage={commitMessage ?? null}
       initialHarness={evolvePrefs.initialHarness}
       initialModel={evolvePrefs.initialModel}
+      initialCavemanMode={evolvePrefs.initialCavemanMode}
+      initialCavemanIntensity={evolvePrefs.initialCavemanIntensity}
     />
   );
 }

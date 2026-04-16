@@ -498,6 +498,8 @@ export default async function BranchesPage() {
         initialSession={sessionUser}
         initialHarness={evolvePrefs?.initialHarness}
         initialModel={evolvePrefs?.initialModel}
+        initialCavemanMode={evolvePrefs?.initialCavemanMode}
+        initialCavemanIntensity={evolvePrefs?.initialCavemanIntensity}
       />
 
       {/* Actions row — only shown to admins */}

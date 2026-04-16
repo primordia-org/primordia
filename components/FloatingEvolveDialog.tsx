@@ -32,6 +32,8 @@ export function FloatingEvolveDialog({
   anchorRect,
   initialHarness,
   initialModel,
+  initialCavemanMode,
+  initialCavemanIntensity,
   onSessionCreated,
 }: {
   onClose: () => void;
@@ -41,6 +43,10 @@ export function FloatingEvolveDialog({
   initialHarness?: string;
   /** Sticky model preference loaded server-side. */
   initialModel?: string;
+  /** Sticky caveman mode preference loaded server-side. */
+  initialCavemanMode?: boolean;
+  /** Sticky caveman intensity preference loaded server-side. */
+  initialCavemanIntensity?: import("../lib/user-prefs").CavemanIntensity;
   /**
    * Called with the new sessionId when a request is submitted successfully.
    * The dialog calls onClose() before this, so the caller should render a toast
@@ -307,6 +313,8 @@ export function FloatingEvolveDialog({
           compact
           initialHarness={initialHarness}
           initialModel={initialModel}
+          initialCavemanMode={initialCavemanMode}
+          initialCavemanIntensity={initialCavemanIntensity}
           onSessionCreated={handleSessionCreated}
           inspectorSkipElement={dialogRef.current}
         />

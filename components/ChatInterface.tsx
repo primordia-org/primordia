@@ -35,9 +35,11 @@ interface GitContext {
   commitMessage: string | null;
   initialHarness?: string;
   initialModel?: string;
+  initialCavemanMode?: boolean;
+  initialCavemanIntensity?: import("../lib/user-prefs").CavemanIntensity;
 }
 
-export default function ChatInterface({ branch, commitMessage, initialHarness, initialModel }: GitContext) {
+export default function ChatInterface({ branch, commitMessage, initialHarness, initialModel, initialCavemanMode, initialCavemanIntensity }: GitContext) {
   const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
   const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
   const [toastSessionId, setToastSessionId] = useState<string | null>(null);
@@ -248,6 +250,8 @@ export default function ChatInterface({ branch, commitMessage, initialHarness, i
             anchorRect={evolveAnchorRect}
             initialHarness={initialHarness}
             initialModel={initialModel}
+            initialCavemanMode={initialCavemanMode}
+            initialCavemanIntensity={initialCavemanIntensity}
             onSessionCreated={(id) => setToastSessionId(id)}
           />
         )}
