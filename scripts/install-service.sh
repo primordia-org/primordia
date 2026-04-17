@@ -21,7 +21,20 @@ PROXY_SERVICE_SRC="${SCRIPT_DIR}/primordia-proxy.service"
 PROXY_SERVICE_DST="/etc/systemd/system/primordia-proxy.service"
 
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-WORKTREES_DIR="${REPO_ROOT}/../primordia-worktrees"
+
+# Resolve the main (bare) checkout regardless of whether we are running from a
+# linked worktree or from the main clone itself.
+# In the main clone: `git rev-parse --git-common-dir` returns the relative path
+# ".git", so REPO_ROOT is already the main checkout.
+# In a linked worktree: it returns an absolute path like /home/…/primordia/.git,
+# so the main checkout is its parent directory.
+_GIT_COMMON_DIR=$(git -C "${REPO_ROOT}" rev-parse --git-common-dir 2>/dev/null || true)
+if [[ "${_GIT_COMMON_DIR}" == /* ]]; then
+  _MAIN_REPO="$(dirname "${_GIT_COMMON_DIR}")"
+else
+  _MAIN_REPO="${REPO_ROOT}"
+fi
+WORKTREES_DIR="${_MAIN_REPO}/../primordia-worktrees"
 mkdir -p "${WORKTREES_DIR}"
 
 echo "Installing Primordia systemd service..."

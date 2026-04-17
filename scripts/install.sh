@@ -72,6 +72,47 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REVERSE_PROXY_PORT="${REVERSE_PROXY_PORT:-3000}"
 
+# ── Setup production worktree ─────────────────────────────────────────────────
+# On a fresh install the repo is cloned to ~/primordia with 'main' checked out.
+# git only allows a branch to be checked out in one place at a time, so we
+# cannot create a worktree for 'main' inside primordia-worktrees/. Instead, ask
+# git which other branches point at the same HEAD commit — the server keeps one
+# such branch (the current production branch) — and create a worktree for it.
+# All subsequent steps (bun install, bun run build, install-service.sh) run
+# inside that worktree so the proxy and production server use the right path.
+
+_CURRENT_STEP="setup production worktree"
+WORKTREES_DIR="$(cd "${INSTALL_DIR}/.." && pwd)/primordia-worktrees"
+mkdir -p "${WORKTREES_DIR}"
+
+# A main checkout has a .git *directory*; a linked worktree has a .git *file*.
+# Only redirect when we are in the main clone (not already running from a worktree).
+if [[ -d "${INSTALL_DIR}/.git" ]]; then
+  _PROD_BRANCH=$(git -C "${INSTALL_DIR}" branch -r --points-at HEAD \
+    | grep -v '\->' | grep -v '/main$' \
+    | sed 's|[[:space:]]*origin/||' | head -1 | tr -d '[:space:]')
+
+  if [[ -n "$_PROD_BRANCH" ]]; then
+    _PROD_WORKTREE="${WORKTREES_DIR}/${_PROD_BRANCH}"
+    if [[ ! -d "${_PROD_WORKTREE}" ]]; then
+      _step "Creating production worktree '${_PROD_BRANCH}'..."
+      # Create a local tracking branch from the remote ref and check it out in
+      # the new worktree. Fall back to the existing local branch if it was
+      # already created (e.g. a previous interrupted install attempt).
+      if ! git -C "${INSTALL_DIR}" worktree add "${_PROD_WORKTREE}" \
+             -b "${_PROD_BRANCH}" "origin/${_PROD_BRANCH}" 2>/dev/null; then
+        git -C "${INSTALL_DIR}" worktree add "${_PROD_WORKTREE}" "${_PROD_BRANCH}"
+      fi
+      _done "Production worktree: ${_PROD_WORKTREE/#$HOME/~}"
+    else
+      success "Production worktree: ${_PROD_WORKTREE/#$HOME/~} (already exists)"
+    fi
+    INSTALL_DIR="${_PROD_WORKTREE}"
+  else
+    warn "No non-main branch found at HEAD — production will run from $(basename "${INSTALL_DIR}")"
+  fi
+fi
+
 # ── Header (standalone mode only) ─────────────────────────────────────────────
 
 if [[ -z "${INSTALL_PREFIX:-}" ]]; then
@@ -218,7 +259,7 @@ _CURRENT_STEP="install systemd service"
 echo ""
 echo "Finally, let's ensure Primordia is automatically started on boot:"
 echo ""
-_step "Running ~/primordia/scripts/install-service.sh..."
+_step "Running ${INSTALL_DIR/#$HOME/~}/scripts/install-service.sh..."
 _svc_log=$(mktemp)
 if ! bash "${INSTALL_DIR}/scripts/install-service.sh" > "$_svc_log" 2>&1; then
   printf "\n"
