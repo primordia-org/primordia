@@ -96,6 +96,15 @@ if [[ -d "${INSTALL_DIR}/.git" ]]; then
     _PROD_WORKTREE="${WORKTREES_DIR}/${_PROD_BRANCH}"
     if [[ ! -d "${_PROD_WORKTREE}" ]]; then
       _step "Creating production worktree '${_PROD_BRANCH}'..."
+      # When installing from a preview/session branch URL, git clone checks out
+      # that branch directly in the main clone. git worktree add then fails with
+      # "already used by worktree". Fix: switch the main clone to main first so
+      # the branch is free to be checked out in the new worktree.
+      _MAIN_CLONE_BRANCH=$(git -C "${INSTALL_DIR}" symbolic-ref --short HEAD 2>/dev/null || echo "HEAD")
+      if [[ "${_MAIN_CLONE_BRANCH}" == "${_PROD_BRANCH}" ]]; then
+        # -B creates the branch if missing, resets it if it exists.
+        git -C "${INSTALL_DIR}" checkout -B main origin/main
+      fi
       # Create a local tracking branch from the remote ref and check it out in
       # the new worktree. Fall back to the existing local branch if it was
       # already created (e.g. a previous interrupted install attempt).

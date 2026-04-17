@@ -11,6 +11,7 @@
 - Repo and worktrees directories have their group changed to `primordia` with group-write and setgid bits, so both the `exedev` installing user and the `primordia` service user can read and write them.
 - `scripts/update-service.sh` updated to use the new stable proxy path and to regenerate/compare the service unit content instead of diffing against the static template file.
 - `scripts/primordia-proxy.service` updated to reflect the `primordia` user and `/home/primordia` paths (serves as canonical reference).
+- `scripts/install.sh` fixed: when installing from a preview/session branch URL the repo is cloned with that branch already checked out, causing `git worktree add` to fail with "already used by worktree". The script now detects this and switches the main clone to `main` before creating the production worktree.
 
 ## Why
 
