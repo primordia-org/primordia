@@ -230,15 +230,22 @@ else
 fi
 
 # ── Set locale ────────────────────────────────────────────────────────────────
-# Install and generate en_US.UTF-8 BEFORE exporting LC_ALL to avoid the
-# "setlocale: LC_ALL: cannot change locale" bash warning.
+# Ensure a UTF-8 locale is active. New VMs default to C.UTF-8 which is
+# sufficient, so skip the apt-get/locale-gen dance when any UTF-8 locale is
+# already set (avoids the "setlocale: LC_ALL: cannot change locale" warning
+# that occurred when exporting en_US.UTF-8 before it was fully available).
 _REMOTE_STEP="set locale"
-_step "Setting locale..."
-sudo apt-get install -y locales </dev/null >/dev/null 2>&1 || true
-sudo locale-gen en_US.UTF-8 </dev/null >/dev/null 2>&1 || true
-sudo update-locale LANG=en_US.UTF-8 </dev/null >/dev/null 2>&1 || true
-export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LANGUAGE=en_US.UTF-8
-_done "Updated locale to en_US.UTF-8 for better character support"
+if locale 2>/dev/null | grep -qi "UTF-8"; then
+  _CURRENT_LANG=$(locale 2>/dev/null | grep "^LANG=" | cut -d= -f2 | tr -d '"' || echo "UTF-8")
+  success "Locale: ${_CURRENT_LANG:-UTF-8} (UTF-8 already active)"
+else
+  _step "Setting locale..."
+  sudo apt-get install -y locales </dev/null >/dev/null 2>&1 || true
+  sudo locale-gen en_US.UTF-8 </dev/null >/dev/null 2>&1 || true
+  sudo update-locale LANG=en_US.UTF-8 </dev/null >/dev/null 2>&1 || true
+  export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LANGUAGE=en_US.UTF-8
+  _done "Updated locale to en_US.UTF-8"
+fi
 
 # ── Install git ───────────────────────────────────────────────────────────────
 _REMOTE_STEP="install git"
