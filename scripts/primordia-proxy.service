@@ -4,13 +4,13 @@ After=network.target
 
 [Service]
 Type=simple
-User=exedev
-WorkingDirectory=/home/exedev/primordia
-EnvironmentFile=/home/exedev/primordia/.env.local
-Environment=PRIMORDIA_WORKTREES_DIR=/home/exedev/primordia-worktrees
-Environment=HOME=/home/exedev
-Environment=PATH=/home/exedev/.bun/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/home/exedev/.bun/bin/bun /home/exedev/primordia-proxy.ts
+User=primordia
+WorkingDirectory=/home/primordia
+EnvironmentFile=/home/primordia/.env.local
+Environment=PRIMORDIA_WORKTREES_DIR=/home/primordia/primordia-worktrees
+Environment=HOME=/home/primordia
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/bin/bun /home/primordia/primordia-proxy.ts
 Restart=always
 RestartSec=5
 StandardOutput=journal
