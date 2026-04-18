@@ -35,10 +35,18 @@ const INSPECTOR_SCRIPT = `
 
   function getCssSelector(el) {
     if (!(el instanceof Element)) return '';
+    // If the element itself has a data-id, use it directly — stable and maps to JSX source.
+    var elDataId = el.getAttribute('data-id');
+    if (elDataId) return '[data-id="' + elDataId + '"]';
     var path = [];
     var current = el;
     while (current && current.tagName && current.tagName !== 'HTML' && current.tagName !== 'BODY') {
       var part = current.tagName.toLowerCase();
+      var dataId = current.getAttribute('data-id');
+      if (dataId) {
+        path.unshift('[data-id="' + dataId + '"]');
+        break;
+      }
       if (current.id) {
         path.unshift('#' + current.id);
         break;

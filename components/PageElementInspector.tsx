@@ -48,6 +48,11 @@ export interface PageElementInfo {
  * stable across style changes.
  */
 export function getCssSelector(el: Element, root?: Element | null): string {
+  // If the element has a data-id attribute, use it directly — it's a stable,
+  // semantically meaningful identifier that maps 1:1 to JSX source code.
+  const dataId = el.getAttribute("data-id");
+  if (dataId) return `[data-id="${dataId}"]`;
+
   // Patterns that identify Tailwind / generated class names we don't want in selectors.
   // css-selector-generator's blacklist receives the full candidate selector string,
   // so we match on the class token syntax (e.g. ".hover:text-white").
