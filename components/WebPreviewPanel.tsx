@@ -531,6 +531,7 @@ export function WebPreviewPanel({ src, fullHeight = false, className, onElementS
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-800 bg-gray-950">
         {/* Nav buttons */}
         <button
+          data-id="preview/back"
           type="button"
           onClick={handleBack}
           className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors flex-shrink-0"
@@ -539,6 +540,7 @@ export function WebPreviewPanel({ src, fullHeight = false, className, onElementS
           <ArrowLeft size={14} />
         </button>
         <button
+          data-id="preview/forward"
           type="button"
           onClick={handleForward}
           className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors flex-shrink-0"
@@ -547,6 +549,7 @@ export function WebPreviewPanel({ src, fullHeight = false, className, onElementS
           <ArrowRight size={14} />
         </button>
         <button
+          data-id="preview/refresh"
           type="button"
           onClick={handleRefresh}
           className={`p-1.5 hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors flex-shrink-0 ${isLoading ? "animate-spin rounded-full" : "rounded"}`}
@@ -558,6 +561,7 @@ export function WebPreviewPanel({ src, fullHeight = false, className, onElementS
         {/* URL bar */}
         <form onSubmit={handleUrlSubmit} className="flex-1 mx-1 min-w-0">
           <input
+            data-id="preview/url-bar"
             type="text"
             value={urlBarValue}
             onChange={(e) => setUrlBarValue(e.target.value)}
@@ -572,6 +576,7 @@ export function WebPreviewPanel({ src, fullHeight = false, className, onElementS
         {/* Element inspector toggle — only shown when a callback is provided */}
         {onElementSelected && (
           <button
+            data-id="preview/inspector-toggle"
             type="button"
             onClick={toggleInspector}
             className={`p-1.5 rounded transition-colors flex-shrink-0 ${
@@ -587,6 +592,7 @@ export function WebPreviewPanel({ src, fullHeight = false, className, onElementS
 
         {/* Open in new tab */}
         <a
+          data-id="preview/open-in-new-tab"
           href={src}
           target="_blank"
           rel="noopener noreferrer"

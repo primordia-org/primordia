@@ -1210,6 +1210,7 @@ export default function EvolveSessionView({
             {canAcceptReject && (
               <div className="flex gap-2 flex-shrink-0">
                 <button
+                  data-id="session/apply-upstream-updates"
                   type="button"
                   onClick={() => handleUpstreamSync()}
                   disabled={upstreamSyncLoading !== null}
@@ -1232,6 +1233,7 @@ export default function EvolveSessionView({
             <p className="text-gray-500 text-xs font-medium uppercase tracking-wide">Available Actions</p>
             {isClaudeRunning ? (
               <button
+                data-id="session/abort"
                 type="button"
                 onClick={handleAbort}
                 disabled={isAborting}
@@ -1241,6 +1243,7 @@ export default function EvolveSessionView({
               </button>
             ) : status === "ready" ? (
               <button
+                data-id="session/restart-preview"
                 type="button"
                 onClick={handleRestartServer}
                 disabled={isRestartingServer || proxyServerStatus === "starting"}
@@ -1276,6 +1279,7 @@ export default function EvolveSessionView({
           ) : (
             <div className="flex">
               <button
+                data-id="session/tab-followup"
                 onClick={() => toggleAction("followup")}
                 className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
                   activeAction === "followup"
@@ -1288,6 +1292,7 @@ export default function EvolveSessionView({
                 Follow-up Changes
               </button>
               <button
+                data-id="session/tab-accept"
                 onClick={(isClaudeRunning || remainingUpstream > 0) ? undefined : () => toggleAction("accept")}
                 disabled={isClaudeRunning || remainingUpstream > 0}
                 title={remainingUpstream > 0 ? `Apply the ${remainingUpstream} upstream commit${remainingUpstream === 1 ? "" : "s"} before accepting` : undefined}
@@ -1304,6 +1309,7 @@ export default function EvolveSessionView({
                 {remainingUpstream > 0 ? "Apply Updates First" : "Accept Changes"}
               </button>
               <button
+                data-id="session/tab-reject"
                 onClick={isClaudeRunning ? undefined : () => toggleAction("reject")}
                 disabled={isClaudeRunning}
                 className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
@@ -1334,6 +1340,7 @@ export default function EvolveSessionView({
                   <span className="font-semibold text-blue-200 flex-shrink-0">&lt;{elementContext.component}&gt;</span>
                   <span className="font-mono text-blue-400 truncate">{elementContext.selector}</span>
                   <button
+                    data-id="session/clear-element-context"
                     type="button"
                     onClick={() => setElementContext(null)}
                     className="ml-auto flex-shrink-0 text-blue-500 hover:text-blue-200 transition-colors"
@@ -1411,6 +1418,7 @@ export default function EvolveSessionView({
                     )}
                   </p>
                   <button
+                    data-id="session/confirm-accept"
                     onClick={handleAccept}
                     disabled={acceptRejectLoading}
                     className="px-4 py-2 rounded-lg bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white text-sm font-medium transition-colors"
@@ -1440,6 +1448,7 @@ export default function EvolveSessionView({
                     <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code> branch.
                   </p>
                   <button
+                    data-id="session/confirm-reject"
                     onClick={handleReject}
                     disabled={acceptRejectLoading}
                     className="px-4 py-2 rounded-lg bg-red-800 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
@@ -1466,18 +1475,18 @@ export default function EvolveSessionView({
       <div className="flex flex-col gap-2">
         {canEvolve && (
           <div className="flex gap-4">
-            <Link href="/evolve" className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
+            <Link data-id="session/new-request-link" href="/evolve" className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
               ← Submit another request
             </Link>
           </div>
         )}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-xs text-gray-500">
           <span>
-            <Link href="/changelog" className="text-blue-400 hover:text-blue-300">
+            <Link data-id="session/changelog-link" href="/changelog" className="text-blue-400 hover:text-blue-300">
               Changelog
             </Link>
             {" "}·{" "}
-            <Link href="/branches" className="text-blue-400 hover:text-blue-300">
+            <Link data-id="session/branches-link" href="/branches" className="text-blue-400 hover:text-blue-300">
               Branches
             </Link>
           </span>

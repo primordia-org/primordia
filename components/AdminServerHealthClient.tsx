@@ -200,6 +200,7 @@ export default function AdminServerHealthClient() {
                 </div>
               </div>
               <input
+                data-id="admin-health/disk-cleanup-threshold"
                 type="range"
                 min={50}
                 max={99}
@@ -255,6 +256,7 @@ export default function AdminServerHealthClient() {
                 </div>
               </div>
               <input
+                data-id="admin-health/preview-inactivity-timeout"
                 type="range"
                 min={5}
                 max={240}
@@ -302,6 +304,7 @@ export default function AdminServerHealthClient() {
               )}
             </div>
             <button
+              data-id="admin-health/delete-oldest-worktree"
               onClick={handleDeleteOldest}
               disabled={deleting}
               className="shrink-0 px-3 py-1.5 text-sm rounded bg-red-800 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"

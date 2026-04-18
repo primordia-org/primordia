@@ -45,6 +45,7 @@ export function CreateSessionFromBranchButton({ branchName }: Props) {
   if (!open) {
     return (
       <button
+        data-id="branches/create-session-trigger"
         onClick={() => setOpen(true)}
         className="text-purple-500 hover:text-purple-300 text-xs ml-1 shrink-0"
         title={`Create evolve session for ${branchName}`}
@@ -61,6 +62,7 @@ export function CreateSessionFromBranchButton({ branchName }: Props) {
       onClick={(e) => e.stopPropagation()}
     >
       <input
+        data-id="branches/create-session-request"
         autoFocus
         type="text"
         placeholder="What do you want to do? (optional)"
@@ -70,6 +72,7 @@ export function CreateSessionFromBranchButton({ branchName }: Props) {
         className="text-xs bg-gray-900 border border-gray-700 rounded px-2 py-0.5 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-purple-500 w-56"
       />
       <button
+        data-id="branches/create-session-submit"
         type="submit"
         disabled={loading}
         className="text-xs text-purple-400 hover:text-purple-300 disabled:opacity-50"
@@ -77,6 +80,7 @@ export function CreateSessionFromBranchButton({ branchName }: Props) {
         {loading ? "creating…" : "create"}
       </button>
       <button
+        data-id="branches/create-session-cancel"
         type="button"
         onClick={() => { setOpen(false); setError(null); }}
         disabled={loading}

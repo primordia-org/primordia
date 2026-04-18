@@ -25,6 +25,7 @@ export default function AdminSubNav({ currentTab }: AdminSubNavProps) {
           <Link
             key={tab.id}
             href={tab.href}
+            data-id={`admin-nav/${tab.id}`}
             className={`px-4 py-2 text-sm font-medium rounded-t transition-colors ${
               active
                 ? "text-white border-b-2 border-white -mb-px"

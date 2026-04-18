@@ -36,6 +36,7 @@ export function ChangelogEntryDetails({ filename, date, title, dateLabel }: Prop
 
   return (
     <details
+      data-id="changelog/entry-details"
       className="group border border-gray-800 rounded-lg overflow-hidden"
       onToggle={handleToggle}
     >

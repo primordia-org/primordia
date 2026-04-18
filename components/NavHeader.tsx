@@ -25,7 +25,7 @@ export function NavHeader({
   return (
     <div>
       <h1 className="text-xl font-bold tracking-tight text-white flex flex-wrap items-baseline gap-x-2">
-        <Link href="/" className="text-white no-underline hover:text-gray-300">
+        <Link data-id="nav/home" href="/" className="text-white no-underline hover:text-gray-300">
           Primordia
         </Link>
         {branch && (
@@ -39,7 +39,7 @@ export function NavHeader({
         {currentPage !== "changelog" && (
           <>
             {" "}·{" "}
-            <Link href="/changelog" className="text-blue-400 hover:text-blue-300">
+            <Link data-id="nav/changelog-link" href="/changelog" className="text-blue-400 hover:text-blue-300">
               Changelog
             </Link>
           </>
@@ -47,7 +47,7 @@ export function NavHeader({
         {currentPage !== "branches" && (
           <>
             {" "}·{" "}
-            <Link href="/branches" className="text-blue-400 hover:text-blue-300">
+            <Link data-id="nav/branches-link" href="/branches" className="text-blue-400 hover:text-blue-300">
               Branches
             </Link>
           </>

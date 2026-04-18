@@ -15,6 +15,7 @@ export function PruneBranchesButton() {
   return (
     <>
       <button
+        data-id="branches/delete-merged-trigger"
         type="button"
         onClick={() => setDialogOpen(true)}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-900/40 hover:bg-orange-800/60 text-orange-300 hover:text-orange-200 border border-orange-800/50 transition-colors"

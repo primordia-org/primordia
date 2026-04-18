@@ -369,6 +369,7 @@ export function EvolveRequestForm({
         className={`flex flex-col gap-3 rounded-lg ${compact ? "flex-1 min-h-0" : ""} transition-all ${isDragging ? "bg-amber-950/10 ring-2 ring-amber-500/60 ring-offset-4 ring-offset-gray-950" : ""}`}
       >
         <textarea
+          data-id="evolve/request-input"
           ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -397,6 +398,7 @@ export function EvolveRequestForm({
                 </span>
                 <button
                   type="button"
+                  data-id="evolve/remove-file-attachment"
                   onClick={() => setAttachedFiles((prev) => prev.filter((_, j) => j !== i))}
                   className="text-gray-500 hover:text-gray-200 ml-0.5 flex-shrink-0"
                   aria-label={`Remove ${file.name}`}
@@ -436,6 +438,7 @@ export function EvolveRequestForm({
                 )}
                 <button
                   type="button"
+                  data-id="evolve/remove-element-attachment"
                   onClick={() =>
                     setElementAttachments((prev) => prev.filter((a) => a.id !== attachment.id))
                   }
@@ -466,6 +469,7 @@ export function EvolveRequestForm({
           {/* File attach button */}
           <button
             type="button"
+            data-id="evolve/attach-files"
             onClick={() => fileInputRef.current?.click()}
             disabled={isLoading}
             className={`flex items-center gap-1.5 ${compact ? "px-2.5" : "px-3"} py-1.5 rounded-lg text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 border border-gray-700 transition-colors disabled:opacity-50`}
@@ -477,6 +481,7 @@ export function EvolveRequestForm({
           {/* Element inspector (crosshair) button */}
           <button
             type="button"
+            data-id="evolve/pick-element"
             onClick={() => setInspectorActive(true)}
             disabled={isLoading || inspectorActive}
             title="Pick an element on the page to attach its details to this request"
@@ -496,6 +501,7 @@ export function EvolveRequestForm({
           {/* Submit button */}
           <button
             type="submit"
+            data-id="evolve/submit-request"
             disabled={isSubmitDisabled}
             className={`px-4 ${compact ? "py-1.5 text-xs" : "py-2 text-sm"} rounded-lg font-medium transition-colors bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white disabled:cursor-not-allowed`}
           >
@@ -507,6 +513,7 @@ export function EvolveRequestForm({
         <div className="border-t border-gray-800 pt-2 mt-1">
           <button
             type="button"
+            data-id="evolve/advanced-toggle"
             onClick={() => setShowAdvanced((v) => !v)}
             className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors select-none"
           >
@@ -525,6 +532,7 @@ export function EvolveRequestForm({
               <div className="flex items-center gap-3">
                 <label className="text-xs text-gray-400 w-14 flex-shrink-0">Harness</label>
                 <select
+                  data-id="evolve/harness-select"
                   value={selectedHarness}
                   onChange={(e) => {
                     const harness = e.target.value;
@@ -546,6 +554,7 @@ export function EvolveRequestForm({
               <div className="flex items-center gap-3">
                 <label className="text-xs text-gray-400 w-14 flex-shrink-0">Model</label>
                 <select
+                  data-id="evolve/model-select"
                   value={selectedModel}
                   onChange={(e) => setSelectedModel(e.target.value)}
                   disabled={isLoading}
@@ -562,6 +571,7 @@ export function EvolveRequestForm({
                 <span className="text-xs text-gray-400 w-14 flex-shrink-0">Caveman</span>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
+                    data-id="evolve/caveman-mode"
                     type="checkbox"
                     checked={cavemanMode}
                     onChange={(e) => setCavemanMode(e.target.checked)}
@@ -574,6 +584,7 @@ export function EvolveRequestForm({
                 </label>
                 {cavemanMode && (
                   <select
+                    data-id="evolve/caveman-intensity"
                     value={cavemanIntensity}
                     onChange={(e) => setCavemanIntensity(e.target.value as CavemanIntensity)}
                     disabled={isLoading}

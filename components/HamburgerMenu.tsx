@@ -27,6 +27,8 @@ export interface MenuItem {
   hoverColor: string;
   href?: string;
   onClick?: () => void;
+  /** Stable data-id for testing/telemetry, e.g. "nav-menu/propose-change". */
+  dataId?: string;
 }
 
 interface HamburgerMenuProps {
@@ -58,18 +60,21 @@ export function buildStandardMenuItems({
       label: "Go to chat",
       hoverColor: "hover:text-blue-400",
       href: "/chat",
+      dataId: "nav-menu/go-to-chat",
       icon: <MessageSquare size={16} strokeWidth={2} aria-hidden="true" />,
     },
     {
       label: "Propose a change",
       hoverColor: "hover:text-amber-400",
       ...(onEvolveClick ? { onClick: onEvolveClick } : { href: "/evolve" }),
+      dataId: "nav-menu/propose-change",
       icon: <Edit size={16} strokeWidth={2} aria-hidden="true" />,
     },
     {
       label: "Branches",
       hoverColor: "hover:text-green-400",
       href: "/branches",
+      dataId: "nav-menu/branches",
       icon: <GitBranch size={16} strokeWidth={2} aria-hidden="true" />,
     },
   ];
@@ -78,6 +83,7 @@ export function buildStandardMenuItems({
       label: "Admin",
       hoverColor: "hover:text-purple-400",
       href: "/admin",
+      dataId: "nav-menu/admin",
       icon: <Shield size={16} strokeWidth={2} aria-hidden="true" />,
     });
   }
@@ -106,6 +112,7 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
   return (
     <div className="relative" ref={menuRef}>
       <button
+        data-id="nav/menu-toggle"
         type="button"
         onClick={() => setMenuOpen((v) => !v)}
         aria-label={menuOpen ? "Close menu" : "Open menu"}
@@ -129,6 +136,7 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
                 <p className="text-sm text-gray-200 font-medium truncate">@{sessionUser.username}</p>
               </div>
               <button
+                data-id="nav-menu/sign-out"
                 type="button"
                 onClick={() => { setMenuOpen(false); onLogout(); }}
                 className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-red-400 hover:bg-gray-800 transition-colors"
@@ -139,6 +147,7 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
             </>
           ) : (
             <Link
+              data-id="nav-menu/sign-in"
               href={`/login?next=${encodeURIComponent(pathname)}`}
               onClick={() => setMenuOpen(false)}
               className="flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-blue-400 hover:bg-gray-800 transition-colors"
@@ -151,6 +160,7 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
           {/* API Key settings — available to any logged-in user */}
           {sessionUser && (
             <button
+              data-id="nav-menu/api-key"
               type="button"
               onClick={() => { setMenuOpen(false); setApiKeyDialogOpen(true); }}
               className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-amber-400 hover:bg-gray-800 transition-colors"
@@ -166,6 +176,7 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
               <Link
                 key={i}
                 href={item.href}
+                data-id={item.dataId}
                 onClick={() => { setMenuOpen(false); item.onClick?.(); }}
                 className={`flex items-center gap-3 px-4 py-3 text-sm text-gray-300 ${item.hoverColor} hover:bg-gray-800 transition-colors`}
               >
@@ -176,6 +187,7 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
               <button
                 key={i}
                 type="button"
+                data-id={item.dataId}
                 onClick={() => { setMenuOpen(false); item.onClick?.(); }}
                 className={`w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 ${item.hoverColor} hover:bg-gray-800 transition-colors`}
               >

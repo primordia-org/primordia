@@ -264,6 +264,7 @@ export function FloatingEvolveDialog({
               <button
                 key={d}
                 type="button"
+                data-id={`evolve-dialog/dock-${d}`}
                 onClick={() => snapToDock(d)}
                 title={d === "top" ? "Pin to top" : "Pin to bottom"}
                 className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
@@ -282,6 +283,7 @@ export function FloatingEvolveDialog({
               <button
                 key={d}
                 type="button"
+                data-id={`evolve-dialog/dock-${d}`}
                 onClick={() => snapToDock(d)}
                 title={`Dock to ${d.replace("-", " ")}`}
                 className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
@@ -299,6 +301,7 @@ export function FloatingEvolveDialog({
         {/* Close button */}
         <button
           type="button"
+          data-id="evolve-dialog/close"
           onClick={onClose}
           className="w-6 h-6 rounded flex items-center justify-center text-gray-500 hover:text-white hover:bg-gray-700 transition-colors"
           aria-label="Close"
@@ -384,6 +387,7 @@ export function EvolveSubmitToast({
       <span className="text-amber-400 font-medium">Request submitted!</span>
       <a
         href={sessionUrl}
+        data-id="evolve-dialog/view-session"
         className="flex items-center gap-1.5 text-amber-300 hover:text-amber-200 underline underline-offset-2 transition-colors"
       >
         View session

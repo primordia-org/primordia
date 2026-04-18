@@ -162,6 +162,7 @@ export default function GitMirrorClient({ mirrorUrl: initialMirrorUrl }: GitMirr
                   href="https://exe.dev/integrations"
                   target="_blank"
                   rel="noopener noreferrer"
+                  data-id="git-mirror/integration-link"
                   className="text-blue-400 hover:text-blue-300 underline inline-flex items-center gap-1"
                 >
                   exe.dev GitHub Integration
@@ -192,6 +193,7 @@ export default function GitMirrorClient({ mirrorUrl: initialMirrorUrl }: GitMirr
               </p>
               <form onSubmit={handleSetMirror} className="flex gap-2">
                 <input
+                  data-id="git-mirror/url-input"
                   type="url"
                   value={urlInput}
                   onChange={(e) => {
@@ -205,6 +207,7 @@ export default function GitMirrorClient({ mirrorUrl: initialMirrorUrl }: GitMirr
                   className="flex-1 min-w-0 rounded-lg bg-gray-900 border border-gray-700 px-3 py-2 text-sm text-gray-100 placeholder-gray-600 outline-none focus:border-blue-500 transition-colors disabled:opacity-50"
                 />
                 <button
+                  data-id="git-mirror/save-mirror"
                   type="submit"
                   disabled={loading || !urlInput.trim()}
                   className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900 text-white disabled:cursor-not-allowed transition-colors flex items-center gap-2"
@@ -242,6 +245,7 @@ export default function GitMirrorClient({ mirrorUrl: initialMirrorUrl }: GitMirr
             push to it. This does not delete the remote repository.
           </p>
           <button
+            data-id="git-mirror/remove-mirror"
             type="button"
             onClick={handleRemoveMirror}
             disabled={loading}

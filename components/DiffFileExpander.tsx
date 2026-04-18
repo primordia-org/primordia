@@ -79,6 +79,7 @@ export function DiffFileExpander({ sessionId, file, additions, deletions, isLast
     <div className={`${isLast ? "" : "border-b border-gray-800/60"}`}>
       {/* Clickable file header row */}
       <div
+        data-id="diff/file-toggle"
         role="button"
         tabIndex={0}
         onClick={handleToggle}

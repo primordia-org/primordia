@@ -140,6 +140,7 @@ export default function ServerLogsClient({
 
         {!autoScroll && (
           <button
+            data-id="logs/resume-scroll"
             type="button"
             onClick={() => {
               setAutoScroll(true);
@@ -153,6 +154,7 @@ export default function ServerLogsClient({
 
         <div className="ml-auto flex gap-2">
           <button
+            data-id="logs/clear"
             type="button"
             onClick={handleClear}
             className="px-3 py-1 rounded text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 transition-colors"
@@ -161,6 +163,7 @@ export default function ServerLogsClient({
           </button>
           {!connected && (
             <button
+              data-id="logs/reconnect"
               type="button"
               onClick={handleReconnect}
               className="px-3 py-1 rounded text-xs text-green-300 bg-green-900/40 hover:bg-green-900/60 border border-green-700/40 transition-colors"

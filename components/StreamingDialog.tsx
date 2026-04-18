@@ -125,6 +125,7 @@ export function StreamingDialog({
           </div>
           {!isRunning && (
             <button
+              data-id="dialog/close"
               type="button"
               onClick={onClose}
               aria-label="Close"
@@ -161,6 +162,7 @@ export function StreamingDialog({
           {state === "idle" && (
             <>
               <button
+                data-id="dialog/cancel"
                 type="button"
                 onClick={onClose}
                 className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors"
@@ -168,6 +170,7 @@ export function StreamingDialog({
                 Cancel
               </button>
               <button
+                data-id="dialog/confirm-action"
                 type="button"
                 onClick={handleRun}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${actionButtonClass}`}
@@ -181,6 +184,7 @@ export function StreamingDialog({
           )}
           {isDone && (
             <button
+              data-id="dialog/dismiss"
               type="button"
               onClick={onClose}
               className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-700 hover:bg-gray-600 text-white transition-colors"

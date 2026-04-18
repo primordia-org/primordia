@@ -88,6 +88,7 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
           </p>
           <div className="flex items-center gap-2">
             <button
+              data-id="preview/accept-changes"
               onClick={handlePreviewAccept}
               disabled={previewActionState === "loading"}
               className="px-3 py-1.5 text-xs bg-green-700 hover:bg-green-600 rounded text-white disabled:opacity-50"
@@ -95,6 +96,7 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
               {previewActionState === "loading" ? "…" : "Accept Changes"}
             </button>
             <button
+              data-id="preview/reject-changes"
               onClick={handlePreviewReject}
               disabled={previewActionState === "loading"}
               className="px-3 py-1.5 text-xs bg-red-800 hover:bg-red-700 rounded text-white disabled:opacity-50"
@@ -123,6 +125,7 @@ export default function AcceptRejectBar({ isPreviewInstance, previewParentBranch
         <div className="mt-2 px-4 py-3 rounded-lg bg-red-900/40 border border-red-600/50 text-sm flex items-start justify-between gap-2">
           <p className="text-red-300 whitespace-pre-wrap break-words">⚠️ Error: {errorMessage}</p>
           <button
+            data-id="preview/dismiss-error"
             onClick={() => setErrorMessage(null)}
             className="text-red-400 hover:text-red-200 shrink-0 text-xs"
             aria-label="Dismiss error"

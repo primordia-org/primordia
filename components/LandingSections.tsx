@@ -99,7 +99,7 @@ export function HeroSection({ curlCmd }: { curlCmd: string }) {
         </div>
         <p className="text-xs text-gray-600 text-center mt-2 font-mono">
           Script requires an{" "}
-          <a href="https://exe.dev" className="text-gray-500 hover:text-gray-300 underline underline-offset-2 transition-colors">
+          <a href="https://exe.dev" data-id="landing/exedev-link" className="text-gray-500 hover:text-gray-300 underline underline-offset-2 transition-colors">
             exe.dev
           </a>{" "}
           account and SSH
@@ -235,10 +235,10 @@ export function LandingFooter() {
       <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500 font-mono">
         <span>Primordia — the self-modifying web application</span>
         <div className="flex items-center gap-6">
-          <Link href="/chat" className="hover:text-gray-300 transition-colors">Chat</Link>
-          <Link href="/evolve" className="hover:text-gray-300 transition-colors">Evolve</Link>
-          <Link href="/changelog" className="hover:text-gray-300 transition-colors">Changelog</Link>
-          <Link href="/login" className="hover:text-gray-300 transition-colors">Login</Link>
+          <Link data-id="landing/footer-chat" href="/chat" className="hover:text-gray-300 transition-colors">Chat</Link>
+          <Link data-id="landing/footer-evolve" href="/evolve" className="hover:text-gray-300 transition-colors">Evolve</Link>
+          <Link data-id="landing/footer-changelog" href="/changelog" className="hover:text-gray-300 transition-colors">Changelog</Link>
+          <Link data-id="landing/footer-login" href="/login" className="hover:text-gray-300 transition-colors">Login</Link>
         </div>
       </div>
     </footer>

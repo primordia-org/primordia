@@ -100,6 +100,7 @@ export default function AdminPermissionsClient({ users: initial, adminRoleName, 
                     <span className="text-xs text-gray-600 italic">always on</span>
                   ) : (
                     <button
+                      data-id="admin-users/toggle-evolve-access"
                       onClick={() => toggleEvolve(user)}
                       disabled={busy === user.id}
                       className={`px-3 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${

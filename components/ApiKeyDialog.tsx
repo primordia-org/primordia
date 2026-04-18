@@ -92,6 +92,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
             <h2 className="text-base font-semibold">API Key</h2>
           </div>
           <button
+            data-id="api-key/close"
             onClick={onClose}
             className="text-gray-500 hover:text-gray-200 transition-colors"
             aria-label="Close"
@@ -107,6 +108,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
             href="https://console.anthropic.com/settings/keys"
             target="_blank"
             rel="noopener noreferrer"
+            data-id="api-key/anthropic-console"
             className="text-amber-400 hover:text-amber-300 underline inline-flex items-center gap-0.5"
           >
             Anthropic API key
@@ -139,6 +141,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
           </label>
           <div className="relative">
             <input
+              data-id="api-key/key-input"
               type={showKey ? "text" : "password"}
               value={inputValue}
               onChange={(e) => { setInputValue(e.target.value); setError(null); setSaved(false); }}
@@ -151,6 +154,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
             />
             <button
               type="button"
+              data-id="api-key/toggle-visibility"
               onClick={() => setShowKey((v) => !v)}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
               aria-label={showKey ? "Hide key" : "Show key"}
@@ -171,6 +175,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
           <div>
             {isKeySet && (
               <button
+                data-id="api-key/clear-key"
                 onClick={handleClear}
                 disabled={loading}
                 className="px-3 py-1.5 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 border border-red-800/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -181,6 +186,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
           </div>
           <div className="flex items-center gap-2">
             <button
+              data-id="api-key/cancel"
               onClick={onClose}
               disabled={loading}
               className="px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-50"
@@ -188,6 +194,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
               Cancel
             </button>
             <button
+              data-id="api-key/save-key"
               onClick={handleSave}
               disabled={!inputValue.trim() || saved || loading}
               className="px-4 py-1.5 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white transition-colors disabled:cursor-not-allowed"

@@ -277,6 +277,7 @@ export default function ChatInterface({ branch, commitMessage, initialHarness, i
         className="flex-shrink-0 mt-4 flex items-end gap-3 border border-gray-800 rounded-xl bg-gray-900 p-3"
       >
         <textarea
+          data-id="chat/message-input"
           ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -287,6 +288,7 @@ export default function ChatInterface({ branch, commitMessage, initialHarness, i
           className="flex-1 resize-none bg-transparent text-sm text-gray-100 placeholder-gray-600 outline-none max-h-48 leading-relaxed"
         />
         <button
+          data-id="chat/send-message"
           type="submit"
           disabled={isLoading || !input.trim()}
           className="flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-blue-600 hover:bg-blue-500 disabled:bg-blue-900 text-white disabled:cursor-not-allowed"

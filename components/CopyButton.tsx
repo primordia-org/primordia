@@ -19,6 +19,7 @@ export default function CopyButton({ text }: { text: string }) {
   return (
     <button
       type="button"
+      data-id="content/copy-to-clipboard"
       onClick={handleCopy}
       aria-label="Copy command"
       className="shrink-0 p-1.5 rounded-md text-gray-500 hover:text-gray-300 hover:bg-white/5 transition-colors"

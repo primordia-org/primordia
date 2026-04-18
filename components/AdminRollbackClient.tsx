@@ -111,6 +111,7 @@ export default function AdminRollbackClient() {
                 <p className="text-xs text-gray-500 truncate">{target.worktreePath}</p>
               </div>
               <button
+                data-id="admin-rollback/apply-rollback"
                 onClick={() => applyRollback(target)}
                 disabled={rolling}
                 className="shrink-0 px-3 py-1.5 text-sm rounded bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
