@@ -46,7 +46,7 @@ After=network.target
 [Service]
 Type=simple
 User=primordia
-WorkingDirectory=/home/primordia
+WorkingDirectory=${_MAIN_REPO}
 EnvironmentFile=/home/primordia/.env.local
 Environment=PRIMORDIA_WORKTREES_DIR=${WORKTREES_DIR}
 Environment=HOME=/home/primordia

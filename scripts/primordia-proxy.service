@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 User=primordia
-WorkingDirectory=/home/primordia
+WorkingDirectory=/home/exedev/primordia
 EnvironmentFile=/home/primordia/.env.local
 Environment=PRIMORDIA_WORKTREES_DIR=/home/primordia/primordia-worktrees
 Environment=HOME=/home/primordia

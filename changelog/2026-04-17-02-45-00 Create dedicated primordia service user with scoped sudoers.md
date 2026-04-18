@@ -13,6 +13,7 @@
 - `scripts/primordia-proxy.service` updated to reflect the `primordia` user and `/home/primordia` paths (serves as canonical reference).
 - `scripts/install.sh` fixed: when installing from a preview/session branch URL the repo is cloned with that branch already checked out, causing `git worktree add` to fail with "already used by worktree". The script now detects this and switches the main clone to `main` before creating the production worktree.
 - `scripts/install-service.sh` now **copies** the bun binary to `/usr/local/bin/bun` instead of symlinking it. A symlink through `/home/exedev/.bun/bin/bun` requires traversal of `/home/exedev` (mode `750`), which the `primordia` user cannot do.
+- The service unit's `WorkingDirectory` now points to the actual main git repo (e.g. `/home/exedev/primordia`) instead of `/home/primordia`. The proxy's `discoverMainRepo()` falls back to `process.cwd()`, and setting it to a non-git directory caused the proxy to fail to find `primordia.productionBranch` and never start the production server.
 
 ## Why
 
