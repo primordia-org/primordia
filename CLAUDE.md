@@ -104,8 +104,8 @@ primordia/
 │   │       └── [id]/
 │   │           └── page.tsx       ← Session-tracking page; publicly viewable; passes canEvolve to hide actions for non-evolvers
 │   ├── login/
-│   │   ├── page.tsx               ← Passkey login/register page + QR cross-device tab (server shell)
-│   │   ├── LoginClient.tsx        ← Client component: passkey register/login UI + QR polling
+│   │   ├── page.tsx               ← Server component: resolves session + calls getInstalledPluginsWithProps() for each auth plugin; passes results to LoginClient
+│   │   ├── LoginClient.tsx        ← Client component: renders one tab per installed auth plugin; delegates tab UI to components/auth-tabs/
 │   │   └── approve/
 │   │       └── page.tsx           ← Approval page: authenticated device approves a QR sign-in
 │   └── api/
@@ -152,6 +152,20 @@ primordia/
 │       │       ├── poll/route.ts       ← GET poll token status; sets session cookie on approval
 │       │       ├── approve/route.ts    ← POST approve a token (requires auth on approver device)
 │       │       └── qr/route.ts         ← GET SVG QR code encoding the approval URL for a tokenId
+│
+├── lib/auth-plugins/              ← Pluggable auth system
+│   ├── types.ts                   ← AuthPlugin interface, AuthPluginServerContext, InstalledPlugin
+│   ├── registry.ts                ← THE integration point: INSTALLED_PLUGINS array + getInstalledPluginsWithProps()
+│   ├── passkey/index.ts           ← passkeyPlugin descriptor (no server props needed)
+│   ├── exe-dev/index.ts           ← exeDevPlugin descriptor (reads X-ExeDev-Email header in getServerProps)
+│   └── cross-device/index.ts     ← crossDevicePlugin descriptor (no server props needed)
+│
+├── components/auth-tabs/          ← Client-side auth plugin tab components
+│   ├── types.ts                   ← AuthTabProps interface (serverProps, nextUrl, onSuccess)
+│   ├── index.tsx                  ← THE client integration point: TAB_COMPONENT_MAP (plugin id → component)
+│   ├── PasskeyTab.tsx             ← WebAuthn passkey register/login UI
+│   ├── ExeDevTab.tsx              ← exe.dev SSO tab UI
+│   └── CrossDeviceTab.tsx         ← QR-code cross-device sign-in UI
 │       ├── git/
 │       │   └── [...path]/
 │       │       └── route.ts       ← GET/POST git http-backend proxy (read-only clone/fetch); push (receive-pack) blocked with 403
