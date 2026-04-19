@@ -7,7 +7,7 @@
 // Webpack creates a context module for the @/components/auth-tabs/*/index
 // pattern at build time, bundling every installed tab component automatically.
 
-import { Suspense, useState, type ComponentType } from "react";
+import { Suspense, useState, useEffect, type ComponentType } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -50,7 +50,17 @@ function LoginPageInner({ initialUser, plugins }: LoginClientProps) {
   const nextUrl = searchParams.get("next") ?? "/";
 
   const [ignoringSession, setIgnoringSession] = useState(false);
-  const [activeTab, setActiveTab] = useState<string>(plugins[0]?.id ?? "");
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("primordia:lastLoginTab");
+      if (saved && plugins.some((p) => p.id === saved)) return saved;
+    }
+    return plugins[0]?.id ?? "";
+  });
+
+  useEffect(() => {
+    if (activeTab) localStorage.setItem("primordia:lastLoginTab", activeTab);
+  }, [activeTab]);
 
   const showLoggedInBanner = initialUser !== null && !ignoringSession;
 
