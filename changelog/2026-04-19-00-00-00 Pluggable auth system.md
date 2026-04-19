@@ -9,22 +9,20 @@ Refactored the authentication system from a monolithic login page into a **zero-
 Each auth provider lives in three places that mirror each other by provider ID:
 
 ```
-app/(auth-<id>)/          ← Next.js route group (API routes, optional pages)
-lib/auth-providers/<id>/  ← Server-side descriptor (default-export AuthPlugin)
-components/auth-tabs/<id>/← Client-side tab UI   (default-export ComponentType<AuthTabProps>)
+lib/auth-providers/<id>/       ← Server-side descriptor (default-export AuthPlugin)
+components/auth-tabs/<id>/     ← Client-side tab UI   (default-export ComponentType<AuthTabProps>)
+app/api/auth/<id>/…            ← API routes
 ```
 
-Route groups use Next.js's `(name)` convention — they organize files without affecting URLs, so all existing `/api/auth/*` endpoints are unchanged.
+All existing `/api/auth/*` endpoints remain unchanged.
 
 ### Provider directories
 
-| Provider | Route group | Server descriptor | Client tab |
+| Provider | Server descriptor | Client tab | API routes |
 |---|---|---|---|
-| exe.dev SSO | `app/(auth-exe-dev)/` | `lib/auth-providers/exe-dev/index.ts` | `components/auth-tabs/exe-dev/index.tsx` |
-| Passkey | `app/(auth-passkey)/` | `lib/auth-providers/passkey/index.ts` | `components/auth-tabs/passkey/index.tsx` |
-| QR cross-device | `app/(auth-cross-device)/` | `lib/auth-providers/cross-device/index.ts` | `components/auth-tabs/cross-device/index.tsx` |
-
-The cross-device approve page (`/login/approve`) is also co-located inside `app/(auth-cross-device)/login/approve/page.tsx`.
+| exe.dev SSO | `lib/auth-providers/exe-dev/index.ts` | `components/auth-tabs/exe-dev/index.tsx` | `app/api/auth/exe-dev/` |
+| Passkey | `lib/auth-providers/passkey/index.ts` | `components/auth-tabs/passkey/index.tsx` | `app/api/auth/passkey/{login,register}/*` |
+| QR cross-device | `lib/auth-providers/cross-device/index.ts` | `components/auth-tabs/cross-device/index.tsx` | `app/api/auth/cross-device/{start,poll,approve,qr}` |
 
 ### Interfaces (`lib/auth-providers/types.ts`)
 
@@ -56,24 +54,20 @@ interface AuthTabProps {
 - `lib/auth-plugins/registry.ts` — replaced by filesystem auto-discovery
 - `components/auth-tabs/index.tsx` — replaced by dynamic import
 - `components/auth-tabs/types.ts` — merged into `lib/auth-providers/types.ts`
-- `components/auth-tabs/PasskeyTab.tsx`, `ExeDevTab.tsx`, `CrossDeviceTab.tsx` — moved to `components/auth-tabs/<id>/index.tsx`
-- `app/api/auth/{exe-dev,passkey,cross-device}/` — moved into route groups
-- `app/login/approve/` — moved into `app/(auth-cross-device)/login/approve/`
+- `components/auth-tabs/PasskeyTab.tsx`, `ExeDevTab.tsx`, `CrossDeviceTab.tsx` — reorganized to `components/auth-tabs/<id>/index.tsx`
 
 ## Why
 
-The previous step (also on this branch) introduced two explicit registry files that callers had to edit when adding a plugin. The goals were good but the implementation still required touching shared files on every fork.
-
-This step eliminates both registries:
+Previous approaches required editing shared registry files whenever a provider was added or removed. This approach eliminates that friction entirely:
 
 1. **No server registry** — the login page discovers providers by reading the filesystem, so adding a provider means creating a directory, not editing a shared file.
 2. **No client registry** — `next/dynamic` with a template-literal path causes webpack to include all matching tab components at build time; the plugin ID selects the right one at runtime.
-3. **Route group co-location** — all files for one auth provider (API routes, server descriptor, client tab) share a common ID prefix, making it immediately obvious what belongs to what and minimising the diff when adding or removing a provider on a fork.
+3. **Minimal footprint** — all files for one auth provider (API routes, server descriptor, client tab) use a common ID prefix, making the package self-describing and easy to add/remove on a fork.
 
 ## How to add a new auth provider
 
 1. Create `lib/auth-providers/<id>/index.ts` with a default-exported `AuthPlugin`
 2. Create `components/auth-tabs/<id>/index.tsx` with a default-exported `ComponentType<AuthTabProps>`
-3. Create API routes under `app/(auth-<id>)/api/auth/<id>/`
+3. Create API routes under `app/api/auth/<id>/`
 
-No other file needs to be touched.
+No other file needs to be touched. No registry to edit.

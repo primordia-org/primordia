@@ -105,26 +105,38 @@ primordia/
 │   │           └── page.tsx       ← Session-tracking page; publicly viewable; passes canEvolve to hide actions for non-evolvers
 │   ├── login/
 │   │   ├── page.tsx               ← Server component: auto-discovers providers via readdirSync(lib/auth-providers/); collects server props; passes to LoginClient
-│   │   └── LoginClient.tsx        ← Client component: renders one tab per provider; loads tab components via next/dynamic template-literal import (no static map)
-│   ├── (auth-exe-dev)/
-│   │   └── api/auth/exe-dev/route.ts  ← GET exe.dev SSO login: reads injected headers, creates/finds user + session
-│   ├── (auth-passkey)/
-│   │   └── api/auth/passkey/
-│   │       ├── register/start/route.ts  ← Generate WebAuthn registration options
-│   │       ├── register/finish/route.ts ← Verify registration, create user+session
-│   │       ├── login/start/route.ts     ← Generate WebAuthn authentication options
-│   │       └── login/finish/route.ts    ← Verify authentication, create session
-│   └── (auth-cross-device)/
-│       ├── api/auth/cross-device/
-│       │   ├── start/route.ts      ← POST create a cross-device token; returns tokenId
-│       │   ├── poll/route.ts       ← GET poll token status; sets session cookie on approval
-│       │   ├── approve/route.ts    ← POST approve a token (requires auth on approver device)
-│       │   └── qr/route.ts         ← GET SVG QR code encoding the approval URL for a tokenId
-│       └── login/approve/page.tsx      ← Approval page: authenticated device approves a QR sign-in
-│
-├── app/api/auth/
-│   ├── session/route.ts           ← GET current session user
-│   └── logout/route.ts            ← POST clear session
+│   │   ├── LoginClient.tsx        ← Client component: renders one tab per provider; loads tab components via next/dynamic template-literal import (no static map)
+│   │   └── approve/page.tsx           ← Approval page: authenticated device approves a QR sign-in
+│   └── api/
+│       ├── changelog/
+│       │   └── route.ts           ← GET ?filename=...: returns raw markdown body of one changelog file (lazy-load)
+│       ├── chat/
+│       │   └── route.ts           ← Streams Claude responses via SSE
+│       ├── check-keys/
+│       │   └── route.ts           ← Returns list of missing required env vars (called on page load)
+│       ├── rollback/
+│       │   └── route.ts           ← GET hasPrevious check; POST zero-downtime swap to previous slot (admin only)
+│       ├── llm-key/public-key/
+│       │   └── route.ts           ← GET server's ephemeral RSA-OAEP public key as JWK
+│       ├── prune-branches/
+│       │   └── route.ts           ← POST delete all local branches merged into main; streams SSE progress
+│       ├── auth/
+│       │   ├── session/
+│       │   │   └── route.ts       ← GET current session user
+│       │   ├── logout/
+│       │   │   └── route.ts       ← POST clear session
+│       │   ├── exe-dev/
+│       │   │   └── route.ts       ← GET exe.dev SSO login: reads injected headers, creates/finds user + session
+│       │   ├── passkey/
+│       │   │   ├── register/start/route.ts  ← Generate WebAuthn registration options
+│       │   │   ├── register/finish/route.ts ← Verify registration, create user+session
+│       │   │   ├── login/start/route.ts     ← Generate WebAuthn authentication options
+│       │   │   └── login/finish/route.ts    ← Verify authentication, create session
+│       └── cross-device/
+│           ├── start/route.ts      ← POST create a cross-device token; returns tokenId
+│           ├── poll/route.ts       ← GET poll token status; sets session cookie on approval
+│           ├── approve/route.ts    ← POST approve a token (requires auth on approver device)
+│           └── qr/route.ts         ← GET SVG QR code encoding the approval URL for a tokenId
 │
 │   app/api/ also contains:
 │   ├── changelog/route.ts         ← GET ?filename=...: returns raw markdown body of one changelog file (lazy-load)
@@ -133,10 +145,19 @@ primordia/
 │   ├── rollback/route.ts          ← GET hasPrevious check; POST zero-downtime swap to previous slot (admin only)
 │   ├── llm-key/public-key/route.ts ← GET server's ephemeral RSA-OAEP public key as JWK
 │   ├── prune-branches/route.ts    ← POST delete all local branches merged into main; streams SSE progress
-│   ├── admin/permissions/route.ts ← POST grant/revoke grantable roles (can_evolve); admin only
-│   ├── admin/logs/route.ts        ← GET SSE stream of production server logs; admin only
-│   ├── admin/proxy-logs/route.ts  ← GET SSE stream of journalctl -u primordia-proxy; admin only
-│   ├── admin/rollback/route.ts    ← GET/POST previous prod slots from primordia.productionHistory; admin only
+│   ├── git/[...path]/route.ts      ← GET/POST git http-backend proxy (read-only clone/fetch); push (receive-pack) blocked with 403
+│   ├── evolve/route.ts            ← POST start session (requires can_evolve permission), GET status (legacy poll)
+│   ├── evolve/stream/route.ts      ← GET SSE stream of live session progress
+│   ├── evolve/manage/route.ts      ← POST accept/reject a local session
+│   ├── evolve/followup/route.ts    ← POST submit a follow-up request on an existing ready session
+│   ├── evolve/abort/route.ts       ← POST abort the running Claude Code instance; transitions session to ready
+│   ├── evolve/kill-restart/route.ts ← POST kill dev server process + restart it in the worktree
+│   ├── evolve/upstream-sync/route.ts ← POST merge parent branch into session worktree ("Apply Updates")
+│   ├── evolve/from-branch/route.ts ← POST start a session on an existing local branch (external contributor workflow)
+│   ├── admin/permissions/route.ts  ← POST grant/revoke grantable roles (can_evolve); admin only
+│   ├── admin/logs/route.ts         ← GET SSE stream of production server logs; admin only
+│   ├── admin/proxy-logs/route.ts   ← GET SSE stream of journalctl -u primordia-proxy; admin only
+│   ├── admin/rollback/route.ts     ← GET/POST previous prod slots from primordia.productionHistory; admin only
 │   └── admin/server-health/route.ts ← GET disk/memory usage; POST delete oldest worktree; admin only
 │
 ├── lib/auth-providers/              ← Auth provider system (no registry — auto-discovered by login page)
@@ -149,27 +170,6 @@ primordia/
 │   ├── passkey/index.tsx            ← default export: PasskeyTab
 │   ├── exe-dev/index.tsx            ← default export: ExeDevTab
 │   └── cross-device/index.tsx      ← default export: CrossDeviceTab
-│       ├── git/
-│       │   └── [...path]/
-│       │       └── route.ts       ← GET/POST git http-backend proxy (read-only clone/fetch); push (receive-pack) blocked with 403
-│       └── evolve/
-│               ├── route.ts       ← POST start session (requires can_evolve permission), GET status (legacy poll)
-│               ├── stream/
-│               │   └── route.ts   ← GET SSE stream of live session progress
-│               ├── manage/
-│               │   └── route.ts   ← POST accept/reject a local session
-│               ├── followup/
-│               │   └── route.ts   ← POST submit a follow-up request on an existing ready session
-│               ├── abort/
-│               │   └── route.ts   ← POST abort the running Claude Code instance; transitions session to ready
-│               ├── kill-restart/
-│               │   └── route.ts   ← POST kill dev server process + restart it in the worktree
-│               ├── upstream-sync/
-│               │   └── route.ts   ← POST merge or rebase parent branch into session worktree
-│               └── from-branch/
-│                   └── route.ts   ← POST start a session on an existing local branch (external contributor workflow)
-│               └── upstream-sync/
-│                   └── route.ts   ← POST merge parent branch into session worktree ("Apply Updates")
 │
 ├── components/
 │   ├── AcceptRejectBar.tsx        ← Accept/reject bar for local preview worktrees
