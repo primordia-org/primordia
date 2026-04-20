@@ -47,19 +47,19 @@ These components are used by more than one page (or are used by components that 
 
 ## Audit findings — `components/*.tsx` issues
 
-### Dead code
-- **`AcceptRejectBar.tsx`** — Not imported anywhere. The changelog shows it was removed from `app/layout.tsx` in a previous change but the file was never deleted.
+### Dead code — fixed
+- **`AcceptRejectBar.tsx`** — was not imported anywhere (removed from `app/layout.tsx` in a previous change but file never deleted). **Deleted.**
 
-### Multiple exports (filename matches only one export)
-- **`FloatingEvolveDialog.tsx`** — exports both `FloatingEvolveDialog` and `EvolveSubmitToast`
-- **`SimpleMarkdown.tsx`** — exports both `SimpleMarkdown` and `MarkdownContent`
+### Multiple exports (filename matches only one export) — partially fixed
+- **`FloatingEvolveDialog.tsx`** — exports both `FloatingEvolveDialog` and `EvolveSubmitToast`. `EvolveSubmitToast` is imported by 4 files so the export is kept; noted for future extraction.
+- **`SimpleMarkdown.tsx`** — previously exported both `SimpleMarkdown` and `MarkdownContent`. **Fixed:** `MarkdownContent` extracted to `components/MarkdownContent.tsx`; all importers updated.
 
 ### Non-React-component named exports
 - **`HamburgerMenu.tsx`** — also exports `buildStandardMenuItems` (utility fn), `MenuItem` (interface), `SessionUser` (re-exported type). These utility exports should live in a `lib/` file.
 - **`PageElementInspector.tsx`** — exports 6 utility functions (`getCssSelector`, `getComponentRootElement`, `getReactComponentName`, `getReactComponentChain`, `generateFiberTreeText`, `captureElementFiles`) and 1 interface (`PageElementInfo`) alongside the React component. These should be extracted to a lib module.
 
 ### Default exports (harder to rename/refactor than named exports)
-- `AcceptRejectBar.tsx`, `AdminSubNav.tsx`, `ForbiddenPage.tsx`, `ServerLogsClient.tsx` all use `export default`. Convention in this codebase is mixed; these are noted but not changed here to keep the diff minimal.
+- `AdminSubNav.tsx`, `ForbiddenPage.tsx`, `ServerLogsClient.tsx` all use `export default`. Convention in this codebase is mixed; noted but not changed here to keep the diff minimal.
 
 ## Why
 

@@ -12,7 +12,7 @@
 //   • Stop / Restart button
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { MarkdownContent } from "@/components/SimpleMarkdown";
+import { MarkdownContent } from "@/components/MarkdownContent";
 import { withBasePath } from "@/lib/base-path";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

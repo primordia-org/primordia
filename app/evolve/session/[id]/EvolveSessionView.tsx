@@ -6,7 +6,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { GitBranch, Loader2 } from "lucide-react";
-import { MarkdownContent } from "@/components/SimpleMarkdown";
+import { MarkdownContent } from "@/components/MarkdownContent";
 import { NavHeader } from "@/components/NavHeader";
 
 import { FloatingEvolveDialog, EvolveSubmitToast } from "@/components/FloatingEvolveDialog";

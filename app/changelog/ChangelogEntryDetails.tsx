@@ -8,7 +8,7 @@
 // <details> element is first opened — keeping the initial page render cheap.
 
 import { useState, useRef } from "react";
-import { MarkdownContent } from "@/components/SimpleMarkdown";
+import { MarkdownContent } from "@/components/MarkdownContent";
 import { withBasePath } from "@/lib/base-path";
 
 interface Props {
