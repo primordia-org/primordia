@@ -3,6 +3,9 @@
 // components/CreateSessionFromBranchButton.tsx
 // Button that creates an evolve session for an existing branch.
 // Shown on the /branches page next to branches that have no active session.
+// No initial prompt is required — the session starts as an instant preview
+// with the branch code ready to test. Follow-up requests can be submitted
+// from the session view.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -14,20 +17,17 @@ interface Props {
 
 export function CreateSessionFromBranchButton({ branchName }: Props) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [request, setRequest] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleClick() {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(withBasePath("/api/evolve/from-branch"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ branchName, request: request.trim() || undefined }),
+        body: JSON.stringify({ branchName }),
       });
       const data = (await res.json()) as { sessionId?: string; error?: string };
       if (!res.ok || !data.sessionId) {
@@ -42,53 +42,18 @@ export function CreateSessionFromBranchButton({ branchName }: Props) {
     }
   }
 
-  if (!open) {
-    return (
+  return (
+    <span className="ml-1 shrink-0 inline-flex items-center gap-1.5">
       <button
         data-id="branches/create-session-trigger"
-        onClick={() => setOpen(true)}
-        className="text-purple-500 hover:text-purple-300 text-xs ml-1 shrink-0"
+        onClick={handleClick}
+        disabled={loading}
+        className="text-purple-500 hover:text-purple-300 text-xs disabled:opacity-50"
         title={`Create evolve session for ${branchName}`}
       >
-        + session
-      </button>
-    );
-  }
-
-  return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex items-center gap-1.5 ml-1 shrink-0"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <input
-        data-id="branches/create-session-request"
-        autoFocus
-        type="text"
-        placeholder="What do you want to do? (optional)"
-        value={request}
-        onChange={(e) => setRequest(e.target.value)}
-        disabled={loading}
-        className="text-xs bg-gray-900 border border-gray-700 rounded px-2 py-0.5 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-purple-500 w-56"
-      />
-      <button
-        data-id="branches/create-session-submit"
-        type="submit"
-        disabled={loading}
-        className="text-xs text-purple-400 hover:text-purple-300 disabled:opacity-50"
-      >
-        {loading ? "creating…" : "create"}
-      </button>
-      <button
-        data-id="branches/create-session-cancel"
-        type="button"
-        onClick={() => { setOpen(false); setError(null); }}
-        disabled={loading}
-        className="text-xs text-gray-600 hover:text-gray-400"
-      >
-        cancel
+        {loading ? "creating…" : "+ session"}
       </button>
       {error && <span className="text-xs text-red-400">{error}</span>}
-    </form>
+    </span>
   );
 }

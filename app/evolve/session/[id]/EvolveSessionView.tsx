@@ -1015,8 +1015,8 @@ export default function EvolveSessionView({
         )}
       </header>
 
-      {/* Original request */}
-      {(() => {
+      {/* Original request — hidden when there was no initial prompt (e.g. instant-preview from-branch sessions) */}
+      {initialRequest && (() => {
         const initialReqEvent = events.find((e): e is Extract<SessionEvent, { type: 'initial_request' }> => e.type === 'initial_request');
         const attachments = initialReqEvent?.attachments ?? [];
         return (

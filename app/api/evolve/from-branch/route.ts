@@ -3,12 +3,11 @@
 // The branch must already exist locally. The session ID is a generated slug distinct
 // from the branch name (since branch names can contain slashes).
 //
-// POST { branchName: string; request?: string }
+// POST { branchName: string }
 // Returns: { sessionId: string }
 
 import * as path from 'path';
 import { getLlmClient } from '../../../../lib/llm-client';
-import { decryptApiKey } from '../../../../lib/llm-encryption';
 import {
   startLocalEvolve,
   runGit,
@@ -89,24 +88,12 @@ export async function POST(request: Request) {
     return Response.json({ error: 'You do not have permission to use the evolve flow' }, { status: 403 });
   }
 
-  const body = (await request.json()) as { branchName?: string; request?: string; encryptedApiKey?: string };
+  const body = (await request.json()) as { branchName?: string };
   if (!body.branchName || typeof body.branchName !== 'string') {
     return Response.json({ error: 'branchName is required' }, { status: 400 });
   }
 
   const branchName = body.branchName.trim();
-  const requestText = (body.request ?? '').trim() ||
-    `Review and continue development on branch \`${branchName}\`.`;
-
-  // Decrypt the user's API key right before use.
-  let decryptedApiKey: string | undefined;
-  if (body.encryptedApiKey) {
-    try {
-      decryptedApiKey = await decryptApiKey(body.encryptedApiKey);
-    } catch {
-      return Response.json({ error: 'Could not decrypt API key. Please try submitting again.' }, { status: 400 });
-    }
-  }
 
   const repoRoot = process.cwd();
 
@@ -163,8 +150,9 @@ export async function POST(request: Request) {
 
   // Write the initial_request event synchronously so getSessionFromFilesystem()
   // can find the session immediately (the ndjson file is the session existence marker).
+  // No request text — this session starts as an instant preview with no initial agent run.
   const ndjsonPath = getSessionNdjsonPath(actualWorktreePath);
-  appendSessionEvent(ndjsonPath, { type: 'initial_request', request: requestText, ts: Date.now() });
+  appendSessionEvent(ndjsonPath, { type: 'initial_request', request: '', ts: Date.now() });
 
   const session: LocalSession = {
     id: sessionId,
@@ -174,16 +162,15 @@ export async function POST(request: Request) {
     devServerStatus: 'none',
     port: null,
     previewUrl: null,
-    request: requestText,
+    request: '',
     createdAt: Date.now(),
-    apiKey: decryptedApiKey,
     userId: user.id,
   };
-  decryptedApiKey = undefined;
 
-  void startLocalEvolve(session, requestText, repoRoot, undefined, [], {
+  void startLocalEvolve(session, '', repoRoot, undefined, [], {
     worktreeAlreadyCreated: true,
     initialEventAlreadyWritten: true,
+    skipAgentLaunch: true,
   });
 
   return Response.json({ sessionId });
