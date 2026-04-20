@@ -5,7 +5,7 @@
 import { execSync } from "child_process";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import EvolveForm from "@/components/EvolveForm";
+import EvolveForm from "./EvolveForm";
 import ForbiddenPage from "@/components/ForbiddenPage";
 import { getSessionUser, hasEvolvePermission } from "@/lib/auth";
 import { getDb } from "@/lib/db";

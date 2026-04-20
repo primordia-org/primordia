@@ -8,7 +8,7 @@
 
 import Link from "next/link";
 import { MessageSquare, RefreshCw, GitBranch, ChevronDown } from "lucide-react";
-import CopyButton from "@/components/CopyButton";
+import CopyButton from "./CopyButton";
 
 // ── Feature card data ────────────────────────────────────────────────────────
 

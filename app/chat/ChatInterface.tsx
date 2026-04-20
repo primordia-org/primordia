@@ -11,13 +11,13 @@
 // root layout below the fold — scroll down to reveal it).
 
 import { useState, useRef, useEffect, FormEvent } from "react";
-import { SimpleMarkdown } from "./SimpleMarkdown";
-import { FloatingEvolveDialog, EvolveSubmitToast } from "./FloatingEvolveDialog";
-import { NavHeader } from "./NavHeader";
-import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
-import { useSessionUser } from "../lib/hooks";
-import { withBasePath } from "../lib/base-path";
-import { encryptStoredApiKey } from "../lib/api-key-client";
+import { SimpleMarkdown } from "@/components/SimpleMarkdown";
+import { FloatingEvolveDialog, EvolveSubmitToast } from "@/components/FloatingEvolveDialog";
+import { NavHeader } from "@/components/NavHeader";
+import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
+import { useSessionUser } from "@/lib/hooks";
+import { withBasePath } from "@/lib/base-path";
+import { encryptStoredApiKey } from "@/lib/api-key-client";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ interface GitContext {
   initialHarness?: string;
   initialModel?: string;
   initialCavemanMode?: boolean;
-  initialCavemanIntensity?: import("../lib/user-prefs").CavemanIntensity;
+  initialCavemanIntensity?: import("@/lib/user-prefs").CavemanIntensity;
 }
 
 export default function ChatInterface({ branch, commitMessage, initialHarness, initialModel, initialCavemanMode, initialCavemanIntensity }: GitContext) {

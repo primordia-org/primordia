@@ -8,7 +8,7 @@ import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import ChatInterface from "@/components/ChatInterface";
+import ChatInterface from "./ChatInterface";
 import { getSessionUser } from "@/lib/auth";
 import { getEvolvePrefs } from "@/lib/user-prefs";
 import { buildPageTitle } from "@/lib/page-title";

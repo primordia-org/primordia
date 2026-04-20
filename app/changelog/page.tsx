@@ -9,7 +9,7 @@ import fs from "fs";
 import path from "path";
 import { execSync } from "child_process";
 import type { Metadata } from "next";
-import { ChangelogEntryDetails } from "@/components/ChangelogEntryDetails";
+import { ChangelogEntryDetails } from "./ChangelogEntryDetails";
 import { PageNavBar } from "@/components/PageNavBar";
 import { buildPageTitle } from "@/lib/page-title";
 import { getSessionUser, isAdmin } from "@/lib/auth";

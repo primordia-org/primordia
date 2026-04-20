@@ -5,7 +5,7 @@
 // deletes all local branches merged into main via /api/prune-branches.
 
 import { StreamingDialog } from "./StreamingDialog";
-import { withBasePath } from "../lib/base-path";
+import { withBasePath } from "@/lib/base-path";
 import { Trash2 } from "lucide-react";
 
 export function PruneBranchesDialog({ onClose }: { onClose: () => void }) {

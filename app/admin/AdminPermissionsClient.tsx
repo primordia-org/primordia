@@ -5,7 +5,7 @@
 // Loaded by app/admin/page.tsx with initial data from the server.
 
 import { useState } from "react";
-import { withBasePath } from "../lib/base-path";
+import { withBasePath } from "@/lib/base-path";
 
 export interface AdminUser {
   id: string;

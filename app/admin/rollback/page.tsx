@@ -11,7 +11,7 @@ import { buildPageTitle } from "@/lib/page-title";
 import ForbiddenPage from "@/components/ForbiddenPage";
 import { PageNavBar } from "@/components/PageNavBar";
 import AdminSubNav from "@/components/AdminSubNav";
-import AdminRollbackClient from "@/components/AdminRollbackClient";
+import AdminRollbackClient from "./AdminRollbackClient";
 
 export function generateMetadata(): Metadata {
   return {

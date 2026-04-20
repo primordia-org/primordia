@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { withBasePath } from "../lib/base-path";
+import { withBasePath } from "@/lib/base-path";
 
 interface Props {
   branchName: string;

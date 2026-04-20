@@ -7,7 +7,7 @@ import { getSessionUser, isAdmin } from "@/lib/auth";
 import { getEvolvePrefs } from "@/lib/user-prefs";
 import { getDb } from "@/lib/db";
 import { buildPageTitle } from "@/lib/page-title";
-import AdminPermissionsClient, { type AdminUser } from "@/components/AdminPermissionsClient";
+import AdminPermissionsClient, { type AdminUser } from "./AdminPermissionsClient";
 import ForbiddenPage from "@/components/ForbiddenPage";
 import { PageNavBar } from "@/components/PageNavBar";
 import AdminSubNav from "@/components/AdminSubNav";

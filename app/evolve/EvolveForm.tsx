@@ -5,10 +5,10 @@
 // Rendered at /evolve — a dedicated page, separate from the main chat interface.
 
 import { useState } from "react";
-import { NavHeader } from "./NavHeader";
-import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
-import { useSessionUser } from "../lib/hooks";
-import { EvolveRequestForm } from "./EvolveRequestForm";
+import { NavHeader } from "@/components/NavHeader";
+import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
+import { useSessionUser } from "@/lib/hooks";
+import { EvolveRequestForm } from "@/components/EvolveRequestForm";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -17,7 +17,7 @@ interface EvolveFormProps {
   initialHarness?: string;
   initialModel?: string;
   initialCavemanMode?: boolean;
-  initialCavemanIntensity?: import("../lib/user-prefs").CavemanIntensity;
+  initialCavemanIntensity?: import("@/lib/user-prefs").CavemanIntensity;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────

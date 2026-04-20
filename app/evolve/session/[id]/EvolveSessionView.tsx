@@ -6,22 +6,22 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { GitBranch, Loader2 } from "lucide-react";
-import { MarkdownContent } from "./SimpleMarkdown";
-import { NavHeader } from "./NavHeader";
+import { MarkdownContent } from "@/components/SimpleMarkdown";
+import { NavHeader } from "@/components/NavHeader";
 
-import { FloatingEvolveDialog, EvolveSubmitToast } from "./FloatingEvolveDialog";
-import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
-import { useSessionUser } from "../lib/hooks";
-import { withBasePath } from "../lib/base-path";
-import { encryptStoredApiKey } from "../lib/api-key-client";
-import { EvolveRequestForm } from "./EvolveRequestForm";
+import { FloatingEvolveDialog, EvolveSubmitToast } from "@/components/FloatingEvolveDialog";
+import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
+import { useSessionUser } from "@/lib/hooks";
+import { withBasePath } from "@/lib/base-path";
+import { encryptStoredApiKey } from "@/lib/api-key-client";
+import { EvolveRequestForm } from "@/components/EvolveRequestForm";
 import Link from "next/link";
-import type { DiffFileSummary } from "../app/evolve/session/[id]/page";
+import type { DiffFileSummary } from "./page";
 import { DiffFileExpander } from "./DiffFileExpander";
 import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
-import type { SessionEvent } from "../lib/session-events";
-import { HARNESS_OPTIONS, MODEL_OPTIONS_BY_HARNESS } from "../lib/agent-config";
+import type { SessionEvent } from "@/lib/session-events";
+import { HARNESS_OPTIONS, MODEL_OPTIONS_BY_HARNESS } from "@/lib/agent-config";
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────
 
@@ -535,7 +535,7 @@ interface EvolveSessionViewProps {
   /** Sticky caveman mode preference loaded server-side. Forwarded to FloatingEvolveDialog. */
   initialCavemanMode?: boolean;
   /** Sticky caveman intensity preference loaded server-side. Forwarded to FloatingEvolveDialog. */
-  initialCavemanIntensity?: import("../lib/user-prefs").CavemanIntensity;
+  initialCavemanIntensity?: import("@/lib/user-prefs").CavemanIntensity;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────

@@ -13,7 +13,7 @@ import { buildPageTitle } from "@/lib/page-title";
 import ForbiddenPage from "@/components/ForbiddenPage";
 import { PageNavBar } from "@/components/PageNavBar";
 import AdminSubNav from "@/components/AdminSubNav";
-import GitMirrorClient from "@/components/GitMirrorClient";
+import GitMirrorClient from "./GitMirrorClient";
 
 export function generateMetadata(): Metadata {
   return {

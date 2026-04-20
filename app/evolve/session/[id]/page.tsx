@@ -12,7 +12,7 @@ import { getSessionUser, hasEvolvePermission } from "@/lib/auth";
 import { getEvolvePrefs } from "@/lib/user-prefs";
 import { buildPageTitle } from "@/lib/page-title";
 import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem, type SessionEvent } from "@/lib/session-events";
-import EvolveSessionView from "@/components/EvolveSessionView";
+import EvolveSessionView from "./EvolveSessionView";
 
 export function generateMetadata(): Metadata {
   return {

@@ -11,7 +11,7 @@ import { buildPageTitle } from "@/lib/page-title";
 import ForbiddenPage from "@/components/ForbiddenPage";
 import { PageNavBar } from "@/components/PageNavBar";
 import AdminSubNav from "@/components/AdminSubNav";
-import AdminServerHealthClient from "@/components/AdminServerHealthClient";
+import AdminServerHealthClient from "./AdminServerHealthClient";
 
 export function generateMetadata(): Metadata {
   return {

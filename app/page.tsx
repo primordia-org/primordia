@@ -6,14 +6,14 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { buildPageTitle } from "@/lib/page-title";
 import { basePath } from "@/lib/base-path";
-import { LandingNav } from "@/components/LandingNav";
+import { LandingNav } from "./LandingNav";
 import {
   HeroSection,
   FeaturesSection,
   HowItWorksSection,
   CTABannerSection,
   LandingFooter,
-} from "@/components/LandingSections";
+} from "./LandingSections";
 
 export function generateMetadata(): Metadata {
   return { title: buildPageTitle() };
