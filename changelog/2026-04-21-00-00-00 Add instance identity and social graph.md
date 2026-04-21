@@ -11,8 +11,10 @@
 - **`POST /api/instance/register`** — public endpoint for child instances to register themselves; validates UUID v7 format + URL; creates/updates a graph node and inserts a `fork` edge from self → child.
 - **`GET /PATCH /api/instance/config`** — admin-only endpoint to read and update instance name/description.
 - **Admin panel `/admin/instance`** — new tab in the admin subnav; shows the UUID v7 (read-only), editable name/description fields, a list of known peer nodes, a table of graph edges, and copy-paste instructions for registering a child instance.
-- **`lib/uuid7.ts`** — pure TypeScript UUID v7 generator (no BigInt literals; ES2017-compatible).
+- **`lib/uuid7.ts`** — thin re-export of `uuid.v7()` from the `uuid` npm package (replaces the earlier homebrew implementation).
+- **`/schemas/instance/v1.json`** — serves the canonical JSON Schema (draft 2020-12) for the instance manifest; includes `uuid7` as a required top-level field alongside `$schema` and `canonical_url`; `$id` is `https://primordia.app/schemas/instance/v1.json`.
 - **`PRIMORDIA_CANONICAL_URL`** env var — optional; used as the base URL in the well-known JSON; falls back to deriving from request headers if unset.
+- `$schema` URL updated to `https://primordia.app/schemas/instance/v1.json` throughout.
 - **DB tables** — `instance_config` (key/value), `graph_nodes`, `graph_edges` added to the SQLite schema with idempotent `CREATE TABLE IF NOT EXISTS` migrations.
 
 ## Why

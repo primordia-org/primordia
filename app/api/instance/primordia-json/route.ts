@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
   }));
 
   const body = {
-    $schema: "https://primordia.exe.xyz/schemas/instance-v1.json",
+    $schema: "https://primordia.app/schemas/instance/v1.json",
     canonical_url: canonicalUrl,
     name: config.name,
     description: config.description || undefined,
