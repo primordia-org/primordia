@@ -170,7 +170,6 @@ export async function POST(request: Request) {
   void startLocalEvolve(session, '', repoRoot, undefined, [], {
     worktreeAlreadyCreated: true,
     initialEventAlreadyWritten: true,
-    skipAgentLaunch: true,
   });
 
   return Response.json({ sessionId });

@@ -376,12 +376,6 @@ export async function startLocalEvolve(
      * wrote it synchronously to the NDJSON file before fire-and-forget.
      */
     initialEventAlreadyWritten?: boolean;
-    /**
-     * When true, skip spawning the Claude agent after setup completes.
-     * The session will be marked 'ready' immediately so the preview can be
-     * tested before any changes are made. Follow-up requests can still be submitted.
-     */
-    skipAgentLaunch?: boolean;
   } = {},
 ): Promise<void> {
 
@@ -538,10 +532,10 @@ export async function startLocalEvolve(
       appendSessionEvent(ndjsonPath, { type: 'setup_step', label: `Copied ${worktreeAttachmentPaths.length} attachment(s) into worktree`, done: true, ts: Date.now() });
     }
 
-    // Step 6 — Spawn Claude Code as a detached worker process (or skip if requested).
-    if (options.skipAgentLaunch) {
-      // Mark the session ready immediately so the preview can be tested without
-      // any agent run. Follow-up requests can still be submitted later.
+    // Step 6 — Spawn Claude Code as a detached worker process (or skip if no prompt).
+    if (!taskRequest) {
+      // No prompt — mark the session ready immediately so the preview can be
+      // tested before any changes are made. Follow-up requests can still be submitted.
       appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'success', ts: Date.now() });
       return;
     }

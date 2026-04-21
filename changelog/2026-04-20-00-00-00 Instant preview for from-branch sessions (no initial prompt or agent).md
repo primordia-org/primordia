@@ -10,12 +10,11 @@ The "create a session from an existing branch" flow on `/branches` no longer req
 
 ### API (`app/api/evolve/from-branch/route.ts`)
 - Removed `request` and `encryptedApiKey` from the request body.
-- Session is created with an empty initial request and `skipAgentLaunch: true`.
+- Session is created with an empty initial request (empty string passed as `taskRequest`).
 
 ### Core (`lib/evolve-sessions.ts`)
-- Added `skipAgentLaunch?: boolean` option to `startLocalEvolve`.
-- When set, all setup steps (worktree creation, `bun install`, DB copy, `.env.local` symlink) still run, but instead of spawning the Claude worker the function writes a `result success` event and returns.
-- This moves the session directly to `ready` status, making the preview immediately accessible.
+- `startLocalEvolve` now skips spawning the Claude agent when `taskRequest` is absent or an empty string — no separate `skipAgentLaunch` option needed.
+- All setup steps (worktree creation, `bun install`, DB copy, `.env.local` symlink) still run, then a `result success` event is written, moving the session directly to `ready` status.
 
 ### Session view (`app/evolve/session/[id]/EvolveSessionView.tsx`)
 - The "Your request" card is now hidden when `initialRequest` is empty, avoiding a blank card for instant-preview sessions.
