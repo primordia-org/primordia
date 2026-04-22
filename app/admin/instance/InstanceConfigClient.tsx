@@ -1,6 +1,7 @@
 "use client";
 // app/admin/instance/InstanceConfigClient.tsx
-// Client component: edit instance name + description; view graph nodes/edges.
+// Client component: edit instance config (name, description, canonical URL, parent URL)
+// and view graph nodes/edges.
 
 import { useState } from "react";
 import { withBasePath } from "@/lib/base-path";
@@ -10,13 +11,14 @@ interface Props {
   config: InstanceConfig;
   nodes: GraphNode[];
   edges: GraphEdge[];
-  canonicalUrl: string;
 }
 
-export default function InstanceConfigClient({ config: initial, nodes, edges, canonicalUrl }: Props) {
+export default function InstanceConfigClient({ config: initial, nodes, edges }: Props) {
   const [config, setConfig] = useState(initial);
   const [name, setName] = useState(initial.name);
   const [description, setDescription] = useState(initial.description);
+  const [canonicalUrl, setCanonicalUrl] = useState(initial.canonicalUrl);
+  const [parentUrl, setParentUrl] = useState(initial.parentUrl);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
@@ -27,14 +29,16 @@ export default function InstanceConfigClient({ config: initial, nodes, edges, ca
       const res = await fetch(withBasePath("/api/instance/config"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description }),
+        body: JSON.stringify({ name, description, canonicalUrl, parentUrl }),
       });
-      const data = await res.json();
+      const data = await res.json() as InstanceConfig & { registrationStatus?: string };
       if (!res.ok) {
-        setSaveMsg(`Error: ${data.error ?? res.statusText}`);
+        setSaveMsg(`Error: ${(data as { error?: string }).error ?? res.statusText}`);
       } else {
-        setConfig(data as InstanceConfig);
-        setSaveMsg("Saved.");
+        setConfig(data);
+        let msg = "Saved.";
+        if (data.registrationStatus) msg += ` ${data.registrationStatus}`;
+        setSaveMsg(msg);
       }
     } catch (e) {
       setSaveMsg(`Error: ${String(e)}`);
@@ -43,7 +47,9 @@ export default function InstanceConfigClient({ config: initial, nodes, edges, ca
     }
   }
 
-  const jsonUrl = `${canonicalUrl}/.well-known/primordia.json`;
+  const wellKnownUrl = config.canonicalUrl
+    ? `${config.canonicalUrl.replace(/\/$/, "")}/.well-known/primordia.json`
+    : null;
 
   return (
     <div className="space-y-8">
@@ -51,6 +57,7 @@ export default function InstanceConfigClient({ config: initial, nodes, edges, ca
       <section>
         <h2 className="text-lg font-semibold text-white mb-4">Instance Identity</h2>
         <div className="space-y-4 max-w-xl">
+
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">UUID v7 (read-only)</label>
             <div className="font-mono text-sm text-gray-300 bg-gray-900 border border-gray-700 rounded px-3 py-2 select-all">
@@ -78,6 +85,47 @@ export default function InstanceConfigClient({ config: initial, nodes, edges, ca
             />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">
+              Canonical URL
+              <span className="text-gray-600 font-normal ml-2">— the public URL of this instance</span>
+            </label>
+            <input
+              type="url"
+              value={canonicalUrl}
+              onChange={(e) => setCanonicalUrl(e.target.value)}
+              placeholder="https://primordia.example.com"
+              className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            />
+            {wellKnownUrl && (
+              <a
+                href={wellKnownUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-blue-400 hover:underline mt-1 inline-block"
+              >
+                {wellKnownUrl}
+              </a>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">
+              Parent Instance URL
+              <span className="text-gray-600 font-normal ml-2">— leave blank if this is a root instance</span>
+            </label>
+            <input
+              type="url"
+              value={parentUrl}
+              onChange={(e) => setParentUrl(e.target.value)}
+              placeholder="https://primordia.exe.xyz"
+              className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            />
+            <p className="text-xs text-gray-600 mt-1">
+              When saved, this instance will register itself with the parent so it appears in the parent&apos;s social graph.
+            </p>
+          </div>
+
           <div className="flex items-center gap-3">
             <button
               onClick={handleSave}
@@ -91,18 +139,6 @@ export default function InstanceConfigClient({ config: initial, nodes, edges, ca
                 {saveMsg}
               </span>
             )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">Well-known URL</label>
-            <a
-              href={jsonUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm text-blue-400 hover:underline break-all"
-            >
-              {jsonUrl}
-            </a>
           </div>
         </div>
       </section>
@@ -172,7 +208,11 @@ export default function InstanceConfigClient({ config: initial, nodes, edges, ca
       <section>
         <h2 className="text-lg font-semibold text-white mb-2">Register a Child Instance</h2>
         <p className="text-sm text-gray-400 mb-2">
-          POST to <code className="text-blue-400">{canonicalUrl}/api/instance/register</code> with:
+          Child instances register automatically when they save their Parent Instance URL.
+          You can also POST manually to{" "}
+          <code className="text-blue-400">
+            {config.canonicalUrl || "<your-canonical-url>"}/api/instance/register
+          </code>:
         </p>
         <pre className="bg-gray-900 border border-gray-800 rounded p-3 text-xs text-gray-300 overflow-auto">
 {JSON.stringify({ uuid7: "<child-uuid7>", url: "<child-url>", name: "<child-name>", description: "(optional)" }, null, 2)}

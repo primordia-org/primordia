@@ -1,10 +1,11 @@
 // app/api/instance/config/route.ts
-// GET  — returns instance config (uuid7, name, description). Admin only.
-// PATCH — updates name and/or description. Admin only.
+// GET  — returns instance config (uuid7, name, description, canonicalUrl, parentUrl). Admin only.
+// PATCH — updates any editable fields. Triggers parent registration if parentUrl+canonicalUrl set.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser, isAdmin } from "@/lib/auth";
 import { getDb } from "@/lib/db";
+import { registerWithParent } from "@/lib/register-with-parent";
 
 export async function GET() {
   const user = await getSessionUser();
@@ -32,8 +33,8 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Body must be an object" }, { status: 400 });
   }
 
-  const { name, description } = body as Record<string, unknown>;
-  const fields: { name?: string; description?: string } = {};
+  const { name, description, canonicalUrl, parentUrl } = body as Record<string, unknown>;
+  const fields: { name?: string; description?: string; canonicalUrl?: string; parentUrl?: string } = {};
 
   if (name !== undefined) {
     if (typeof name !== "string" || name.trim() === "") {
@@ -47,6 +48,26 @@ export async function PATCH(req: NextRequest) {
     }
     fields.description = description.trim();
   }
+  if (canonicalUrl !== undefined) {
+    if (typeof canonicalUrl !== "string") {
+      return NextResponse.json({ error: "canonicalUrl must be a string" }, { status: 400 });
+    }
+    const trimmed = canonicalUrl.trim();
+    if (trimmed && !trimmed.startsWith("http")) {
+      return NextResponse.json({ error: "canonicalUrl must be an http(s) URL" }, { status: 400 });
+    }
+    fields.canonicalUrl = trimmed;
+  }
+  if (parentUrl !== undefined) {
+    if (typeof parentUrl !== "string") {
+      return NextResponse.json({ error: "parentUrl must be a string" }, { status: 400 });
+    }
+    const trimmed = parentUrl.trim();
+    if (trimmed && !trimmed.startsWith("http")) {
+      return NextResponse.json({ error: "parentUrl must be an http(s) URL" }, { status: 400 });
+    }
+    fields.parentUrl = trimmed;
+  }
 
   if (Object.keys(fields).length === 0) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
@@ -55,5 +76,10 @@ export async function PATCH(req: NextRequest) {
   const db = await getDb();
   await db.setInstanceConfig(fields);
   const updated = await db.getInstanceConfig();
-  return NextResponse.json(updated);
+
+  // Register with parent if both URLs are configured.
+  // This covers first-time setup and any subsequent identity changes.
+  const registrationStatus = await registerWithParent(updated);
+
+  return NextResponse.json({ ...updated, registrationStatus });
 }

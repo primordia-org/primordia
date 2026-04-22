@@ -138,6 +138,13 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     insert.run("uuid7", uuid7);
     insert.run("name", "My Primordia");
     insert.run("description", "A Primordia instance");
+    insert.run("canonical_url", "");
+    insert.run("parent_url", "");
+  } else {
+    // Migration: ensure canonical_url and parent_url keys exist for older DBs
+    const upsertKey = db.prepare("INSERT OR IGNORE INTO instance_config (key, value) VALUES (?, ?)");
+    upsertKey.run("canonical_url", "");
+    upsertKey.run("parent_url", "");
   }
 
   // Migration: port existing user_permissions rows to user_roles (one-time, idempotent)
@@ -454,6 +461,8 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         uuid7: map["uuid7"] ?? "",
         name: map["name"] ?? "My Primordia",
         description: map["description"] ?? "",
+        canonicalUrl: map["canonical_url"] ?? "",
+        parentUrl: map["parent_url"] ?? "",
       } as InstanceConfig;
     },
 
@@ -463,6 +472,8 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       );
       if (fields.name !== undefined) upsert.run("name", fields.name);
       if (fields.description !== undefined) upsert.run("description", fields.description);
+      if (fields.canonicalUrl !== undefined) upsert.run("canonical_url", fields.canonicalUrl);
+      if (fields.parentUrl !== undefined) upsert.run("parent_url", fields.parentUrl);
     },
 
     async getGraphNodes() {

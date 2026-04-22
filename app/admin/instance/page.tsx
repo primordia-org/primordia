@@ -3,7 +3,6 @@
 
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 import { getSessionUser, isAdmin } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { buildPageTitle } from "@/lib/page-title";
@@ -43,13 +42,6 @@ export default async function AdminInstancePage() {
     db.getGraphEdges(),
   ]);
 
-  // Derive canonical URL server-side.
-  const hdrs = await headers();
-  const proto = hdrs.get("x-forwarded-proto") ?? "http";
-  const host = hdrs.get("host") ?? "localhost";
-  const canonicalUrl =
-    process.env.PRIMORDIA_CANONICAL_URL?.replace(/\/$/, "") ?? `${proto}://${host}`;
-
   return (
     <div className="min-h-screen bg-black text-white">
       <PageNavBar currentPage="admin" />
@@ -60,7 +52,6 @@ export default async function AdminInstancePage() {
           config={config}
           nodes={nodes}
           edges={edges}
-          canonicalUrl={canonicalUrl}
         />
       </div>
     </div>

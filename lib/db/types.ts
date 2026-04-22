@@ -80,11 +80,15 @@ export interface Role {
   createdAt: number;
 }
 
-/** This instance's identity (uuid7, name, description). */
+/** This instance's identity and settings. */
 export interface InstanceConfig {
   uuid7: string;
   name: string;
   description: string;
+  /** The public-facing URL of this instance (e.g. https://primordia.example.com). */
+  canonicalUrl: string;
+  /** URL of the parent instance to register with (empty string = no parent). */
+  parentUrl: string;
 }
 
 /** A known peer Primordia instance in the social graph. */
@@ -158,7 +162,7 @@ export interface DbAdapter {
 
   // Instance identity & social graph
   getInstanceConfig(): Promise<InstanceConfig>;
-  setInstanceConfig(fields: Partial<Pick<InstanceConfig, "name" | "description">>): Promise<void>;
+  setInstanceConfig(fields: Partial<Pick<InstanceConfig, "name" | "description" | "canonicalUrl" | "parentUrl">>): Promise<void>;
   getGraphNodes(): Promise<GraphNode[]>;
   upsertGraphNode(node: GraphNode): Promise<void>;
   getGraphEdges(): Promise<GraphEdge[]>;

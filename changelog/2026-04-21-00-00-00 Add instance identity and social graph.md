@@ -13,11 +13,11 @@
 - **Admin panel `/admin/instance`** — new tab in the admin subnav; shows the UUID v7 (read-only), editable name/description fields, a list of known peer nodes, a table of graph edges, and copy-paste instructions for registering a child instance.
 - **`lib/uuid7.ts`** — thin re-export of `uuid.v7()` from the `uuid` npm package (replaces the earlier homebrew implementation).
 - **`/schemas/instance/v1.json`** — serves the canonical JSON Schema (draft 2020-12) for the instance manifest; includes `uuid7` as a required top-level field alongside `$schema` and `canonical_url`; `$id` is `https://primordia.app/schemas/instance/v1.json`.
-- **`PRIMORDIA_CANONICAL_URL`** env var — optional; used as the base URL in the well-known JSON; falls back to deriving from request headers if unset. Required if `PRIMORDIA_PARENT_URL` is set.
-- **`PRIMORDIA_PARENT_URL`** env var — optional; when set, this instance POSTs its own identity to `{PRIMORDIA_PARENT_URL}/api/instance/register` at startup via the Next.js `instrumentation.ts` hook, so the parent automatically learns about this child.
-- **`instrumentation.ts`** — Next.js server instrumentation file; registers with the parent instance on startup if both `PRIMORDIA_PARENT_URL` and `PRIMORDIA_CANONICAL_URL` are configured.
+- **Canonical URL and parent instance URL are stored in the database** and edited from the admin panel at `/admin/instance` — no environment variables needed. The well-known JSON uses the DB value, falling back to the request's host header if unset.
+- **`lib/register-with-parent.ts`** — shared helper that POSTs this instance's identity to the parent's `/api/instance/register` endpoint. Called by the config PATCH route whenever settings are saved and both `canonicalUrl` and `parentUrl` are set. This means registration happens once on first setup (when the admin fills in those fields) and again automatically whenever name or description is updated.
 - `$schema` URL updated to `https://primordia.app/schemas/instance/v1.json` throughout.
 - Edge type simplified: only `child_of` is documented as a known type (speculative types removed from schema).
+- No environment variables are needed for instance identity; the admin panel manages everything.
 - **DB tables** — `instance_config` (key/value), `graph_nodes`, `graph_edges` added to the SQLite schema with idempotent `CREATE TABLE IF NOT EXISTS` migrations.
 
 ## Why

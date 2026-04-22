@@ -13,9 +13,9 @@ export async function GET(req: NextRequest) {
     db.getGraphEdges(),
   ]);
 
-  // Canonical URL: env var preferred, otherwise derive from request origin.
+  // Canonical URL: DB value preferred, otherwise derive from request origin.
   const canonicalUrl =
-    process.env.PRIMORDIA_CANONICAL_URL?.replace(/\/$/, "") ||
+    config.canonicalUrl.trim().replace(/\/$/, "") ||
     (() => {
       const proto = req.headers.get("x-forwarded-proto") ?? "http";
       const host = req.headers.get("host") ?? "localhost";
