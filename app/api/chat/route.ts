@@ -14,6 +14,15 @@
 //   Claude has access to read_file and list_directory tools, both sandboxed
 //   to process.cwd(). Dotfiles are blocked to protect .env and .primordia-auth.db.
 
+/**
+ * Chat with Claude
+ * @description Streams a chat response from Claude (claude-sonnet-4-6) as SSE.
+ * Send an array of messages; receive a stream of `data: {"text":"..."}` events followed by `data: [DONE]`.
+ * Requires an active session.
+ * @tags Chat
+ * @openapi
+ */
+
 import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { getLlmClient } from "@/lib/llm-client";

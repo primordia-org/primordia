@@ -3,6 +3,13 @@
 //
 // POST
 //   Body: { action: "accept" | "reject", sessionId: string }
+
+/**
+ * Accept or reject an evolve session
+ * @description POST `{ action: "accept" | "reject", sessionId }` to accept (deploy) or reject (discard) a ready evolve session. Requires `can_evolve` or `admin` role.
+ * @tags Evolve
+ * @openapi
+ */
 //
 //   accept — looks up the session in SQLite, kills the preview dev server
 //            (via the reverse proxy management API), then performs one of two merge paths:
