@@ -137,10 +137,12 @@ function buildSessionFromWorktreePath(
     if (event.type === 'initial_request') {
       request = event.request;
     } else if (event.type === 'metrics') {
-      durationMs = event.durationMs;
-      inputTokens = event.inputTokens;
-      outputTokens = event.outputTokens;
-      costUsd = event.costUsd;
+      // Sum across all metrics events (each records incremental cost/tokens for
+      // one agent run; follow-ups write a delta rather than a cumulative total).
+      if (event.durationMs != null) durationMs = (durationMs ?? 0) + event.durationMs;
+      if (event.inputTokens != null) inputTokens = (inputTokens ?? 0) + event.inputTokens;
+      if (event.outputTokens != null) outputTokens = (outputTokens ?? 0) + event.outputTokens;
+      if (event.costUsd != null) costUsd = (costUsd ?? 0) + event.costUsd;
     }
   }
 
