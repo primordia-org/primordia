@@ -3,8 +3,8 @@ import { join } from "path";
 
 export async function GET() {
   const script = readFileSync(
-    join(process.cwd(), "scripts/primordia_setup.sh"),
-    "utf-8"
+    join(process.cwd(), "scripts/install.sh"),
+    "utf-8",
   );
   return new Response(script, {
     headers: {
