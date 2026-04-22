@@ -2,7 +2,7 @@
 // Allows a child Primordia instance to register itself with this instance.
 // On success, the child is added as a graph node and a "child_of" edge is created.
 //
-// POST body: { uuid7: string, url: string, name: string, description?: string }
+// POST body: { uuid7: string, name: string, url?: string, description?: string }
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   if (!isValidUuid7(uuid7)) {
     return NextResponse.json({ error: "uuid7 must be a valid UUID v7" }, { status: 400 });
   }
-  if (typeof url !== "string" || !url.startsWith("http")) {
+  if (url !== undefined && (typeof url !== "string" || !url.startsWith("http"))) {
     return NextResponse.json({ error: "url must be a valid http(s) URL" }, { status: 400 });
   }
   if (typeof name !== "string" || name.trim() === "") {
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
   await db.upsertGraphNode({
     uuid7,
-    url: url.replace(/\/$/, ""),
+    url: typeof url === "string" ? url.replace(/\/$/, "") : "",
     name: name.trim(),
     description: typeof description === "string" ? description.trim() || null : null,
     registeredAt: now,

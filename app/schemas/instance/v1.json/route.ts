@@ -47,7 +47,7 @@ const SCHEMA = {
       description: "A partial or complete set of known Primordia instances in the ecosystem",
       items: {
         type: "object",
-        required: ["id", "url"],
+        required: ["id"],
         additionalProperties: true,
         properties: {
           id: {

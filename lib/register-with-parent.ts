@@ -8,16 +8,16 @@ import type { InstanceConfig } from "./db/types";
 
 export async function registerWithParent(config: InstanceConfig): Promise<string> {
   const parentUrl = config.parentUrl.trim().replace(/\/$/, "");
+  if (!parentUrl) return "";
+
   const canonicalUrl = config.canonicalUrl.trim().replace(/\/$/, "");
 
-  if (!parentUrl || !canonicalUrl) return "";
-
-  const body = {
+  const body: Record<string, string> = {
     uuid7: config.uuid7,
-    url: canonicalUrl,
     name: config.name,
-    description: config.description || undefined,
   };
+  if (canonicalUrl) body.url = canonicalUrl;
+  if (config.description) body.description = config.description;
 
   try {
     const res = await fetch(`${parentUrl}/api/instance/register`, {

@@ -94,6 +94,7 @@ export interface InstanceConfig {
 /** A known peer Primordia instance in the social graph. */
 export interface GraphNode {
   uuid7: string;
+  /** Current canonical URL, or empty string if unknown. */
   url: string;
   name: string;
   description: string | null;
