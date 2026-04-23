@@ -44,7 +44,6 @@ export default function InstallBlock({ setupUrl, defaultName }: { setupUrl: stri
   const [name, setName] = useState(defaultName);
   const [caretPx, setCaretPx] = useState<number | null>(null);
   const [focused, setFocused] = useState(false);
-  const [endPx, setEndPx] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const fontRef = useRef<string>("");
@@ -52,22 +51,14 @@ export default function InstallBlock({ setupUrl, defaultName }: { setupUrl: stri
     if (inputRef.current && !fontRef.current) {
       const s = window.getComputedStyle(inputRef.current);
       fontRef.current = `${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
-      setEndPx(measureText(name, fontRef.current));
     }
-  }, []);
-
-  const measureEnd = useCallback((value: string) => {
-    if (!fontRef.current) return null;
-    return measureText(value, fontRef.current);
   }, []);
 
   const updateCaret = useCallback(() => {
     const el = inputRef.current;
     if (!el || !fontRef.current) return;
     const pos = el.selectionStart ?? el.value.length;
-    const px = measureText(el.value.slice(0, pos), fontRef.current);
-    setCaretPx(px);
-    setEndPx(measureText(el.value, fontRef.current));
+    setCaretPx(measureText(el.value.slice(0, pos), fontRef.current));
   }, []);
 
   const sshCmd = `ssh exe.dev new --name=${name}`;
@@ -83,7 +74,7 @@ export default function InstallBlock({ setupUrl, defaultName }: { setupUrl: stri
         <span className="select-none text-gray-600 font-mono text-sm shrink-0">$</span>
         <div className="flex-1 font-mono text-sm text-green-400 text-left flex items-center min-w-0 overflow-hidden">
           <span className="shrink-0 select-none">ssh exe.dev new --name=</span>
-          <span className="relative inline-flex items-center">
+          <span className={`install-cursor relative inline-flex items-center${focused ? " is-focused" : ""}`}>
             <input
               ref={inputRef}
               value={name}
@@ -99,14 +90,7 @@ export default function InstallBlock({ setupUrl, defaultName }: { setupUrl: stri
                 el.setSelectionRange(el.value.length, el.value.length);
                 requestAnimationFrame(updateCaret);
               }}
-              onBlur={(e) => {
-                setFocused(false);
-                const el = e.currentTarget;
-                requestAnimationFrame(() => {
-                  el.setSelectionRange(el.value.length, el.value.length);
-                });
-                setEndPx(measureEnd(e.currentTarget.value));
-              }}
+              onBlur={() => { setFocused(false); }}
               onKeyUp={updateCaret}
               onMouseUp={updateCaret}
               spellCheck={false}
@@ -115,12 +99,12 @@ export default function InstallBlock({ setupUrl, defaultName }: { setupUrl: stri
               className="bg-transparent outline-none text-green-400 font-mono text-sm caret-transparent selection:bg-green-400/30 min-w-[1ch]"
               style={{ width: `${Math.max(name.length, 1)}ch` }}
             />
-            {/* Block cursor — tracks real caret when focused, sits at end when idle */}
-            {(focused ? caretPx : endPx) !== null && (
+            {/* JS-tracked block cursor — only active when focused */}
+            {focused && caretPx !== null && (
               <span
                 aria-hidden="true"
                 className="absolute top-0 bottom-0 w-[0.55em] bg-green-400 animate-blink pointer-events-none"
-                style={{ left: focused ? caretPx! : endPx! }}
+                style={{ left: caretPx }}
               />
             )}
           </span>
