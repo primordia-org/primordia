@@ -44,6 +44,7 @@ export default function InstallBlock({ setupUrl, defaultName }: { setupUrl: stri
   const [name, setName] = useState(defaultName);
   const [caretPx, setCaretPx] = useState<number | null>(null);
   const [focused, setFocused] = useState(false);
+  const [focusCount, setFocusCount] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const fontRef = useRef<string>("");
@@ -57,7 +58,7 @@ export default function InstallBlock({ setupUrl, defaultName }: { setupUrl: stri
   const updateCaret = useCallback(() => {
     const el = inputRef.current;
     if (!el || !fontRef.current) return;
-    const pos = el.selectionStart ?? el.value.length;
+    const pos = el.selectionEnd ?? el.value.length;
     setCaretPx(measureText(el.value.slice(0, pos), fontRef.current));
   }, []);
 
@@ -84,10 +85,9 @@ export default function InstallBlock({ setupUrl, defaultName }: { setupUrl: stri
                 requestAnimationFrame(updateCaret);
               }}
               onSelect={updateCaret}
-              onFocus={(e) => {
+              onFocus={() => {
                 setFocused(true);
-                const el = e.currentTarget;
-                el.setSelectionRange(el.value.length, el.value.length);
+                setFocusCount(n => n + 1);
                 requestAnimationFrame(updateCaret);
               }}
               onBlur={() => { setFocused(false); }}
@@ -102,6 +102,7 @@ export default function InstallBlock({ setupUrl, defaultName }: { setupUrl: stri
             {/* JS-tracked block cursor — only active when focused */}
             {focused && caretPx !== null && (
               <span
+                key={focusCount}
                 aria-hidden="true"
                 className="absolute top-0 bottom-0 w-[0.55em] bg-green-400 animate-blink pointer-events-none"
                 style={{ left: caretPx }}
