@@ -388,6 +388,11 @@ UNIT
     fi
   fi
 
+  # Enable the service so it starts automatically on boot
+  if ! $SYSTEMCTL is-enabled --quiet primordia 2>/dev/null; then
+    $SYSTEMCTL enable primordia
+  fi
+
   # Start/restart the service
   if [[ "$PROXY_CHANGED" == true || "$SERVICE_CHANGED" == true ]]; then
     _done "Installed primordia systemd service"
