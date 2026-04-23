@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useLayoutEffect, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Check, Copy } from "lucide-react";
 
 function CopyBtn({ text }: { text: string }) {
@@ -28,42 +28,24 @@ function CopyBtn({ text }: { text: string }) {
   );
 }
 
-// Measures pixel width of a string in a monospace font via a hidden canvas.
-function measureText(text: string, font: string): number {
-  if (typeof document === "undefined") return 0;
-  const canvas =
-    (measureText as { _canvas?: HTMLCanvasElement })._canvas ??
-    ((measureText as { _canvas?: HTMLCanvasElement })._canvas =
-      document.createElement("canvas"));
-  const ctx = canvas.getContext("2d")!;
-  ctx.font = font;
-  return ctx.measureText(text).width;
-}
-
 export default function InstallBlock({ setupUrl, defaultName }: { setupUrl: string; defaultName: string }) {
   const [name, setName] = useState(defaultName);
-  const [caretPx, setCaretPx] = useState<number | null>(null);
-  const [focused, setFocused] = useState(false);
+  // caretPos is the character index of the caret (selectionEnd). null = unfocused.
+  const [caretPos, setCaretPos] = useState<number | null>(null);
   const [focusCount, setFocusCount] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const mouseDownRef = useRef(false);
 
-  const fontRef = useRef<string>("");
-
   const updateCaret = useCallback(() => {
     const el = inputRef.current;
-    if (!el || !fontRef.current) return;
-    const pos = el.selectionEnd ?? el.value.length;
-    setCaretPx(measureText(el.value.slice(0, pos), fontRef.current));
+    if (!el) return;
+    setCaretPos(el.selectionEnd ?? el.value.length);
   }, []);
 
-  useLayoutEffect(() => {
-    if (inputRef.current && !fontRef.current) {
-      const s = window.getComputedStyle(inputRef.current);
-      fontRef.current = `${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
-      updateCaret();
-    }
-  }, [updateCaret]);
+  const focused = caretPos !== null;
+  // CSS custom property: how many ch to shift the ::after cursor left from the right edge of the input.
+  // At end of word: 0. At beginning: name.length ch.
+  const charsFromEnd = caretPos !== null ? Math.max(name.length, 1) - caretPos : 0;
 
   const sshCmd = `ssh exe.dev new --name=${name}`;
   const curlCmd = `curl -fsSL ${setupUrl} | ssh ${name}.exe.xyz 'bash -s'`;
@@ -78,7 +60,10 @@ export default function InstallBlock({ setupUrl, defaultName }: { setupUrl: stri
         <span className="select-none text-gray-600 font-mono text-sm shrink-0">$</span>
         <div className="flex-1 font-mono text-sm text-green-400 text-left flex items-center min-w-0 overflow-hidden">
           <span className="shrink-0 select-none">ssh exe.dev new --name=</span>
-          <span className={`install-cursor relative inline-flex items-center${focused ? " is-focused" : ""}`}>
+          <span
+            className={`install-cursor relative inline-flex items-center${focused ? " is-focused" : ""}`}
+            style={{ "--caret-offset": `${charsFromEnd}ch` } as React.CSSProperties}
+          >
             <input
               ref={inputRef}
               value={name}
@@ -90,7 +75,6 @@ export default function InstallBlock({ setupUrl, defaultName }: { setupUrl: stri
               onSelect={updateCaret}
               onMouseDown={() => { mouseDownRef.current = true; }}
               onFocus={(e) => {
-                setFocused(true);
                 setFocusCount(n => n + 1);
                 if (!mouseDownRef.current) {
                   // Keyboard/tab focus — move caret to end
@@ -100,7 +84,7 @@ export default function InstallBlock({ setupUrl, defaultName }: { setupUrl: stri
                 mouseDownRef.current = false;
                 requestAnimationFrame(updateCaret);
               }}
-              onBlur={() => { setFocused(false); }}
+              onBlur={() => { setCaretPos(null); }}
               onKeyUp={updateCaret}
               onMouseUp={updateCaret}
               spellCheck={false}
@@ -109,13 +93,12 @@ export default function InstallBlock({ setupUrl, defaultName }: { setupUrl: stri
               className="bg-transparent outline-none text-green-400 font-mono text-sm caret-transparent selection:bg-green-400/30 min-w-[1ch]"
               style={{ width: `${Math.max(name.length, 1)}ch` }}
             />
-            {/* JS-tracked block cursor — only active when focused */}
-            {focused && caretPx !== null && (
+            {/* JS-positioned block cursor — remounts on each focus to restart blink animation */}
+            {focused && (
               <span
                 key={focusCount}
                 aria-hidden="true"
-                className="absolute top-0 bottom-0 w-[0.55em] bg-green-400 animate-blink pointer-events-none"
-                style={{ left: caretPx }}
+                className="install-cursor-js animate-blink"
               />
             )}
           </span>

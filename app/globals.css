@@ -57,9 +57,10 @@
 .animate-blink { animation: blink 1s step-end infinite; }
 @media (prefers-reduced-motion: reduce) { .animate-blink { animation: none; } }
 
-/* CSS-only block cursor for the install block — no JS needed for initial paint.
-   The wrapper is inline-flex; the input width = name.length ch; ::after sits at
-   left: 100% of the input, i.e. right after the last character. */
+/* Block cursor for the install block.
+   Unfocused: CSS ::after sits at right edge of input (left: 100%).
+   Focused: JS span (.install-cursor-js) is positioned via --caret-offset,
+   shifting it left from the right edge by (name.length - caretPos) ch. */
 .install-cursor::after {
   content: '';
   position: absolute;
@@ -72,6 +73,16 @@
 }
 .install-cursor.is-focused::after { display: none; }
 @media (prefers-reduced-motion: reduce) { .install-cursor::after { animation: none; } }
+
+.install-cursor-js {
+  position: absolute;
+  top: 0; bottom: 0;
+  right: calc(var(--caret-offset, 0ch) - 0.55em);
+  width: 0.55em;
+  background: #4ade80;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) { .install-cursor-js { animation: none; } }
 
 .text-shimmer {
   background: linear-gradient(
