@@ -19,13 +19,11 @@ import {
   HARNESS_OPTIONS,
   DEFAULT_HARNESS,
   DEFAULT_MODEL,
-  type ModelOption,
-} from "../lib/agent-config";
-import {
   CAVEMAN_INTENSITIES,
   DEFAULT_CAVEMAN_INTENSITY,
+  type ModelOption,
   type CavemanIntensity,
-} from "../lib/user-prefs";
+} from "../lib/agent-config";
 import { PageElementInspector, PageElementInfo, captureElementFiles } from "./PageElementInspector";
 
 // ─── Types ────────────────────────────────────────────────────────────────────

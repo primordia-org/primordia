@@ -7,6 +7,9 @@ import {
   DEFAULT_HARNESS,
   DEFAULT_MODEL,
   HARNESS_OPTIONS,
+  CAVEMAN_INTENSITIES,
+  DEFAULT_CAVEMAN_INTENSITY,
+  type CavemanIntensity,
 } from "./agent-config";
 import { resolveValidModel } from "./pi-model-registry.server";
 
@@ -15,9 +18,8 @@ export const PREF_MODEL = "evolve:preferred-model";
 export const PREF_CAVEMAN = "evolve:caveman-mode";
 export const PREF_CAVEMAN_INTENSITY = "evolve:caveman-intensity";
 
-export const CAVEMAN_INTENSITIES = ["lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"] as const;
-export type CavemanIntensity = typeof CAVEMAN_INTENSITIES[number];
-export const DEFAULT_CAVEMAN_INTENSITY: CavemanIntensity = "full";
+// Re-export for callers that import caveman constants from this module.
+export { CAVEMAN_INTENSITIES, DEFAULT_CAVEMAN_INTENSITY, type CavemanIntensity } from "./agent-config";
 
 export interface EvolvePrefs {
   initialHarness: string;

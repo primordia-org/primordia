@@ -1,5 +1,9 @@
 // lib/pi-model-registry.server.ts
-// SERVER-ONLY — uses the pi ModelRegistry (which reads from the filesystem) to
+// SERVER-ONLY — the `server-only` import below causes Next.js to throw a build
+// error if this module is ever imported into a client bundle.
+import 'server-only';
+
+// Uses the pi ModelRegistry (which reads from the filesystem) to
 // build the model option list at request time rather than hard-coding it.
 //
 // Supported providers per harness:
