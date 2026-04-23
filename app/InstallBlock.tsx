@@ -2,6 +2,7 @@
 
 import { useState, useRef, useLayoutEffect, useCallback } from "react";
 import { Check, Copy } from "lucide-react";
+import { createNameId } from "mnemonic-id";
 
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -41,7 +42,7 @@ function measureText(text: string, font: string): number {
 }
 
 export default function InstallBlock({ setupUrl }: { setupUrl: string }) {
-  const [name, setName] = useState("primordia");
+  const [name, setName] = useState(() => createNameId());
   const [caretPx, setCaretPx] = useState<number | null>(null);
   const [focused, setFocused] = useState(false);
   const [endPx, setEndPx] = useState<number | null>(null);
