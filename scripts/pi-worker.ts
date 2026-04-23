@@ -183,6 +183,13 @@ async function main(): Promise<void> {
 
     activeSession = session;
 
+    // Snapshot baseline stats *before* the prompt so we can compute incremental
+    // (per-run) metrics rather than cumulative session-wide totals.
+    // When useContinue=true the session is resumed from a saved file and already
+    // carries token/cost totals from all previous turns.  Subtracting the
+    // baseline gives us only the tokens / cost consumed by THIS run.
+    const baselineStats = session.getSessionStats();
+
     // Subscribe to events and write them to the NDJSON log.
     session.subscribe((event) => {
       if (event.type === 'message_update') {
@@ -243,8 +250,12 @@ async function main(): Promise<void> {
       throw new Error(lastApiErrorMessage);
     }
 
-    // Collect final token/cost metrics from the session stats.
-    const stats = session.getSessionStats();
+    // Collect incremental token/cost metrics: delta from baseline to avoid
+    // reporting cumulative session totals in follow-up runs.
+    const finalStats = session.getSessionStats();
+    const incrementalInput = finalStats.tokens.input - baselineStats.tokens.input;
+    const incrementalOutput = finalStats.tokens.output - baselineStats.tokens.output;
+    const incrementalCost = finalStats.cost - baselineStats.cost;
     const durationMs = ts() - startTime;
 
     // Detect max_tokens truncation: if the model's last response had
@@ -274,9 +285,9 @@ async function main(): Promise<void> {
     appendSessionEvent(ndjsonPath, {
       type: 'metrics',
       durationMs,
-      inputTokens: stats.tokens.input || null,
-      outputTokens: stats.tokens.output || null,
-      costUsd: stats.cost || null,
+      inputTokens: incrementalInput > 0 ? incrementalInput : null,
+      outputTokens: incrementalOutput > 0 ? incrementalOutput : null,
+      costUsd: incrementalCost > 0 ? incrementalCost : null,
       ts: ts(),
     });
 

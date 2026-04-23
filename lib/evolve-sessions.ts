@@ -556,7 +556,14 @@ export async function startLocalEvolve(
       appendSessionEvent(ndjsonPath, { type: 'setup_step', label: `Copied ${worktreeAttachmentPaths.length} attachment(s) into worktree`, done: true, ts: Date.now() });
     }
 
-    // Step 6 — Spawn Claude Code as a detached worker process.
+    // Step 6 — Spawn Claude Code as a detached worker process (or skip if no prompt).
+    if (!taskRequest) {
+      // No prompt — mark the session ready immediately so the preview can be
+      // tested before any changes are made. Follow-up requests can still be submitted.
+      appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'success', ts: Date.now() });
+      return;
+    }
+
     // The worker writes progress to the NDJSON file. Status is inferred from the
     // 'result' event it writes on completion.
     // It survives server restarts — on next startup, reconnectRunningWorkers() re-attaches.

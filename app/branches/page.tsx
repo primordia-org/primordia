@@ -169,7 +169,7 @@ async function getBranchData(): Promise<{
 const TERMINAL_STATUSES = new Set(["accepted", "rejected"]);
 
 /**
- * Builds two sections from the flat branch list:
+ * Builds three sections from the flat branch list:
  *
  * - `activeProd`: the production branch as a tree root, with only non-terminal
  *   (not accepted/rejected) children/grandchildren nested under it.
@@ -178,6 +178,9 @@ const TERMINAL_STATUSES = new Set(["accepted", "rejected"]);
  *   ordered most-recent-first. Each slot includes its non-chain sibling branches
  *   (any branch whose parent was that slot, excluding the branch that was
  *   blue-green-promoted to the next slot).
+ *
+ * - `unattached`: branches with no `parent` config and no connection to the
+ *   production chain — e.g. manually created branches/worktrees.
  */
 function buildSections(
   branches: BranchData[],
@@ -185,6 +188,7 @@ function buildSections(
 ): {
   activeProd: BranchNode | null;
   pastSlots: PastSlot[];
+  unattached: BranchData[];
 } {
   const byName = new Map<string, BranchData>(
     branches.map((b) => [b.name, b]),
@@ -289,7 +293,27 @@ function buildSections(
     return { branch: slotData, children };
   });
 
-  return { activeProd, pastSlots };
+  // Collect all branch names covered by the active and past-slot trees so we
+  // can surface any remaining branches as "unattached" (no connection to the
+  // production chain — typically manually created branches or worktrees).
+  const covered = new Set<string>([productionBranchName, ...productionChain]);
+  // Add all descendants of every covered branch.
+  let frontier = [...covered];
+  while (frontier.length > 0) {
+    const next: string[] = [];
+    for (const b of branches) {
+      if (b.parent && covered.has(b.parent) && !covered.has(b.name)) {
+        covered.add(b.name);
+        next.push(b.name);
+      }
+    }
+    frontier = next;
+  }
+  const unattached = branches
+    .filter((b) => !covered.has(b.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return { activeProd, pastSlots, unattached };
 }
 
 // ─── Status display helpers ──────────────────────────────────────────────────────
@@ -475,7 +499,7 @@ export default async function BranchesPage() {
     : [false, false, null];
 
   const { branches, productionBranch, diag } = await getBranchData();
-  const { activeProd, pastSlots } = buildSections(branches, productionBranch);
+  const { activeProd, pastSlots, unattached } = buildSections(branches, productionBranch);
 
   const [headerStore] = await Promise.all([headers()]);
   const sessionUser = user
@@ -553,6 +577,31 @@ export default async function BranchesPage() {
                   isLast={true}
                   currentServerUrl={currentServerUrl}
                   canCreateSession={false}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Unattached Branches section ── */}
+      {unattached.length > 0 && (
+        <div className="mt-8">
+          <p className="text-xs text-gray-500 font-mono uppercase tracking-widest mb-2">
+            Other Branches
+          </p>
+          <div className="space-y-0">
+            {unattached.map((b) => {
+              const node: BranchNode = { ...b, children: [] };
+              return (
+                <BranchRow
+                  key={b.name}
+                  node={node}
+                  depth={0}
+                  linePrefix=""
+                  isLast={true}
+                  currentServerUrl={currentServerUrl}
+                  canCreateSession={userCanEvolve}
                 />
               );
             })}
