@@ -75,7 +75,7 @@ export default function InstallBlock({ setupUrl }: { setupUrl: string }) {
   const cmds = [
     `VM_NAME=${name}`,
     `ssh exe.dev new --name=$VM_NAME`,
-    `ssh $VM_NAME.exe.xyz bash <(curl -fsSL ${setupUrl})`,
+    `curl -fsSL ${setupUrl} | ssh $VM_NAME.exe.xyz 'bash -s'`,
   ];
 
   return (

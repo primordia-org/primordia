@@ -20,7 +20,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # ── Colours / formatting ──────────────────────────────────────────────────────
 
-if [[ -t 1 ]]; then
+if [[ -t 1 ]] || [[ -e /dev/tty ]]; then
   BOLD="\033[1m"; GREEN="\033[0;32m"; CYAN="\033[0;36m"
   YELLOW="\033[0;33m"; RED="\033[0;31m"; DIM="\033[2m"; RESET="\033[0m"
 else
@@ -32,15 +32,16 @@ success() { echo -e "${GREEN}✓${RESET} $*"; }
 warn()    { echo -e "${YELLOW}⚠${RESET} $*"; }
 die()     { echo -e "${RED}✗ $*${RESET}" >&2; exit 1; }
 diag()    { echo -e "${DIM}  $*${RESET}"; }
-# _step: print spinner line (no newline) — replaced by _done on success
-# _done: stop spinner and overwrite line with ✓
-# _spin_kill: stop spinner without printing a success line
+
+# _step: print a spinner line (no newline) — replaced by _done on success
+# _done: stop the spinner and overwrite the line with ✓
+# _spin_kill: stop spinner without printing a success line (use before die)
 _SPINNER_PID=""
 _step() {
   local msg="$*"
-  printf '%s\\ %s' "$msg"
+  printf '\\ %s' "$msg"
   ( local i=1; local c='\|/-'
-    while true; do sleep 0.12; printf '\r%s%s %s' "${c:$((i % 4)):1}" "$msg"; i=$((i+1)); done ) &
+    while true; do sleep 0.12; printf '\r%s %s' "${c:$((i % 4)):1}" "$msg"; i=$((i+1)); done ) &
   _SPINNER_PID=$!
   disown "$_SPINNER_PID" 2>/dev/null || true
 }
@@ -57,27 +58,28 @@ _spin_kill() {
   printf "\r\033[K"
 }
 
-# ── Server diagnostics ────────────────────────────────────────────────────────
-
-diag "--- Server diagnostics (paste this if something goes wrong) ---"
-diag "Date:      $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-diag "Hostname:  $(hostname -f 2>/dev/null || hostname)"
-diag "OS:        $(uname -srm)"
-if [[ -f /etc/os-release ]]; then
-  diag "Distro:    $(. /etc/os-release && echo "${PRETTY_NAME:-$ID}")"
-fi
-diag "User:      $(whoami)"
-diag "Disk:      $(df -h "${PRIMORDIA_DIR}" 2>/dev/null | awk 'NR==2{print $4" free of "$2}' || echo 'unknown')"
-diag "Memory:    $(free -h 2>/dev/null | awk '/^Mem:/{print $7" free of "$2}' || echo 'unknown')"
-diag "Repo:      $(git -C "${BARE_REPO}" log -1 --oneline 2>/dev/null || echo 'unknown')"
-diag "--------------------------------------------------------------"
-echo ""
+server_diagnostics() {
+  diag "--- Server diagnostics ---------------------------------------"
+  diag "Date:      $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+  diag "Hostname:  $(hostname -f 2>/dev/null || hostname)"
+  diag "OS:        $(uname -srm)"
+  if [[ -f /etc/os-release ]]; then
+    diag "Distro:    $(. /etc/os-release && echo "${PRETTY_NAME:-$ID}")"
+  fi
+  diag "User:      $(whoami)"
+  diag "Disk:      $(df -h "." 2>/dev/null | awk 'NR==2{print $4" free of "$2}' || echo 'unknown')"
+  diag "Memory:    $(free -h 2>/dev/null | awk '/^Mem:/{print $7" free of "$2}' || echo 'unknown')"
+  diag "--------------------------------------------------------------"
+  echo ""
+}
 
 # ── ERR trap ──────────────────────────────────────────────────────────────────
 
 _CURRENT_STEP="(initialising)"
 trap '_exit_code=$?
+_spin_kill
 echo -e "\n${RED}✗ Install failed${RESET} at step: ${BOLD}${_CURRENT_STEP}${RESET} (line ${LINENO}, exit ${_exit_code})" >&2
+server_diagnostics >&2
 echo "" >&2
 echo -e "${DIM}  Service logs (last 30 lines):${RESET}" >&2
 journalctl -u primordia-proxy -n 30 --no-pager 2>/dev/null >&2 || true
@@ -115,14 +117,15 @@ fi
 
 _CURRENT_STEP="Locate directories"
 SCRIPT_DIR=""
-if [[ "${BASH_SOURCE[0]}" != "bash" && "${BASH_SOURCE[0]}" != "-bash" && -n "${BASH_SOURCE[0]}" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+THIS_FILE="${BASH_SOURCE[0]:-}"
+if [[ "${THIS_FILE}" != "bash" && "${THIS_FILE}" != "-bash" && -n "${THIS_FILE}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${THIS_FILE}")" && pwd)"
 fi
 
 if [[ -n "$SCRIPT_DIR" ]] && git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
   WORKTREES_DIR="$(dirname "$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)")"
   PRIMORDIA_DIR="$(dirname "${WORKTREES_DIR}")"
-  if [[ -z "$1" ]]; then
+  if [[ -z "${1:-}" ]]; then
     BRANCH="$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD)"
   elif [[ "$BRANCH" != "$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD)" ]]; then
     die "Error: branch argument '$BRANCH' does not match worktree branch"
@@ -158,20 +161,20 @@ fi
 # ── Calculate branch name ─────────────────────────────────────────────────────
 
 _CURRENT_STEP="Calculate branch name"
-if [[ -z "$1" ]]; then
+if [[ -z "${1:-}" ]]; then
   # Find the remote branch that points to the same commit as origin/main
-  BRANCH="$(git -C "${BARE_REPO}" branch -r --points-at "$(git -C "${BARE_REPO}" rev-parse origin/main)" | grep -v 'origin/main' | head -1 | sed 's|origin/||')"
+  BRANCH="$(git -C "${BARE_REPO}" branch --format '%(refname:short)' --points-at "$(git -C "${BARE_REPO}" rev-parse main)" | grep -v 'main' | head -1)"
 else
   # Branch name provided to installer
   BRANCH="$1"
 fi
 
 # Confirm such a branch exists
-if ! git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+if ! git -C "${BARE_REPO}" show-ref --quiet "$BRANCH"; then
   die "Branch not found: ${BRANCH}"
 fi
 
-success "Branch: ${branch}"
+success "Branch: ${BRANCH}"
 
 # ── Create worktree ───────────────────────────────────────────────────────────
 
@@ -183,8 +186,7 @@ else
   _step "Creating worktree..."
   # Create a local tracking branch from the remote ref and check it out in
   # the new worktree.
-  git -C "${BARE_REPO}" worktree add "${INSTALL_DIR}" \
-      -b "${BRANCH}" "origin/${BRANCH}" 2>/dev/null;
+  git -C "${BARE_REPO}" worktree add "${INSTALL_DIR}" "${BRANCH}" 2>/dev/null;
   _done "Worktree created"
 fi
 
@@ -205,18 +207,6 @@ if ! command -v bun &>/dev/null; then
   _done "Using bun $(bun --version)"
 else
   success "Using bun $(bun --version)"
-fi
-
-# ── Write .env.local ──────────────────────────────────────────────────────────
-
-_CURRENT_STEP="write .env.local"
-ENV_FILE="${INSTALL_DIR}/.env.local"
-if [[ ! -f "${ENV_FILE}" ]]; then
-  cat > "${ENV_FILE}" << EOF
-# Generated by Primordia installer — $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}
-EOF
-  success "Wrote ${ENV_FILE/#$HOME/~}"
 fi
 
 # ── Install dependencies ──────────────────────────────────────────────────────
@@ -265,29 +255,36 @@ if [[ ! -f "${REVERSE_PROXY_DEST}" ]]; then
   PROXY_CHANGED=true
 elif ! diff -q "${REVERSE_PROXY_SOURCE}" "${REVERSE_PROXY_DEST}" >/dev/null 2>&1; then
   PROXY_CHANGED=true
+else
+  PROXY_CHANGED=false
 fi
 
-if $PROXY_CHANGED; then
+if [[ "${PROXY_CHANGED}" == "true" ]]; then
   cp -f "${REVERSE_PROXY_SOURCE}" "${REVERSE_PROXY_DEST}"
   success "Installed reverse-proxy.ts"
 else
   success "Using reverse-proxy.ts"
 fi
 
+# ── Mark production branch ─────────────────────────────────────────────────────
+git -C "${BARE_REPO}" config primordia.productionbranch "$BRANCH"
+git -C "${BARE_REPO}" config branch."$BRANCH".sessionid "$BRANCH"
+
 # ── Determine hostname ────────────────────────────────────────────────────────
 
 _CURRENT_STEP="determine hostname"
 HOSTNAME_FQDN="$(hostname -f 2>/dev/null || hostname)"
-REVERSE_PROXY_PORT=8000
+REVERSE_PROXY_PORT=3000
 
 if [[ "$HOSTNAME_FQDN" == *.local || "$HOSTNAME_FQDN" == *.lan || "$HOSTNAME_FQDN" == "localhost" ]]; then
   info "No domain name detected. Assuming localhost."
   APP_URL="http://localhost:${REVERSE_PROXY_PORT}"
   PROBABLY_A_SERVER=false
 elif [[ "$HOSTNAME_FQDN" == *.exe.xyz ]]; then
-  info "Detected exe.dev host: ${HOSTNAME_FQDN}"
+  info "Detected exe.xyz host"
   APP_URL="https://${HOSTNAME_FQDN}"
   PROBABLY_A_SERVER=true
+  REVERSE_PROXY_PORT=8000
 else
   warn "Not running on exe.dev — automatic SSL termination, exe.dev login, and LLM gateway integration won't be available."
   APP_URL="http://${HOSTNAME_FQDN}:${REVERSE_PROXY_PORT}"
@@ -298,20 +295,22 @@ fi
 
 _CURRENT_STEP="install systemd service"
 
-if [[ "$PROBABLY_A_SERVER" == "true" && command -v systemctl &>/dev/null ]]; then
+if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; then
   # Determine if systemd of something else
   success "Using systemd v$(systemctl --version | awk 'NR==1 {print $2}')"
   _step "Installing systemd service..."
-  # Check if we have write access to the system systemd directory
-  if [[ -w /etc/systemd/system ]]; then
-    SYSTEMD_SERVICE_DIR="/etc/systemd/system"
-    SYSTEMCTL="systemctl"
-  else
-    # otherwise fall back to the user directory:
-    SYSTEMD_SERVICE_DIR="${HOME}/.config/systemd/user"
-    SYSTEMCTL="systemctl --user"
-    mkdir -p "$SYSTEMD_SERVICE_DIR"
-  fi
+  # # Check if we have write access to the system systemd directory
+  # if [[ -w /etc/systemd/system ]]; then
+  #   SYSTEMD_SERVICE_DIR="/etc/systemd/system"
+  #   SYSTEMCTL="sudo systemctl"
+  # else
+  #   # otherwise fall back to the user directory:
+  #   SYSTEMD_SERVICE_DIR="${HOME}/.config/systemd/user"
+  #   SYSTEMCTL="systemctl --user"
+  #   mkdir -p "$SYSTEMD_SERVICE_DIR"
+  # fi
+  SYSTEMD_SERVICE_DIR="/etc/systemd/system"
+  SYSTEMCTL="sudo systemctl"
   PROXY_SERVICE_DST="${SYSTEMD_SERVICE_DIR}/primordia.service"
   BUN_DIR="$(dirname "$(command -v bun)")"
   GENERATED_UNIT=$(cat << UNIT
@@ -323,7 +322,7 @@ After=network.target
 Type=simple
 User=${USER}
 WorkingDirectory=${PRIMORDIA_DIR}
-EnvironmentFile=${PRIMORDIA_DIR}/.env.local
+Environment=REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}
 Environment=PRIMORDIA_WORKTREES_DIR=${WORKTREES_DIR}
 Environment=HOME=${HOME}
 Environment=PATH=${BUN_DIR}:/usr/local/bin:/usr/bin:/bin
@@ -335,7 +334,8 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-UNIT)
+UNIT
+)
 
   # Calculate if the service needs updating
   if [[ ! -f "${PROXY_SERVICE_DST}" ]]; then
@@ -351,7 +351,7 @@ UNIT)
 
   # Install/update the service
   if $SERVICE_CHANGED; then
-    echo "$GENERATED_UNIT" > "${PROXY_SERVICE_DST}"
+    echo "$GENERATED_UNIT" | sudo tee "${PROXY_SERVICE_DST}" >/dev/null
     if $DAEMON_RELOAD; then
       $SYSTEMCTL daemon-reload
     fi
