@@ -285,16 +285,6 @@ if [[ -n "$OLD_PROD_BRANCH" && "$OLD_PROD_BRANCH" != "$BRANCH" ]]; then
   fi
 fi
 
-# ── Fix .env.local symlink ────────────────────────────────────────────────────
-# Point to the primordia dir's .env.local (never deleted), not the old slot's
-# copy (which may be removed on the next deploy).
-ENV_SRC="${PRIMORDIA_DIR}/.env.local"
-ENV_DST="${INSTALL_DIR}/.env.local"
-if [[ -f "$ENV_SRC" ]]; then
-  rm -f "$ENV_DST"
-  ln -s "$ENV_SRC" "$ENV_DST"
-fi
-
 # ── Mark production branch ────────────────────────────────────────────────────
 git -C "${BARE_REPO}" config primordia.productionBranch "$BRANCH"
 git -C "${BARE_REPO}" config branch."$BRANCH".sessionid "$BRANCH"
