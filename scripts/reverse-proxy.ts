@@ -24,10 +24,10 @@
 //   DELETE /_proxy/preview/:id       — kill
 //   GET  /_proxy/preview/:id/logs    — SSE stream of server logs
 //
-// Session routing: requests to /preview/{sessionId}/... are routed to the
-// port associated with that session. The mapping is derived from git config:
-// each branch has branch.{name}.sessionId and branch.{name}.port entries,
-// combined into a sessionId → port lookup table.
+// Session routing: requests to /preview/{branchName}/... are routed to the
+// port associated with that branch. The mapping is derived from git config:
+// each branch has a branch.{name}.port entry. Branches with slashes in their
+// name are not supported for preview routing.
 //
 // This approach eliminates the need for proxy-upstream.json and
 // proxy-previews.json entirely — the single source of truth is git config,
@@ -148,9 +148,9 @@ const MAIN_REPO = discoverMainRepo();
 let upstreamPort = 3001;
 /** The branch name currently set as primordia.productionBranch. */
 let currentProdBranch: string | null = null;
-/** Cache of session ID → port for fast preview lookups. */
+/** Cache of branch name → port for fast preview lookups. */
 let sessionPortCache: Record<string, number> = {};
-/** Cache of session ID → { worktreePath, port } for preview server spawning. */
+/** Cache of branch name → { worktreePath, port } for preview server spawning. */
 let sessionWorktreeCache: Record<string, { worktreePath: string; port: number }> = {};
 /** Path to the git config file being watched. */
 let watchedConfigPath: string | null = null;
@@ -235,7 +235,6 @@ function readAllPorts(): void {
   }
 
   const branchPort: Record<string, number> = {};
-  const branchSessionId: Record<string, string> = {};
   try {
     // Build branch → port map from git config.
     const portOut = execFileSync('git', ['config', '--get-regexp', 'branch\\..*\\.port'], {
@@ -243,26 +242,16 @@ function readAllPorts(): void {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    const cache: Record<string, number> = {};
     for (const line of portOut.trim().split('\n')) {
       if (!line) continue;
       const m = line.match(/^branch\.(.+)\.port\s+(\d+)$/);
-      if (m) branchPort[m[1]] = parseInt(m[2], 10);
-    }
-
-    // Build branch → sessionId map, then combine into sessionId → port.
-    const sessionOut = execFileSync('git', ['config', '--get-regexp', 'branch\\..*\\.sessionid'], {
-      cwd: MAIN_REPO,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    const cache: Record<string, number> = {};
-    for (const line of sessionOut.trim().split('\n')) {
-      if (!line) continue;
-      const m = line.match(/^branch\.(.+)\.sessionid\s+(\S+)$/);
       if (m) {
-        branchSessionId[m[1]] = m[2];
-        const port = branchPort[m[1]];
-        if (port) cache[m[2]] = port;
+        branchPort[m[1]] = parseInt(m[2], 10);
+        // Only branches without slashes are valid as preview URL segments.
+        if (!m[1].includes('/')) {
+          cache[m[1]] = parseInt(m[2], 10);
+        }
       }
     }
     sessionPortCache = cache;
@@ -291,13 +280,13 @@ function readAllPorts(): void {
     // git worktree list failed
   }
 
-  // Combine: sessionId → { worktreePath, port }
+  // Combine: branch name → { worktreePath, port } (skip branches with slashes)
   const newWorktreeCache: Record<string, { worktreePath: string; port: number }> = {};
-  for (const [branch, sessionId] of Object.entries(branchSessionId)) {
-    const port = branchPort[branch];
+  for (const [branch, port] of Object.entries(branchPort)) {
+    if (branch.includes('/')) continue;
     const worktreePath = branchWorktree[branch];
-    if (port && worktreePath) {
-      newWorktreeCache[sessionId] = { worktreePath, port };
+    if (worktreePath) {
+      newWorktreeCache[branch] = { worktreePath, port };
     }
   }
   sessionWorktreeCache = newWorktreeCache;

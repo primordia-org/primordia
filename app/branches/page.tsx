@@ -40,8 +40,8 @@ interface BranchData {
   previewUrl: string | null;
   /** Session status, or null if no session is active for this branch. */
   sessionStatus: string | null;
-  /** Evolve session ID, or null if no session exists for this branch. */
-  sessionId: string | null;
+  /** True if an evolve session exists for this branch. */
+  hasSession: boolean;
 }
 
 interface BranchNode extends BranchData {
@@ -121,8 +121,6 @@ async function getBranchData(): Promise<{
   // Load all evolve sessions from the filesystem and build a lookup by branch name.
   const fsSessions = listSessionsFromFilesystem(cwd);
   const sessionByBranch = new Map(fsSessions.map((s) => [s.branch, s]));
-  // Also index by session ID for branches whose branch !== id (from-branch sessions)
-  const sessionById = new Map(fsSessions.map((s) => [s.id, s]));
 
   const diag: DiagnosticInfo = {
     cwd,
@@ -134,32 +132,22 @@ async function getBranchData(): Promise<{
     sessions: fsSessions,
   };
 
-  const branches: BranchData[] = allBranchNames.map((name) => {
-    const parent = gitConfigValue(`branch.${name}.parent`, cwd);
-    const session = sessionByBranch.get(name);
-
-    let sessionId = session?.id ?? null;
-    const sessionStatus = session?.status ?? null;
-
-    // For branches not found by branch name, check if there's a git-config sessionId
-    // pointing to a session worktree (used for from-branch sessions).
-    if (!sessionId) {
-      const gitSessionId = gitConfigValue(`branch.${name}.sessionId`, cwd);
-      if (gitSessionId && sessionById.has(gitSessionId)) {
-        sessionId = gitSessionId;
-      }
-    }
-
-    return {
-      name,
-      isCurrent: name === current,
-      isProduction: name === productionBranch,
-      parent,
-      previewUrl: session?.previewUrl ?? null,
-      sessionStatus,
-      sessionId,
-    };
-  });
+  const branches: BranchData[] = allBranchNames
+    // Skip branches with slashes — not supported for preview or session URLs.
+    .filter((name) => !name.includes('/'))
+    .map((name) => {
+      const parent = gitConfigValue(`branch.${name}.parent`, cwd);
+      const session = sessionByBranch.get(name);
+      return {
+        name,
+        isCurrent: name === current,
+        isProduction: name === productionBranch,
+        parent,
+        previewUrl: session?.previewUrl ?? null,
+        sessionStatus: session?.status ?? null,
+        hasSession: session !== undefined,
+      };
+    });
 
   return { branches, productionBranch, diag };
 }
@@ -407,9 +395,9 @@ function BranchRow({
             [{statusLabel}]
           </span>
         )}
-        {node.sessionId && (
+        {node.hasSession && (
           <Link
-            href={`/evolve/session/${node.sessionId}`}
+            href={`/evolve/session/${node.name}`}
             className="text-purple-400 hover:text-purple-300 text-xs ml-1 shrink-0"
           >
             session ↗
@@ -417,7 +405,7 @@ function BranchRow({
         )}
         {/* Show "+ session" only for active (non-terminal) branches without a session */}
         {canCreateSession &&
-          !node.sessionId &&
+          !node.hasSession &&
           !node.isCurrent &&
           !node.isProduction &&
           !isTerminal && (
@@ -676,10 +664,10 @@ export default async function BranchesPage() {
                       <tr key={s.id} className="text-gray-400">
                         <td className="pr-4">
                           <Link
-                            href={`/evolve/session/${s.id}`}
+                            href={`/evolve/session/${s.branch}`}
                             className="text-purple-400 hover:text-purple-300"
                           >
-                            {s.id.slice(0, 8)}…
+                            {s.branch}
                           </Link>
                         </td>
                         <td className="pr-4">{s.branch}</td>

@@ -9,7 +9,8 @@
 //   git worktree list --porcelain — maps worktree paths to branch names
 //
 // Status is inferred from the NDJSON log via inferStatusFromEvents().
-// Preview URL is always /preview/<sessionId> once the session is ready.
+// Session ID equals the branch name. Branches with slashes are not supported.
+// Preview URL is always /preview/<branchName> once the session is ready.
 // Branch name is read from the git worktree list (or git symbolic-ref HEAD).
 
 import * as fs from 'fs';
