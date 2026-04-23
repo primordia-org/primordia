@@ -415,6 +415,8 @@ done
 if [[ "$SERVICE_READY" == "true" ]]; then
   _spin_kill
   echo -e "${GREEN}✓${RESET} Congratulations! Primordia is running!"
+  # Point main at the now-live commit so clones/fetches see the current production state
+  git -C "${BARE_REPO}" branch -f main "$BRANCH"
 else
   _spin_kill
   warn "Service did not respond within 60 s — it may still be starting."
