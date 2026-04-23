@@ -19,6 +19,9 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 # ── Colours / formatting ──────────────────────────────────────────────────────
+# Keep all user-visible messages short and free of variable-length strings
+# (branch names, paths, etc.) so the output looks good on narrow screens
+# and mobile devices.
 
 if [[ -t 1 ]] || [[ -e /dev/tty ]]; then
   BOLD="\033[1m"; GREEN="\033[0;32m"; CYAN="\033[0;36m"
@@ -277,11 +280,11 @@ if [[ -n "$OLD_PROD_BRANCH" && "$OLD_PROD_BRANCH" != "$BRANCH" ]]; then
   OLD_SLOT="$(git -C "${BARE_REPO}" worktree list --porcelain \
     | awk '/^worktree /{p=$2} /^branch refs\/heads\/'"${OLD_PROD_BRANCH}"'$/{print p; exit}')"
   if [[ -n "$OLD_SLOT" && -f "${OLD_SLOT}/${DB_NAME}" ]]; then
-    _step "Copying production DB from ${OLD_PROD_BRANCH}..."
+    _step "Copying production DB..."
     NEW_DB="${INSTALL_DIR}/${DB_NAME}"
     rm -f "${NEW_DB}" "${NEW_DB}-wal" "${NEW_DB}-shm"
     sqlite3 "${OLD_SLOT}/${DB_NAME}" "VACUUM INTO '${NEW_DB}'"
-    _done "DB copied from ${OLD_PROD_BRANCH}"
+    _done "DB copied"
   fi
 fi
 
