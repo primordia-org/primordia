@@ -331,9 +331,11 @@ function readAllPorts(): void {
     currentProdBranch = prodBranch;
     let port = branchPort[prodBranch];
     if (!port) {
-      // No port assigned yet — pick LISTEN_PORT+1 and persist it so all future
-      // reads (including startProdServerIfNeeded) see a consistent value.
-      port = LISTEN_PORT + 1;
+      // No port assigned yet — find one that is neither already claimed by
+      // another branch in git config nor bound by another process, then
+      // persist it so all future reads see a consistent value.
+      const taken = new Set(Object.values(branchPort));
+      port = findFreePort(taken, LISTEN_PORT + 1);
       try {
         execFileSync('git', ['config', `branch.${prodBranch}.port`, String(port)], {
           cwd: MAIN_REPO,
@@ -375,6 +377,48 @@ function watchGitConfig(configPath: string): void {
 }
 
 // ─── Port management ──────────────────────────────────────────────────────────
+
+/**
+ * Finds a free TCP port that is not already assigned to any branch in git
+ * config and is not currently bound by any process. Starts scanning from
+ * `startFrom` and skips LISTEN_PORT itself.
+ *
+ * Uses `ss -tlnH` (Linux) or `netstat -an` (fallback) to get the set of
+ * listening ports, then picks the first candidate not in either set.
+ */
+function findFreePort(assignedPorts: Set<number>, startFrom: number): number {
+  // Build the set of ports currently bound on this host.
+  const boundPorts = new Set<number>();
+  try {
+    // ss -tlnH prints one line per listening socket; 4th field is Local Address:Port
+    const out = execFileSync('ss', ['-tlnH'], {
+      encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    for (const line of out.split('\n')) {
+      const m = line.trim().match(/:(\d+)\s/);
+      if (m) boundPorts.add(parseInt(m[1], 10));
+    }
+  } catch {
+    try {
+      // Fallback: netstat (macOS / older Linux)
+      const out = execFileSync('netstat', ['-an'], {
+        encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      for (const line of out.split('\n')) {
+        const m = line.match(/[.:](\d+)\s+.*LISTEN/);
+        if (m) boundPorts.add(parseInt(m[1], 10));
+      }
+    } catch { /* best-effort; proceed with only assignedPorts */ }
+  }
+
+  for (let port = startFrom; port < 65535; port++) {
+    if (port === LISTEN_PORT) continue;
+    if (assignedPorts.has(port)) continue;
+    if (boundPorts.has(port)) continue;
+    return port;
+  }
+  throw new Error('No free port found');
+}
 
 /**
  * Kills any process currently listening on the given TCP port.
