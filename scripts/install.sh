@@ -82,10 +82,10 @@ echo -e "\n${RED}✗ Install failed${RESET} at step: ${BOLD}${_CURRENT_STEP}${RE
 server_diagnostics >&2
 echo "" >&2
 echo -e "${DIM}  Service logs (last 30 lines):${RESET}" >&2
-journalctl -u primordia-proxy -n 30 --no-pager 2>/dev/null >&2 || true
+journalctl -u primordia -n 30 --no-pager 2>/dev/null >&2 || true
 echo "" >&2
 echo -e "${DIM}  Service status:${RESET}" >&2
-systemctl status primordia-proxy --no-pager 2>/dev/null >&2 || true' ERR
+systemctl status primordia --no-pager 2>/dev/null >&2 || true' ERR
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 
@@ -266,8 +266,8 @@ else
   success "Using reverse-proxy.ts"
 fi
 
-# ── Mark production branch ─────────────────────────────────────────────────────
-git -C "${BARE_REPO}" config primordia.productionbranch "$BRANCH"
+# ── Mark production branch ────────────────────────────────────────────────────
+git -C "${BARE_REPO}" config primordia.productionBranch "$BRANCH"
 git -C "${BARE_REPO}" config branch."$BRANCH".sessionid "$BRANCH"
 
 # ── Determine hostname ────────────────────────────────────────────────────────
@@ -289,6 +289,19 @@ else
   warn "Not running on exe.dev — automatic SSL termination, exe.dev login, and LLM gateway integration won't be available."
   APP_URL="http://${HOSTNAME_FQDN}:${REVERSE_PROXY_PORT}"
   PROBABLY_A_SERVER=true
+fi
+
+# ── Assign production app port ────────────────────────────────────────────────
+# The proxy reads branch.{name}.port from git config to know where to forward
+# traffic and what port to spawn the production app on.  Only assign if not
+# already set (idempotent).
+if ! git -C "${BARE_REPO}" config --get branch."$BRANCH".port >/dev/null 2>&1; then
+  PROD_APP_PORT=$((REVERSE_PROXY_PORT + 1))
+  git -C "${BARE_REPO}" config branch."$BRANCH".port "$PROD_APP_PORT"
+  success "Assigned port ${PROD_APP_PORT} to branch ${BRANCH}"
+else
+  PROD_APP_PORT="$(git -C "${BARE_REPO}" config --get branch."$BRANCH".port)"
+  success "Using port ${PROD_APP_PORT} for branch ${BRANCH}"
 fi
 
 # ── Install systemd service ───────────────────────────────────────────────────
@@ -381,7 +394,7 @@ _CURRENT_STEP="wait for service ready"
 echo ""
 _step "Waiting for Primordia to be ready..."
 SERVICE_READY=false
-for i in $(seq 1 60); do
+for i in $(seq 1 30); do
   sleep 2
   if curl -sf --max-time 3 "http://localhost:${REVERSE_PROXY_PORT}/" -o /dev/null 2>/dev/null; then
     SERVICE_READY=true
@@ -394,12 +407,12 @@ if [[ "$SERVICE_READY" == "true" ]]; then
   echo -e "${GREEN}✓${RESET} Congratulations! Primordia is running!"
 else
   _spin_kill
-  warn "Service did not respond within 120 s — it may still be starting."
+  warn "Service did not respond within 60 s — it may still be starting."
   echo ""
   echo -e "${DIM}  --- Last 40 lines of service log ---${RESET}"
-  journalctl -u primordia-proxy -n 40 --no-pager 2>/dev/null || true
+  journalctl -u primordia -n 40 --no-pager 2>/dev/null || true
   echo -e "${DIM}  --- Service status ---${RESET}"
-  systemctl status primordia-proxy --no-pager 2>/dev/null || true
+  systemctl status primordia --no-pager 2>/dev/null || true
   echo -e "${DIM}  -------------------------------------${RESET}"
 fi
 

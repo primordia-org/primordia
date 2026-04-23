@@ -128,8 +128,10 @@ function discoverMainRepo(): string {
           encoding: 'utf8',
           stdio: ['pipe', 'pipe', 'pipe'],
         }).trim();
-        // commonDir is an absolute path like /home/exedev/primordia/.git
-        return path.dirname(path.resolve(candidate, commonDir));
+        // commonDir is the shared git dir: a bare repo (e.g. source.git) or a
+        // .git directory inside a non-bare repo.  All git commands work with
+        // either path as cwd, so return it directly.
+        return path.resolve(candidate, commonDir);
       } catch {
         continue;
       }
