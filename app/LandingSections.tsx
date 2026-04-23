@@ -54,7 +54,7 @@ const STEPS = [
 
 // ── Sections ─────────────────────────────────────────────────────────────────
 
-export function HeroSection({ installUrl, defaultVmName }: { installUrl: string; defaultVmName: string }) {
+export function HeroSection({ installUrl, defaultVmName, installBranch }: { installUrl: string; defaultVmName: string; installBranch?: string | null }) {
   return (
     <section className="relative flex flex-col items-center justify-center min-h-dvh px-6 text-center overflow-hidden">
       {/* Animated gradient blobs */}
@@ -91,7 +91,7 @@ export function HeroSection({ installUrl, defaultVmName }: { installUrl: string;
         <p className="text-xs font-mono text-gray-500 mb-2 text-center uppercase tracking-widest">
           Deploy your own instance
         </p>
-        <InstallBlock installUrl={installUrl} defaultName={defaultVmName} />
+        <InstallBlock installUrl={installUrl} defaultName={defaultVmName} installBranch={installBranch} />
         <p className="text-xs text-gray-600 text-center mt-2 font-mono">
           Requires an{" "}
           <a href="https://exe.dev" data-id="landing/exedev-link" className="text-gray-500 hover:text-gray-300 underline underline-offset-2 transition-colors">
@@ -198,7 +198,7 @@ function HowItWorksStep({
   );
 }
 
-export function CTABannerSection({ installUrl, defaultVmName }: { installUrl: string; defaultVmName: string }) {
+export function CTABannerSection({ installUrl, defaultVmName, installBranch }: { installUrl: string; defaultVmName: string; installBranch?: string | null }) {
   return (
     <section className="relative px-6 py-24">
       <div className="relative max-w-3xl mx-auto rounded-3xl overflow-hidden">
@@ -213,7 +213,7 @@ export function CTABannerSection({ installUrl, defaultVmName }: { installUrl: st
           <p className="text-gray-400 max-w-md mx-auto mb-8 leading-relaxed">
             Two commands create a VM and install Primordia end-to-end.
           </p>
-          <InstallBlock installUrl={installUrl} defaultName={defaultVmName} />
+          <InstallBlock installUrl={installUrl} defaultName={defaultVmName} installBranch={installBranch} />
         </div>
       </div>
     </section>
