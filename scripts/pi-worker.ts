@@ -37,7 +37,14 @@ import {
 // LLM backend configuration
 // ---------------------------------------------------------------------------
 
-const GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
+const ANTHROPIC_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
+const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai';
+
+/** Infer the pi provider name from a model ID. Defaults to 'anthropic'. */
+function inferProvider(modelId: string): 'anthropic' | 'openai' {
+  if (modelId.startsWith('gpt-') || /^o\d/.test(modelId)) return 'openai';
+  return 'anthropic';
+}
 
 // Capture and immediately clear the injected user API key so it does not
 // persist in process.env (and cannot leak to child processes).
@@ -123,11 +130,15 @@ async function main(): Promise<void> {
     // Auth — use the user-supplied API key when available, otherwise fall back
     // to the exe.dev LLM gateway (which handles auth with any non-empty key).
     const authStorage = AuthStorage.create();
+    const modelProvider = modelId ? inferProvider(modelId) : 'anthropic';
     if (_userApiKey) {
-      authStorage.setRuntimeApiKey('anthropic', _userApiKey);
-      process.stderr.write('Using user-supplied Anthropic API key\n');
+      authStorage.setRuntimeApiKey(modelProvider, _userApiKey);
+      process.stderr.write(`Using user-supplied ${modelProvider} API key\n`);
     } else {
+      // Gateway handles auth for all providers — set a placeholder key for each
+      // supported provider so the SDK knows auth is configured.
       authStorage.setRuntimeApiKey('anthropic', 'gateway');
+      authStorage.setRuntimeApiKey('openai', 'gateway');
       process.stderr.write('Using exe.dev LLM gateway\n');
     }
 
@@ -136,9 +147,9 @@ async function main(): Promise<void> {
     // Resolve the model object from the string ID, if provided.
     let model: ReturnType<typeof modelRegistry.find> | undefined;
     if (modelId) {
-      model = modelRegistry.find('anthropic', modelId) ?? undefined;
+      model = modelRegistry.find(modelProvider, modelId) ?? undefined;
       if (!model) {
-        process.stderr.write(`Warning: model '${modelId}' not found in registry, using default\n`);
+        process.stderr.write(`Warning: model '${modelId}' not found in registry for provider '${modelProvider}', using default\n`);
       }
     }
 
@@ -153,8 +164,14 @@ async function main(): Promise<void> {
     // extensionFactories are always applied even when noExtensions is true
     // (which only disables file-based extension discovery).
     const extensionFactories: ExtensionFactory[] = _userApiKey
-      ? [] // direct Anthropic API — no custom baseUrl needed
-      : [(pi: Parameters<ExtensionFactory>[0]) => { pi.registerProvider('anthropic', { baseUrl: GATEWAY_BASE_URL }); }];
+      ? [] // direct provider API — no custom baseUrl needed
+      : [
+          (pi: Parameters<ExtensionFactory>[0]) => {
+            // Route all supported providers through the exe.dev LLM gateway.
+            pi.registerProvider('anthropic', { baseUrl: ANTHROPIC_GATEWAY_BASE_URL });
+            pi.registerProvider('openai', { baseUrl: OPENAI_GATEWAY_BASE_URL });
+          },
+        ];
 
     // Resource loader: use the worktree as cwd so pi discovers AGENTS.md
     // (symlinked to CLAUDE.md) and other project context, and append the

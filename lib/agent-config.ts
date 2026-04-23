@@ -61,6 +61,21 @@ export const MODEL_OPTIONS_BY_HARNESS: Record<string, ModelOption[]> = {
       label: 'Claude Haiku 4',
       description: 'Fastest',
     },
+    {
+      id: 'gpt-4.1',
+      label: 'GPT-4.1',
+      description: 'OpenAI — balanced',
+    },
+    {
+      id: 'o4-mini',
+      label: 'o4-mini',
+      description: 'OpenAI — fast reasoning',
+    },
+    {
+      id: 'o3',
+      label: 'o3',
+      description: 'OpenAI — powerful reasoning',
+    },
   ],
 };
 
