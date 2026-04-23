@@ -430,11 +430,9 @@ export async function startLocalEvolve(
     appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'setup', label: 'Setup', ts: Date.now() });
     appendSessionEvent(ndjsonPath, { type: 'setup_step', label: worktreeLabel, done: true, ts: Date.now() });
 
-    // Store parent branch and session ID in git config so the preview's manage
-    // endpoint can find them when logging the accept/reject decision back to the
-    // parent instance's SQLite database.
+    // Store parent branch in git config so the manage endpoint can find it
+    // when logging the accept/reject decision back to the parent instance.
     await runGit(['config', `branch.${session.branch}.parent`, parentBranch], repoRoot);
-    await runGit(['config', `branch.${session.branch}.sessionId`, session.id], repoRoot);
 
     // Assign an ephemeral port to this branch in git config (idempotent).
     // The port is stable for the lifetime of the branch and is reused if the
