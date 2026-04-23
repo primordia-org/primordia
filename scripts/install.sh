@@ -330,16 +330,6 @@ if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; t
   # Determine if systemd of something else
   success "Using systemd v$(systemctl --version | awk 'NR==1 {print $2}')"
   _step "Installing systemd service..."
-  # # Check if we have write access to the system systemd directory
-  # if [[ -w /etc/systemd/system ]]; then
-  #   SYSTEMD_SERVICE_DIR="/etc/systemd/system"
-  #   SYSTEMCTL="sudo systemctl"
-  # else
-  #   # otherwise fall back to the user directory:
-  #   SYSTEMD_SERVICE_DIR="${HOME}/.config/systemd/user"
-  #   SYSTEMCTL="systemctl --user"
-  #   mkdir -p "$SYSTEMD_SERVICE_DIR"
-  # fi
   SYSTEMD_SERVICE_DIR="/etc/systemd/system"
   SYSTEMCTL="sudo systemctl"
   PROXY_SERVICE_DST="${SYSTEMD_SERVICE_DIR}/primordia.service"
@@ -369,43 +359,38 @@ UNIT
 )
 
   # Calculate if the service needs updating
-  if [[ ! -f "${PROXY_SERVICE_DST}" ]]; then
+  if [[ ! -f "${PROXY_SERVICE_DST}" ]] || ! diff -q <(echo "$GENERATED_UNIT") "${PROXY_SERVICE_DST}" >/dev/null 2>&1; then
     SERVICE_CHANGED=true
-    DAEMON_RELOAD=false
-  elif ! diff -q <(echo "$GENERATED_UNIT") "${PROXY_SERVICE_DST}" >/dev/null 2>&1; then
-    SERVICE_CHANGED=true
-    DAEMON_RELOAD=true
   else
     SERVICE_CHANGED=false
-    DAEMON_RELOAD=false
   fi
 
   # Install/update the service
   if $SERVICE_CHANGED; then
     echo "$GENERATED_UNIT" | sudo tee "${PROXY_SERVICE_DST}" >/dev/null
-    if $DAEMON_RELOAD; then
-      $SYSTEMCTL daemon-reload
-    fi
+    sudo systemctl daemon-reload
+    _done "Installed primordia systemd service"
+  else
+    _done "Using primordia systemd service"
   fi
 
   # Enable the service so it starts automatically on boot
-  if ! $SYSTEMCTL is-enabled --quiet primordia 2>/dev/null; then
-    $SYSTEMCTL enable primordia
+  if ! systemctl is-enabled --quiet primordia 2>/dev/null; then
+    sudo systemctl enable primordia
+    success "Enabled primordia systemd service"
   fi
 
-  # Start/restart the service
+  # Restart the service if it changed
   if [[ "$PROXY_CHANGED" == true || "$SERVICE_CHANGED" == true ]]; then
-    _done "Installed primordia systemd service"
-    if $SYSTEMCTL is-active --quiet primordia; then
-      $SYSTEMCTL restart primordia
-    else
-      $SYSTEMCTL start primordia
+    if systemctl is-active --quiet primordia; then
+      sudo systemctl restart primordia
+      success "Restarted primordia systemd service"
     fi
-  else
-    _done "Using primorida systemd service"
   fi
 
-  if $SYSTEMCTL is-active --quiet primordia 2>/dev/null; then
+  # Start the service
+  if ! systemctl is-active --quiet primordia 2>/dev/null; then
+    sudo systemctl start primordia
     success "Started primordia systemd service"
   fi
 fi
