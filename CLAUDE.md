@@ -367,6 +367,21 @@ To deploy to exe.dev: `bun run deploy-to-exe.dev <server-name>`
 
 ---
 
+## Worktree Session History (NDJSON Log)
+
+Every evolve worktree keeps a structured event log at `.primordia-session.ndjson` (one JSON object per line). This file is the single source of truth for session state — it records the initial request, every follow-up request, all agent tool calls and text output, result status, and metrics for each run.
+
+When an agent is invoked for a follow-up request it typically resumes its own session (`useContinue: true`) and already has full conversation history. If for any reason the agent has no native memory of prior work in the worktree (e.g. a fresh start or a harness that does not support session resumption), read `.primordia-session.ndjson` to reconstruct context:
+
+- `initial_request` events contain the original change request text.
+- `followup_request` events contain each subsequent request, in order.
+- `section_start` events with `sectionType: 'agent'` identify which harness and model ran each phase.
+- `result` events record whether each phase succeeded, errored, timed out, or was aborted.
+
+The log is append-only and never truncated for the lifetime of the session.
+
+---
+
 ## Design Principles for Claude Code
 
 When implementing changes, follow these principles:

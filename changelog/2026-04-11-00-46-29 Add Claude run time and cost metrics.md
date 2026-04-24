@@ -47,3 +47,21 @@ Metrics display:
 
 - Users should always be able to see how much a run cost, even when it fails — "77 tool calls made" with no metrics is not enough information.
 - Showing live elapsed time and partial token/cost data while an agent is running lets users make an informed decision about whether to abort (e.g. "it's already spent $0.50 and hasn't finished yet").
+
+---
+
+## Fix: follow-up model selection now always respected
+
+### What changed
+
+**Model mismatch between UI label and worker** — fixed in `lib/evolve-sessions.ts` (`runFollowupInWorktree` and `startLocalEvolve`).
+
+The `section_start` event was logged using `session.model ?? DEFAULT_MODEL` (so the UI always showed a concrete model name), but the worker was spawned with `model: session.model` (which could be `undefined` when the form submitted the default). This caused the session view header to display one model while the worker silently ran a different one.
+
+Fix: resolve the model ID once (`const fuModelId = session.model ?? DEFAULT_MODEL`) before logging the `section_start` event, then pass that resolved ID to both the event and the worker config. Both Claude Code and pi support resuming a session with a different model, so `useContinue: true` is always passed — the user's model choice takes effect even when changing it mid-session.
+
+**Session history in CLAUDE.md** — agents running follow-up requests may encounter a worktree where they have no native memory of prior work (e.g. fresh context window, harness that does not support session resumption). A new "Worktree Session History" section in `CLAUDE.md` documents `.primordia-session.ndjson` as the fallback source of truth: `initial_request`, `followup_request`, `section_start`, and `result` event types are listed so the agent knows what to look for.
+
+### Why
+
+Running the wrong model silently wastes budget and gives unexpected results. Documenting the NDJSON log in CLAUDE.md means any agent with access to the worktree can reconstruct context from it without needing built-in session resumption support.
