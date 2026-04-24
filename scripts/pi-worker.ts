@@ -96,7 +96,11 @@ async function main(): Promise<void> {
   let timedOut = false;
   let userAborted = false;
   // Holds the session reference once created so signal handlers can abort it.
-  let activeSession: { abort(): Promise<void> } | null = null;
+  let activeSession: { abort(): Promise<void>; getSessionStats(): { tokens: { input: number; output: number }; cost: number } } | null = null;
+  // Baseline stats snapshot taken before the prompt runs — used to compute
+  // incremental metrics for this run only (avoids counting prior follow-up runs).
+  // Stored in outer scope so abort/timeout/error paths can compute partial metrics.
+  let baselineStatsRef: { tokens: { input: number; output: number }; cost: number } | null = null;
   // Track the last assistant message stop reason so we can detect max_tokens
   // truncation after session.prompt() resolves. When the model hits max_tokens
   // the response is cut off mid-generation; no tool calls are included, so the
@@ -189,6 +193,7 @@ async function main(): Promise<void> {
     // carries token/cost totals from all previous turns.  Subtracting the
     // baseline gives us only the tokens / cost consumed by THIS run.
     const baselineStats = session.getSessionStats();
+    baselineStatsRef = baselineStats;
 
     // Subscribe to events and write them to the NDJSON log.
     session.subscribe((event) => {
@@ -217,6 +222,20 @@ async function main(): Promise<void> {
         if (msg['role'] === 'assistant' && typeof msg['stopReason'] === 'string') {
           lastAssistantStopReason = msg['stopReason'];
         }
+        // Emit a partial metrics snapshot after each assistant turn so the
+        // session view can show live token and cost data while the agent runs.
+        const midStats = session.getSessionStats();
+        const midInput = midStats.tokens.input - baselineStats.tokens.input;
+        const midOutput = midStats.tokens.output - baselineStats.tokens.output;
+        const midCost = midStats.cost - baselineStats.cost;
+        appendSessionEvent(ndjsonPath, {
+          type: 'metrics',
+          durationMs: ts() - startTime,
+          inputTokens: midInput > 0 ? midInput : null,
+          outputTokens: midOutput > 0 ? midOutput : null,
+          costUsd: midCost > 0 ? midCost : null,
+          ts: ts(),
+        });
       }
     });
 
@@ -226,13 +245,21 @@ async function main(): Promise<void> {
     } catch (err) {
       if (timedOut) {
         appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'timeout', message: 'Pi agent timed out after 20 minutes.', ts: ts() });
-        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: null, outputTokens: null, costUsd: null, ts: ts() });
+        const timeoutStats = activeSession?.getSessionStats();
+        const timeoutInput = timeoutStats && baselineStatsRef ? timeoutStats.tokens.input - baselineStatsRef.tokens.input : null;
+        const timeoutOutput = timeoutStats && baselineStatsRef ? timeoutStats.tokens.output - baselineStatsRef.tokens.output : null;
+        const timeoutCost = timeoutStats && baselineStatsRef ? timeoutStats.cost - baselineStatsRef.cost : null;
+        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: timeoutInput != null && timeoutInput > 0 ? timeoutInput : null, outputTokens: timeoutOutput != null && timeoutOutput > 0 ? timeoutOutput : null, costUsd: timeoutCost != null && timeoutCost > 0 ? timeoutCost : null, ts: ts() });
         clearTimeout(timeoutId);
         cleanup();
         process.exit(0);
       } else if (userAborted) {
         appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'aborted', message: 'Pi agent was aborted by user.', ts: ts() });
-        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: null, outputTokens: null, costUsd: null, ts: ts() });
+        const abortStats = activeSession?.getSessionStats();
+        const abortInput = abortStats && baselineStatsRef ? abortStats.tokens.input - baselineStatsRef.tokens.input : null;
+        const abortOutput = abortStats && baselineStatsRef ? abortStats.tokens.output - baselineStatsRef.tokens.output : null;
+        const abortCost = abortStats && baselineStatsRef ? abortStats.cost - baselineStatsRef.cost : null;
+        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: abortInput != null && abortInput > 0 ? abortInput : null, outputTokens: abortOutput != null && abortOutput > 0 ? abortOutput : null, costUsd: abortCost != null && abortCost > 0 ? abortCost : null, ts: ts() });
         clearTimeout(timeoutId);
         cleanup();
         process.exit(0);
@@ -297,7 +324,11 @@ async function main(): Promise<void> {
     clearTimeout(timeoutId);
     const msg = err instanceof Error ? err.message : String(err);
     appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'error', message: msg, ts: ts() });
-    appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: null, outputTokens: null, costUsd: null, ts: ts() });
+    const errStats = activeSession?.getSessionStats();
+    const errInput = errStats && baselineStatsRef ? errStats.tokens.input - baselineStatsRef.tokens.input : null;
+    const errOutput = errStats && baselineStatsRef ? errStats.tokens.output - baselineStatsRef.tokens.output : null;
+    const errCost = errStats && baselineStatsRef ? errStats.cost - baselineStatsRef.cost : null;
+    appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: errInput != null && errInput > 0 ? errInput : null, outputTokens: errOutput != null && errOutput > 0 ? errOutput : null, costUsd: errCost != null && errCost > 0 ? errCost : null, ts: ts() });
     cleanup();
     process.exit(1);
   }

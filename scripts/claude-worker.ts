@@ -152,6 +152,10 @@ async function main(): Promise<void> {
   let capturedOutputTokens: number | null = null;
   let capturedCostUsd: number | null = null;
 
+  // Wall-clock start time — used as fallback for durationMs when the SDK does
+  // not return a result message (e.g. on errors).
+  const startTime = Date.now();
+
   // sessionId is available in config but not used directly here — status/previewUrl
   // are now inferred from events by the server, not written by the worker.
   void sessionId;
@@ -222,13 +226,13 @@ async function main(): Promise<void> {
       userAborted = !timedOut && abortController.signal.aborted;
       if (timedOut) {
         appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'timeout', message: 'Claude Code timed out after 20 minutes.', ts: ts() });
-        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: capturedDurationMs, inputTokens: capturedInputTokens, outputTokens: capturedOutputTokens, costUsd: capturedCostUsd, ts: ts() });
+        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: capturedDurationMs ?? (Date.now() - startTime), inputTokens: capturedInputTokens, outputTokens: capturedOutputTokens, costUsd: capturedCostUsd, ts: ts() });
         clearTimeout(timeoutId);
         cleanup();
         process.exit(0);
       } else if (userAborted) {
         appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'aborted', message: 'Claude Code was aborted by user.', ts: ts() });
-        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: capturedDurationMs, inputTokens: capturedInputTokens, outputTokens: capturedOutputTokens, costUsd: capturedCostUsd, ts: ts() });
+        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: capturedDurationMs ?? (Date.now() - startTime), inputTokens: capturedInputTokens, outputTokens: capturedOutputTokens, costUsd: capturedCostUsd, ts: ts() });
         clearTimeout(timeoutId);
         cleanup();
         process.exit(0);
@@ -258,7 +262,7 @@ async function main(): Promise<void> {
         ? `\nCaused by: ${err.cause.message}`
         : '';
     appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'error', message: msg + causeMsg, ts: ts() });
-    appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: capturedDurationMs, inputTokens: capturedInputTokens, outputTokens: capturedOutputTokens, costUsd: capturedCostUsd, ts: ts() });
+    appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: capturedDurationMs ?? (Date.now() - startTime), inputTokens: capturedInputTokens, outputTokens: capturedOutputTokens, costUsd: capturedCostUsd, ts: ts() });
     cleanup();
     process.exit(1);
   }
