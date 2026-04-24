@@ -612,7 +612,9 @@ export async function startLocalEvolve(
         repoRoot,
         prompt,
         timeoutMs: 20 * 60 * 1000,
-        model: session.model,
+        // Use the resolved modelId so the worker always runs with the same
+        // model that was logged in the section_start event.
+        model: modelId,
         apiKey: session.apiKey,
         userId: session.userId,
       },
@@ -657,6 +659,25 @@ export async function runFollowupInWorktree(
   const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
 
   const fuHarnessId = session.harness ?? DEFAULT_HARNESS;
+  // Resolve the model ID now so the section_start label and worker config are always consistent.
+  const fuModelId = session.model ?? DEFAULT_MODEL;
+
+  // Detect whether the user switched harness relative to the last agent run.
+  // If the harness changed we cannot resume (session files are harness-specific),
+  // so we skip `useContinue` and instead inject context from the NDJSON log.
+  const { events: existingEvents } = readSessionEvents(ndjsonPath);
+  type AgentSectionStart = Extract<SessionEvent, { type: 'section_start'; sectionType: 'agent' }>;
+  const prevAgentSection = [...existingEvents].reverse().find(
+    (e): e is AgentSectionStart => e.type === 'section_start' && (e as AgentSectionStart).sectionType === 'agent',
+  ) as (AgentSectionStart & { harnessId?: string }) | undefined;
+  const prevHarnessId = prevAgentSection?.harnessId
+    ?? (prevAgentSection?.harness
+      ? HARNESS_OPTIONS.find((h) => h.label === prevAgentSection.harness)?.id
+      : undefined)
+    ?? DEFAULT_HARNESS;
+  const harnessChanged = fuHarnessId !== prevHarnessId;
+  // Can only resume within the same harness — `useContinue` is meaningless across harnesses.
+  const useContinue = !harnessChanged;
 
   try {
     if (skipChangelog) {
@@ -665,7 +686,6 @@ export async function runFollowupInWorktree(
     } else {
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'followup', label: '🔄 Follow-up Request', ts: Date.now() });
       appendSessionEvent(ndjsonPath, { type: 'followup_request', request: followupRequest, attachments: attachmentPaths.map(p => path.basename(p)), ts: Date.now() });
-      const fuModelId = session.model ?? DEFAULT_MODEL;
       const fuHarnessLabel = HARNESS_OPTIONS.find((h) => h.id === fuHarnessId)?.label ?? fuHarnessId;
       const fuModelLabel = (MODEL_OPTIONS_BY_HARNESS[fuHarnessId] ?? []).find((m) => m.id === fuModelId)?.label ?? fuModelId;
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: fuHarnessLabel, model: fuModelLabel, harnessId: fuHarnessId, modelId: fuModelId, label: `🤖 ${fuHarnessLabel} (${fuModelLabel})`, ts: Date.now() });
@@ -675,6 +695,32 @@ export async function runFollowupInWorktree(
     const changelogInstruction = skipChangelog
       ? `Do NOT create or update any changelog file — this fix is part of the automated merge pipeline, not a user-visible change.`
       : `This is a follow-up to changes already made on branch \`${session.branch}\`. Do NOT create a new changelog file. Instead, find the most recent changelog file in \`changelog/\` and update it if your changes invalidate or extend the existing description.`;
+
+    // When the harness changed, we cannot resume the old session.  Build a
+    // context block from the NDJSON log so the new agent understands the history.
+    let harnessChangeContextSection = '';
+    if (harnessChanged && !skipChangelog) {
+      const initialReqEvent = existingEvents.find(
+        (e): e is Extract<SessionEvent, { type: 'initial_request' }> => e.type === 'initial_request',
+      );
+      const followupReqEvents = existingEvents.filter(
+        (e): e is Extract<SessionEvent, { type: 'followup_request' }> => e.type === 'followup_request',
+      );
+      const ndjsonRelPath = path.relative(session.worktreePath, ndjsonPath);
+      const historyLines: string[] = [
+        `The full structured session log is at \`${ndjsonRelPath}\` (NDJSON format, one JSON event per line).`,
+      ];
+      if (initialReqEvent) {
+        historyLines.push(`\n**Initial request:** ${initialReqEvent.request}`);
+      }
+      followupReqEvents.forEach((e, i) => {
+        historyLines.push(`**Previous follow-up ${i + 1}:** ${e.request}`);
+      });
+      harnessChangeContextSection =
+        `\n\nYou are continuing work that was previously done by a different AI agent in this same worktree (branch: \`${session.branch}\`). ` +
+        `The worktree already contains committed changes from the previous agent. ` +
+        historyLines.join('\n');
+    }
 
     // Copy user-uploaded attachments into the worktree
     const worktreeAttachmentPaths: string[] = [];
@@ -712,17 +758,15 @@ export async function runFollowupInWorktree(
         `\n\nRead and use these files as needed. If they are images or assets that should be added to the project, copy them to an appropriate location (e.g., \`public/\`) with a descriptive filename.`
       : '';
 
-    // With `continue: true`, Claude Code resumes the existing session in this
-    // worktree and already has full context (original request, prior follow-ups,
-    // everything it did). No need to manually reconstruct session history.
+    // Build the prompt.  When the harness has not changed we use `useContinue`
+    // so the agent resumes its own session and already has full context.
+    // When the harness changed, `useContinue` is false and we inject a context
+    // block so the new agent understands what was done before.
     const prompt =
       `Address the following follow-up request:\n\n` +
-      `${followupRequest}${attachmentSection}\n\n` +
+      `${followupRequest}${attachmentSection}${harnessChangeContextSection}\n\n` +
       `${changelogInstruction} Commit all changes with a descriptive message.`;
 
-    // Spawn a detached worker process — same pattern as startLocalEvolve.
-    // useContinue resumes the most recent session in the worktree so the agent
-    // has full conversation history without us having to reconstruct it.
     const fuWorkerScript = (fuHarnessId === 'pi')
       ? path.join(repoRoot, 'scripts/pi-worker.ts')
       : path.join(repoRoot, 'scripts/claude-worker.ts');
@@ -734,8 +778,11 @@ export async function runFollowupInWorktree(
         repoRoot,
         prompt,
         timeoutMs: 20 * 60 * 1000,
-        model: session.model,
-        useContinue: true,
+        // Use the resolved fuModelId so the worker always runs with the same
+        // model that was logged in the section_start event (fixes the mismatch
+        // where section_start showed DEFAULT_MODEL but the worker got undefined).
+        model: fuModelId,
+        useContinue,
         apiKey: session.apiKey,
         userId: session.userId,
       },
