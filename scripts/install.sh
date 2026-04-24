@@ -24,7 +24,9 @@ export DEBIAN_FRONTEND=noninteractive
 # output looks good on narrow screens and mobile devices. Error and diagnostic
 # messages (die/diag and the ERR trap) may include full detail.
 
-if [[ -t 1 ]] || [[ -e /dev/tty ]]; then
+if [[ "${REPORT_STYLE:-}" == "plain" ]]; then
+  BOLD="" GREEN="" CYAN="" YELLOW="" RED="" DIM="" RESET=""
+elif [[ -t 1 ]] || [[ -e /dev/tty ]]; then
   BOLD="\033[1m"; GREEN="\033[0;32m"; CYAN="\033[0;36m"
   YELLOW="\033[0;33m"; RED="\033[0;31m"; DIM="\033[2m"; RESET="\033[0m"
 else
@@ -466,12 +468,29 @@ if [[ "${PROXY_RUNNING}" == "true" && "${PROXY_CHANGED}" == "false" && "${SERVIC
   # Tell the proxy to spawn the new production server, health-check it, and
   # cut over atomically — no restart required.
   _step "Deploying to new slot (zero-downtime)..."
-  SPAWN_RESULT="$(curl -sf --max-time 60 \
+  # Stream SSE events from the proxy: print log lines immediately, capture
+  # the final done line to check success/failure.
+  _SPAWN_FIFO="$(mktemp -u)"
+  mkfifo "$_SPAWN_FIFO"
+  curl -sf --max-time 60 \
     -X POST "http://localhost:${REVERSE_PROXY_PORT}/_proxy/prod/spawn" \
     -H 'Content-Type: application/json' \
     -d "{\"branch\":\"${BRANCH}\"}" \
-    --no-buffer 2>/dev/null | tail -1 || true)"
-  # The last SSE line is: data: {"type":"done","ok":true} or {"type":"done","ok":false,"error":"..."}
+    --no-buffer 2>/dev/null \
+    | grep '^data: ' | sed 's/^data: //' > "$_SPAWN_FIFO" &
+  _SPAWN_CURL_PID=$!
+  SPAWN_RESULT=""
+  while IFS= read -r _sse_line; do
+    SPAWN_RESULT="$_sse_line"
+    # Print log-type messages immediately
+    _sse_text="$(echo "$_sse_line" | grep -o '"text":"[^"]*"' | sed 's/"text":"//;s/"$//' || true)"
+    if [[ -n "$_sse_text" ]]; then
+      printf '%b' "$_sse_text"
+    fi
+  done < "$_SPAWN_FIFO"
+  wait "$_SPAWN_CURL_PID" 2>/dev/null || true
+  rm -f "$_SPAWN_FIFO"
+  # The last SSE data line is: {"type":"done","ok":true} or {"type":"done","ok":false,"error":"..."}
   if echo "${SPAWN_RESULT}" | grep -q '"ok":true'; then
     SERVICE_READY=true
     _spin_kill
@@ -531,12 +550,14 @@ fi
 echo ""
 echo -e "Open:     ${BOLD}${APP_URL}${RESET}"
 echo ""
-if [[ "$HOSTNAME_FQDN" == *.exe.xyz ]]; then
-  echo "Sign in with your exe.dev account on the login page."
-  echo "The first user to sign in is automatically granted the admin role."
-  echo "You will be prompted for additional setup information when required."
-else
-  echo "Register a passkey on the login page."
-  echo "The first user to register is automatically granted the admin role."
+if [[ -z "$OLD_PROD_BRANCH" ]]; then
+  if [[ "$HOSTNAME_FQDN" == *.exe.xyz ]]; then
+    echo "Sign in with your exe.dev account on the login page."
+    echo "The first user to sign in is automatically granted the admin role."
+    echo "You will be prompted for additional setup information when required."
+  else
+    echo "Register a passkey on the login page."
+    echo "The first user to register is automatically granted the admin role."
+  fi
+  echo ""
 fi
-echo ""
