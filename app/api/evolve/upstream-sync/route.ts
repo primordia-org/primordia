@@ -4,7 +4,7 @@
 //   Body: { sessionId: string; action: "merge" }
 //   Returns: { outcome: "merged" | "merged-with-conflict-resolution"; log: string }
 
-import { runGit, resolveConflictsWithClaude } from '../../../../lib/evolve-sessions';
+import { runCommand, runGit, resolveConflictsWithClaude } from '../../../../lib/evolve-sessions';
 import { getSessionUser } from '../../../../lib/auth';
 import { getSessionFromFilesystem } from '../../../../lib/session-events';
 
@@ -57,12 +57,16 @@ export async function POST(request: Request) {
           { status: 500 },
         );
       }
+      const installResult = await runCommand('bun', ['install'], worktreePath);
+      const installLog = installResult.stdout + installResult.stderr;
       return Response.json({
         outcome: 'merged-with-conflict-resolution',
-        log: result.stdout + result.stderr + '\n\n' + resolution.log,
+        log: result.stdout + result.stderr + '\n\n' + resolution.log + (installLog ? '\n' + installLog : ''),
       });
     }
-    return Response.json({ outcome: 'merged', log: result.stdout + result.stderr });
+    const installResult = await runCommand('bun', ['install'], worktreePath);
+    const installLog = installResult.stdout + installResult.stderr;
+    return Response.json({ outcome: 'merged', log: result.stdout + result.stderr + (installLog ? '\n' + installLog : '') });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return Response.json({ error: msg }, { status: 500 });
