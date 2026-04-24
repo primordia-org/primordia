@@ -433,7 +433,7 @@ function BranchRow({
             href={url}
             target={node.isCurrent ? "_self" : "_blank"}
             rel="noopener noreferrer"
-            className="text-blue-400 hover:text-blue-300 ml-1 shrink-0 flex items-center"
+            className="text-blue-400 hover:text-blue-300 ml-1 shrink-0 inline-flex items-center"
             title={node.isProduction ? "View site" : "Open preview"}
           >
             <ExternalLink size={13} strokeWidth={2} />
@@ -619,7 +619,7 @@ export default async function BranchesPage() {
       <div className="mt-8 border-t border-gray-800 pt-4 text-xs text-gray-600 font-mono space-y-1">
         <p>
           ● green = preview server active · ● dim = no active session · branch name
-          links to session · <span className="text-blue-400"><ExternalLink size={10} className="inline" /></span> = open
+          links to session · <span className="text-blue-400 inline-flex items-center gap-0.5"><ExternalLink size={10} className="inline-block align-middle" /></span> = open
           branch · <span className="text-purple-500">+ session</span> = start new
           session on existing branch
         </p>
