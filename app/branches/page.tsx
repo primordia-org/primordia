@@ -433,10 +433,10 @@ function BranchRow({
             href={url}
             target={node.isCurrent ? "_self" : "_blank"}
             rel="noopener noreferrer"
-            className="text-blue-400 hover:text-blue-300 ml-1 shrink-0"
+            className="text-blue-400 hover:text-blue-300 ml-1 shrink-0 self-center flex items-center"
             title={node.isProduction ? "View site" : "Open preview"}
           >
-            <ExternalLink size={13} strokeWidth={2} className="translate-y-[4px]" />
+            <ExternalLink size={13} strokeWidth={2} />
           </a>
         )}
       </div>
