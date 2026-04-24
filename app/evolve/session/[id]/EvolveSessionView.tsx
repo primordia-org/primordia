@@ -456,7 +456,7 @@ function StructuredSection({
     return (
       <>
         {requestEvent && (
-          <div className="px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm">
+          <div className="px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-x-auto">
             <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Follow-up request</p>
             <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{requestEvent.request}</p>
             {requestEvent.attachments && requestEvent.attachments.length > 0 && (
@@ -1076,7 +1076,7 @@ export default function EvolveSessionView({
         const initialReqEvent = events.find((e): e is Extract<SessionEvent, { type: 'initial_request' }> => e.type === 'initial_request');
         const attachments = initialReqEvent?.attachments ?? [];
         return (
-          <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm">
+          <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-x-auto">
             <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Your request</p>
             <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{initialRequest}</p>
             {attachments.length > 0 && (
