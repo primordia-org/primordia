@@ -71,6 +71,7 @@ primordia/
 │   ├── llm-client.ts              ← Creates Anthropic client: gateway (default) or direct API with user-supplied key
 │   ├── llm-encryption.ts          ← Server-side RSA-OAEP keypair (ephemeral, per process); getPublicKeyJwk() + decryptApiKey()
 │   ├── api-key-client.ts          ← Client-side helpers: getStoredApiKey/setStoredApiKey (localStorage) + encryptStoredApiKey() (RSA-OAEP)
+│   ├── key-transfer-client.ts     ← Client-side ECDH utilities for QR login AES key transfer: generateEcdhKeyPair, exportPublicKeyJwk, importPublicKeyJwk, deriveWrapKey, wrapBytes, unwrapBytes; server never sees plaintext AES key
 │   └── db/
 │       ├── index.ts               ← Factory: getDb() → SQLite (always)
 │       ├── types.ts               ← Shared DB types: User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession, Role; DbAdapter includes role methods
@@ -108,8 +109,8 @@ primordia/
 │   │           └── page.tsx       ← Session-tracking page; publicly viewable; passes canEvolve to hide actions for non-evolvers
 │   ├── login/
 │   │   ├── page.tsx               ← Server component: auto-discovers providers via readdirSync(lib/auth-providers/); collects server props; passes to LoginClient
-│   │   ├── LoginClient.tsx        ← Client component: renders one tab per provider; loads tab components via next/dynamic template-literal import (no static map)
-│   │   └── approve/page.tsx           ← Approval page: authenticated device approves a QR sign-in
+│   │   ├── LoginClient.tsx        ← Client component: renders one tab per provider; loads tab components via next/dynamic template-literal import (no static map); generates an ephemeral ECDH key pair at QR flow start, keeps private key in useRef, and unwraps the transferred AES key from the poll "approved" response
+│   │   └── approve/page.tsx           ← Approval page: authenticated device approves a QR sign-in; fetches requester's ECDH public key via token-info, derives shared secret, wraps its AES key, and sends the wrapped bundle on approval
 │   └── api/
 │       ├── changelog/
 │       │   └── route.ts           ← GET ?filename=...: returns raw markdown body of one changelog file (lazy-load)
@@ -136,9 +137,10 @@ primordia/
 │       │   │   ├── login/start/route.ts     ← Generate WebAuthn authentication options
 │       │   │   └── login/finish/route.ts    ← Verify authentication, create session
 │       └── cross-device/
-│           ├── start/route.ts      ← POST create a cross-device token; returns tokenId
-│           ├── poll/route.ts       ← GET poll token status; sets session cookie on approval
-│           ├── approve/route.ts    ← POST approve a token (requires auth on approver device)
+│           ├── start/route.ts      ← POST create a cross-device token; accepts optional requesterEcdhPublicKey (ECDH P-256 JWK) to enable AES key transfer; returns tokenId
+│           ├── poll/route.ts       ← GET poll token status; sets session cookie on approval; includes approverEcdhPublicKey + wrappedAesKey in "approved" response so requester can unwrap the AES key
+│           ├── approve/route.ts    ← POST approve a token (requires auth on approver device); accepts optional approverEcdhPublicKey + wrappedAesKey for ECDH-based AES key transfer
+│           ├── token-info/route.ts ← GET return requesterEcdhPublicKey for a pending token; authenticated; used by approver device to wrap its AES key before calling approve
 │           └── qr/route.ts         ← GET SVG QR code encoding the approval URL for a tokenId
 │
 │   app/api/ also contains:
