@@ -612,7 +612,9 @@ export async function startLocalEvolve(
         repoRoot,
         prompt,
         timeoutMs: 20 * 60 * 1000,
-        model: session.model,
+        // Use the resolved modelId so the worker always runs with the same
+        // model that was logged in the section_start event.
+        model: modelId,
         apiKey: session.apiKey,
         userId: session.userId,
       },
@@ -657,6 +659,9 @@ export async function runFollowupInWorktree(
   const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
 
   const fuHarnessId = session.harness ?? DEFAULT_HARNESS;
+  // Resolve the model ID now so the section_start label and worker config are always consistent.
+  // This also means the user's model choice for a follow-up always overrides the previous run's model.
+  const fuModelId = session.model ?? DEFAULT_MODEL;
 
   try {
     if (skipChangelog) {
@@ -665,7 +670,6 @@ export async function runFollowupInWorktree(
     } else {
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'followup', label: '🔄 Follow-up Request', ts: Date.now() });
       appendSessionEvent(ndjsonPath, { type: 'followup_request', request: followupRequest, attachments: attachmentPaths.map(p => path.basename(p)), ts: Date.now() });
-      const fuModelId = session.model ?? DEFAULT_MODEL;
       const fuHarnessLabel = HARNESS_OPTIONS.find((h) => h.id === fuHarnessId)?.label ?? fuHarnessId;
       const fuModelLabel = (MODEL_OPTIONS_BY_HARNESS[fuHarnessId] ?? []).find((m) => m.id === fuModelId)?.label ?? fuModelId;
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: fuHarnessLabel, model: fuModelLabel, harnessId: fuHarnessId, modelId: fuModelId, label: `🤖 ${fuHarnessLabel} (${fuModelLabel})`, ts: Date.now() });
@@ -712,17 +716,18 @@ export async function runFollowupInWorktree(
         `\n\nRead and use these files as needed. If they are images or assets that should be added to the project, copy them to an appropriate location (e.g., \`public/\`) with a descriptive filename.`
       : '';
 
-    // With `continue: true`, Claude Code resumes the existing session in this
-    // worktree and already has full context (original request, prior follow-ups,
-    // everything it did). No need to manually reconstruct session history.
+    // With `useContinue: true` the harness resumes the most recent session in
+    // this worktree so it has full conversation history without us having to
+    // reconstruct it.  Both Claude Code and pi support resuming with a different
+    // model, so the user's model choice always takes effect even when changing it
+    // mid-session.  If the agent has no native memory of the worktree (e.g. the
+    // harness was switched and useContinue falls back gracefully), it can read
+    // .primordia-session.ndjson to reconstruct session history — see CLAUDE.md.
     const prompt =
       `Address the following follow-up request:\n\n` +
       `${followupRequest}${attachmentSection}\n\n` +
       `${changelogInstruction} Commit all changes with a descriptive message.`;
 
-    // Spawn a detached worker process — same pattern as startLocalEvolve.
-    // useContinue resumes the most recent session in the worktree so the agent
-    // has full conversation history without us having to reconstruct it.
     const fuWorkerScript = (fuHarnessId === 'pi')
       ? path.join(repoRoot, 'scripts/pi-worker.ts')
       : path.join(repoRoot, 'scripts/claude-worker.ts');
@@ -734,7 +739,10 @@ export async function runFollowupInWorktree(
         repoRoot,
         prompt,
         timeoutMs: 20 * 60 * 1000,
-        model: session.model,
+        // Use the resolved fuModelId so the worker always runs with the same
+        // model that was logged in the section_start event, and the user's
+        // model choice overrides the previous run's model.
+        model: fuModelId,
         useContinue: true,
         apiKey: session.apiKey,
         userId: session.userId,
