@@ -704,7 +704,7 @@ export default function EvolveSessionView({
     function onVisibilityChange() {
       if (document.visibilityState !== "visible") return;
       const s = statusRef.current;
-      const isTerminalStatus = s === "accepted" || s === "rejected" || s === "ready";
+      const isTerminalStatus = s === "accepted" || s === "rejected";
       if (!isTerminalStatus) {
         void startStreaming();
       }
@@ -775,8 +775,7 @@ export default function EvolveSessionView({
   useEffect(() => {
     const alreadyTerminal =
       initialStatus === "accepted" ||
-      initialStatus === "rejected" ||
-      initialStatus === "ready";
+      initialStatus === "rejected";
     if (alreadyTerminal) return;
 
     void startStreaming();
@@ -909,6 +908,9 @@ export default function EvolveSessionView({
       const data = (await res.json()) as { outcome?: string; log?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? `Server error: ${res.status}`);
       setRemainingUpstream(0);
+      // Restart the SSE stream so any new events written during conflict
+      // resolution (or the merge itself) are picked up immediately.
+      void startStreaming();
     } catch (err) {
       setUpstreamSyncError(err instanceof Error ? err.message : String(err));
     } finally {

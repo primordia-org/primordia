@@ -25,7 +25,10 @@ import * as fs from 'fs';
 const POLL_INTERVAL_MS = 500;
 
 function isTerminal(status: string): boolean {
-  return status === 'accepted' || status === 'rejected' || status === 'ready';
+  // 'ready' is NOT terminal here: the session can still receive new events
+  // (e.g. conflict-resolution runs triggered by upstream-sync, or follow-up
+  // requests).  Only 'accepted' and 'rejected' are truly final.
+  return status === 'accepted' || status === 'rejected';
 }
 
 export async function GET(request: Request) {
