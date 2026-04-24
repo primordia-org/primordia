@@ -33,6 +33,11 @@ const nextConfig: NextConfig = {
   // Next.js 16 blocks cross-origin requests to dev resources by default.
   allowedDevOrigins: ["*.exe.xyz"],
 
+  // Tell Next.js not to bundle the pi coding agent SDK. It uses native modules
+  // (e.g. @mariozechner/clipboard) that can't be processed by Turbopack/webpack.
+  // Keeping it external means it runs in the Node.js server process as-is.
+  serverExternalPackages: ['@mariozechner/pi-coding-agent', '@mariozechner/pi-ai', '@mariozechner/clipboard'],
+
   // Tell webpack not to bundle bun:sqlite. It's only available at runtime in
   // the Bun environment. The sqlite adapter is always used (no Neon fallback).
   // (webpack is used for `next build`; turbopack is used for `next dev --turbopack`)

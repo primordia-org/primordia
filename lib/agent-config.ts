@@ -1,6 +1,10 @@
 // lib/agent-config.ts
-// Definitions for supported coding agent harnesses and the models they support.
-// Add new harnesses here as they become available.
+// Definitions for supported coding agent harnesses and global defaults.
+//
+// The per-harness model list is intentionally NOT hard-coded here — it is
+// generated at runtime from the pi ModelRegistry so it stays current when the
+// pi SDK is updated.  Server code imports from lib/pi-model-registry.server.ts;
+// client components fetch from GET /api/evolve/models.
 
 export interface HarnessOption {
   id: string;
@@ -27,42 +31,13 @@ export const HARNESS_OPTIONS: HarnessOption[] = [
   },
 ];
 
-export const MODEL_OPTIONS_BY_HARNESS: Record<string, ModelOption[]> = {
-  'claude-code': [
-    {
-      id: 'claude-sonnet-4-6',
-      label: 'Claude Sonnet 4',
-      description: 'Balanced — default',
-    },
-    {
-      id: 'claude-opus-4-6',
-      label: 'Claude Opus 4',
-      description: 'Most capable',
-    },
-    {
-      id: 'claude-haiku-4-5-20251001',
-      label: 'Claude Haiku 4',
-      description: 'Fastest',
-    },
-  ],
-  'pi': [
-    {
-      id: 'claude-sonnet-4-6',
-      label: 'Claude Sonnet 4',
-      description: 'Balanced — default',
-    },
-    {
-      id: 'claude-opus-4-6',
-      label: 'Claude Opus 4',
-      description: 'Most capable',
-    },
-    {
-      id: 'claude-haiku-4-5-20251001',
-      label: 'Claude Haiku 4',
-      description: 'Fastest',
-    },
-  ],
-};
-
 export const DEFAULT_HARNESS = 'pi';
 export const DEFAULT_MODEL = 'claude-sonnet-4-6';
+
+// ── Caveman mode ─────────────────────────────────────────────────────────────
+// Kept here (not in user-prefs.ts) so client components can import them
+// without pulling in server-only modules.
+
+export const CAVEMAN_INTENSITIES = ["lite", "full", "ultra", "wenyan-lite", "wenyan-full", "wenyan-ultra"] as const;
+export type CavemanIntensity = typeof CAVEMAN_INTENSITIES[number];
+export const DEFAULT_CAVEMAN_INTENSITY: CavemanIntensity = "full";
