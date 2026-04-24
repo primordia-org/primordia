@@ -385,6 +385,12 @@ function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath, harn
           <MarkdownContent text={finalEvents.map((e) => e.content).join('')} />
         </div>
       )}
+      {hasError && resultEvent?.message && (
+        <div className="px-4 py-3 border-t border-gray-800">
+          <p className="text-xs font-semibold text-red-400 mb-1">Error details</p>
+          <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{resultEvent.message}</pre>
+        </div>
+      )}
       {metricsEvent && (
         <MetricsRow metrics={{
           durationMs: metricsEvent.durationMs ?? undefined,
