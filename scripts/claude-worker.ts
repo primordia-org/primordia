@@ -179,6 +179,7 @@ async function main(): Promise<void> {
         },
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
+        pathToClaudeCodeExecutable: '/usr/local/bin/claude',
         abortController,
         continue: useContinue ?? false,
         stderr: (data: string) => {
