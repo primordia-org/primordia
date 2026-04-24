@@ -245,9 +245,43 @@ async function blueGreenAccept(
 }
 
 /**
+ * Finds the worktree path where the given branch is currently checked out,
+ * or null if no worktree has it checked out.
+ */
+function findWorktreeForBranch(
+  repoRoot: string,
+  branchName: string,
+): string | null {
+  try {
+    const wtOut = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let curPath: string | undefined;
+    let curBranch: string | null = null;
+    for (const line of wtOut.split('\n')) {
+      if (line.startsWith('worktree ')) { curPath = line.slice(9); curBranch = null; }
+      else if (line.startsWith('branch ')) { curBranch = line.slice(7).replace('refs/heads/', ''); }
+      else if (line === '' && curPath && curBranch === branchName) { return curPath; }
+    }
+    // Handle last entry (no trailing blank line)
+    if (curPath && curBranch === branchName) return curPath;
+  } catch { /* best-effort */ }
+  return null;
+}
+
+/**
  * Moves the `main` branch pointer to the HEAD of the accepted session branch,
- * checks it out in the main repo dir, and (if a remote named "mirror" exists)
- * pushes to it. The mirror remote is the recommended way to sync with GitHub.
+ * and (if a remote named "mirror" exists) pushes to it.
+ * The mirror remote is the recommended way to sync with GitHub.
+ *
+ * Strategy:
+ *   - If `main` is currently checked out in a worktree, operate in that
+ *     worktree directory using `git reset --hard <sha>` so the working tree
+ *     stays consistent with the updated ref.
+ *   - If no worktree has `main` checked out, update the ref directly via
+ *     `git update-ref` (safe when the branch is not checked out anywhere).
  *
  * Non-fatal: errors are logged as warnings so a push failure never blocks a deploy.
  */
@@ -262,9 +296,7 @@ async function moveMainAndPush(
 
   await onStep('- Advancing main branch pointer…\n');
 
-  // Resolve the SHA for the accepted branch so we can update the ref at the
-  // plumbing level.  `git branch -f main <branch>` would fail when `main` is
-  // currently checked out in the main repo; `git update-ref` bypasses that.
+  // Resolve the SHA for the accepted branch.
   const resolveResult = await runGit(['rev-parse', branch], mainRepoRoot);
   if (resolveResult.code !== 0) {
     await onStep(`  ⚠ Could not resolve ${branch} SHA: ${resolveResult.stderr.trim()}\n`);
@@ -272,20 +304,26 @@ async function moveMainAndPush(
   }
   const branchSha = resolveResult.stdout.trim();
 
-  // Force-update the `main` ref directly — safe even when main is checked out.
-  const moveResult = await runGit(['update-ref', 'refs/heads/main', branchSha], mainRepoRoot);
-  if (moveResult.code !== 0) {
-    await onStep(`  ⚠ Could not move main branch: ${moveResult.stderr.trim()}\n`);
-    return;
-  }
+  // Check whether `main` is currently checked out in any worktree.
+  const mainWorktreePath = findWorktreeForBranch(mainRepoRoot, 'main');
 
-  // Check out `main` in the main repo dir (~/primordia) so it tracks the
-  // latest production code and doesn't stay on a detached HEAD or old branch.
-  // --force discards any local modifications so the checkout always succeeds.
-  await onStep('- Checking out main in ~/primordia…\n');
-  const checkoutResult = await runGit(['checkout', '--force', 'main'], mainRepoRoot);
-  if (checkoutResult.code !== 0) {
-    await onStep(`  ⚠ Could not checkout main in ${mainRepoRoot}: ${checkoutResult.stderr.trim()}\n`);
+  if (mainWorktreePath !== null) {
+    // `main` is checked out — use `git reset --hard` in that directory so
+    // the working tree and index are updated along with the branch ref.
+    await onStep(`- Resetting main in ${mainWorktreePath}…\n`);
+    const resetResult = await runGit(['reset', '--hard', branchSha], mainWorktreePath);
+    if (resetResult.code !== 0) {
+      await onStep(`  ⚠ Could not reset main in ${mainWorktreePath}: ${resetResult.stderr.trim()}\n`);
+      return;
+    }
+  } else {
+    // `main` is not checked out anywhere — safe to update the ref directly
+    // without touching any working tree.
+    const moveResult = await runGit(['update-ref', 'refs/heads/main', branchSha], mainRepoRoot);
+    if (moveResult.code !== 0) {
+      await onStep(`  ⚠ Could not move main branch: ${moveResult.stderr.trim()}\n`);
+      return;
+    }
   }
 
   // Push to the mirror remote if one exists (configured via /admin/git-mirror).
