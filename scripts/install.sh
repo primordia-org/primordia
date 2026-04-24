@@ -40,8 +40,11 @@ diag()    { echo -e "${DIM}  $*${RESET}"; }
 # _step: print a spinner line (no newline) — replaced by _done on success
 # _done: stop the spinner and overwrite the line with ✓
 # _spin_kill: stop spinner without printing a success line (use before die)
+# REPORT_STYLE=plain: suppress _step and spinner; _done prints directly (useful
+# when stdout is not a tty, e.g. piped through another process).
 _SPINNER_PID=""
 _step() {
+  [[ "${REPORT_STYLE:-}" == "plain" ]] && return
   local msg="$*"
   printf '\\ %s' "$msg"
   ( local i=1; local c='\|/-'
@@ -50,12 +53,17 @@ _step() {
   disown "$_SPINNER_PID" 2>/dev/null || true
 }
 _done() {
+  if [[ "${REPORT_STYLE:-}" == "plain" ]]; then
+    printf "${GREEN}✓${RESET} %s\n" "$*"
+    return
+  fi
   if [[ -n "${_SPINNER_PID:-}" ]]; then
     kill "$_SPINNER_PID" 2>/dev/null || true; wait "$_SPINNER_PID" 2>/dev/null || true; _SPINNER_PID=""
   fi
   printf "\r\033[K${GREEN}✓${RESET} %s\n" "$*"
 }
 _spin_kill() {
+  [[ "${REPORT_STYLE:-}" == "plain" ]] && return
   if [[ -n "${_SPINNER_PID:-}" ]]; then
     kill "$_SPINNER_PID" 2>/dev/null || true; wait "$_SPINNER_PID" 2>/dev/null || true; _SPINNER_PID=""
   fi
@@ -280,29 +288,6 @@ else
   success "Using reverse-proxy.ts"
 fi
 
-# ── Copy DB from old production slot (if one exists) ─────────────────────────
-# Mirrors what blueGreenAccept() does: VACUUM INTO for an atomic snapshot,
-# so the new slot inherits users/sessions/passkeys without missing writes.
-_CURRENT_STEP="copy production DB"
-DB_NAME=".primordia-auth.db"
-OLD_PROD_BRANCH="$(git -C "${BARE_REPO}" config --get primordia.productionBranch 2>/dev/null || true)"
-if [[ -n "$OLD_PROD_BRANCH" && "$OLD_PROD_BRANCH" != "$BRANCH" ]]; then
-  # Find the worktree path for the current production branch.
-  OLD_SLOT="$(git -C "${BARE_REPO}" worktree list --porcelain \
-    | awk '/^worktree /{p=$2} /^branch refs\/heads\/'"${OLD_PROD_BRANCH}"'$/{print p; exit}')"
-  if [[ -n "$OLD_SLOT" && -f "${OLD_SLOT}/${DB_NAME}" ]]; then
-    _step "Copying production DB..."
-    NEW_DB="${INSTALL_DIR}/${DB_NAME}"
-    rm -f "${NEW_DB}" "${NEW_DB}-wal" "${NEW_DB}-shm"
-    sqlite3 "${OLD_SLOT}/${DB_NAME}" "VACUUM INTO '${NEW_DB}'"
-    _done "DB copied"
-  fi
-fi
-
-# ── Mark production branch ────────────────────────────────────────────────────
-git -C "${BARE_REPO}" config primordia.productionBranch "$BRANCH"
-git -C "${BARE_REPO}" config branch."$BRANCH".sessionid "$BRANCH"
-
 # ── Determine hostname ────────────────────────────────────────────────────────
 
 _CURRENT_STEP="determine hostname"
@@ -325,15 +310,16 @@ else
 fi
 
 # ── Install systemd service ───────────────────────────────────────────────────
+# Always installs/updates the service unit file and enables it on boot.
+# Whether we restart the proxy depends on the zero-downtime check below.
 
 _CURRENT_STEP="install systemd service"
+SERVICE_CHANGED=false
 
 if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; then
-  # Determine if systemd of something else
   success "Using systemd v$(systemctl --version | awk 'NR==1 {print $2}')"
   _step "Installing systemd service..."
   SYSTEMD_SERVICE_DIR="/etc/systemd/system"
-  SYSTEMCTL="sudo systemctl"
   PROXY_SERVICE_DST="${SYSTEMD_SERVICE_DIR}/primordia.service"
   BUN_DIR="$(dirname "$(command -v bun)")"
   GENERATED_UNIT=$(cat << UNIT
@@ -360,15 +346,15 @@ WantedBy=multi-user.target
 UNIT
 )
 
-  # Calculate if the service needs updating
+  # Calculate if the service unit needs updating
   if [[ ! -f "${PROXY_SERVICE_DST}" ]] || ! diff -q <(echo "$GENERATED_UNIT") "${PROXY_SERVICE_DST}" >/dev/null 2>&1; then
     SERVICE_CHANGED=true
   else
     SERVICE_CHANGED=false
   fi
 
-  # Install/update the service
-  if $SERVICE_CHANGED; then
+  # Install/update the service unit
+  if [[ "$SERVICE_CHANGED" == "true" ]]; then
     echo "$GENERATED_UNIT" | sudo tee "${PROXY_SERVICE_DST}" >/dev/null
     sudo systemctl daemon-reload
     _done "Installed primordia systemd service"
@@ -381,51 +367,163 @@ UNIT
     sudo systemctl enable --quiet primordia 2>/dev/null
     success "Enabled primordia systemd service"
   fi
+fi
 
-  # Restart the service if it changed
-  if [[ "$PROXY_CHANGED" == true || "$SERVICE_CHANGED" == true ]]; then
-    if systemctl is-active --quiet primordia; then
-      sudo systemctl restart --quiet primordia
-      success "Restarted primordia systemd service"
-    fi
-  fi
+# ── Zero-downtime cutover (or first-time start) ───────────────────────────────
+# If the proxy is already running and neither it nor the service unit changed,
+# we can do a zero-downtime slot swap via POST /_proxy/prod/spawn — the same
+# path the "Accept Changes" flow uses.  This keeps existing connections alive.
+#
+# If either changed, or the proxy isn't running yet, we fall back to the
+# traditional restart/start path (brief downtime, unavoidable).
 
-  # Start the service
-  if ! systemctl is-active --quiet primordia 2>/dev/null; then
-    sudo systemctl start --quiet primordia
-    success "Started primordia systemd service"
+_CURRENT_STEP="deploy new slot"
+
+PROXY_RUNNING=false
+if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; then
+  if systemctl is-active --quiet primordia 2>/dev/null; then
+    PROXY_RUNNING=true
   fi
 fi
 
-# ── Wait for ready ────────────────────────────────────────────────────────────
-# Poll HTTP directly — more reliable than scraping logs.
+# Reparent sibling sessions whose parent was the old production branch so that
+# their "Apply Updates" picks up the new production code going forward.
+# Mirrors reparentSiblings() in app/api/evolve/manage/route.ts.
+DB_NAME=".primordia-auth.db"
+OLD_PROD_BRANCH="$(git -C "${BARE_REPO}" config --get primordia.productionBranch 2>/dev/null || true)"
+if [[ -n "$OLD_PROD_BRANCH" && "$OLD_PROD_BRANCH" != "$BRANCH" ]]; then
+  while IFS='=' read -r key val; do
+    # key looks like: branch.<name>.parent
+    sibling="${key#branch.}"; sibling="${sibling%.parent}"
+    if [[ "$val" == "$OLD_PROD_BRANCH" && "$sibling" != "$BRANCH" ]]; then
+      git -C "${BARE_REPO}" config "branch.${sibling}.parent" "$BRANCH" 2>/dev/null || true
+    fi
+  done < <(git -C "${BARE_REPO}" config --get-regexp 'branch\..*\.parent' 2>/dev/null || true)
+fi
 
-_CURRENT_STEP="wait for service ready"
-echo ""
-_step "Waiting for Primordia to be ready..."
-SERVICE_READY=false
-for i in $(seq 1 30); do
-  sleep 2
-  if curl -sf --max-time 3 "http://localhost:${REVERSE_PROXY_PORT}/" -o /dev/null 2>/dev/null; then
-    SERVICE_READY=true
-    break
+# Copy DB from old production slot before activating, so the new slot
+# inherits all users/sessions/passkeys.  Mirrors what blueGreenAccept() does.
+if [[ -n "$OLD_PROD_BRANCH" && "$OLD_PROD_BRANCH" != "$BRANCH" ]]; then
+  OLD_SLOT="$(git -C "${BARE_REPO}" worktree list --porcelain \
+    | awk '/^worktree /{p=$2} /^branch refs\/heads\/'"${OLD_PROD_BRANCH}"'$/{print p; exit}')"
+  if [[ -n "$OLD_SLOT" && -f "${OLD_SLOT}/${DB_NAME}" ]]; then
+    _step "Copying production DB..."
+    NEW_DB="${INSTALL_DIR}/${DB_NAME}"
+    rm -f "${NEW_DB}" "${NEW_DB}-wal" "${NEW_DB}-shm"
+    sqlite3 "${OLD_SLOT}/${DB_NAME}" "VACUUM INTO '${NEW_DB}'"
+    _done "DB copied"
   fi
-done
+fi
 
-if [[ "$SERVICE_READY" == "true" ]]; then
-  _spin_kill
-  echo -e "${GREEN}✓${RESET} Congratulations! Primordia is running!"
-  # Point main at the now-live commit so clones/fetches see the current production state
-  git -C "${BARE_REPO}" branch -f main "$BRANCH"
-else
-  _spin_kill
-  warn "Service did not respond within 60 s — it may still be starting."
-  echo ""
-  echo -e "${DIM}  --- Last 40 lines of service log ---${RESET}"
-  journalctl -u primordia -n 40 --no-pager 2>/dev/null || true
-  echo -e "${DIM}  --- Service status ---${RESET}"
-  systemctl status primordia --no-pager 2>/dev/null || true
-  echo -e "${DIM}  -------------------------------------${RESET}"
+# Advance the main branch pointer to the now-live commit, then push to the
+# mirror remote if one is configured. Non-fatal: a push failure never blocks
+# the install — it just prints a warning.
+#
+# Mirrors the logic in moveMainAndPush() in app/api/evolve/manage/route.ts:
+#   - If main is checked out in a worktree, use `git reset --hard` there so
+#     the working tree stays consistent with the updated ref.
+#   - If main is not checked out anywhere, use `git update-ref` directly
+#     (safe when no worktree has it checked out).
+advance_main_and_push() {
+  local branch_sha
+  branch_sha="$(git -C "${BARE_REPO}" rev-parse "$BRANCH")"
+
+  # Find the worktree (if any) that has main checked out.
+  local main_worktree=""
+  while IFS= read -r line; do
+    if [[ "$line" == worktree\ * ]]; then
+      _wt_path="${line#worktree }"
+      _wt_branch=""
+    elif [[ "$line" == branch\ * ]]; then
+      _wt_branch="${line#branch refs/heads/}"
+    elif [[ -z "$line" && "$_wt_branch" == "main" ]]; then
+      main_worktree="$_wt_path"
+      break
+    fi
+  done < <(git -C "${BARE_REPO}" worktree list --porcelain)
+
+  if [[ -n "$main_worktree" ]]; then
+    git -C "$main_worktree" reset --hard "$branch_sha"
+  else
+    git -C "${BARE_REPO}" update-ref refs/heads/main "$branch_sha"
+  fi
+
+  if git -C "${BARE_REPO}" remote | grep -qx mirror; then
+    if git -C "${BARE_REPO}" push mirror main 2>/dev/null; then
+      success "Pushed to mirror remote"
+    else
+      warn "Could not push to mirror remote (non-fatal)"
+    fi
+  fi
+}
+
+SERVICE_READY=false
+echo ""
+
+if [[ "${PROXY_RUNNING}" == "true" && "${PROXY_CHANGED}" == "false" && "${SERVICE_CHANGED}" == "false" ]]; then
+  # ── Zero-downtime path ────────────────────────────────────────────────────
+  # The proxy is running and neither it nor the service unit changed.
+  # Tell the proxy to spawn the new production server, health-check it, and
+  # cut over atomically — no restart required.
+  _step "Deploying to new slot (zero-downtime)..."
+  SPAWN_RESULT="$(curl -sf --max-time 60 \
+    -X POST "http://localhost:${REVERSE_PROXY_PORT}/_proxy/prod/spawn" \
+    -H 'Content-Type: application/json' \
+    -d "{\"branch\":\"${BRANCH}\"}" \
+    --no-buffer 2>/dev/null | tail -1 || true)"
+  # The last SSE line is: data: {"type":"done","ok":true} or {"type":"done","ok":false,"error":"..."}
+  if echo "${SPAWN_RESULT}" | grep -q '"ok":true'; then
+    SERVICE_READY=true
+    _spin_kill
+    advance_main_and_push
+    echo -e "${GREEN}✓${RESET} Congratulations! Primordia is running!"
+  else
+    _spin_kill
+    SPAWN_ERROR="$(echo "${SPAWN_RESULT}" | grep -o '"error":"[^"]*"' | head -1 || true)"
+    warn "Zero-downtime deploy failed (${SPAWN_ERROR:-no response from proxy}). Falling back to service restart."
+    # Fall through to the restart path below
+  fi
+fi
+
+if [[ "${SERVICE_READY}" == "false" ]]; then
+  # ── Restart/start path ────────────────────────────────────────────────────
+  # Used when: first install, proxy/service changed, or zero-downtime failed.
+  # Mark the production branch directly — the proxy will pick it up on start.
+  git -C "${BARE_REPO}" config primordia.productionBranch "$BRANCH"
+
+  if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; then
+    if [[ "${PROXY_RUNNING}" == "true" ]]; then
+      sudo systemctl restart --quiet primordia
+      success "Restarted primordia systemd service"
+    else
+      sudo systemctl start --quiet primordia
+      success "Started primordia systemd service"
+    fi
+  fi
+
+  _step "Waiting for Primordia to be ready..."
+  for i in $(seq 1 30); do
+    sleep 2
+    if curl -sf --max-time 3 "http://localhost:${REVERSE_PROXY_PORT}/" -o /dev/null 2>/dev/null; then
+      SERVICE_READY=true
+      break
+    fi
+  done
+
+  if [[ "$SERVICE_READY" == "true" ]]; then
+    _spin_kill
+    advance_main_and_push
+    echo -e "${GREEN}✓${RESET} Congratulations! Primordia is running!"
+  else
+    _spin_kill
+    warn "Service did not respond within 60 s — it may still be starting."
+    echo ""
+    echo -e "${DIM}  --- Last 40 lines of service log ---${RESET}"
+    journalctl -u primordia -n 40 --no-pager 2>/dev/null || true
+    echo -e "${DIM}  --- Service status ---${RESET}"
+    systemctl status primordia --no-pager 2>/dev/null || true
+    echo -e "${DIM}  -------------------------------------${RESET}"
+  fi
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────

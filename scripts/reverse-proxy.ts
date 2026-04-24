@@ -705,7 +705,7 @@ async function handleProdSpawn(
     return;
   }
 
-  // Look up port from git config (set by assign-branch-ports.sh).
+  // Look up port from git config, or auto-assign one if not yet set.
   let port: number;
   try {
     const portStr = execFileSync('git', ['config', '--get', `branch.${branch}.port`], {
@@ -716,9 +716,21 @@ async function handleProdSpawn(
     port = parseInt(portStr, 10);
     if (!port) throw new Error('empty port');
   } catch {
-    clientRes.writeHead(400, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ error: `No port configured for branch: ${branch}` }));
-    return;
+    // No port assigned yet — find a free one and persist it.
+    readAllPorts(); // refresh cache so findFreePort sees current assignments
+    const taken = new Set(Object.values(sessionPortCache));
+    port = findFreePort(taken, LISTEN_PORT + 1);
+    try {
+      execFileSync('git', ['config', `branch.${branch}.port`, String(port)], {
+        cwd: MAIN_REPO,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      console.log(`[proxy] auto-assigned port :${port} to branch '${branch}' for prod spawn`);
+    } catch (err) {
+      clientRes.writeHead(500, { 'content-type': 'application/json' });
+      clientRes.end(JSON.stringify({ error: `Could not assign port for branch '${branch}': ${(err as Error).message}` }));
+      return;
+    }
   }
 
   // Look up worktree path from git worktree list.
