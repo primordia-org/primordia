@@ -50,30 +50,18 @@ Metrics display:
 
 ---
 
-## Fix: follow-up model/harness selection now always respected
+## Fix: follow-up model selection now always respected
 
 ### What changed
 
-Two bugs in `lib/evolve-sessions.ts` → `runFollowupInWorktree` (and `startLocalEvolve`) are fixed:
+**Model mismatch between UI label and worker** — fixed in `lib/evolve-sessions.ts` (`runFollowupInWorktree` and `startLocalEvolve`).
 
-**Bug 1 — model mismatch between UI label and worker**
+The `section_start` event was logged using `session.model ?? DEFAULT_MODEL` (so the UI always showed a concrete model name), but the worker was spawned with `model: session.model` (which could be `undefined` when the form submitted the default). This caused the session view header to display one model while the worker silently ran a different one.
 
-The `section_start` event was logged using `session.model ?? DEFAULT_MODEL` (so the UI always showed a concrete model name), but the worker was spawned with `model: session.model` (which could be `undefined` when the form submitted the default). This caused the header in the session view to display one model while the worker silently ran a different one.
+Fix: resolve the model ID once (`const fuModelId = session.model ?? DEFAULT_MODEL`) before logging the `section_start` event, then pass that resolved ID to both the event and the worker config. Both Claude Code and pi support resuming a session with a different model, so `useContinue: true` is always passed — the user's model choice takes effect even when changing it mid-session.
 
-Fix: resolve the model ID once (`const fuModelId = session.model ?? DEFAULT_MODEL`) before logging the `section_start` event, then pass `fuModelId` to both the event and the worker config. The same fix was applied to `startLocalEvolve`.
-
-**Bug 2 — cross-harness follow-up incorrectly used `useContinue: true`**
-
-If the user switched harness (e.g. `claude-code` → `pi`) for a follow-up request, the old code still passed `useContinue: true` to the new harness worker. Each harness stores its session state in a different format, so the new worker cannot resume the old session — it either crashes or starts fresh with no context at all.
-
-Fix: detect the previous harness by reading the most recent `section_start` `sectionType: 'agent'` event from the NDJSON log. If the harness changed, `useContinue` is set to `false` and a context block is injected into the prompt:
-
-- The relative path to `.primordia-session.ndjson` (so the new agent can read the full structured history)
-- The text of the initial request and every previous follow-up request
-- A note that the work was done by a different agent in the same worktree and that committed changes already exist
-
-If the harness is the same (even with a different model), `useContinue: true` continues to be passed so the agent resumes its own conversation history as before.
+**Session history in CLAUDE.md** — agents running follow-up requests may encounter a worktree where they have no native memory of prior work (e.g. fresh context window, harness that does not support session resumption). A new "Worktree Session History" section in `CLAUDE.md` documents `.primordia-session.ndjson` as the fallback source of truth: `initial_request`, `followup_request`, `section_start`, and `result` event types are listed so the agent knows what to look for.
 
 ### Why
 
-User model/harness selection must be respected exactly — running the wrong model silently wastes budget and gives unexpected results. Switching harnesses is a supported workflow (e.g. starting with `claude-code` then refining with `pi`) but requires the new agent to understand what has already been done.
+Running the wrong model silently wastes budget and gives unexpected results. Documenting the NDJSON log in CLAUDE.md means any agent with access to the worktree can reconstruct context from it without needing built-in session resumption support.

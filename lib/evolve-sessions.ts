@@ -660,24 +660,8 @@ export async function runFollowupInWorktree(
 
   const fuHarnessId = session.harness ?? DEFAULT_HARNESS;
   // Resolve the model ID now so the section_start label and worker config are always consistent.
+  // This also means the user's model choice for a follow-up always overrides the previous run's model.
   const fuModelId = session.model ?? DEFAULT_MODEL;
-
-  // Detect whether the user switched harness relative to the last agent run.
-  // If the harness changed we cannot resume (session files are harness-specific),
-  // so we skip `useContinue` and instead inject context from the NDJSON log.
-  const { events: existingEvents } = readSessionEvents(ndjsonPath);
-  type AgentSectionStart = Extract<SessionEvent, { type: 'section_start'; sectionType: 'agent' }>;
-  const prevAgentSection = [...existingEvents].reverse().find(
-    (e): e is AgentSectionStart => e.type === 'section_start' && (e as AgentSectionStart).sectionType === 'agent',
-  ) as (AgentSectionStart & { harnessId?: string }) | undefined;
-  const prevHarnessId = prevAgentSection?.harnessId
-    ?? (prevAgentSection?.harness
-      ? HARNESS_OPTIONS.find((h) => h.label === prevAgentSection.harness)?.id
-      : undefined)
-    ?? DEFAULT_HARNESS;
-  const harnessChanged = fuHarnessId !== prevHarnessId;
-  // Can only resume within the same harness — `useContinue` is meaningless across harnesses.
-  const useContinue = !harnessChanged;
 
   try {
     if (skipChangelog) {
@@ -695,32 +679,6 @@ export async function runFollowupInWorktree(
     const changelogInstruction = skipChangelog
       ? `Do NOT create or update any changelog file — this fix is part of the automated merge pipeline, not a user-visible change.`
       : `This is a follow-up to changes already made on branch \`${session.branch}\`. Do NOT create a new changelog file. Instead, find the most recent changelog file in \`changelog/\` and update it if your changes invalidate or extend the existing description.`;
-
-    // When the harness changed, we cannot resume the old session.  Build a
-    // context block from the NDJSON log so the new agent understands the history.
-    let harnessChangeContextSection = '';
-    if (harnessChanged && !skipChangelog) {
-      const initialReqEvent = existingEvents.find(
-        (e): e is Extract<SessionEvent, { type: 'initial_request' }> => e.type === 'initial_request',
-      );
-      const followupReqEvents = existingEvents.filter(
-        (e): e is Extract<SessionEvent, { type: 'followup_request' }> => e.type === 'followup_request',
-      );
-      const ndjsonRelPath = path.relative(session.worktreePath, ndjsonPath);
-      const historyLines: string[] = [
-        `The full structured session log is at \`${ndjsonRelPath}\` (NDJSON format, one JSON event per line).`,
-      ];
-      if (initialReqEvent) {
-        historyLines.push(`\n**Initial request:** ${initialReqEvent.request}`);
-      }
-      followupReqEvents.forEach((e, i) => {
-        historyLines.push(`**Previous follow-up ${i + 1}:** ${e.request}`);
-      });
-      harnessChangeContextSection =
-        `\n\nYou are continuing work that was previously done by a different AI agent in this same worktree (branch: \`${session.branch}\`). ` +
-        `The worktree already contains committed changes from the previous agent. ` +
-        historyLines.join('\n');
-    }
 
     // Copy user-uploaded attachments into the worktree
     const worktreeAttachmentPaths: string[] = [];
@@ -758,13 +716,16 @@ export async function runFollowupInWorktree(
         `\n\nRead and use these files as needed. If they are images or assets that should be added to the project, copy them to an appropriate location (e.g., \`public/\`) with a descriptive filename.`
       : '';
 
-    // Build the prompt.  When the harness has not changed we use `useContinue`
-    // so the agent resumes its own session and already has full context.
-    // When the harness changed, `useContinue` is false and we inject a context
-    // block so the new agent understands what was done before.
+    // With `useContinue: true` the harness resumes the most recent session in
+    // this worktree so it has full conversation history without us having to
+    // reconstruct it.  Both Claude Code and pi support resuming with a different
+    // model, so the user's model choice always takes effect even when changing it
+    // mid-session.  If the agent has no native memory of the worktree (e.g. the
+    // harness was switched and useContinue falls back gracefully), it can read
+    // .primordia-session.ndjson to reconstruct session history — see CLAUDE.md.
     const prompt =
       `Address the following follow-up request:\n\n` +
-      `${followupRequest}${attachmentSection}${harnessChangeContextSection}\n\n` +
+      `${followupRequest}${attachmentSection}\n\n` +
       `${changelogInstruction} Commit all changes with a descriptive message.`;
 
     const fuWorkerScript = (fuHarnessId === 'pi')
@@ -779,10 +740,10 @@ export async function runFollowupInWorktree(
         prompt,
         timeoutMs: 20 * 60 * 1000,
         // Use the resolved fuModelId so the worker always runs with the same
-        // model that was logged in the section_start event (fixes the mismatch
-        // where section_start showed DEFAULT_MODEL but the worker got undefined).
+        // model that was logged in the section_start event, and the user's
+        // model choice overrides the previous run's model.
         model: fuModelId,
-        useContinue,
+        useContinue: true,
         apiKey: session.apiKey,
         userId: session.userId,
       },
