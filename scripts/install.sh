@@ -145,8 +145,11 @@ if [[ -n "$SCRIPT_DIR" ]] && git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tre
   PRIMORDIA_DIR="$(dirname "${WORKTREES_DIR}")"
   if [[ -z "${1:-}" ]]; then
     BRANCH="$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD)"
-  elif [[ "$BRANCH" != "$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD)" ]]; then
-    die "Error: branch argument '$BRANCH' does not match worktree branch"
+  else
+    BRANCH="$1"
+    if [[ "$BRANCH" != "$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD)" ]]; then
+      die "Error: branch argument '$BRANCH' does not match worktree branch"
+    fi
   fi
   success "Using ${PRIMORDIA_DIR}"
 else
