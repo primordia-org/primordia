@@ -4,7 +4,7 @@
 //   Body: { sessionId: string; action: "merge" }
 //   Returns: { outcome: "merged" | "merged-with-conflict-resolution"; log: string }
 
-import { runCommand, runGit, resolveConflictsWithClaude } from '../../../../lib/evolve-sessions';
+import { runCommand, runGit, resolveConflictsWithAgent } from '../../../../lib/evolve-sessions';
 import { getSessionUser } from '../../../../lib/auth';
 import { getSessionFromFilesystem } from '../../../../lib/session-events';
 
@@ -48,8 +48,8 @@ export async function POST(request: Request) {
     );
     if (result.code !== 0) {
       // Merge produced conflicts — attempt auto-resolution with Claude before giving up.
-      // resolveConflictsWithClaude(root, mergedBranch, targetBranch) resolves in-place.
-      const resolution = await resolveConflictsWithClaude(worktreePath, parentBranch, branch, sessionContext, repoRoot);
+      // resolveConflictsWithAgent(root, mergedBranch, targetBranch) resolves in-place.
+      const resolution = await resolveConflictsWithAgent(worktreePath, parentBranch, branch, sessionContext, repoRoot);
       if (!resolution.success) {
         await runGit(['merge', '--abort'], worktreePath);
         return Response.json(

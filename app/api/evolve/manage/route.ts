@@ -45,7 +45,7 @@ import { Database } from 'bun:sqlite';
 import {
   runGit,
   runFollowupInWorktree,
-  resolveConflictsWithClaude,
+  resolveConflictsWithAgent,
   getRepoRoot,
   type LocalSession,
 } from '../../../../lib/evolve-sessions';
@@ -830,7 +830,7 @@ export async function POST(request: Request) {
           worktreePath,
         );
         if (mergeResult.code !== 0) {
-          const resolution = await resolveConflictsWithClaude(worktreePath, parentBranch, branch, sessionContext, repoRoot);
+          const resolution = await resolveConflictsWithAgent(worktreePath, parentBranch, branch, sessionContext, repoRoot);
           if (!resolution.success) {
             await runGit(['merge', '--abort'], worktreePath);
             return Response.json(

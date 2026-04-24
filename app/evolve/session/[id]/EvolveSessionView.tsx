@@ -214,7 +214,7 @@ function mergeConsecutiveTextEvents(events: RenderableEvent[]): RenderableEvent[
 }
 
 /** Split content events into "detail" events (before/including last tool_use) and "final" events. */
-function splitClaudeEventsForDisplay(events: SessionEvent[]): {
+function splitAgentEventsForDisplay(events: SessionEvent[]): {
   detailEvents: (Extract<SessionEvent, { type: 'tool_use' }> | Extract<SessionEvent, { type: 'text' }>)[];
   finalEvents: Extract<SessionEvent, { type: 'text' }>[];
   toolCallCount: number;
@@ -238,8 +238,8 @@ function splitClaudeEventsForDisplay(events: SessionEvent[]): {
   };
 }
 
-/** Render a running Claude/type-fix section (streaming events live). */
-function RunningClaudeSection({ events, label, isTypeFixSection, worktreePath, harness, model, startTs }: {
+/** Render a running agent/type-fix section (streaming events live). */
+function RunningAgentSection({ events, label, isTypeFixSection, worktreePath, harness, model, startTs }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
@@ -319,8 +319,8 @@ function RunningClaudeSection({ events, label, isTypeFixSection, worktreePath, h
   );
 }
 
-/** Render a completed Claude/type-fix section with tool calls collapsed. */
-function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath, harness, model, startTs }: {
+/** Render a completed agent/type-fix section with tool calls collapsed. */
+function DoneAgentSection({ events, label, isTypeFixSection, worktreePath, harness, model, startTs }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
@@ -345,7 +345,7 @@ function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath, harn
     ? (isTypeFixSection ? "❌ Auto-fix failed" : `❌ ${agentLabel} errored`)
     : (isTypeFixSection ? "🔧 Type errors fixed" : `🤖 ${agentLabel} finished`);
 
-  const { detailEvents, finalEvents, toolCallCount } = splitClaudeEventsForDisplay(events);
+  const { detailEvents, finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
 
   return (
     <div className={`rounded-lg border ${doneBorderClass} bg-gray-900 text-sm overflow-hidden`}>
@@ -451,8 +451,8 @@ function StructuredSection({
   // ── Follow-up request ────────────────────────────────────────────────────
   if (type === 'followup') {
     const requestEvent = events.find((e): e is Extract<SessionEvent, { type: 'followup_request' }> => e.type === 'followup_request');
-    const claudeEvents = events.filter((e) => e.type !== 'followup_request');
-    const hasResult = claudeEvents.some((e) => e.type === 'result');
+    const agentEvents = events.filter((e) => e.type !== 'followup_request');
+    const hasResult = agentEvents.some((e) => e.type === 'result');
     return (
       <>
         {requestEvent && (
@@ -468,10 +468,10 @@ function StructuredSection({
             )}
           </div>
         )}
-        {claudeEvents.length > 0 && (
+        {agentEvents.length > 0 && (
           isActive && !hasResult
-            ? <RunningClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />
-            : <DoneClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />
+            ? <RunningAgentSection events={agentEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />
+            : <DoneAgentSection events={agentEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />
         )}
       </>
     );
@@ -481,9 +481,9 @@ function StructuredSection({
   if (type === 'agent' || type === 'claude' || type === 'type_fix' || type === 'conflict_resolution') {
     const hasResult = events.some((e) => e.type === 'result');
     if (isActive && !hasResult) {
-      return <RunningClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />;
+      return <RunningAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />;
     }
-    return <DoneClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />;
+    return <DoneAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />;
   }
 
   // ── Deploy ───────────────────────────────────────────────────────────────
@@ -987,7 +987,7 @@ export default function EvolveSessionView({
   const containerRef = useRef<HTMLDivElement>(null);
 
   /** True while the session pipeline is actively running (not yet ready for action). */
-  const isClaudeRunning = status === "starting" || status === "running-claude" || status === "fixing-types";
+  const isAgentRunning = status === "starting" || status === "running-claude" || status === "fixing-types";
 
   // ─── Derive setup/content sections from events ───────────────────────────
 
@@ -1273,7 +1273,7 @@ export default function EvolveSessionView({
           {/* ── Header ── */}
           <div className="px-4 py-2 border-b border-gray-700 flex items-center justify-between">
             <p className="text-gray-500 text-xs font-medium uppercase tracking-wide">Available Actions</p>
-            {isClaudeRunning ? (
+            {isAgentRunning ? (
               <button
                 data-id="session/abort"
                 type="button"
@@ -1335,11 +1335,11 @@ export default function EvolveSessionView({
               </button>
               <button
                 data-id="session/tab-accept"
-                onClick={(isClaudeRunning || remainingUpstream > 0) ? undefined : () => toggleAction("accept")}
-                disabled={isClaudeRunning || remainingUpstream > 0}
+                onClick={(isAgentRunning || remainingUpstream > 0) ? undefined : () => toggleAction("accept")}
+                disabled={isAgentRunning || remainingUpstream > 0}
                 title={remainingUpstream > 0 ? `Apply the ${remainingUpstream} upstream commit${remainingUpstream === 1 ? "" : "s"} before accepting` : undefined}
                 className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
-                  isClaudeRunning || remainingUpstream > 0
+                  isAgentRunning || remainingUpstream > 0
                     ? "text-gray-600 cursor-not-allowed"
                     : activeAction === "accept"
                     ? "bg-green-900/40 text-green-200"
@@ -1352,10 +1352,10 @@ export default function EvolveSessionView({
               </button>
               <button
                 data-id="session/tab-reject"
-                onClick={isClaudeRunning ? undefined : () => toggleAction("reject")}
-                disabled={isClaudeRunning}
+                onClick={isAgentRunning ? undefined : () => toggleAction("reject")}
+                disabled={isAgentRunning}
                 className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                  isClaudeRunning
+                  isAgentRunning
                     ? "text-gray-600 cursor-not-allowed"
                     : activeAction === "reject"
                     ? "bg-red-900/40 text-red-200"
@@ -1395,8 +1395,8 @@ export default function EvolveSessionView({
               <EvolveRequestForm
                 placeholder="Describe what to fix or improve…"
                 submitLabel="Submit follow-up"
-                disabled={isClaudeRunning}
-                disabledLabel="Waiting for Claude to finish…"
+                disabled={isAgentRunning}
+                disabledLabel="Waiting for agent to finish…"
                 autoFocus
                 defaultHarness={sessionHarness}
                 defaultModel={sessionModel}

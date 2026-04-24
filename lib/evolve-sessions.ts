@@ -164,7 +164,7 @@ interface WorkerConfig {
   userId: string;
 }
 
-/** Maps session IDs to the PID of their running Claude worker process. */
+/** Maps session IDs to the PID of their running agent worker process. */
 const activeWorkerPids = new Map<string, number>();
 
 /** Returns true if the OS process with the given PID is still alive. */
@@ -196,14 +196,14 @@ function checkWorktreeNotBusy(worktreePath: string): void {
 }
 
 /**
- * Spawns a detached Claude Code worker process for the given config.
+ * Spawns a detached agent worker process for the given config.
  * The worker process is independent of the server — it survives server
  * restarts. Awaiting this function waits for the worker to exit.
  *
  * If the server exits while this is awaited, the worker keeps running.
  * On server restart, reconnectRunningWorkers() re-attaches to live workers.
  */
-async function spawnClaudeWorker(
+async function spawnAgentWorker(
   config: WorkerConfig,
   workerScriptPath: string,
 ): Promise<void> {
@@ -234,7 +234,7 @@ async function spawnClaudeWorker(
 
     if (!proc.pid) {
       fs.rmSync(configFile, { force: true });
-      reject(new Error('Failed to spawn Claude worker: no PID assigned'));
+      reject(new Error('Failed to spawn agent worker: no PID assigned'));
       return;
     }
 
@@ -255,16 +255,16 @@ async function spawnClaudeWorker(
     proc.on('error', (err: Error) => {
       activeWorkerPids.delete(config.sessionId);
       try { fs.rmSync(configFile, { force: true }); } catch { /* best-effort */ }
-      reject(new Error(`Claude worker spawn failed: ${err.message}`));
+      reject(new Error(`Agent worker spawn failed: ${err.message}`));
     });
   });
 }
 
 /**
- * On server startup: reconnect to any Claude worker processes that survived
+ * On server startup: reconnect to any agent worker processes that survived
  * from before the restart. For each session in a running state:
  *   - If the worker's PID file exists and the process is alive, register its
- *     PID so abortClaudeRun() can still send SIGTERM to it.
+ *     PID so abortAgentRun() can still send SIGTERM to it.
  *   - If the PID file is missing or the process is dead, mark the session as
  *     'ready' with a recovery note (consistent with the abort endpoint behavior).
  *
@@ -304,7 +304,7 @@ export async function reconnectRunningWorkers(repoRoot: string): Promise<void> {
       continue;
     }
 
-    // Worker is still running — register it so abortClaudeRun() works.
+    // Worker is still running — register it so abortAgentRun() works.
     activeWorkerPids.set(record.id, livePid);
     // Background: unregister PID when the worker eventually finishes.
     const sessionId = record.id;
@@ -318,11 +318,11 @@ export async function reconnectRunningWorkers(repoRoot: string): Promise<void> {
 }
 
 /**
- * Signals the running Claude Code worker for the given session to stop.
+ * Signals the running agent worker for the given session to stop.
  * Returns true if a live worker was found and signalled, false if the
  * session has no registered worker PID.
  */
-export function abortClaudeRun(sessionId: string): boolean {
+export function abortAgentRun(sessionId: string): boolean {
   const pid = activeWorkerPids.get(sessionId);
   if (pid === undefined) return false;
   try {
@@ -605,7 +605,7 @@ export async function startLocalEvolve(
       ? path.join(repoRoot, 'scripts/pi-worker.ts')
       : path.join(repoRoot, 'scripts/claude-worker.ts');
 
-    await spawnClaudeWorker(
+    await spawnAgentWorker(
       {
         sessionId: session.id,
         worktreePath: session.worktreePath,
@@ -732,7 +732,7 @@ export async function runFollowupInWorktree(
       ? path.join(repoRoot, 'scripts/pi-worker.ts')
       : path.join(repoRoot, 'scripts/claude-worker.ts');
 
-    await spawnClaudeWorker(
+    await spawnAgentWorker(
       {
         sessionId: session.id,
         worktreePath: session.worktreePath,
@@ -806,7 +806,7 @@ export async function restartDevServerInWorktree(
  * Returns { success: true } when the agent committed the resolved merge, or
  * { success: false, log } with a human-readable explanation when it could not.
  */
-export async function resolveConflictsWithClaude(
+export async function resolveConflictsWithAgent(
   mergeRoot: string,
   branch: string,
   parentBranch: string,
@@ -844,7 +844,7 @@ export async function resolveConflictsWithClaude(
     : path.join(root, 'scripts/claude-worker.ts');
 
   try {
-    await spawnClaudeWorker(
+    await spawnAgentWorker(
       {
         sessionId: sessionContext.id,
         worktreePath: mergeRoot,
