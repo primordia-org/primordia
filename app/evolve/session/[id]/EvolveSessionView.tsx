@@ -320,16 +320,20 @@ function RunningClaudeSection({ events, label, isTypeFixSection, worktreePath, h
 }
 
 /** Render a completed Claude/type-fix section with tool calls collapsed. */
-function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath, harness, model }: {
+function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath, harness, model, startTs }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
   worktreePath?: string;
   harness?: string;
   model?: string;
+  startTs?: number;
 }) {
   const resultEvent = events.find((e): e is Extract<SessionEvent, { type: 'result' }> => e.type === 'result');
-  const metricsEvent = events.find((e): e is Extract<SessionEvent, { type: 'metrics' }> => e.type === 'metrics');
+  // Use the LAST metrics event — the final one written after the result event
+  // contains accurate totals, while earlier intermediate events are partial
+  // snapshots emitted after each assistant turn.
+  const metricsEvent = [...events].reverse().find((e): e is Extract<SessionEvent, { type: 'metrics' }> => e.type === 'metrics');
   const hasError = resultEvent?.subtype === 'error' || resultEvent?.subtype === 'timeout' || resultEvent?.subtype === 'aborted';
 
   const borderClass = isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
@@ -393,7 +397,11 @@ function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath, harn
       )}
       {metricsEvent && (
         <MetricsRow metrics={{
-          durationMs: metricsEvent.durationMs ?? undefined,
+          // Prefer the recorded durationMs; fall back to computing from
+          // section_start → result timestamps when durationMs is null/0.
+          durationMs: (metricsEvent.durationMs != null && metricsEvent.durationMs > 0)
+            ? metricsEvent.durationMs
+            : (startTs != null && resultEvent != null ? resultEvent.ts - startTs : undefined),
           costUsd: metricsEvent.costUsd ?? undefined,
           inputTokens: metricsEvent.inputTokens ?? undefined,
           outputTokens: metricsEvent.outputTokens ?? undefined,
@@ -463,7 +471,7 @@ function StructuredSection({
         {claudeEvents.length > 0 && (
           isActive && !hasResult
             ? <RunningClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />
-            : <DoneClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} />
+            : <DoneClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />
         )}
       </>
     );
@@ -475,7 +483,7 @@ function StructuredSection({
     if (isActive && !hasResult) {
       return <RunningClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />;
     }
-    return <DoneClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} />;
+    return <DoneClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />;
   }
 
   // ── Deploy ───────────────────────────────────────────────────────────────
