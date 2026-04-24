@@ -1011,6 +1011,18 @@ export default function EvolveSessionView({
     ?? (lastAgentSection?.model && sessionHarness
       ? MODEL_OPTIONS_BY_HARNESS[sessionHarness]?.find((m) => m.label === lastAgentSection.model)?.id
       : undefined);
+  // Human-readable agent label for UI messages like "Waiting for X to finish…"
+  // Label for the *currently running* agent — derived from the active section
+  // (last content section while the pipeline is running). This is correct even
+  // for follow-up requests that use a different harness/model than the original.
+  // Note: activeSection.harness / .model are human-readable labels, not IDs.
+  const activeSection = isAgentRunning ? contentSections[contentSections.length - 1] : undefined;
+  const activeHarnessLabel = activeSection?.harness ?? undefined;
+  const activeModelLabel = activeSection?.model ?? undefined;
+  const agentRunningLabel = activeHarnessLabel
+    ? (activeModelLabel ? `${activeHarnessLabel} (${activeModelLabel})` : activeHarnessLabel)
+    : 'the agent';
+
   // Setup is active while it's the only section and session isn't terminal
   const isSetupActive = !isTerminal && contentSections.length === 0;
   const setupStepCount = setupSection
@@ -1396,7 +1408,7 @@ export default function EvolveSessionView({
                 placeholder="Describe what to fix or improve…"
                 submitLabel="Submit follow-up"
                 disabled={isAgentRunning}
-                disabledLabel="Waiting for agent to finish…"
+                disabledLabel={`Waiting for ${agentRunningLabel} to finish…`}
                 autoFocus
                 defaultHarness={sessionHarness}
                 defaultModel={sessionModel}
