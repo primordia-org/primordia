@@ -14,6 +14,7 @@ import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMen
 import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
 import { encryptStoredApiKey } from "@/lib/api-key-client";
+import { useSounds } from "@/lib/sounds";
 import { EvolveRequestForm } from "@/components/EvolveRequestForm";
 import Link from "next/link";
 import type { DiffFileSummary } from "./page";
@@ -569,6 +570,7 @@ export default function EvolveSessionView({
   /** Accumulated log lines from the proxy's server log SSE stream. */
   const [serverLogs, setServerLogs] = useState<string>('');
 
+  const sounds = useSounds();
   const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
   const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
   const [toastSessionId, setToastSessionId] = useState<string | null>(null);
@@ -879,6 +881,7 @@ export default function EvolveSessionView({
       const data = (await res.json()) as { outcome?: string; error?: string; stashWarning?: string };
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
       if (data.outcome === 'accepting') {
+        sounds.sparkle();
         setStatus('accepting');
         setActiveAction(null);
         void startStreaming();
@@ -890,6 +893,7 @@ export default function EvolveSessionView({
         void startStreaming();
         return;
       }
+      sounds.accept();
       setStatus('accepted');
       abortControllerRef.current?.abort();
     } catch (err) {
@@ -911,9 +915,11 @@ export default function EvolveSessionView({
       });
       const data = (await res.json()) as { outcome?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
+      sounds.reject();
       setStatus('rejected');
       abortControllerRef.current?.abort();
     } catch (err) {
+      sounds.error();
       setAcceptRejectError(err instanceof Error ? err.message : String(err));
     } finally {
       setAcceptRejectLoading(false);

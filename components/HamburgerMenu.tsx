@@ -11,6 +11,7 @@
 // suppress the link to whichever page the user is already on.
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useSounds } from "@/lib/sounds";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { SessionUser } from "../lib/hooks";
@@ -91,6 +92,7 @@ export function buildStandardMenuItems({
 }
 
 export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: HamburgerMenuProps) {
+  const sounds = useSounds();
   const [menuOpen, setMenuOpen] = useState(false);
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
   const localRef = useRef<HTMLDivElement>(null);
@@ -114,7 +116,11 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
       <button
         data-id="nav/menu-toggle"
         type="button"
-        onClick={() => setMenuOpen((v) => !v)}
+        onClick={() => {
+          const next = !menuOpen;
+          if (next) sounds.menuOpen(); else sounds.menuClose();
+          setMenuOpen(next);
+        }}
         aria-label={menuOpen ? "Close menu" : "Open menu"}
         aria-expanded={menuOpen}
         className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"

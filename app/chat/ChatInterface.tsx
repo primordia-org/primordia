@@ -18,6 +18,7 @@ import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMen
 import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
 import { encryptStoredApiKey } from "@/lib/api-key-client";
+import { useSounds } from "@/lib/sounds";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,7 @@ interface GitContext {
 }
 
 export default function ChatInterface({ branch, commitMessage, initialHarness, initialModel, initialCavemanMode, initialCavemanIntensity }: GitContext) {
+  const sounds = useSounds();
   const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
   const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
   const [toastSessionId, setToastSessionId] = useState<string | null>(null);
@@ -124,6 +126,7 @@ export default function ChatInterface({ branch, commitMessage, initialHarness, i
     const trimmed = input.trim();
     if (!trimmed || isLoading) return;
 
+    sounds.send();
     setInput("");
     setIsLoading(true);
 
@@ -169,6 +172,7 @@ export default function ChatInterface({ branch, commitMessage, initialHarness, i
       const decoder = new TextDecoder();
       let assistantText = "";
       let streamDone = false;
+      let streamFinished = false;
 
       while (!streamDone) {
         const { done, value } = await reader.read();
@@ -184,6 +188,7 @@ export default function ChatInterface({ branch, commitMessage, initialHarness, i
           if (data === "[DONE]") {
             // Signal the outer loop to stop after this chunk is fully processed.
             streamDone = true;
+            streamFinished = true;
             break;
           }
           try {
@@ -202,7 +207,9 @@ export default function ChatInterface({ branch, commitMessage, initialHarness, i
           }
         }
       }
+      if (streamFinished) sounds.receive();
     } catch (err) {
+      sounds.error();
       const errorMsg =
         err instanceof Error ? err.message : "Something went wrong.";
       setMessages((prev) => {

@@ -27,6 +27,7 @@ import {
   type CavemanIntensity,
 } from "../lib/user-prefs";
 import { PageElementInspector, PageElementInfo, captureElementFiles } from "./PageElementInspector";
+import { useSounds } from "@/lib/sounds";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -144,6 +145,7 @@ export function EvolveRequestForm({
   inspectorSkipElement,
 }: EvolveRequestFormProps) {
   const router = useRouter();
+  const sounds = useSounds();
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -263,12 +265,15 @@ export function EvolveRequestForm({
           setSelectedHarness(DEFAULT_HARNESS);
           setSelectedModel(DEFAULT_MODEL);
           // caveman mode/intensity are sticky — not reset
+          sounds.sparkle();
           onSessionCreated(data.sessionId!);
         } else {
+          sounds.sparkle();
           router.push(`/evolve/session/${data.sessionId}`);
         }
       }
     } catch (err) {
+      sounds.error();
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setIsLoading(false);
