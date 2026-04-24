@@ -9,6 +9,13 @@
 //   Query: ?sessionId=<id>
 //   Returns: { status, port, previewUrl, branch }
 
+/**
+ * Start or poll an evolve session
+ * @description POST to start a new AI-powered code-change session (requires `can_evolve` or `admin` role). Returns `{ sessionId }`. GET to poll a session's status by `?sessionId=<id>`.
+ * @tags Evolve
+ * @openapi
+ */
+
 import * as path from 'path';
 import * as fs from 'fs';
 import { getLlmClient } from '../../../lib/llm-client';

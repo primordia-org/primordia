@@ -3,6 +3,13 @@
 //
 // GET ?sessionId=<id>&offset=<n>
 //   sessionId — the evolve session to watch
+
+/**
+ * Stream evolve session progress
+ * @description SSE stream of live session progress. Pass `sessionId` and optional `offset` (character position). Emits JSON events with `progressText`, `status`, `devServerStatus`, and `previewUrl`.
+ * @tags Evolve
+ * @openapi
+ */
 //   offset    — number of NDJSON lines the client already has (default 0)
 //
 // SSE events:

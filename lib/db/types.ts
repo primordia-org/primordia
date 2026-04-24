@@ -80,6 +80,37 @@ export interface Role {
   createdAt: number;
 }
 
+/** This instance's identity and settings. */
+export interface InstanceConfig {
+  uuid7: string;
+  name: string;
+  description: string;
+  /** The public-facing URL of this instance (e.g. https://primordia.example.com). */
+  canonicalUrl: string;
+  /** URL of the parent instance to register with (empty string = no parent). */
+  parentUrl: string;
+}
+
+/** A known peer Primordia instance in the social graph. */
+export interface GraphNode {
+  uuid7: string;
+  /** Current canonical URL, or empty string if unknown. */
+  url: string;
+  name: string;
+  description: string | null;
+  registeredAt: number;
+}
+
+/** A directed relationship between two instances. */
+export interface GraphEdge {
+  id: string;
+  from: string; // uuid7
+  to: string;   // uuid7
+  type: string; // e.g. "fork"
+  date: string; // ISO date string YYYY-MM-DD
+  createdAt: number;
+}
+
 export interface UserPreferences {
   userId: string;
   key: string;
@@ -129,5 +160,13 @@ export interface DbAdapter {
   // User preferences (key-value store per user)
   getUserPreferences(userId: string, keys: string[]): Promise<Record<string, string>>;
   setUserPreferences(userId: string, prefs: Record<string, string>): Promise<void>;
+
+  // Instance identity & social graph
+  getInstanceConfig(): Promise<InstanceConfig>;
+  setInstanceConfig(fields: Partial<Pick<InstanceConfig, "name" | "description" | "canonicalUrl" | "parentUrl">>): Promise<void>;
+  getGraphNodes(): Promise<GraphNode[]>;
+  upsertGraphNode(node: GraphNode): Promise<void>;
+  getGraphEdges(): Promise<GraphEdge[]>;
+  upsertGraphEdge(edge: GraphEdge): Promise<void>;
 
 }

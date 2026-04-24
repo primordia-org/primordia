@@ -1,5 +1,12 @@
 // app/api/auth/passkey/register/start/route.ts
 // Generates WebAuthn registration options.
+
+/**
+ * Start passkey registration
+ * @description Generates WebAuthn registration options. Call this before `navigator.credentials.create()`. Pass `{ username }` in the body.
+ * @tags Auth
+ * @openapi
+ */
 //
 // Two modes:
 //   1. Logged-in user — adds a passkey to an existing account.

@@ -3,6 +3,13 @@
 //
 // POST
 //   Body: { action: "accept" | "reject", sessionId: string }
+
+/**
+ * Accept or reject an evolve session
+ * @description POST `{ action: "accept" | "reject", sessionId }` to accept (deploy) or reject (discard) a ready evolve session. Requires `can_evolve` or `admin` role.
+ * @tags Evolve
+ * @openapi
+ */
 //
 //   accept — looks up the session in SQLite, kills the preview dev server
 //            (via the reverse proxy management API), then performs one of two merge paths:
@@ -38,7 +45,7 @@ import { Database } from 'bun:sqlite';
 import {
   runGit,
   runFollowupInWorktree,
-  resolveConflictsWithClaude,
+  resolveConflictsWithAgent,
   getRepoRoot,
   type LocalSession,
 } from '../../../../lib/evolve-sessions';
@@ -823,7 +830,7 @@ export async function POST(request: Request) {
           worktreePath,
         );
         if (mergeResult.code !== 0) {
-          const resolution = await resolveConflictsWithClaude(worktreePath, parentBranch, branch, sessionContext, repoRoot);
+          const resolution = await resolveConflictsWithAgent(worktreePath, parentBranch, branch, sessionContext, repoRoot);
           if (!resolution.success) {
             await runGit(['merge', '--abort'], worktreePath);
             return Response.json(

@@ -2,7 +2,8 @@
 // Uses bun:sqlite which is built into Bun and requires no npm package.
 // Only imported when DATABASE_URL is not set (i.e., local dev without Neon).
 
-import type { DbAdapter, Role, User, Passkey, Challenge, Session, CrossDeviceToken } from "./types";
+import type { DbAdapter, Role, User, Passkey, Challenge, Session, CrossDeviceToken, InstanceConfig, GraphNode, GraphEdge } from "./types";
+import { generateUuid7 } from "../uuid7";
 
 let dbInstance: DbAdapter | null = null;
 
@@ -66,6 +67,25 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       updated_at INTEGER NOT NULL,
       PRIMARY KEY (user_id, key)
     );
+    CREATE TABLE IF NOT EXISTS instance_config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS graph_nodes (
+      uuid7 TEXT PRIMARY KEY,
+      url TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      registered_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS graph_edges (
+      id TEXT PRIMARY KEY,
+      from_uuid TEXT NOT NULL,
+      to_uuid TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'fork',
+      date TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS user_roles (
       user_id TEXT NOT NULL REFERENCES users(id),
       role_name TEXT NOT NULL REFERENCES roles(name),
@@ -108,6 +128,23 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     `);
   } catch {
     // First user doesn't exist yet — ignore
+  }
+
+  // Bootstrap instance identity — generate uuid7 on first run
+  const existingUuid = db.prepare("SELECT value FROM instance_config WHERE key = 'uuid7'").get() as { value: string } | null;
+  if (!existingUuid) {
+    const uuid7 = generateUuid7();
+    const insert = db.prepare("INSERT OR IGNORE INTO instance_config (key, value) VALUES (?, ?)");
+    insert.run("uuid7", uuid7);
+    insert.run("name", "My Primordia");
+    insert.run("description", "A Primordia instance");
+    insert.run("canonical_url", "");
+    insert.run("parent_url", "");
+  } else {
+    // Migration: ensure canonical_url and parent_url keys exist for older DBs
+    const upsertKey = db.prepare("INSERT OR IGNORE INTO instance_config (key, value) VALUES (?, ?)");
+    upsertKey.run("canonical_url", "");
+    upsertKey.run("parent_url", "");
   }
 
   // Migration: port existing user_permissions rows to user_roles (one-time, idempotent)
@@ -409,6 +446,78 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         db.exec('ROLLBACK');
         throw err;
       }
+    },
+
+
+    // ── Instance identity & social graph ─────────────────────────────────────
+
+    async getInstanceConfig() {
+      const rows = db
+        .prepare("SELECT key, value FROM instance_config")
+        .all() as Array<{ key: string; value: string }>;
+      const map: Record<string, string> = {};
+      for (const r of rows) map[r.key] = r.value;
+      return {
+        uuid7: map["uuid7"] ?? "",
+        name: map["name"] ?? "My Primordia",
+        description: map["description"] ?? "",
+        canonicalUrl: map["canonical_url"] ?? "",
+        parentUrl: map["parent_url"] ?? "",
+      } as InstanceConfig;
+    },
+
+    async setInstanceConfig(fields) {
+      const upsert = db.prepare(
+        "INSERT INTO instance_config (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value"
+      );
+      if (fields.name !== undefined) upsert.run("name", fields.name);
+      if (fields.description !== undefined) upsert.run("description", fields.description);
+      if (fields.canonicalUrl !== undefined) upsert.run("canonical_url", fields.canonicalUrl);
+      if (fields.parentUrl !== undefined) upsert.run("parent_url", fields.parentUrl);
+    },
+
+    async getGraphNodes() {
+      const rows = db
+        .prepare("SELECT uuid7, url, name, description, registered_at FROM graph_nodes ORDER BY registered_at ASC")
+        .all() as Array<{ uuid7: string; url: string; name: string; description: string | null; registered_at: number }>;
+      return rows.map((r) => ({
+        uuid7: r.uuid7,
+        url: r.url,
+        name: r.name,
+        description: r.description,
+        registeredAt: r.registered_at,
+      }));
+    },
+
+    async upsertGraphNode(node: GraphNode) {
+      db.prepare(
+        `INSERT INTO graph_nodes (uuid7, url, name, description, registered_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (uuid7) DO UPDATE SET url = excluded.url, name = excluded.name,
+           description = excluded.description, registered_at = excluded.registered_at`
+      ).run(node.uuid7, node.url, node.name, node.description ?? null, node.registeredAt);
+    },
+
+    async getGraphEdges() {
+      const rows = db
+        .prepare("SELECT id, from_uuid, to_uuid, type, date, created_at FROM graph_edges ORDER BY created_at ASC")
+        .all() as Array<{ id: string; from_uuid: string; to_uuid: string; type: string; date: string; created_at: number }>;
+      return rows.map((r) => ({
+        id: r.id,
+        from: r.from_uuid,
+        to: r.to_uuid,
+        type: r.type,
+        date: r.date,
+        createdAt: r.created_at,
+      }));
+    },
+
+    async upsertGraphEdge(edge: GraphEdge) {
+      db.prepare(
+        `INSERT INTO graph_edges (id, from_uuid, to_uuid, type, date, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET type = excluded.type, date = excluded.date`
+      ).run(edge.id, edge.from, edge.to, edge.type, edge.date, edge.createdAt);
     },
 
   };

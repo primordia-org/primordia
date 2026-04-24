@@ -4,6 +4,13 @@
 //   Body: multipart/form-data or JSON { sessionId: string; request: string; attachments?: File[] }
 //   Returns: { ok: true }
 
+/**
+ * Submit a follow-up evolve request
+ * @description Send an additional change request to an already-ready evolve session. Accepts `multipart/form-data` or JSON with `{ sessionId, request, attachments? }`.
+ * @tags Evolve
+ * @openapi
+ */
+
 import * as path from 'path';
 import * as fs from 'fs';
 import { getSessionUser } from '../../../../lib/auth';

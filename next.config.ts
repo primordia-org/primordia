@@ -19,6 +19,16 @@ const nextConfig: NextConfig = {
   // Note: ESLint config was removed in Next.js 16; ESLint is no longer run during builds.
   typescript: { ignoreBuildErrors: true },
 
+  // Map /.well-known/primordia.json → /api/instance/primordia-json
+  async rewrites() {
+    return [
+      {
+        source: "/.well-known/primordia.json",
+        destination: "/api/instance/primordia-json",
+      },
+    ];
+  },
+
   // Allow HMR WebSocket connections from exe.dev reverse-proxy hostnames.
   // Next.js 16 blocks cross-origin requests to dev resources by default.
   allowedDevOrigins: ["*.exe.xyz"],

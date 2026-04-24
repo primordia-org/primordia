@@ -96,8 +96,11 @@ primordia/
 │   │   │   └── page.tsx           ← Deep rollback: lists previous prod slots from primordia.productionHistory; admin only
 │   │   ├── server-health/
 │   │   │   └── page.tsx           ← Server health: disk/memory usage and oldest non-prod worktree cleanup; admin only
-│   │   └── git-mirror/
-│   │       └── page.tsx           ← Git Mirror: shows current mirror remote status and SSH instructions for adding a mirror remote; admin only
+│   │   ├── git-mirror/
+│   │   │   └── page.tsx           ← Git Mirror: shows current mirror remote status and SSH instructions for adding a mirror remote; admin only
+│   │   └── instance/
+│   │       ├── page.tsx           ← Instance identity admin panel: view/edit name+description+uuid7; view graph nodes+edges; admin only
+│   │       └── InstanceConfigClient.tsx ← Client component for instance config editing and graph display
 │   ├── evolve/
 │   │   ├── page.tsx               ← Dedicated "propose a change" page; renders <EvolveForm>; requires evolve permission
 │   │   └── session/
@@ -177,7 +180,7 @@ primordia/
 │   ├── AdminPermissionsClient.tsx ← Client component: grant/revoke 'can_evolve' role per user (used by /admin)
 │   ├── AdminRollbackClient.tsx    ← Client component: deep rollback UI; lists previous production slots from primordia.productionHistory with roll-back buttons (used by /admin/rollback)
 │   ├── AdminServerHealthClient.tsx ← Client component: disk/memory usage bars and oldest non-prod worktree delete button (used by /admin/server-health)
-│   ├── AdminSubNav.tsx            ← Tab subnav for admin pages: "Manage Users" (/admin), "Server Logs" (/admin/logs), "Proxy Logs" (/admin/proxy-logs), "Rollback" (/admin/rollback), "Server Health" (/admin/server-health), "Git Mirror" (/admin/git-mirror)
+│   ├── AdminSubNav.tsx            ← Tab subnav for admin pages: "Manage Users" (/admin), "Server Logs" (/admin/logs), "Proxy Logs" (/admin/proxy-logs), "Rollback" (/admin/rollback), "Server Health" (/admin/server-health), "Git Mirror" (/admin/git-mirror), "Instance" (/admin/instance)
 │   ├── ForbiddenPage.tsx          ← Server component: 403 access-denied page with page description, required/met/unmet conditions, and how-to-fix
 │   ├── ChatInterface.tsx          ← Main chat UI (chat only); hamburger menu "Propose a change" opens FloatingEvolveDialog
 │   ├── ChangelogEntryDetails.tsx  ← Client component: single changelog <details> widget; lazy-loads body from /api/changelog on first open
@@ -364,6 +367,21 @@ To deploy to exe.dev: `bun run deploy-to-exe.dev <server-name>`
 
 ---
 
+## Worktree Session History (NDJSON Log)
+
+Every evolve worktree keeps a structured event log at `.primordia-session.ndjson` (one JSON object per line). This file is the single source of truth for session state — it records the initial request, every follow-up request, all agent tool calls and text output, result status, and metrics for each run.
+
+When an agent is invoked for a follow-up request it typically resumes its own session (`useContinue: true`) and already has full conversation history. If for any reason the agent has no native memory of prior work in the worktree (e.g. a fresh start or a harness that does not support session resumption), read `.primordia-session.ndjson` to reconstruct context:
+
+- `initial_request` events contain the original change request text.
+- `followup_request` events contain each subsequent request, in order.
+- `section_start` events with `sectionType: 'agent'` identify which harness and model ran each phase.
+- `result` events record whether each phase succeeded, errored, timed out, or was aborted.
+
+The log is append-only and never truncated for the lifetime of the session.
+
+---
+
 ## Design Principles for Claude Code
 
 When implementing changes, follow these principles:
@@ -404,6 +422,7 @@ When implementing changes, follow these principles:
 | Deep rollback (/admin/rollback) | ✅ Live | Admin-only; lists all previous production slots from primordia.productionHistory in git config; "Roll back" button for each target; zero-downtime cutover via reverse proxy |
 | Server health (/admin/server-health) | ✅ Live | Admin-only; shows disk and memory usage with visual bars; shows oldest non-prod worktree with a "Delete oldest" button to free disk space |
 | Git mirror (/admin/git-mirror) | ✅ Live | Admin-only; shows current `mirror` remote status and SSH instructions for adding it; every production deploy auto-pushes to `mirror` if it exists |
+| Instance identity & social graph | ✅ Live | Each instance has a fixed UUID v7, editable name+description; serves `/.well-known/primordia.json` with self+peers+edges; `/api/instance/register` lets child instances POST to register; admin panel at `/admin/instance` |
 | Read-only git HTTP | ✅ Live | Clone/fetch via `git clone http[s]://<host>/api/git`; proxied through `git http-backend`; push permanently blocked (403) |
 
 ---

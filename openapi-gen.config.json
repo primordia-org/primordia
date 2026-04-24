@@ -1,0 +1,131 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Primordia API",
+    "version": "0.0.1",
+    "description": "Internal REST API for Primordia — the self-modifying AI web app. This is not a stable public API; it documents internal endpoints as they currently exist and may change at any time. Covers chat, authentication, and the evolve pipeline."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000/api",
+      "description": "Local development server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "defaultResponseSet": "common",
+  "responseSets": {
+    "common": [
+      "400",
+      "500"
+    ],
+    "auth": [
+      "400",
+      "401",
+      "403",
+      "500"
+    ],
+    "public": [
+      "400",
+      "500"
+    ]
+  },
+  "errorConfig": {
+    "template": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string",
+          "example": "{{ERROR_MESSAGE}}"
+        },
+        "code": {
+          "type": "string",
+          "example": "{{ERROR_CODE}}"
+        }
+      }
+    },
+    "codes": {
+      "400": {
+        "description": "Bad Request",
+        "variables": {
+          "ERROR_MESSAGE": "Invalid request parameters",
+          "ERROR_CODE": "BAD_REQUEST"
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "variables": {
+          "ERROR_MESSAGE": "Authentication required",
+          "ERROR_CODE": "UNAUTHORIZED"
+        }
+      },
+      "403": {
+        "description": "Forbidden",
+        "variables": {
+          "ERROR_MESSAGE": "Access denied",
+          "ERROR_CODE": "FORBIDDEN"
+        }
+      },
+      "404": {
+        "description": "Not Found",
+        "variables": {
+          "ERROR_MESSAGE": "Resource not found",
+          "ERROR_CODE": "NOT_FOUND"
+        }
+      },
+      "409": {
+        "description": "Conflict",
+        "variables": {
+          "ERROR_MESSAGE": "Resource already exists",
+          "ERROR_CODE": "CONFLICT"
+        }
+      },
+      "500": {
+        "description": "Internal Server Error",
+        "variables": {
+          "ERROR_MESSAGE": "An unexpected error occurred",
+          "ERROR_CODE": "INTERNAL_ERROR"
+        }
+      }
+    }
+  },
+  "schemaType": "typescript",
+  "schemaFiles": [],
+  "docsUrl": "api-docs",
+  "ui": "scalar",
+  "outputFile": "openapi.json",
+  "outputDir": "./public",
+  "diagnostics": {
+    "enabled": true
+  },
+  "ignoreRoutes": [],
+  "debug": false,
+  "apiDir": "./app/api",
+  "routerType": "app",
+  "schemaDir": "./app",
+  "framework": {
+    "kind": "nextjs",
+    "router": "app"
+  },
+  "next": {},
+  "includeOpenApiRoutes": false,
+  "ignoreRoutes": [
+    "/api/git",
+    "/api/admin/logs",
+    "/api/admin/proxy-logs",
+    "/api/admin/proxy-settings",
+    "/api/admin/rollback",
+    "/api/admin/server-health",
+    "/api/admin/git-mirror",
+    "/api/admin/permissions",
+    "/api/rollback",
+    "/api/prune-branches"
+  ]
+}

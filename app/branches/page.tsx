@@ -9,6 +9,7 @@
 import { spawnSync } from "child_process";
 import { headers } from "next/headers";
 import Link from "next/link";
+import { ExternalLink } from "lucide-react";
 import type { Metadata } from "next";
 import type { EvolveSession } from "@/lib/db/types";
 import { listSessionsFromFilesystem } from "@/lib/session-events";
@@ -345,10 +346,10 @@ function BranchRow({
   canCreateSession: boolean;
 }) {
   const isRoot = depth === 0;
-  const connector = isRoot ? "" : isLast ? "└── " : "├── ";
+  const connector = isRoot ? "" : isLast ? "└─ " : "├─ ";
   const childLinePrefix = isRoot
     ? ""
-    : linePrefix + (isLast ? "    " : "│   ");
+    : linePrefix + (isLast ? "   " : "│  ");
 
   const url = node.isProduction ? currentServerUrl : node.previewUrl;
   const statusColor = node.sessionStatus
@@ -371,38 +372,54 @@ function BranchRow({
         <span className={url ? "text-green-400 shrink-0" : "text-gray-600 shrink-0"}>
           ●
         </span>
-        <span
-          className={
-            node.isProduction
-              ? "text-white font-bold"
-              : node.isCurrent
+        {node.hasSession ? (
+          <Link
+            href={`/evolve/session/${node.name}`}
+            className={
+              node.isProduction
+                ? "text-white font-bold hover:text-gray-200"
+                : node.isCurrent
+                  ? "text-white font-bold hover:text-gray-200"
+                  : isTerminal
+                    ? "text-gray-600 hover:text-gray-500"
+                    : "text-gray-300 hover:text-gray-100"
+            }
+          >
+            {node.name}
+            {node.isProduction && (
+              <span className="text-blue-400 font-normal ml-1">(production)</span>
+            )}
+            {node.isCurrent && !node.isProduction && (
+              <span className="text-gray-500 font-normal ml-1">(current)</span>
+            )}
+          </Link>
+        ) : (
+          <span
+            className={
+              node.isProduction
                 ? "text-white font-bold"
-                : isTerminal
-                  ? "text-gray-600"
-                  : "text-gray-300"
-          }
-        >
-          {node.name}
-          {node.isProduction && (
-            <span className="text-blue-400 font-normal ml-1">(production)</span>
-          )}
-          {node.isCurrent && !node.isProduction && (
-            <span className="text-gray-500 font-normal ml-1">(current)</span>
-          )}
-        </span>
+                : node.isCurrent
+                  ? "text-white font-bold"
+                  : isTerminal
+                    ? "text-gray-600"
+                    : "text-gray-300"
+            }
+          >
+            {node.name}
+            {node.isProduction && (
+              <span className="text-blue-400 font-normal ml-1">(production)</span>
+            )}
+            {node.isCurrent && !node.isProduction && (
+              <span className="text-gray-500 font-normal ml-1">(current)</span>
+            )}
+          </span>
+        )}
         {statusLabel && !node.isProduction && (
           <span className={`text-xs shrink-0 ${statusColor}`}>
             [{statusLabel}]
           </span>
         )}
-        {node.hasSession && (
-          <Link
-            href={`/evolve/session/${node.name}`}
-            className="text-purple-400 hover:text-purple-300 text-xs ml-1 shrink-0"
-          >
-            session ↗
-          </Link>
-        )}
+
         {/* Show "+ session" only for active (non-terminal) branches without a session */}
         {canCreateSession &&
           !node.hasSession &&
@@ -416,9 +433,10 @@ function BranchRow({
             href={url}
             target={node.isCurrent ? "_self" : "_blank"}
             rel="noopener noreferrer"
-            className="text-blue-400 hover:text-blue-300 text-xs ml-1 shrink-0"
+            className="text-blue-400 hover:text-blue-300 ml-1 shrink-0 flex items-center"
+            title={node.isProduction ? "View site" : "Open preview"}
           >
-            {node.isProduction ? "view" : "preview"} ↗
+            <ExternalLink size={13} strokeWidth={2} />
           </a>
         )}
       </div>
@@ -600,9 +618,8 @@ export default async function BranchesPage() {
       {/* Legend */}
       <div className="mt-8 border-t border-gray-800 pt-4 text-xs text-gray-600 font-mono space-y-1">
         <p>
-          ● green = preview server active · ● dim = no active session ·{" "}
-          <span className="text-purple-400">session ↗</span> = view evolve
-          session · <span className="text-blue-400">view/preview ↗</span> = open
+          ● green = preview server active · ● dim = no active session · branch name
+          links to session · <span className="text-blue-400"><ExternalLink size={10} className="inline" /></span> = open
           branch · <span className="text-purple-500">+ session</span> = start new
           session on existing branch
         </p>

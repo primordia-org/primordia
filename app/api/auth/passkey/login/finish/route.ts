@@ -1,6 +1,13 @@
 // app/api/auth/passkey/login/finish/route.ts
 // Verifies the WebAuthn authentication response, updates the counter, and issues a session.
 
+/**
+ * Finish passkey login
+ * @description Verifies the WebAuthn `AuthenticationResponseJSON`, updates the credential counter, and sets a session cookie.
+ * @tags Auth
+ * @openapi
+ */
+
 import { NextRequest, NextResponse } from "next/server";
 import { verifyAuthenticationResponse } from "@simplewebauthn/server";
 import type {

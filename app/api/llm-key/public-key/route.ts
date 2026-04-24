@@ -2,6 +2,13 @@
 // Returns the server's ephemeral RSA-OAEP public key as JWK.
 // Clients use this to encrypt their Anthropic API key before sending it
 // in evolve / chat requests so the plaintext key is never in server logs.
+
+/**
+ * Get LLM key encryption public key
+ * @description Returns the server's ephemeral RSA-OAEP public key as JWK. Use this to encrypt a user-supplied Anthropic API key client-side before sending it to chat or evolve endpoints.
+ * @tags Config
+ * @openapi
+ */
 //
 // GET — no body required
 // Returns: { publicKey: JsonWebKey }

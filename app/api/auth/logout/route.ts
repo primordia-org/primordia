@@ -1,5 +1,11 @@
 // app/api/auth/logout/route.ts — Deletes the current session and clears the cookie.
 
+/**
+ * Log out
+ * @description Deletes the current session and clears the session cookie.
+ * @tags Auth
+ * @openapi
+ */
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getDb } from "@/lib/db/index";

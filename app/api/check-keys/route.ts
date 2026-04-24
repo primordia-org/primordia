@@ -5,6 +5,13 @@
 //
 // All LLM traffic now routes through the exe.dev gateway — no API key is needed.
 
+/**
+ * Check required environment variables
+ * @description Returns a list of missing required server-side environment variables. An empty `missing` array means the server is fully configured.
+ * @tags Config
+ * @openapi
+ */
+
 export async function GET() {
   const missing: Array<{ key: string; description: string }> = [];
   // No required API keys — the exe.dev LLM gateway handles all auth.

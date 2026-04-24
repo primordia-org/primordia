@@ -165,7 +165,7 @@ interface WorkerConfig {
   userId: string;
 }
 
-/** Maps session IDs to the PID of their running Claude worker process. */
+/** Maps session IDs to the PID of their running agent worker process. */
 const activeWorkerPids = new Map<string, number>();
 
 /** Returns true if the OS process with the given PID is still alive. */
@@ -197,14 +197,14 @@ function checkWorktreeNotBusy(worktreePath: string): void {
 }
 
 /**
- * Spawns a detached Claude Code worker process for the given config.
+ * Spawns a detached agent worker process for the given config.
  * The worker process is independent of the server — it survives server
  * restarts. Awaiting this function waits for the worker to exit.
  *
  * If the server exits while this is awaited, the worker keeps running.
  * On server restart, reconnectRunningWorkers() re-attaches to live workers.
  */
-async function spawnClaudeWorker(
+async function spawnAgentWorker(
   config: WorkerConfig,
   workerScriptPath: string,
 ): Promise<void> {
@@ -235,7 +235,7 @@ async function spawnClaudeWorker(
 
     if (!proc.pid) {
       fs.rmSync(configFile, { force: true });
-      reject(new Error('Failed to spawn Claude worker: no PID assigned'));
+      reject(new Error('Failed to spawn agent worker: no PID assigned'));
       return;
     }
 
@@ -256,16 +256,16 @@ async function spawnClaudeWorker(
     proc.on('error', (err: Error) => {
       activeWorkerPids.delete(config.sessionId);
       try { fs.rmSync(configFile, { force: true }); } catch { /* best-effort */ }
-      reject(new Error(`Claude worker spawn failed: ${err.message}`));
+      reject(new Error(`Agent worker spawn failed: ${err.message}`));
     });
   });
 }
 
 /**
- * On server startup: reconnect to any Claude worker processes that survived
+ * On server startup: reconnect to any agent worker processes that survived
  * from before the restart. For each session in a running state:
  *   - If the worker's PID file exists and the process is alive, register its
- *     PID so abortClaudeRun() can still send SIGTERM to it.
+ *     PID so abortAgentRun() can still send SIGTERM to it.
  *   - If the PID file is missing or the process is dead, mark the session as
  *     'ready' with a recovery note (consistent with the abort endpoint behavior).
  *
@@ -305,7 +305,7 @@ export async function reconnectRunningWorkers(repoRoot: string): Promise<void> {
       continue;
     }
 
-    // Worker is still running — register it so abortClaudeRun() works.
+    // Worker is still running — register it so abortAgentRun() works.
     activeWorkerPids.set(record.id, livePid);
     // Background: unregister PID when the worker eventually finishes.
     const sessionId = record.id;
@@ -319,11 +319,11 @@ export async function reconnectRunningWorkers(repoRoot: string): Promise<void> {
 }
 
 /**
- * Signals the running Claude Code worker for the given session to stop.
+ * Signals the running agent worker for the given session to stop.
  * Returns true if a live worker was found and signalled, false if the
  * session has no registered worker PID.
  */
-export function abortClaudeRun(sessionId: string): boolean {
+export function abortAgentRun(sessionId: string): boolean {
   const pid = activeWorkerPids.get(sessionId);
   if (pid === undefined) return false;
   try {
@@ -337,6 +337,22 @@ export function abortClaudeRun(sessionId: string): boolean {
 }
 
 // ─── Git ──────────────────────────────────────────────────────────────────────
+
+export function runCommand(
+  cmd: string,
+  args: string[],
+  cwd: string,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  return new Promise((resolve) => {
+    const proc = spawn(cmd, args, { cwd });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    proc.on('close', (code) => resolve({ stdout, stderr, code: code ?? 1 }));
+    proc.on('error', (err) => resolve({ stdout: '', stderr: err.message, code: 1 }));
+  });
+}
 
 export function runGit(
   args: string[],
@@ -590,14 +606,16 @@ export async function startLocalEvolve(
       ? path.join(repoRoot, 'scripts/pi-worker.ts')
       : path.join(repoRoot, 'scripts/claude-worker.ts');
 
-    await spawnClaudeWorker(
+    await spawnAgentWorker(
       {
         sessionId: session.id,
         worktreePath: session.worktreePath,
         repoRoot,
         prompt,
         timeoutMs: 20 * 60 * 1000,
-        model: session.model,
+        // Use the resolved modelId so the worker always runs with the same
+        // model that was logged in the section_start event.
+        model: modelId,
         apiKey: session.apiKey,
         userId: session.userId,
       },
@@ -642,6 +660,9 @@ export async function runFollowupInWorktree(
   const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
 
   const fuHarnessId = session.harness ?? DEFAULT_HARNESS;
+  // Resolve the model ID now so the section_start label and worker config are always consistent.
+  // This also means the user's model choice for a follow-up always overrides the previous run's model.
+  const fuModelId = session.model ?? DEFAULT_MODEL;
 
   try {
     if (skipChangelog) {
@@ -650,7 +671,6 @@ export async function runFollowupInWorktree(
     } else {
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'followup', label: '🔄 Follow-up Request', ts: Date.now() });
       appendSessionEvent(ndjsonPath, { type: 'followup_request', request: followupRequest, attachments: attachmentPaths.map(p => path.basename(p)), ts: Date.now() });
-      const fuModelId = session.model ?? DEFAULT_MODEL;
       const fuHarnessLabel = HARNESS_OPTIONS.find((h) => h.id === fuHarnessId)?.label ?? fuHarnessId;
       const fuModelLabel = getModelLabel(fuHarnessId, fuModelId);
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: fuHarnessLabel, model: fuModelLabel, harnessId: fuHarnessId, modelId: fuModelId, label: `🤖 ${fuHarnessLabel} (${fuModelLabel})`, ts: Date.now() });
@@ -697,29 +717,33 @@ export async function runFollowupInWorktree(
         `\n\nRead and use these files as needed. If they are images or assets that should be added to the project, copy them to an appropriate location (e.g., \`public/\`) with a descriptive filename.`
       : '';
 
-    // With `continue: true`, Claude Code resumes the existing session in this
-    // worktree and already has full context (original request, prior follow-ups,
-    // everything it did). No need to manually reconstruct session history.
+    // With `useContinue: true` the harness resumes the most recent session in
+    // this worktree so it has full conversation history without us having to
+    // reconstruct it.  Both Claude Code and pi support resuming with a different
+    // model, so the user's model choice always takes effect even when changing it
+    // mid-session.  If the agent has no native memory of the worktree (e.g. the
+    // harness was switched and useContinue falls back gracefully), it can read
+    // .primordia-session.ndjson to reconstruct session history — see CLAUDE.md.
     const prompt =
       `Address the following follow-up request:\n\n` +
       `${followupRequest}${attachmentSection}\n\n` +
       `${changelogInstruction} Commit all changes with a descriptive message.`;
 
-    // Spawn a detached worker process — same pattern as startLocalEvolve.
-    // useContinue resumes the most recent session in the worktree so the agent
-    // has full conversation history without us having to reconstruct it.
     const fuWorkerScript = (fuHarnessId === 'pi')
       ? path.join(repoRoot, 'scripts/pi-worker.ts')
       : path.join(repoRoot, 'scripts/claude-worker.ts');
 
-    await spawnClaudeWorker(
+    await spawnAgentWorker(
       {
         sessionId: session.id,
         worktreePath: session.worktreePath,
         repoRoot,
         prompt,
         timeoutMs: 20 * 60 * 1000,
-        model: session.model,
+        // Use the resolved fuModelId so the worker always runs with the same
+        // model that was logged in the section_start event, and the user's
+        // model choice overrides the previous run's model.
+        model: fuModelId,
         useContinue: true,
         apiKey: session.apiKey,
         userId: session.userId,
@@ -783,7 +807,7 @@ export async function restartDevServerInWorktree(
  * Returns { success: true } when the agent committed the resolved merge, or
  * { success: false, log } with a human-readable explanation when it could not.
  */
-export async function resolveConflictsWithClaude(
+export async function resolveConflictsWithAgent(
   mergeRoot: string,
   branch: string,
   parentBranch: string,
@@ -821,7 +845,7 @@ export async function resolveConflictsWithClaude(
     : path.join(root, 'scripts/claude-worker.ts');
 
   try {
-    await spawnClaudeWorker(
+    await spawnAgentWorker(
       {
         sessionId: sessionContext.id,
         worktreePath: mergeRoot,

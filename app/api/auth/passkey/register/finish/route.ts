@@ -1,6 +1,13 @@
 // app/api/auth/passkey/register/finish/route.ts
 // Verifies the WebAuthn registration response, creates the user + passkey, and issues a session.
 
+/**
+ * Finish passkey registration
+ * @description Verifies the WebAuthn `RegistrationResponseJSON` from the browser, creates the user and passkey record, and sets a session cookie.
+ * @tags Auth
+ * @openapi
+ */
+
 import { NextRequest, NextResponse } from "next/server";
 import { verifyRegistrationResponse } from "@simplewebauthn/server";
 import type { RegistrationResponseJSON } from "@simplewebauthn/server";

@@ -3,6 +3,13 @@
 // If a username is provided, restricts to that user's credentials.
 // If no username, returns discoverable-credential options (passkey autofill).
 
+/**
+ * Start passkey login
+ * @description Generates WebAuthn authentication options. Pass optional `{ username }` to scope to that user's credentials, or omit for discoverable-credential (autofill) flow.
+ * @tags Auth
+ * @openapi
+ */
+
 import { NextRequest, NextResponse } from "next/server";
 import { generateAuthenticationOptions } from "@simplewebauthn/server";
 import type { AuthenticatorTransportFuture } from "@simplewebauthn/server";

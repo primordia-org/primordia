@@ -81,6 +81,8 @@ interface SectionGroup {
   /** Stable IDs for harness/model — used by the follow-up form to populate selects correctly. */
   harnessId?: string;
   modelId?: string;
+  /** Unix ms timestamp from the section_start event — used for live elapsed-time display. */
+  startTs?: number;
   events: SessionEvent[];
 }
 
@@ -89,7 +91,7 @@ function groupEventsIntoSections(events: SessionEvent[]): SectionGroup[] {
   const sections: SectionGroup[] = [{ type: 'setup', label: 'Setup', events: [] }];
   for (const event of events) {
     if (event.type === 'section_start') {
-      const group: SectionGroup = { type: event.sectionType, label: event.label, events: [] };
+      const group: SectionGroup = { type: event.sectionType, label: event.label, events: [], startTs: event.ts };
       if (event.sectionType === 'agent') {
         group.harness = event.harness;
         group.model = event.model;
@@ -212,7 +214,7 @@ function mergeConsecutiveTextEvents(events: RenderableEvent[]): RenderableEvent[
 }
 
 /** Split content events into "detail" events (before/including last tool_use) and "final" events. */
-function splitClaudeEventsForDisplay(events: SessionEvent[]): {
+function splitAgentEventsForDisplay(events: SessionEvent[]): {
   detailEvents: (Extract<SessionEvent, { type: 'tool_use' }> | Extract<SessionEvent, { type: 'text' }>)[];
   finalEvents: Extract<SessionEvent, { type: 'text' }>[];
   toolCallCount: number;
@@ -236,26 +238,44 @@ function splitClaudeEventsForDisplay(events: SessionEvent[]): {
   };
 }
 
-/** Render a running Claude/type-fix section (streaming events live). */
-function RunningClaudeSection({ events, label, isTypeFixSection, worktreePath, harness, model }: {
+/** Render a running agent/type-fix section (streaming events live). */
+function RunningAgentSection({ events, label, isTypeFixSection, worktreePath, harness, model, startTs }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
   worktreePath?: string;
   harness?: string;
   model?: string;
+  startTs?: number;
 }) {
   const borderClass = isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
   const headingClass = isTypeFixSection ? "text-orange-300" : "text-blue-300";
   const agentLabel = harness ? (model ? `${harness} (${model})` : harness) : 'Claude Code';
   const runningLabel = isTypeFixSection ? label : `🤖 ${agentLabel} running…`;
 
+  // Live elapsed-time counter updated every second.
+  const [elapsed, setElapsed] = useState<number>(startTs ? Date.now() - startTs : 0);
+  useEffect(() => {
+    if (!startTs) return;
+    setElapsed(Date.now() - startTs);
+    const id = setInterval(() => setElapsed(Date.now() - startTs), 1000);
+    return () => clearInterval(id);
+  }, [startTs]);
+
+  // Most-recent partial metrics emitted by the worker (if any).
+  const latestMetrics = [...events].reverse().find((e): e is Extract<SessionEvent, { type: 'metrics' }> => e.type === 'metrics');
+
   return (
     <div className={`rounded-lg border ${borderClass} bg-gray-900 text-sm overflow-hidden`}>
       <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
         <span className={`font-semibold text-xs ${headingClass}`}>{runningLabel}</span>
-        <span className="ml-auto flex items-center gap-1.5 text-gray-500 text-xs animate-pulse">
-          <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
+        <span className="ml-auto flex items-center gap-1.5 text-gray-500 text-xs">
+          {elapsed > 0 && (
+            <span className="font-mono">{formatDuration(elapsed)}</span>
+          )}
+          <span className="flex items-center gap-1.5 animate-pulse">
+            <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
+          </span>
         </span>
       </div>
       <div className="px-4 py-3 space-y-2">
@@ -287,21 +307,33 @@ function RunningClaudeSection({ events, label, isTypeFixSection, worktreePath, h
           return null;
         })}
       </div>
+      {latestMetrics && (
+        <MetricsRow metrics={{
+          durationMs: elapsed > 0 ? elapsed : (latestMetrics.durationMs ?? undefined),
+          costUsd: latestMetrics.costUsd ?? undefined,
+          inputTokens: latestMetrics.inputTokens ?? undefined,
+          outputTokens: latestMetrics.outputTokens ?? undefined,
+        }} />
+      )}
     </div>
   );
 }
 
-/** Render a completed Claude/type-fix section with tool calls collapsed. */
-function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath, harness, model }: {
+/** Render a completed agent/type-fix section with tool calls collapsed. */
+function DoneAgentSection({ events, label, isTypeFixSection, worktreePath, harness, model, startTs }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
   worktreePath?: string;
   harness?: string;
   model?: string;
+  startTs?: number;
 }) {
   const resultEvent = events.find((e): e is Extract<SessionEvent, { type: 'result' }> => e.type === 'result');
-  const metricsEvent = events.find((e): e is Extract<SessionEvent, { type: 'metrics' }> => e.type === 'metrics');
+  // Use the LAST metrics event — the final one written after the result event
+  // contains accurate totals, while earlier intermediate events are partial
+  // snapshots emitted after each assistant turn.
+  const metricsEvent = [...events].reverse().find((e): e is Extract<SessionEvent, { type: 'metrics' }> => e.type === 'metrics');
   const hasError = resultEvent?.subtype === 'error' || resultEvent?.subtype === 'timeout' || resultEvent?.subtype === 'aborted';
 
   const borderClass = isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
@@ -313,7 +345,7 @@ function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath, harn
     ? (isTypeFixSection ? "❌ Auto-fix failed" : `❌ ${agentLabel} errored`)
     : (isTypeFixSection ? "🔧 Type errors fixed" : `🤖 ${agentLabel} finished`);
 
-  const { detailEvents, finalEvents, toolCallCount } = splitClaudeEventsForDisplay(events);
+  const { detailEvents, finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
 
   return (
     <div className={`rounded-lg border ${doneBorderClass} bg-gray-900 text-sm overflow-hidden`}>
@@ -357,9 +389,19 @@ function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath, harn
           <MarkdownContent text={finalEvents.map((e) => e.content).join('')} />
         </div>
       )}
+      {hasError && resultEvent?.message && (
+        <div className="px-4 py-3 border-t border-gray-800">
+          <p className="text-xs font-semibold text-red-400 mb-1">Error details</p>
+          <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{resultEvent.message}</pre>
+        </div>
+      )}
       {metricsEvent && (
         <MetricsRow metrics={{
-          durationMs: metricsEvent.durationMs ?? undefined,
+          // Prefer the recorded durationMs; fall back to computing from
+          // section_start → result timestamps when durationMs is null/0.
+          durationMs: (metricsEvent.durationMs != null && metricsEvent.durationMs > 0)
+            ? metricsEvent.durationMs
+            : (startTs != null && resultEvent != null ? resultEvent.ts - startTs : undefined),
           costUsd: metricsEvent.costUsd ?? undefined,
           inputTokens: metricsEvent.inputTokens ?? undefined,
           outputTokens: metricsEvent.outputTokens ?? undefined,
@@ -404,13 +446,13 @@ function StructuredSection({
   sessionId: string;
   worktreePath?: string;
 }) {
-  const { type, label, harness, model, events } = section;
+  const { type, label, harness, model, events, startTs } = section;
 
   // ── Follow-up request ────────────────────────────────────────────────────
   if (type === 'followup') {
     const requestEvent = events.find((e): e is Extract<SessionEvent, { type: 'followup_request' }> => e.type === 'followup_request');
-    const claudeEvents = events.filter((e) => e.type !== 'followup_request');
-    const hasResult = claudeEvents.some((e) => e.type === 'result');
+    const agentEvents = events.filter((e) => e.type !== 'followup_request');
+    const hasResult = agentEvents.some((e) => e.type === 'result');
     return (
       <>
         {requestEvent && (
@@ -426,10 +468,10 @@ function StructuredSection({
             )}
           </div>
         )}
-        {claudeEvents.length > 0 && (
+        {agentEvents.length > 0 && (
           isActive && !hasResult
-            ? <RunningClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} />
-            : <DoneClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} />
+            ? <RunningAgentSection events={agentEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />
+            : <DoneAgentSection events={agentEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />
         )}
       </>
     );
@@ -439,9 +481,9 @@ function StructuredSection({
   if (type === 'agent' || type === 'claude' || type === 'type_fix' || type === 'conflict_resolution') {
     const hasResult = events.some((e) => e.type === 'result');
     if (isActive && !hasResult) {
-      return <RunningClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} />;
+      return <RunningAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />;
     }
-    return <DoneClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} />;
+    return <DoneAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />;
   }
 
   // ── Deploy ───────────────────────────────────────────────────────────────
@@ -953,7 +995,7 @@ export default function EvolveSessionView({
   const containerRef = useRef<HTMLDivElement>(null);
 
   /** True while the session pipeline is actively running (not yet ready for action). */
-  const isClaudeRunning = status === "starting" || status === "running-claude" || status === "fixing-types";
+  const isAgentRunning = status === "starting" || status === "running-claude" || status === "fixing-types";
 
   // ─── Derive setup/content sections from events ───────────────────────────
 
@@ -977,6 +1019,18 @@ export default function EvolveSessionView({
     ?? (lastAgentSection?.model && sessionHarness
       ? modelOptionsByHarness[sessionHarness]?.find((m) => m.label === lastAgentSection.model)?.id
       : undefined);
+  // Human-readable agent label for UI messages like "Waiting for X to finish…"
+  // Label for the *currently running* agent — derived from the active section
+  // (last content section while the pipeline is running). This is correct even
+  // for follow-up requests that use a different harness/model than the original.
+  // Note: activeSection.harness / .model are human-readable labels, not IDs.
+  const activeSection = isAgentRunning ? contentSections[contentSections.length - 1] : undefined;
+  const activeHarnessLabel = activeSection?.harness ?? undefined;
+  const activeModelLabel = activeSection?.model ?? undefined;
+  const agentRunningLabel = activeHarnessLabel
+    ? (activeModelLabel ? `${activeHarnessLabel} (${activeModelLabel})` : activeHarnessLabel)
+    : 'the agent';
+
   // Setup is active while it's the only section and session isn't terminal
   const isSetupActive = !isTerminal && contentSections.length === 0;
   const setupStepCount = setupSection
@@ -1239,7 +1293,7 @@ export default function EvolveSessionView({
           {/* ── Header ── */}
           <div className="px-4 py-2 border-b border-gray-700 flex items-center justify-between">
             <p className="text-gray-500 text-xs font-medium uppercase tracking-wide">Available Actions</p>
-            {isClaudeRunning ? (
+            {isAgentRunning ? (
               <button
                 data-id="session/abort"
                 type="button"
@@ -1301,11 +1355,11 @@ export default function EvolveSessionView({
               </button>
               <button
                 data-id="session/tab-accept"
-                onClick={(isClaudeRunning || remainingUpstream > 0) ? undefined : () => toggleAction("accept")}
-                disabled={isClaudeRunning || remainingUpstream > 0}
+                onClick={(isAgentRunning || remainingUpstream > 0) ? undefined : () => toggleAction("accept")}
+                disabled={isAgentRunning || remainingUpstream > 0}
                 title={remainingUpstream > 0 ? `Apply the ${remainingUpstream} upstream commit${remainingUpstream === 1 ? "" : "s"} before accepting` : undefined}
                 className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
-                  isClaudeRunning || remainingUpstream > 0
+                  isAgentRunning || remainingUpstream > 0
                     ? "text-gray-600 cursor-not-allowed"
                     : activeAction === "accept"
                     ? "bg-green-900/40 text-green-200"
@@ -1318,10 +1372,10 @@ export default function EvolveSessionView({
               </button>
               <button
                 data-id="session/tab-reject"
-                onClick={isClaudeRunning ? undefined : () => toggleAction("reject")}
-                disabled={isClaudeRunning}
+                onClick={isAgentRunning ? undefined : () => toggleAction("reject")}
+                disabled={isAgentRunning}
                 className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                  isClaudeRunning
+                  isAgentRunning
                     ? "text-gray-600 cursor-not-allowed"
                     : activeAction === "reject"
                     ? "bg-red-900/40 text-red-200"
@@ -1361,8 +1415,8 @@ export default function EvolveSessionView({
               <EvolveRequestForm
                 placeholder="Describe what to fix or improve…"
                 submitLabel="Submit follow-up"
-                disabled={isClaudeRunning}
-                disabledLabel="Waiting for Claude to finish…"
+                disabled={isAgentRunning}
+                disabledLabel={`Waiting for ${agentRunningLabel} to finish…`}
                 autoFocus
                 defaultHarness={sessionHarness}
                 defaultModel={sessionModel}
