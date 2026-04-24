@@ -1,42 +1,51 @@
 #!/usr/bin/env bash
 # scripts/install.sh
-# Server-side Primordia setup script. Run inside the cloned repo on a VM.
+# Primordia setup script. It supports two methods of running. Invoking it 
+# directly, e.g.
 #
-# Typically invoked by scripts/install-for-exe-dev.sh (which handles VM creation
-# and git clone). Can also be run manually after cloning:
-#
-#   git clone https://primordia.exe.xyz/api/git ~/primordia
-#   cd ~/primordia
 #   bash scripts/install.sh
+#
+# or alternately piping the contents to bash
+#
+#   curl https://primordia.exe.xyz/install.sh | bash
+#
+# The installer is idempotent and is safe to run multiple times, including
+# recovering from aborted runs.
+#
+# The installer doubles as an updater script, and is used to update existing
+# Primordia instances.
 
 set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
 
 # ── Colours / formatting ──────────────────────────────────────────────────────
+# Happy-path progress messages (info/success/warn/_step/_done) should be short
+# and free of variable-length strings (branch names, paths, etc.) so the
+# output looks good on narrow screens and mobile devices. Error and diagnostic
+# messages (die/diag and the ERR trap) may include full detail.
 
-if [[ -t 1 ]]; then
+if [[ -t 1 ]] || [[ -e /dev/tty ]]; then
   BOLD="\033[1m"; GREEN="\033[0;32m"; CYAN="\033[0;36m"
   YELLOW="\033[0;33m"; RED="\033[0;31m"; DIM="\033[2m"; RESET="\033[0m"
 else
   BOLD="" GREEN="" CYAN="" YELLOW="" RED="" DIM="" RESET=""
 fi
 
-# When called from install-for-exe-dev.sh, INSTALL_PREFIX="  " for visual nesting.
-_PREFIX="${INSTALL_PREFIX:-}"
-
-info()    { echo -e "${_PREFIX}${CYAN}▸${RESET} $*"; }
-success() { echo -e "${_PREFIX}${GREEN}✓${RESET} $*"; }
-warn()    { echo -e "${_PREFIX}${YELLOW}⚠${RESET} $*"; }
+info()    { echo -e "${CYAN}▸${RESET} $*"; }
+success() { echo -e "${GREEN}✓${RESET} $*"; }
+warn()    { echo -e "${YELLOW}⚠${RESET} $*"; }
 die()     { echo -e "${RED}✗ $*${RESET}" >&2; exit 1; }
-diag()    { echo -e "${_PREFIX}${DIM}  $*${RESET}"; }
-# _step: print spinner line (no newline) — replaced by _done on success
-# _done: stop spinner and overwrite line with ✓
-# _spin_kill: stop spinner without printing a success line
+diag()    { echo -e "${DIM}  $*${RESET}"; }
+
+# _step: print a spinner line (no newline) — replaced by _done on success
+# _done: stop the spinner and overwrite the line with ✓
+# _spin_kill: stop spinner without printing a success line (use before die)
 _SPINNER_PID=""
 _step() {
   local msg="$*"
-  printf '%s\\ %s' "${_PREFIX}" "$msg"
+  printf '\\ %s' "$msg"
   ( local i=1; local c='\|/-'
-    while true; do sleep 0.12; printf '\r%s%s %s' "${_PREFIX}" "${c:$((i % 4)):1}" "$msg"; i=$((i+1)); done ) &
+    while true; do sleep 0.12; printf '\r%s %s' "${c:$((i % 4)):1}" "$msg"; i=$((i+1)); done ) &
   _SPINNER_PID=$!
   disown "$_SPINNER_PID" 2>/dev/null || true
 }
@@ -44,7 +53,7 @@ _done() {
   if [[ -n "${_SPINNER_PID:-}" ]]; then
     kill "$_SPINNER_PID" 2>/dev/null || true; wait "$_SPINNER_PID" 2>/dev/null || true; _SPINNER_PID=""
   fi
-  printf "\r\033[K${_PREFIX}${GREEN}✓${RESET} %s\n" "$*"
+  printf "\r\033[K${GREEN}✓${RESET} %s\n" "$*"
 }
 _spin_kill() {
   if [[ -n "${_SPINNER_PID:-}" ]]; then
@@ -53,74 +62,8 @@ _spin_kill() {
   printf "\r\033[K"
 }
 
-# ── ERR trap ──────────────────────────────────────────────────────────────────
-
-_CURRENT_STEP="(initialising)"
-trap '_exit_code=$?
-echo -e "\n${RED}✗ Install failed${RESET} at step: ${BOLD}${_CURRENT_STEP}${RESET} (line ${LINENO}, exit ${_exit_code})" >&2
-echo "" >&2
-echo -e "${DIM}  Service logs (last 30 lines):${RESET}" >&2
-journalctl -u primordia-proxy -n 30 --no-pager 2>/dev/null >&2 || true
-echo "" >&2
-echo -e "${DIM}  Service status:${RESET}" >&2
-systemctl status primordia-proxy --no-pager 2>/dev/null >&2 || true' ERR
-
-# ── Locate repo root ──────────────────────────────────────────────────────────
-
-_CURRENT_STEP="locate repo root"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-REVERSE_PROXY_PORT="${REVERSE_PROXY_PORT:-3000}"
-
-# ── Setup production worktree ─────────────────────────────────────────────────
-# On a fresh install the repo is cloned to ~/primordia with 'main' checked out.
-# git only allows a branch to be checked out in one place at a time, so we
-# cannot create a worktree for 'main' inside primordia-worktrees/. Instead, ask
-# git which other branches point at the same HEAD commit — the server keeps one
-# such branch (the current production branch) — and create a worktree for it.
-# All subsequent steps (bun install, bun run build, install-service.sh) run
-# inside that worktree so the proxy and production server use the right path.
-
-_CURRENT_STEP="setup production worktree"
-WORKTREES_DIR="$(cd "${INSTALL_DIR}/.." && pwd)/primordia-worktrees"
-mkdir -p "${WORKTREES_DIR}"
-
-# A main checkout has a .git *directory*; a linked worktree has a .git *file*.
-# Only redirect when we are in the main clone (not already running from a worktree).
-if [[ -d "${INSTALL_DIR}/.git" ]]; then
-  _PROD_BRANCH=$(git -C "${INSTALL_DIR}" branch -r --points-at HEAD \
-    | grep -v '\->' | grep -v '/main$' \
-    | sed 's|[[:space:]]*origin/||' | head -1 | tr -d '[:space:]')
-
-  if [[ -n "$_PROD_BRANCH" ]]; then
-    _PROD_WORKTREE="${WORKTREES_DIR}/${_PROD_BRANCH}"
-    if [[ ! -d "${_PROD_WORKTREE}" ]]; then
-      _step "Creating production worktree '${_PROD_BRANCH}'..."
-      # Create a local tracking branch from the remote ref and check it out in
-      # the new worktree. Fall back to the existing local branch if it was
-      # already created (e.g. a previous interrupted install attempt).
-      if ! git -C "${INSTALL_DIR}" worktree add "${_PROD_WORKTREE}" \
-             -b "${_PROD_BRANCH}" "origin/${_PROD_BRANCH}" 2>/dev/null; then
-        git -C "${INSTALL_DIR}" worktree add "${_PROD_WORKTREE}" "${_PROD_BRANCH}"
-      fi
-      _done "Production worktree: ${_PROD_WORKTREE/#$HOME/~}"
-    else
-      success "Production worktree: ${_PROD_WORKTREE/#$HOME/~} (already exists)"
-    fi
-    INSTALL_DIR="${_PROD_WORKTREE}"
-  else
-    warn "No non-main branch found at HEAD — production will run from $(basename "${INSTALL_DIR}")"
-  fi
-fi
-
-# ── Header (standalone mode only) ─────────────────────────────────────────────
-
-if [[ -z "${INSTALL_PREFIX:-}" ]]; then
-  echo ""
-  echo -e "${BOLD}  Primordia Setup${RESET}"
-  echo -e "  Repo: ${INSTALL_DIR}"
-  echo ""
-  diag "--- Server diagnostics (paste this if something goes wrong) ---"
+server_diagnostics() {
+  diag "--- Server diagnostics ---------------------------------------"
   diag "Date:      $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
   diag "Hostname:  $(hostname -f 2>/dev/null || hostname)"
   diag "OS:        $(uname -srm)"
@@ -128,25 +71,138 @@ if [[ -z "${INSTALL_PREFIX:-}" ]]; then
     diag "Distro:    $(. /etc/os-release && echo "${PRETTY_NAME:-$ID}")"
   fi
   diag "User:      $(whoami)"
-  diag "Disk:      $(df -h "${INSTALL_DIR}" 2>/dev/null | awk 'NR==2{print $4" free of "$2}' || echo 'unknown')"
+  diag "Disk:      $(df -h "." 2>/dev/null | awk 'NR==2{print $4" free of "$2}' || echo 'unknown')"
   diag "Memory:    $(free -h 2>/dev/null | awk '/^Mem:/{print $7" free of "$2}' || echo 'unknown')"
-  diag "Repo:      $(git -C "${INSTALL_DIR}" log -1 --oneline 2>/dev/null || echo 'unknown')"
   diag "--------------------------------------------------------------"
   echo ""
+}
+
+# ── ERR trap ──────────────────────────────────────────────────────────────────
+
+_CURRENT_STEP="(initialising)"
+trap '_exit_code=$?
+_spin_kill
+echo -e "\n${RED}✗ Install failed${RESET} at step: ${BOLD}${_CURRENT_STEP}${RESET} (line ${LINENO}, exit ${_exit_code})" >&2
+server_diagnostics >&2
+echo "" >&2
+echo -e "${DIM}  Service logs (last 30 lines):${RESET}" >&2
+journalctl -u primordia -n 30 --no-pager 2>/dev/null >&2 || true
+echo "" >&2
+echo -e "${DIM}  Service status:${RESET}" >&2
+systemctl status primordia --no-pager 2>/dev/null >&2 || true' ERR
+
+# ── Banner ────────────────────────────────────────────────────────────────────
+# Show only on initial install (git unavailable = fresh machine, or the current
+# working directory is not a git repo = first run OR running over SSH, or
+# primordia.productionBranch not yet set = first run).
+if ! command -v git &>/dev/null || ! git config --get primordia.productionBranch &>/dev/null 2>&1; then
+  echo ""
+  cat << 'ASCII'
+  ___     _                  _ _
+ | _ \_ _(_)_ __  ___ _ _ __| (_)__ _
+ |  _/ '_| | '  \/ _ \ '_/ _` | / _` |
+ |_| |_| |_|_|_|_\___/_| \__,_|_\__,_|
+
+          . _  __|_ _ || _  _
+          || |_\ | (_|||(/_|
+
+ASCII
 fi
 
-# ── Detect exe.dev ────────────────────────────────────────────────────────────
+# ── Install git ───────────────────────────────────────────────────────────────
 
-_CURRENT_STEP="detect exe.dev"
-HOSTNAME_FQDN="$(hostname -f 2>/dev/null || hostname)"
-if [[ "$HOSTNAME_FQDN" == *.exe.xyz ]]; then
-  info "Detected exe.dev host: ${HOSTNAME_FQDN}"
-  APP_URL="https://${HOSTNAME_FQDN}"
+_CURRENT_STEP="ensure git is available"
+if ! command -v git &>/dev/null; then
+  _step "Installing git..."
+  sudo apt-get update -qq </dev/null >/dev/null 2>&1
+  sudo apt-get install -y git </dev/null >/dev/null 2>&1
+  _done "Using git $(git --version | awk '{print $3}')"
 else
-  warn "Not running on exe.dev — SSO login and the LLM gateway won't be available."
-  APP_URL="http://localhost:${REVERSE_PROXY_PORT}"
+  success "Using git $(git --version | awk '{print $3}')"
 fi
-[[ -z "${INSTALL_PREFIX:-}" ]] && echo ""
+
+# ── Locate directories ────────────────────────────────────────────────────────
+
+_CURRENT_STEP="Locate directories"
+SCRIPT_DIR=""
+THIS_FILE="${BASH_SOURCE[0]:-}"
+if [[ "${THIS_FILE}" != "bash" && "${THIS_FILE}" != "-bash" && -n "${THIS_FILE}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${THIS_FILE}")" && pwd)"
+fi
+
+if [[ -n "$SCRIPT_DIR" ]] && git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+  WORKTREES_DIR="$(dirname "$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)")"
+  PRIMORDIA_DIR="$(dirname "${WORKTREES_DIR}")"
+  if [[ -z "${1:-}" ]]; then
+    BRANCH="$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD)"
+  elif [[ "$BRANCH" != "$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD)" ]]; then
+    die "Error: branch argument '$BRANCH' does not match worktree branch"
+  fi
+  success "Using ${PRIMORDIA_DIR}"
+else
+  PRIMORDIA_DIR="$(pwd)/primordia"
+  WORKTREES_DIR="${PRIMORDIA_DIR}/worktrees"
+  mkdir -p "$WORKTREES_DIR"
+  success "Created ${PRIMORDIA_DIR}"
+fi
+
+BARE_REPO="${PRIMORDIA_DIR}/source.git"
+
+# ── Clone Primordia ───────────────────────────────────────────────────────────
+
+_CURRENT_STEP="Clone primordia"
+if [[ ! -d "${BARE_REPO}" ]]; then
+  _step "Cloning Primordia..."
+  _log=$(mktemp)
+  if ! git clone --bare https://primordia.exe.xyz/api/git "${BARE_REPO}" >"$_log" 2>&1; then _spin_kill; cat "$_log" >&2; rm -f "$_log"; exit 1; fi
+  rm -f "$_log"
+  _done "Cloned to ${BARE_REPO}"
+fi
+
+if [[ -z "$(git -C "${BARE_REPO}" config --local user.name)" ]]; then
+  git -C "${BARE_REPO}" config --local user.name  "Primordia"
+fi
+
+if [[ -z "$(git -C "${BARE_REPO}" config --local user.email)" ]]; then
+  git -C "${BARE_REPO}" config --local user.email "primordia@localhost"
+fi
+
+# ── Calculate branch name ─────────────────────────────────────────────────────
+
+_CURRENT_STEP="Calculate branch name"
+# Skip if it was already calculated in the 'Locate directories' step
+if [[ -z "${BRANCH:-}" ]]; then
+  if [[ -n "${1:-}" ]]; then
+    # Branch name provided to installer
+    BRANCH="$1"
+  else
+    # Find the remote branch that points to the same commit as origin/main
+    BRANCH="$(git -C "${BARE_REPO}" branch --format '%(refname:short)' --points-at "$(git -C "${BARE_REPO}" rev-parse main)" | grep -v 'main' | head -1)"
+  fi
+fi
+
+# Confirm such a branch exists
+if ! git -C "${BARE_REPO}" show-ref --quiet "$BRANCH"; then
+  die "Branch not found: ${BRANCH}"
+fi
+
+success "Branch: ${BRANCH}"
+
+# ── Create worktree ───────────────────────────────────────────────────────────
+
+_CURRENT_STEP="Create worktree"
+INSTALL_DIR="${WORKTREES_DIR}/${BRANCH}"
+if [[ -d "${INSTALL_DIR}" ]]; then
+  success "Using existing worktree"
+else
+  _step "Creating worktree..."
+  # Create a local tracking branch from the remote ref and check it out in
+  # the new worktree.
+  _log=$(mktemp)
+  if ! git -C "${BARE_REPO}" worktree add "${INSTALL_DIR}" "${BRANCH}" >"$_log" 2>&1; then _spin_kill; cat "$_log" >&2; rm -f "$_log"; exit 1; fi
+  rm -f "$_log"
+  _done "Worktree created"
+fi
 
 # ── Install bun ───────────────────────────────────────────────────────────────
 
@@ -162,57 +218,9 @@ if ! command -v bun &>/dev/null; then
   fi
   rm -f "$_bun_install_log"
   export PATH="$HOME/.bun/bin:$PATH"
-  _done "Installed bun $(bun --version)"
+  _done "Using bun $(bun --version)"
 else
-  success "bun $(bun --version) already installed"
-fi
-
-# ── Write .env.local ──────────────────────────────────────────────────────────
-
-_CURRENT_STEP="write .env.local"
-ENV_FILE="${INSTALL_DIR}/.env.local"
-if [[ ! -f "${ENV_FILE}" ]]; then
-  cat > "${ENV_FILE}" << EOF
-# Generated by Primordia installer — $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}
-EOF
-  success "Wrote ${ENV_FILE/#$HOME/~}"
-fi
-
-# ── Wait for DNS / outbound internet ─────────────────────────────────────────
-# Fresh VMs: systemd-resolved starts before the NIC is ready, leaving DNS
-# broken for up to 120 s. Detect and fix before running bun install.
-
-_CURRENT_STEP="wait for DNS"
-_dns_check() { getent hosts registry.npmjs.org >/dev/null 2>&1; }
-
-if ! _dns_check; then
-  info "DNS not ready — attempting to fix (systemd-resolved race on fresh VMs)..."
-
-  if command -v systemd-networkd-wait-online &>/dev/null; then
-    sudo systemd-networkd-wait-online --timeout=30 2>/dev/null || true
-  fi
-  sudo resolvectl flush-caches 2>/dev/null || true
-  if ! grep -q "127.0.0.53" /etc/resolv.conf 2>/dev/null; then
-    sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf 2>/dev/null || true
-  fi
-  if resolvectl status 2>/dev/null | grep -q "Current Scopes: none"; then
-    sudo systemctl restart systemd-networkd 2>/dev/null || true
-    sudo systemd-networkd-wait-online --timeout=15 2>/dev/null || sleep 5
-    sudo systemctl restart systemd-resolved 2>/dev/null || true
-    sleep 2
-  fi
-
-  _DNS_OK=false
-  for _i in $(seq 1 30); do
-    if _dns_check; then _DNS_OK=true; break; fi
-    sleep 2
-  done
-  if [[ "$_DNS_OK" != "true" ]]; then
-    warn "DNS still broken — falling back to public DNS (1.1.1.1 / 8.8.8.8)"
-    echo -e "nameserver 1.1.1.1\nnameserver 8.8.8.8" | sudo tee /etc/resolv.conf >/dev/null
-    sleep 1
-  fi
+  success "Using bun $(bun --version)"
 fi
 
 # ── Install dependencies ──────────────────────────────────────────────────────
@@ -222,12 +230,9 @@ _step "bun install..."
 cd "${INSTALL_DIR}"
 _bun_log=$(mktemp)
 _BUN_OK=false
-for _attempt in 1 2 3; do
-  if bun install --frozen-lockfile >> "$_bun_log" 2>&1; then
-    _BUN_OK=true; break
-  fi
-  if [[ $_attempt -lt 3 ]]; then sleep 15; fi
-done
+if bun install --frozen-lockfile >> "$_bun_log" 2>&1; then
+  _BUN_OK=true;
+fi
 if [[ "$_BUN_OK" != "true" ]]; then
   diag "npm registry: $(curl -fsS --max-time 5 https://registry.npmjs.org/ >/dev/null 2>&1 && echo 'reachable' || echo 'UNREACHABLE')"
   echo -e "${DIM}  --- bun install output ---${RESET}" >&2
@@ -253,24 +258,143 @@ fi
 rm -f "$_build_log"
 _done "Build complete"
 
+# ── Install reverse-proxy ─────────────────────────────────────────────────────
+
+_CURRENT_STEP="install reverse proxy"
+REVERSE_PROXY_SOURCE="${INSTALL_DIR}/scripts/reverse-proxy.ts"
+REVERSE_PROXY_DEST="${PRIMORDIA_DIR}/reverse-proxy.ts"
+
+# Calculate if the proxy script needs updating
+if [[ ! -f "${REVERSE_PROXY_DEST}" ]]; then
+  PROXY_CHANGED=true
+elif ! diff -q "${REVERSE_PROXY_SOURCE}" "${REVERSE_PROXY_DEST}" >/dev/null 2>&1; then
+  PROXY_CHANGED=true
+else
+  PROXY_CHANGED=false
+fi
+
+if [[ "${PROXY_CHANGED}" == "true" ]]; then
+  cp -f "${REVERSE_PROXY_SOURCE}" "${REVERSE_PROXY_DEST}"
+  success "Installed reverse-proxy.ts"
+else
+  success "Using reverse-proxy.ts"
+fi
+
+# ── Copy DB from old production slot (if one exists) ─────────────────────────
+# Mirrors what blueGreenAccept() does: VACUUM INTO for an atomic snapshot,
+# so the new slot inherits users/sessions/passkeys without missing writes.
+_CURRENT_STEP="copy production DB"
+DB_NAME=".primordia-auth.db"
+OLD_PROD_BRANCH="$(git -C "${BARE_REPO}" config --get primordia.productionBranch 2>/dev/null || true)"
+if [[ -n "$OLD_PROD_BRANCH" && "$OLD_PROD_BRANCH" != "$BRANCH" ]]; then
+  # Find the worktree path for the current production branch.
+  OLD_SLOT="$(git -C "${BARE_REPO}" worktree list --porcelain \
+    | awk '/^worktree /{p=$2} /^branch refs\/heads\/'"${OLD_PROD_BRANCH}"'$/{print p; exit}')"
+  if [[ -n "$OLD_SLOT" && -f "${OLD_SLOT}/${DB_NAME}" ]]; then
+    _step "Copying production DB..."
+    NEW_DB="${INSTALL_DIR}/${DB_NAME}"
+    rm -f "${NEW_DB}" "${NEW_DB}-wal" "${NEW_DB}-shm"
+    sqlite3 "${OLD_SLOT}/${DB_NAME}" "VACUUM INTO '${NEW_DB}'"
+    _done "DB copied"
+  fi
+fi
+
+# ── Mark production branch ────────────────────────────────────────────────────
+git -C "${BARE_REPO}" config primordia.productionBranch "$BRANCH"
+git -C "${BARE_REPO}" config branch."$BRANCH".sessionid "$BRANCH"
+
+# ── Determine hostname ────────────────────────────────────────────────────────
+
+_CURRENT_STEP="determine hostname"
+HOSTNAME_FQDN="$(hostname -f 2>/dev/null || hostname)"
+REVERSE_PROXY_PORT=3000
+
+if [[ "$HOSTNAME_FQDN" == *.local || "$HOSTNAME_FQDN" == *.lan || "$HOSTNAME_FQDN" == "localhost" ]]; then
+  info "No domain name detected. Assuming localhost."
+  APP_URL="http://localhost:${REVERSE_PROXY_PORT}"
+  PROBABLY_A_SERVER=false
+elif [[ "$HOSTNAME_FQDN" == *.exe.xyz ]]; then
+  info "Detected exe.xyz host"
+  APP_URL="https://${HOSTNAME_FQDN}"
+  PROBABLY_A_SERVER=true
+  REVERSE_PROXY_PORT=8000
+else
+  warn "Not running on exe.dev — automatic SSL termination, exe.dev login, and LLM gateway integration won't be available."
+  APP_URL="http://${HOSTNAME_FQDN}:${REVERSE_PROXY_PORT}"
+  PROBABLY_A_SERVER=true
+fi
+
 # ── Install systemd service ───────────────────────────────────────────────────
 
 _CURRENT_STEP="install systemd service"
-echo ""
-echo "Finally, let's ensure Primordia is automatically started on boot:"
-echo ""
-_step "Running ${INSTALL_DIR/#$HOME/~}/scripts/install-service.sh..."
-_svc_log=$(mktemp)
-if ! bash "${INSTALL_DIR}/scripts/install-service.sh" > "$_svc_log" 2>&1; then
-  printf "\n"
-  cat "$_svc_log" >&2
-  rm -f "$_svc_log"
-  exit 1
-fi
-rm -f "$_svc_log"
-_done "Installed primordia-proxy systemd service and enabled on boot"
-if systemctl is-active --quiet primordia-proxy 2>/dev/null; then
-  success "Started primordia-proxy systemd service"
+
+if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; then
+  # Determine if systemd of something else
+  success "Using systemd v$(systemctl --version | awk 'NR==1 {print $2}')"
+  _step "Installing systemd service..."
+  SYSTEMD_SERVICE_DIR="/etc/systemd/system"
+  SYSTEMCTL="sudo systemctl"
+  PROXY_SERVICE_DST="${SYSTEMD_SERVICE_DIR}/primordia.service"
+  BUN_DIR="$(dirname "$(command -v bun)")"
+  GENERATED_UNIT=$(cat << UNIT
+[Unit]
+Description=Primordia Reverse Proxy
+After=network.target
+
+[Service]
+Type=simple
+User=${USER}
+WorkingDirectory=${PRIMORDIA_DIR}
+Environment=REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}
+Environment=PRIMORDIA_WORKTREES_DIR=${WORKTREES_DIR}
+Environment=HOME=${HOME}
+Environment=PATH=${BUN_DIR}:/usr/local/bin:/usr/bin:/bin
+ExecStart=${BUN_DIR}/bun ${PRIMORDIA_DIR}/reverse-proxy.ts
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+)
+
+  # Calculate if the service needs updating
+  if [[ ! -f "${PROXY_SERVICE_DST}" ]] || ! diff -q <(echo "$GENERATED_UNIT") "${PROXY_SERVICE_DST}" >/dev/null 2>&1; then
+    SERVICE_CHANGED=true
+  else
+    SERVICE_CHANGED=false
+  fi
+
+  # Install/update the service
+  if $SERVICE_CHANGED; then
+    echo "$GENERATED_UNIT" | sudo tee "${PROXY_SERVICE_DST}" >/dev/null
+    sudo systemctl daemon-reload
+    _done "Installed primordia systemd service"
+  else
+    _done "Using primordia systemd service"
+  fi
+
+  # Enable the service so it starts automatically on boot
+  if ! systemctl is-enabled --quiet primordia 2>/dev/null; then
+    sudo systemctl enable --quiet primordia 2>/dev/null
+    success "Enabled primordia systemd service"
+  fi
+
+  # Restart the service if it changed
+  if [[ "$PROXY_CHANGED" == true || "$SERVICE_CHANGED" == true ]]; then
+    if systemctl is-active --quiet primordia; then
+      sudo systemctl restart --quiet primordia
+      success "Restarted primordia systemd service"
+    fi
+  fi
+
+  # Start the service
+  if ! systemctl is-active --quiet primordia 2>/dev/null; then
+    sudo systemctl start --quiet primordia
+    success "Started primordia systemd service"
+  fi
 fi
 
 # ── Wait for ready ────────────────────────────────────────────────────────────
@@ -280,7 +404,7 @@ _CURRENT_STEP="wait for service ready"
 echo ""
 _step "Waiting for Primordia to be ready..."
 SERVICE_READY=false
-for i in $(seq 1 60); do
+for i in $(seq 1 30); do
   sleep 2
   if curl -sf --max-time 3 "http://localhost:${REVERSE_PROXY_PORT}/" -o /dev/null 2>/dev/null; then
     SERVICE_READY=true
@@ -291,14 +415,16 @@ done
 if [[ "$SERVICE_READY" == "true" ]]; then
   _spin_kill
   echo -e "${GREEN}✓${RESET} Congratulations! Primordia is running!"
+  # Point main at the now-live commit so clones/fetches see the current production state
+  git -C "${BARE_REPO}" branch -f main "$BRANCH"
 else
   _spin_kill
-  warn "Service did not respond within 120 s — it may still be starting."
+  warn "Service did not respond within 60 s — it may still be starting."
   echo ""
   echo -e "${DIM}  --- Last 40 lines of service log ---${RESET}"
-  journalctl -u primordia-proxy -n 40 --no-pager 2>/dev/null || true
+  journalctl -u primordia -n 40 --no-pager 2>/dev/null || true
   echo -e "${DIM}  --- Service status ---${RESET}"
-  systemctl status primordia-proxy --no-pager 2>/dev/null || true
+  systemctl status primordia --no-pager 2>/dev/null || true
   echo -e "${DIM}  -------------------------------------${RESET}"
 fi
 

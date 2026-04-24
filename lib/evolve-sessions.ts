@@ -60,10 +60,34 @@ export interface LocalSession {
   userId: string;
 }
 
-// ─── Branch port management ────────────────────────────────────────────────────
+// ─── Repo / worktree path utilities ──────────────────────────────────────────
 
-const WORKTREES_DIR =
-  process.env.PRIMORDIA_WORKTREES_DIR ?? '/home/exedev/primordia-worktrees';
+/**
+ * Returns the shared git repo root (the bare repo or the .git common dir)
+ * given any path inside a worktree. Git commands work correctly from this
+ * path whether it is a bare repo (source.git) or a non-bare .git directory.
+ */
+export function getRepoRoot(worktreePath: string): string {
+  const { execFileSync } = require('child_process') as typeof import('child_process');
+  const commonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+    cwd: worktreePath,
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  }).trim();
+  return path.resolve(worktreePath, commonDir);
+}
+
+/**
+ * Returns the directory where session worktrees are created.
+ * Prefers PRIMORDIA_WORKTREES_DIR, falling back to a `worktrees/` sibling of
+ * the git common dir (works for both bare-repo and non-bare layouts).
+ */
+export function getWorktreesDir(repoRoot: string): string {
+  if (process.env.PRIMORDIA_WORKTREES_DIR) return process.env.PRIMORDIA_WORKTREES_DIR;
+  return path.join(path.dirname(repoRoot), 'worktrees');
+}
+
+// ─── Branch port management ────────────────────────────────────────────────────
 
 /**
  * Returns the ephemeral port assigned to a branch in git config, assigning a
@@ -313,6 +337,22 @@ export function abortClaudeRun(sessionId: string): boolean {
 
 // ─── Git ──────────────────────────────────────────────────────────────────────
 
+export function runCommand(
+  cmd: string,
+  args: string[],
+  cwd: string,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  return new Promise((resolve) => {
+    const proc = spawn(cmd, args, { cwd });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    proc.on('close', (code) => resolve({ stdout, stderr, code: code ?? 1 }));
+    proc.on('error', (err) => resolve({ stdout: '', stderr: err.message, code: 1 }));
+  });
+}
+
 export function runGit(
   args: string[],
   cwd: string,
@@ -430,11 +470,9 @@ export async function startLocalEvolve(
     appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'setup', label: 'Setup', ts: Date.now() });
     appendSessionEvent(ndjsonPath, { type: 'setup_step', label: worktreeLabel, done: true, ts: Date.now() });
 
-    // Store parent branch and session ID in git config so the preview's manage
-    // endpoint can find them when logging the accept/reject decision back to the
-    // parent instance's SQLite database.
+    // Store parent branch in git config so the manage endpoint can find it
+    // when logging the accept/reject decision back to the parent instance.
     await runGit(['config', `branch.${session.branch}.parent`, parentBranch], repoRoot);
-    await runGit(['config', `branch.${session.branch}.sessionId`, session.id], repoRoot);
 
     // Assign an ephemeral port to this branch in git config (idempotent).
     // The port is stable for the lifetime of the branch and is reused if the

@@ -24,10 +24,10 @@
 //   DELETE /_proxy/preview/:id       — kill
 //   GET  /_proxy/preview/:id/logs    — SSE stream of server logs
 //
-// Session routing: requests to /preview/{sessionId}/... are routed to the
-// port associated with that session. The mapping is derived from git config:
-// each branch has branch.{name}.sessionId and branch.{name}.port entries,
-// combined into a sessionId → port lookup table.
+// Session routing: requests to /preview/{branchName}/... are routed to the
+// port associated with that branch. The mapping is derived from git config:
+// each branch has a branch.{name}.port entry. Branches with slashes in their
+// name are not supported for preview routing.
 //
 // This approach eliminates the need for proxy-upstream.json and
 // proxy-previews.json entirely — the single source of truth is git config,
@@ -128,8 +128,10 @@ function discoverMainRepo(): string {
           encoding: 'utf8',
           stdio: ['pipe', 'pipe', 'pipe'],
         }).trim();
-        // commonDir is an absolute path like /home/exedev/primordia/.git
-        return path.dirname(path.resolve(candidate, commonDir));
+        // commonDir is the shared git dir: a bare repo (e.g. source.git) or a
+        // .git directory inside a non-bare repo.  All git commands work with
+        // either path as cwd, so return it directly.
+        return path.resolve(candidate, commonDir);
       } catch {
         continue;
       }
@@ -146,9 +148,9 @@ const MAIN_REPO = discoverMainRepo();
 let upstreamPort = 3001;
 /** The branch name currently set as primordia.productionBranch. */
 let currentProdBranch: string | null = null;
-/** Cache of session ID → port for fast preview lookups. */
+/** Cache of branch name → port for fast preview lookups. */
 let sessionPortCache: Record<string, number> = {};
-/** Cache of session ID → { worktreePath, port } for preview server spawning. */
+/** Cache of branch name → { worktreePath, port } for preview server spawning. */
 let sessionWorktreeCache: Record<string, { worktreePath: string; port: number }> = {};
 /** Path to the git config file being watched. */
 let watchedConfigPath: string | null = null;
@@ -233,7 +235,6 @@ function readAllPorts(): void {
   }
 
   const branchPort: Record<string, number> = {};
-  const branchSessionId: Record<string, string> = {};
   try {
     // Build branch → port map from git config.
     const portOut = execFileSync('git', ['config', '--get-regexp', 'branch\\..*\\.port'], {
@@ -241,26 +242,16 @@ function readAllPorts(): void {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    const cache: Record<string, number> = {};
     for (const line of portOut.trim().split('\n')) {
       if (!line) continue;
       const m = line.match(/^branch\.(.+)\.port\s+(\d+)$/);
-      if (m) branchPort[m[1]] = parseInt(m[2], 10);
-    }
-
-    // Build branch → sessionId map, then combine into sessionId → port.
-    const sessionOut = execFileSync('git', ['config', '--get-regexp', 'branch\\..*\\.sessionid'], {
-      cwd: MAIN_REPO,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    const cache: Record<string, number> = {};
-    for (const line of sessionOut.trim().split('\n')) {
-      if (!line) continue;
-      const m = line.match(/^branch\.(.+)\.sessionid\s+(\S+)$/);
       if (m) {
-        branchSessionId[m[1]] = m[2];
-        const port = branchPort[m[1]];
-        if (port) cache[m[2]] = port;
+        branchPort[m[1]] = parseInt(m[2], 10);
+        // Only branches without slashes are valid as preview URL segments.
+        if (!m[1].includes('/')) {
+          cache[m[1]] = parseInt(m[2], 10);
+        }
       }
     }
     sessionPortCache = cache;
@@ -289,13 +280,13 @@ function readAllPorts(): void {
     // git worktree list failed
   }
 
-  // Combine: sessionId → { worktreePath, port }
+  // Combine: branch name → { worktreePath, port } (skip branches with slashes)
   const newWorktreeCache: Record<string, { worktreePath: string; port: number }> = {};
-  for (const [branch, sessionId] of Object.entries(branchSessionId)) {
-    const port = branchPort[branch];
+  for (const [branch, port] of Object.entries(branchPort)) {
+    if (branch.includes('/')) continue;
     const worktreePath = branchWorktree[branch];
-    if (port && worktreePath) {
-      newWorktreeCache[sessionId] = { worktreePath, port };
+    if (worktreePath) {
+      newWorktreeCache[branch] = { worktreePath, port };
     }
   }
   sessionWorktreeCache = newWorktreeCache;
@@ -327,8 +318,25 @@ function readAllPorts(): void {
   }
   if (prodBranch) {
     currentProdBranch = prodBranch;
-    const port = branchPort[prodBranch];
-    if (port && port !== upstreamPort) {
+    let port = branchPort[prodBranch];
+    if (!port) {
+      // No port assigned yet — find one that is neither already claimed by
+      // another branch in git config nor bound by another process, then
+      // persist it so all future reads see a consistent value.
+      const taken = new Set(Object.values(branchPort));
+      port = findFreePort(taken, LISTEN_PORT + 1);
+      try {
+        execFileSync('git', ['config', `branch.${prodBranch}.port`, String(port)], {
+          cwd: MAIN_REPO,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        console.log(`[proxy] auto-assigned port :${port} to branch '${prodBranch}'`);
+        branchPort[prodBranch] = port;
+      } catch (err) {
+        console.warn(`[proxy] could not persist port for '${prodBranch}': ${(err as Error).message}`);
+      }
+    }
+    if (port !== upstreamPort) {
       console.log(`[proxy] upstream port: ${upstreamPort} → ${port} (PROD branch: ${prodBranch})`);
       upstreamPort = port;
     }
@@ -358,6 +366,48 @@ function watchGitConfig(configPath: string): void {
 }
 
 // ─── Port management ──────────────────────────────────────────────────────────
+
+/**
+ * Finds a free TCP port that is not already assigned to any branch in git
+ * config and is not currently bound by any process. Starts scanning from
+ * `startFrom` and skips LISTEN_PORT itself.
+ *
+ * Uses `ss -tlnH` (Linux) or `netstat -an` (fallback) to get the set of
+ * listening ports, then picks the first candidate not in either set.
+ */
+function findFreePort(assignedPorts: Set<number>, startFrom: number): number {
+  // Build the set of ports currently bound on this host.
+  const boundPorts = new Set<number>();
+  try {
+    // ss -tlnH prints one line per listening socket; 4th field is Local Address:Port
+    const out = execFileSync('ss', ['-tlnH'], {
+      encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    for (const line of out.split('\n')) {
+      const m = line.trim().match(/:(\d+)\s/);
+      if (m) boundPorts.add(parseInt(m[1], 10));
+    }
+  } catch {
+    try {
+      // Fallback: netstat (macOS / older Linux)
+      const out = execFileSync('netstat', ['-an'], {
+        encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      for (const line of out.split('\n')) {
+        const m = line.match(/[.:](\d+)\s+.*LISTEN/);
+        if (m) boundPorts.add(parseInt(m[1], 10));
+      }
+    } catch { /* best-effort; proceed with only assignedPorts */ }
+  }
+
+  for (let port = startFrom; port < 65535; port++) {
+    if (port === LISTEN_PORT) continue;
+    if (assignedPorts.has(port)) continue;
+    if (boundPorts.has(port)) continue;
+    return port;
+  }
+  throw new Error('No free port found');
+}
 
 /**
  * Kills any process currently listening on the given TCP port.

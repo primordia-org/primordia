@@ -8,7 +8,8 @@
 
 import Link from "next/link";
 import { MessageSquare, RefreshCw, GitBranch, ChevronDown } from "lucide-react";
-import CopyButton from "./CopyButton";
+import InstallBlock from "./InstallBlock";
+import { createNameId } from "mnemonic-id";
 
 // ── Feature card data ────────────────────────────────────────────────────────
 
@@ -53,7 +54,7 @@ const STEPS = [
 
 // ── Sections ─────────────────────────────────────────────────────────────────
 
-export function HeroSection({ curlCmd }: { curlCmd: string }) {
+export function HeroSection({ installUrl, defaultVmName, installBranch }: { installUrl: string; defaultVmName: string; installBranch?: string | null }) {
   return (
     <section className="relative flex flex-col items-center justify-center min-h-dvh px-6 text-center overflow-hidden">
       {/* Animated gradient blobs */}
@@ -85,24 +86,18 @@ export function HeroSection({ curlCmd }: { curlCmd: string }) {
         The web application that writes itself.
       </p>
 
-      {/* Primary CTA — curl install command */}
+      {/* Primary CTA — two-step install */}
       <div className="animate-fade-up-4 relative w-full max-w-2xl">
         <p className="text-xs font-mono text-gray-500 mb-2 text-center uppercase tracking-widest">
           Deploy your own instance
         </p>
-        <div className="group relative flex items-center rounded-xl border border-white/10 bg-gray-900/80 backdrop-blur px-4 py-3 gap-3 hover:border-white/20 transition-colors">
-          {/* Terminal prompt */}
-          <span className="select-none text-gray-600 font-mono text-sm shrink-0">$</span>
-          <code className="flex-1 font-mono text-sm text-green-400 truncate">{curlCmd}</code>
-          {/* Copy button */}
-          <CopyButton text={curlCmd} />
-        </div>
+        <InstallBlock installUrl={installUrl} defaultName={defaultVmName} installBranch={installBranch} />
         <p className="text-xs text-gray-600 text-center mt-2 font-mono">
-          Script requires an{" "}
+          Requires an{" "}
           <a href="https://exe.dev" data-id="landing/exedev-link" className="text-gray-500 hover:text-gray-300 underline underline-offset-2 transition-colors">
             exe.dev
           </a>{" "}
-          account and SSH
+          account with SSH access
         </p>
       </div>
 
@@ -203,7 +198,7 @@ function HowItWorksStep({
   );
 }
 
-export function CTABannerSection({ curlCmd }: { curlCmd: string }) {
+export function CTABannerSection({ installUrl, defaultVmName, installBranch }: { installUrl: string; defaultVmName: string; installBranch?: string | null }) {
   return (
     <section className="relative px-6 py-24">
       <div className="relative max-w-3xl mx-auto rounded-3xl overflow-hidden">
@@ -216,13 +211,9 @@ export function CTABannerSection({ curlCmd }: { curlCmd: string }) {
             Ready to deploy?
           </h2>
           <p className="text-gray-400 max-w-md mx-auto mb-8 leading-relaxed">
-            One command sets up a new VM in your exe.dev account and installs Primordia end-to-end.
+            Two commands create a VM and install Primordia end-to-end.
           </p>
-          <div className="flex items-center rounded-xl border border-white/10 bg-black/40 px-4 py-3 gap-3 max-w-2xl mx-auto mb-4">
-            <span className="select-none text-gray-600 font-mono text-sm shrink-0">$</span>
-            <code className="flex-1 font-mono text-sm text-green-400 text-left truncate">{curlCmd}</code>
-            <CopyButton text={curlCmd} />
-          </div>
+          <InstallBlock installUrl={installUrl} defaultName={defaultVmName} installBranch={installBranch} />
         </div>
       </div>
     </section>

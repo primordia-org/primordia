@@ -40,8 +40,8 @@ interface BranchData {
   previewUrl: string | null;
   /** Session status, or null if no session is active for this branch. */
   sessionStatus: string | null;
-  /** Evolve session ID, or null if no session exists for this branch. */
-  sessionId: string | null;
+  /** True if an evolve session exists for this branch. */
+  hasSession: boolean;
 }
 
 interface BranchNode extends BranchData {
@@ -121,8 +121,6 @@ async function getBranchData(): Promise<{
   // Load all evolve sessions from the filesystem and build a lookup by branch name.
   const fsSessions = listSessionsFromFilesystem(cwd);
   const sessionByBranch = new Map(fsSessions.map((s) => [s.branch, s]));
-  // Also index by session ID for branches whose branch !== id (from-branch sessions)
-  const sessionById = new Map(fsSessions.map((s) => [s.id, s]));
 
   const diag: DiagnosticInfo = {
     cwd,
@@ -134,32 +132,22 @@ async function getBranchData(): Promise<{
     sessions: fsSessions,
   };
 
-  const branches: BranchData[] = allBranchNames.map((name) => {
-    const parent = gitConfigValue(`branch.${name}.parent`, cwd);
-    const session = sessionByBranch.get(name);
-
-    let sessionId = session?.id ?? null;
-    const sessionStatus = session?.status ?? null;
-
-    // For branches not found by branch name, check if there's a git-config sessionId
-    // pointing to a session worktree (used for from-branch sessions).
-    if (!sessionId) {
-      const gitSessionId = gitConfigValue(`branch.${name}.sessionId`, cwd);
-      if (gitSessionId && sessionById.has(gitSessionId)) {
-        sessionId = gitSessionId;
-      }
-    }
-
-    return {
-      name,
-      isCurrent: name === current,
-      isProduction: name === productionBranch,
-      parent,
-      previewUrl: session?.previewUrl ?? null,
-      sessionStatus,
-      sessionId,
-    };
-  });
+  const branches: BranchData[] = allBranchNames
+    // Skip branches with slashes — not supported for preview or session URLs.
+    .filter((name) => !name.includes('/'))
+    .map((name) => {
+      const parent = gitConfigValue(`branch.${name}.parent`, cwd);
+      const session = sessionByBranch.get(name);
+      return {
+        name,
+        isCurrent: name === current,
+        isProduction: name === productionBranch,
+        parent,
+        previewUrl: session?.previewUrl ?? null,
+        sessionStatus: session?.status ?? null,
+        hasSession: session !== undefined,
+      };
+    });
 
   return { branches, productionBranch, diag };
 }
@@ -169,7 +157,7 @@ async function getBranchData(): Promise<{
 const TERMINAL_STATUSES = new Set(["accepted", "rejected"]);
 
 /**
- * Builds two sections from the flat branch list:
+ * Builds three sections from the flat branch list:
  *
  * - `activeProd`: the production branch as a tree root, with only non-terminal
  *   (not accepted/rejected) children/grandchildren nested under it.
@@ -178,6 +166,9 @@ const TERMINAL_STATUSES = new Set(["accepted", "rejected"]);
  *   ordered most-recent-first. Each slot includes its non-chain sibling branches
  *   (any branch whose parent was that slot, excluding the branch that was
  *   blue-green-promoted to the next slot).
+ *
+ * - `unattached`: branches with no `parent` config and no connection to the
+ *   production chain — e.g. manually created branches/worktrees.
  */
 function buildSections(
   branches: BranchData[],
@@ -185,6 +176,7 @@ function buildSections(
 ): {
   activeProd: BranchNode | null;
   pastSlots: PastSlot[];
+  unattached: BranchData[];
 } {
   const byName = new Map<string, BranchData>(
     branches.map((b) => [b.name, b]),
@@ -289,7 +281,27 @@ function buildSections(
     return { branch: slotData, children };
   });
 
-  return { activeProd, pastSlots };
+  // Collect all branch names covered by the active and past-slot trees so we
+  // can surface any remaining branches as "unattached" (no connection to the
+  // production chain — typically manually created branches or worktrees).
+  const covered = new Set<string>([productionBranchName, ...productionChain]);
+  // Add all descendants of every covered branch.
+  let frontier = [...covered];
+  while (frontier.length > 0) {
+    const next: string[] = [];
+    for (const b of branches) {
+      if (b.parent && covered.has(b.parent) && !covered.has(b.name)) {
+        covered.add(b.name);
+        next.push(b.name);
+      }
+    }
+    frontier = next;
+  }
+  const unattached = branches
+    .filter((b) => !covered.has(b.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return { activeProd, pastSlots, unattached };
 }
 
 // ─── Status display helpers ──────────────────────────────────────────────────────
@@ -383,9 +395,9 @@ function BranchRow({
             [{statusLabel}]
           </span>
         )}
-        {node.sessionId && (
+        {node.hasSession && (
           <Link
-            href={`/evolve/session/${node.sessionId}`}
+            href={`/evolve/session/${node.name}`}
             className="text-purple-400 hover:text-purple-300 text-xs ml-1 shrink-0"
           >
             session ↗
@@ -393,7 +405,7 @@ function BranchRow({
         )}
         {/* Show "+ session" only for active (non-terminal) branches without a session */}
         {canCreateSession &&
-          !node.sessionId &&
+          !node.hasSession &&
           !node.isCurrent &&
           !node.isProduction &&
           !isTerminal && (
@@ -475,7 +487,7 @@ export default async function BranchesPage() {
     : [false, false, null];
 
   const { branches, productionBranch, diag } = await getBranchData();
-  const { activeProd, pastSlots } = buildSections(branches, productionBranch);
+  const { activeProd, pastSlots, unattached } = buildSections(branches, productionBranch);
 
   const [headerStore] = await Promise.all([headers()]);
   const sessionUser = user
@@ -560,6 +572,31 @@ export default async function BranchesPage() {
         </div>
       )}
 
+      {/* ── Unattached Branches section ── */}
+      {unattached.length > 0 && (
+        <div className="mt-8">
+          <p className="text-xs text-gray-500 font-mono uppercase tracking-widest mb-2">
+            Other Branches
+          </p>
+          <div className="space-y-0">
+            {unattached.map((b) => {
+              const node: BranchNode = { ...b, children: [] };
+              return (
+                <BranchRow
+                  key={b.name}
+                  node={node}
+                  depth={0}
+                  linePrefix=""
+                  isLast={true}
+                  currentServerUrl={currentServerUrl}
+                  canCreateSession={userCanEvolve}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Legend */}
       <div className="mt-8 border-t border-gray-800 pt-4 text-xs text-gray-600 font-mono space-y-1">
         <p>
@@ -627,10 +664,10 @@ export default async function BranchesPage() {
                       <tr key={s.id} className="text-gray-400">
                         <td className="pr-4">
                           <Link
-                            href={`/evolve/session/${s.id}`}
+                            href={`/evolve/session/${s.branch}`}
                             className="text-purple-400 hover:text-purple-300"
                           >
-                            {s.id.slice(0, 8)}…
+                            {s.branch}
                           </Link>
                         </td>
                         <td className="pr-4">{s.branch}</td>

@@ -49,6 +49,22 @@
 .animate-fade-up-4 { animation: fade-up  0.7s ease 0.45s both; }
 .animate-fade-in   { animation: fade-in  1.2s ease both; }
 
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+.animate-blink { animation: blink 1s step-end infinite; }
+@media (prefers-reduced-motion: reduce) { .animate-blink { animation: none; } }
+
+/* Unfocused block cursor for the install block — blinks at end of word, no JS needed. */
+.install-cursor-unfocused {
+  width: 0.55em;
+  background: #4ade80; /* green-400 */
+  animation: blink 1s step-end infinite;
+}
+@media (prefers-reduced-motion: reduce) { .install-cursor-unfocused { animation: none; } }
+
 .text-shimmer {
   background: linear-gradient(
     90deg,
