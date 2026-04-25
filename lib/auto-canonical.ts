@@ -8,7 +8,7 @@
 
 import { getDb } from "./db";
 import { registerWithParent } from "./register-with-parent";
-import { isInsecureOrLocalOrigin } from "./validate-canonical-url";
+import { validateCanonicalUrl } from "./validate-canonical-url";
 
 let checked = false;
 
@@ -24,7 +24,7 @@ export async function ensureCanonicalUrl(origin: string): Promise<void> {
     // Only persist HTTPS non-localhost origins. The installer or other
     // internal tooling may hit the server over http://localhost:… first;
     // we must never lock that in as the canonical URL.
-    if (isInsecureOrLocalOrigin(origin)) {
+    if (validateCanonicalUrl(origin) !== null) {
       console.log(
         `[primordia] auto-canonical: skipping non-HTTPS or localhost origin: ${origin}`
       );

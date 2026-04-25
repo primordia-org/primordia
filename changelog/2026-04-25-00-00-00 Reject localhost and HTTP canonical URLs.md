@@ -4,9 +4,9 @@
 
 The validation logic lives in a single shared utility (`lib/validate-canonical-url.ts`) used by all three enforcement points, so the rules are defined exactly once:
 
-- **`lib/validate-canonical-url.ts`** *(new)* — exports `validateCanonicalUrl(url)` (returns an error string or `null`) and `isInsecureOrLocalOrigin(origin)` (boolean). Rejects empty-but-non-blank URLs, non-`https:` protocols, and localhost variants (`localhost`, `127.0.0.1`, `::1`, `*.localhost`).
+- **`lib/validate-canonical-url.ts`** *(new)* — exports `validateCanonicalUrl(url)` (returns an error string or `null`). Rejects empty-but-non-blank URLs, non-`https:` protocols, and localhost variants (`localhost`, `127.0.0.1`, `::1`, `*.localhost`).
 
-- **`lib/auto-canonical.ts`** — the auto-detection logic that runs on the first incoming request now delegates to `isInsecureOrLocalOrigin()`. If the origin fails, it logs a skip message and resets the `checked` flag so it will try again on the next request (e.g. the first real public HTTPS request).
+- **`lib/auto-canonical.ts`** — the auto-detection logic that runs on the first incoming request now delegates to `validateCanonicalUrl(origin) !== null` to decide whether to skip. If the origin fails, it logs a skip message and resets the `checked` flag so it will try again on the next request (e.g. the first real public HTTPS request).
 
 - **`app/api/instance/config/route.ts`** — the `PATCH` handler delegates to `validateCanonicalUrl()` and returns the error string as a `400` response body.
 
