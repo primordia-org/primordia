@@ -10,6 +10,7 @@ import path from "path";
 import { execSync } from "child_process";
 import type { Metadata } from "next";
 import { ChangelogEntryDetails } from "./ChangelogEntryDetails";
+import { changelogEntrySlug } from "@/app/ChangelogNewsticker";
 import { PageNavBar } from "@/components/PageNavBar";
 import { buildPageTitle } from "@/lib/page-title";
 import { getSessionUser, isAdmin } from "@/lib/auth";
@@ -123,7 +124,7 @@ export default async function ChangelogPage() {
               });
 
               return (
-                <li key={entry.filename}>
+                <li key={entry.filename} id={changelogEntrySlug(entry.filename)}>
                   <ChangelogEntryDetails
                     filename={entry.filename}
                     date={entry.date}
