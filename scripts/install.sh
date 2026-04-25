@@ -397,8 +397,8 @@ fi
 DB_NAME=".primordia-auth.db"
 OLD_PROD_BRANCH="$(git -C "${BARE_REPO}" config --get primordia.productionBranch 2>/dev/null || true)"
 if [[ -n "$OLD_PROD_BRANCH" && "$OLD_PROD_BRANCH" != "$BRANCH" ]]; then
-  while IFS='=' read -r key val; do
-    # key looks like: branch.<name>.parent
+  while read -r key val; do
+    # key looks like: branch.<name>.parent  (space-separated, git config --get-regexp output)
     sibling="${key#branch.}"; sibling="${sibling%.parent}"
     if [[ "$val" == "$OLD_PROD_BRANCH" && "$sibling" != "$BRANCH" ]]; then
       git -C "${BARE_REPO}" config "branch.${sibling}.parent" "$BRANCH" 2>/dev/null || true
