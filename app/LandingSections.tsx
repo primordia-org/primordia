@@ -8,6 +8,7 @@
 
 import Link from "next/link";
 import { MessageSquare, RefreshCw, GitBranch, ChevronDown } from "lucide-react";
+import { ChangelogNewsticker } from "./ChangelogNewsticker";
 import InstallBlock from "./InstallBlock";
 import { createNameId } from "mnemonic-id";
 
@@ -102,8 +103,13 @@ export function HeroSection({ installUrl, defaultVmName, installBranch }: { inst
       </div>
 
       {/* Scroll hint */}
-      <div className="animate-fade-in absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 text-gray-600">
+      <div className="animate-fade-in absolute bottom-24 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 text-gray-600">
         <ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
+      </div>
+
+      {/* Changelog newsticker — sits at the very bottom of the hero, above the fold */}
+      <div className="absolute bottom-0 left-0 right-0">
+        <ChangelogNewsticker />
       </div>
     </section>
   );

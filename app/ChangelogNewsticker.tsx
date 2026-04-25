@@ -82,13 +82,13 @@ export function ChangelogNewsticker() {
   const doubled = [...entries, ...entries];
 
   return (
-    <div
-      className="w-full bg-gray-950/50 border-t border-white/5 overflow-hidden"
-      aria-label="Recent changelog headlines"
-    >
-      <p className="text-center text-[10px] font-mono uppercase tracking-widest text-gray-600 pt-2 pb-0 select-none">
+    <div className="w-full" aria-label="Recent changelog headlines">
+      {/* Label sits above the tinted strip — no background */}
+      <p className="text-center text-[10px] font-mono uppercase tracking-widest text-gray-600 pb-1.5 select-none">
         Recent Changes
       </p>
+      {/* Tinted scrolling strip */}
+      <div className="bg-gray-950/50 border-t border-white/5">
       <div className="relative overflow-hidden h-9 flex items-center">
         {/* Fade edges */}
         <div className="pointer-events-none absolute inset-y-0 left-0 w-12 z-10 bg-gradient-to-r from-gray-950/50 to-transparent" />
@@ -112,6 +112,7 @@ export function ChangelogNewsticker() {
             );
           })}
         </ul>
+      </div>
       </div>
     </div>
   );
