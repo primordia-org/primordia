@@ -20,6 +20,29 @@ export async function ensureCanonicalUrl(origin: string): Promise<void> {
     const config = await db.getInstanceConfig();
     if (config.canonicalUrl) return; // already set — nothing to do
 
+    // Only persist HTTPS non-localhost origins. The installer or other
+    // internal tooling may hit the server over http://localhost:… first;
+    // we must never lock that in as the canonical URL.
+    try {
+      const parsed = new URL(origin);
+      const isLocalhost =
+        parsed.hostname === "localhost" ||
+        parsed.hostname === "127.0.0.1" ||
+        parsed.hostname === "::1" ||
+        parsed.hostname.endsWith(".localhost");
+      if (parsed.protocol !== "https:" || isLocalhost) {
+        console.log(
+          `[primordia] auto-canonical: skipping non-HTTPS or localhost origin: ${origin}`
+        );
+        checked = false; // try again on the next request
+        return;
+      }
+    } catch {
+      // Unparseable origin — skip.
+      checked = false;
+      return;
+    }
+
     // Persist the derived origin as the canonical URL.
     await db.setInstanceConfig({ canonicalUrl: origin });
 

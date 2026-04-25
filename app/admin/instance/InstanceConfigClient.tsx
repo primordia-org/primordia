@@ -21,8 +21,30 @@ export default function InstanceConfigClient({ config: initial, nodes, edges }: 
   const [parentUrl, setParentUrl] = useState(initial.parentUrl);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [canonicalUrlError, setCanonicalUrlError] = useState<string | null>(null);
+
+  function validateCanonicalUrl(url: string): string | null {
+    const trimmed = url.trim();
+    if (!trimmed) return null; // empty = clear it, that's fine
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== "https:") return "Canonical URL must use HTTPS";
+      const isLocalhost =
+        parsed.hostname === "localhost" ||
+        parsed.hostname === "127.0.0.1" ||
+        parsed.hostname === "::1" ||
+        parsed.hostname.endsWith(".localhost");
+      if (isLocalhost) return "Canonical URL must not be a localhost address";
+    } catch {
+      return "Canonical URL must be a valid URL";
+    }
+    return null;
+  }
 
   async function handleSave() {
+    const urlErr = validateCanonicalUrl(canonicalUrl);
+    setCanonicalUrlError(urlErr);
+    if (urlErr) return;
     setSaving(true);
     setSaveMsg(null);
     try {
@@ -93,11 +115,16 @@ export default function InstanceConfigClient({ config: initial, nodes, edges }: 
             <input
               type="url"
               value={canonicalUrl}
-              onChange={(e) => setCanonicalUrl(e.target.value)}
+              onChange={(e) => { setCanonicalUrl(e.target.value); setCanonicalUrlError(validateCanonicalUrl(e.target.value)); }}
               placeholder="https://primordia.example.com"
-              className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+              className={`w-full bg-gray-900 border rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 ${
+                canonicalUrlError ? "border-red-500" : "border-gray-700"
+              }`}
             />
-            {wellKnownUrl && (
+            {canonicalUrlError && (
+              <p className="text-xs text-red-400 mt-1">{canonicalUrlError}</p>
+            )}
+            {wellKnownUrl && !canonicalUrlError && (
               <a
                 href={wellKnownUrl}
                 target="_blank"

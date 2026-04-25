@@ -53,8 +53,24 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "canonicalUrl must be a string" }, { status: 400 });
     }
     const trimmed = canonicalUrl.trim();
-    if (trimmed && !trimmed.startsWith("http")) {
-      return NextResponse.json({ error: "canonicalUrl must be an http(s) URL" }, { status: 400 });
+    if (trimmed) {
+      let parsed: URL;
+      try {
+        parsed = new URL(trimmed);
+      } catch {
+        return NextResponse.json({ error: "canonicalUrl must be a valid URL" }, { status: 400 });
+      }
+      if (parsed.protocol !== "https:") {
+        return NextResponse.json({ error: "canonicalUrl must use HTTPS" }, { status: 400 });
+      }
+      const isLocalhost =
+        parsed.hostname === "localhost" ||
+        parsed.hostname === "127.0.0.1" ||
+        parsed.hostname === "::1" ||
+        parsed.hostname.endsWith(".localhost");
+      if (isLocalhost) {
+        return NextResponse.json({ error: "canonicalUrl must not be a localhost address" }, { status: 400 });
+      }
     }
     fields.canonicalUrl = trimmed;
   }
