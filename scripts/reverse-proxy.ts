@@ -490,6 +490,14 @@ async function startPreviewServer(
   console.log(`[proxy] starting preview server for session ${sessionId} on :${info.port} in ${info.worktreePath}`);
   await killPortOwner(info.port);
 
+  // Guard: if another concurrent restart superseded our entry while we were waiting for
+  // the port to free (e.g. a second simultaneous restart request), abort here instead of
+  // spawning an orphaned process that nobody tracks.
+  if (previewProcesses.get(sessionId) !== entry) {
+    console.log(`[proxy] aborting preview start for session ${sessionId} (superseded by concurrent operation)`);
+    return entry;
+  }
+
   const proc = spawn(process.execPath, ['run', 'dev'], {
     cwd: info.worktreePath,
     env: {
@@ -561,6 +569,9 @@ function stopPreviewServer(sessionId: string): void {
   console.log(`[proxy] stopping preview server for session ${sessionId}`);
   entry.status = 'stopped';
   previewProcesses.delete(sessionId);
+  // entry.process may be null if stopPreviewServer is called before startPreviewServer
+  // has had a chance to assign the spawned ChildProcess (e.g. during concurrent restarts).
+  if (entry.process == null) return;
   try {
     if (entry.process.pid !== undefined) {
       process.kill(-entry.process.pid, 'SIGTERM');
@@ -1059,11 +1070,28 @@ function handleProxyApi(
 
   // POST /_proxy/preview/:id/restart
   if (action === 'restart' && clientReq.method === 'POST') {
+    // If a start is already in progress for this session, treat the request as idempotent
+    // rather than spawning a second concurrent startPreviewServer — that causes a race
+    // where both calls share the same port and one orphans its process.
+    const existingEntry = previewProcesses.get(sessionId);
+    if (existingEntry?.status === 'starting') {
+      clientRes.writeHead(200, { 'content-type': 'application/json' });
+      clientRes.end(JSON.stringify({ ok: true, note: 'already starting' }));
+      return;
+    }
     stopPreviewServer(sessionId);
     const info = sessionWorktreeCache[sessionId] ?? (() => { readAllPorts(); return sessionWorktreeCache[sessionId]; })();
     if (!info) {
       clientRes.writeHead(404, { 'content-type': 'application/json' });
       clientRes.end(JSON.stringify({ error: 'Session worktree not found in cache' }));
+      return;
+    }
+    // Guard: refuse to restart a preview server whose port is currently serving production.
+    // This mirrors the same guard in handlePreviewRequest and prevents killPortOwner from
+    // taking down the production server when a just-accepted session is restarted.
+    if (info.port === upstreamPort) {
+      clientRes.writeHead(409, { 'content-type': 'application/json' });
+      clientRes.end(JSON.stringify({ error: 'Session is currently the production server; cannot restart as dev server' }));
       return;
     }
     void startPreviewServer(sessionId, info);
