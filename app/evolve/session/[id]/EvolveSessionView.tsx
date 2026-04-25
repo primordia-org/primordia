@@ -967,6 +967,12 @@ export default function EvolveSessionView({
         void startStreaming();
         return;
       }
+      if (data.outcome === 'auto-committing') {
+        setStatus('running-claude');
+        setActiveAction(null);
+        void startStreaming();
+        return;
+      }
       setStatus('accepted');
       abortControllerRef.current?.abort();
     } catch (err) {

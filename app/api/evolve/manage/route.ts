@@ -499,17 +499,46 @@ export async function POST(request: Request) {
       }
 
       // Gate 2: worktree must have no uncommitted changes.
+      // If there are uncommitted changes, automatically start a follow-up agent
+      // session with "commit changes" as the prompt instead of showing an error.
       const worktreeStatus = await runGit(['status', '--porcelain'], worktreePath);
       if (worktreeStatus.stdout.trim()) {
-        return Response.json(
-          {
-            error:
-              `Cannot accept: session worktree has uncommitted changes:\n\n` +
-              `${worktreeStatus.stdout.trim()}\n\n` +
-              `All changes must be committed before the session can be accepted.`,
-          },
-          { status: 400 },
-        );
+        const uncommittedFiles = worktreeStatus.stdout.trim();
+        const commitPrompt =
+          `The session has uncommitted changes that must be committed before the branch can be accepted into production. ` +
+          `Please commit all uncommitted changes with a clear, descriptive git commit message. ` +
+          `Do not modify any files — only stage and commit the existing changes.\n\n` +
+          `Uncommitted changes:\n\`\`\`\n${uncommittedFiles}\n\`\`\`\n\n` +
+          `Do NOT create or update the changelog file for this commit.`;
+        const commitSession: LocalSession = {
+          id: session.id,
+          branch: session.branch,
+          worktreePath: session.worktreePath,
+          status: 'ready',
+          devServerStatus: 'running',
+          port: session.port,
+          previewUrl: session.previewUrl,
+          request: session.request,
+          createdAt: session.createdAt,
+          userId: user.id,
+        };
+        const ndjsonPath = getSessionNdjsonPath(worktreePath);
+        if (fs.existsSync(ndjsonPath)) {
+          appendSessionEvent(ndjsonPath, {
+            type: 'section_start',
+            sectionType: 'followup',
+            label: '📦 Auto-committing uncommitted changes',
+            ts: Date.now(),
+          });
+          appendSessionEvent(ndjsonPath, {
+            type: 'followup_request',
+            request: 'commit changes',
+            attachments: [],
+            ts: Date.now(),
+          });
+        }
+        void runFollowupInWorktree(commitSession, commitPrompt, repoRoot, 'running-claude', /* onSuccess */ undefined, /* skipChangelog */ true);
+        return Response.json({ outcome: 'auto-committing' });
       }
 
       // ── Gate 3: no concurrent deploy ──────────────────────────────────────
