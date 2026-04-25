@@ -4,7 +4,7 @@
 import Link from "next/link";
 
 interface AdminSubNavProps {
-  currentTab: "users" | "logs" | "proxy-logs" | "rollback" | "server-health" | "git-mirror" | "instance";
+  currentTab: "users" | "logs" | "proxy-logs" | "rollback" | "server-health" | "git-mirror" | "instance" | "updates";
 }
 
 const tabs = [
@@ -14,6 +14,7 @@ const tabs = [
   { id: "rollback" as const, label: "Rollback", href: "/admin/rollback" },
   { id: "server-health" as const, label: "Server Health", href: "/admin/server-health" },
   { id: "git-mirror" as const, label: "Git Mirror", href: "/admin/git-mirror" },
+  { id: "updates" as const, label: "Fetch Updates", href: "/admin/updates" },
   { id: "instance" as const, label: "Instance", href: "/admin/instance" },
 ];
 
