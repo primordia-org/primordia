@@ -511,6 +511,31 @@ function StructuredSection({
       );
     }
 
+    const hasDeployError = resultEvent?.subtype === 'error' || resultEvent?.subtype === 'timeout';
+
+    if (hasDeployError) {
+      const errorMessage = resultEvent?.message ?? 'The deploy failed with an unknown error.';
+      return (
+        <div className="rounded-lg bg-red-900/40 border border-red-700/50 text-sm overflow-hidden">
+          <div className="px-4 py-4">
+            <p className="text-red-200 font-semibold">❌ Deploy failed</p>
+            <p className="text-red-300/80 text-xs mt-1">{errorMessage}</p>
+          </div>
+          {logLines && (
+            <details className="group border-t border-red-800/50">
+              <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-red-900/30 transition-colors list-none text-xs">
+                <span className="text-red-700 group-open:rotate-90 transition-transform">▶</span>
+                <span className="text-red-700/80">Deploy log</span>
+              </summary>
+              <div className="px-4 py-3 border-t border-red-800/50">
+                <pre className="text-xs text-gray-400 whitespace-pre-wrap font-mono">{logLines}</pre>
+              </div>
+            </details>
+          )}
+        </div>
+      );
+    }
+
     const doneTitle = isProduction ? "🚀 Deployed to production" : label.replace(/🚀\s*Merging into/, "✅ Merged into").replace(/🚀\s*Deploying into/, "✅ Merged into");
     return (
       <div className="rounded-lg bg-green-900/40 border border-green-700/50 text-sm overflow-hidden">
