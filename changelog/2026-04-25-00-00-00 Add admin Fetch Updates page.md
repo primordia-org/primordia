@@ -8,7 +8,7 @@ Added a new **Fetch Updates** tab to the admin panel at `/admin/updates`.
 - `app/admin/updates/page.tsx` — Server-rendered admin page (auth-gated to admins). Reads source list and initial git status at render time.
 - `app/admin/updates/UpdatesClient.tsx` — Interactive client component: per-source cards with fetch/toggle/remove/merge-session actions and an Add Source form.
 - `app/api/admin/updates/route.ts` — API route handling all update-source operations (see below).
-- `lib/update-sources.ts` — Reads/writes `.primordia-update-sources.json` in the repo root. Manages the list of update sources; ensures the built-in Primordia Official source is always present.
+- `lib/update-sources.ts` — Manages the list of update sources using git config subsections (`primordia-update-source.{id}.*`), the same pattern git uses for `remote.{name}.url`. Ensures the built-in Primordia Official source is always present.
 
 ### Modified files
 - `components/AdminSubNav.tsx` — Added **Fetch Updates** tab between Git Mirror and Instance.
@@ -16,7 +16,16 @@ Added a new **Fetch Updates** tab to the admin panel at `/admin/updates`.
 ## How it works
 
 ### Multiple update sources
-The page supports multiple named update sources, similar to how Linux distros manage package repositories. Sources are persisted to `.primordia-update-sources.json` in the repo root.
+The page supports multiple named update sources, similar to how Linux distros manage package repositories. Sources are persisted in `.git/config` using the `primordia-update-source.{id}.*` subsection pattern — the same mechanism git uses for remotes and branch config.
+
+Example entry in `.git/config`:
+```
+[primordia-update-source "primordia-updates"]
+    name    = Primordia Official
+    url     = https://primordia.exe.xyz/api/git
+    enabled = true
+    builtin = true
+```
 
 Each source has:
 - A human-readable **name** and **URL** (a read-only git HTTP endpoint)

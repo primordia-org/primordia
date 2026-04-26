@@ -382,6 +382,69 @@ The log is append-only and never truncated for the lifetime of the session.
 
 ---
 
+## Git Config as Key-Value Store
+
+Primordia uses the local `.git/config` file as a lightweight key-value store for **non-sensitive runtime state**. This avoids extra files and keeps all mutable configuration in one well-understood place that git already manages.
+
+### When to use it
+
+Use git config for data that:
+- Is non-sensitive (no secrets, tokens, or credentials)
+- Needs to survive server restarts but doesn't need a full database
+- Is per-repo rather than per-user
+- May be read by the reverse proxy (`scripts/reverse-proxy.ts`) without starting the Next.js app
+
+Do **not** use git config for secrets (use environment variables / `.env.local`) or user-specific data (use SQLite via `lib/db/`).
+
+### Established namespaces
+
+| Namespace | Example key | What it stores |
+|---|---|---|
+| `primordia.*` | `primordia.productionBranch` | App-wide settings; proxy reads these live via `fs.watch` on `.git/config` |
+| `primordia.*` | `primordia.productionHistory` | Multi-value list of previous production branch names (written with `--add`) |
+| `primordia.*` | `primordia.previewInactivityMin` | Proxy tuning knobs (see `app/api/admin/proxy-settings/route.ts`) |
+| `branch.{name}.*` | `branch.main.port` | Per-branch ephemeral port; proxy discovers preview servers this way |
+| `branch.{name}.*` | `branch.feature-x.parent` | Parent branch recorded at worktree creation for upstream-sync |
+| `primordia-update-source.{id}.*` | `primordia-update-source.primordia-updates.url` | Update source registry (see `lib/update-sources.ts`) |
+
+### Subsection pattern (multi-record collections)
+
+For collections of named records, use git config **subsections** — exactly how git stores remotes and branches:
+
+```
+[primordia-update-source "my-source"]
+    name    = My App Layer
+    url     = https://example.com/api/git
+    enabled = true
+    builtin = false
+```
+
+Enumerate all records with `--get-regexp`:
+```bash
+git config --get-regexp 'primordia-update-source\..*\.url'
+# → primordia-update-source.my-source.url https://example.com/api/git
+```
+
+Read one field:
+```bash
+git config --get 'primordia-update-source.my-source.name'
+```
+
+Remove a whole record:
+```bash
+git config --remove-section 'primordia-update-source.my-source'
+```
+
+### Output format of `--get-regexp`
+
+Each line is `<key><space><value>` with no `=`. Git **lowercases the section name and field name** but **preserves the subsection name's case**. Always split on the first space to separate key from value. Use `[^.]+` (not `.*`) when matching subsection names in regexes to avoid greedy matches across dots.
+
+### Code reference
+
+See `lib/update-sources.ts` for a complete worked example of the subsection pattern. See `lib/evolve-sessions.ts` (`getOrAssignBranchPort`) for a simple single-key read/write example.
+
+---
+
 ## Design Principles for Claude Code
 
 When implementing changes, follow these principles:
