@@ -487,27 +487,6 @@ export default function UpdatesClient({ initialSources }: UpdatesClientProps) {
         <AddSourceForm onAdd={handleAddSource} busy={busy} />
       </section>
 
-      {/* How it works */}
-      <section className="pt-4 border-t border-gray-800 space-y-2">
-        <h3 className="text-sm font-medium text-gray-400">How it works</h3>
-        <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside">
-          <li>
-            <strong className="text-gray-400">Fetch All Sources</strong> syncs every enabled source into a local tracking branch named{" "}
-            <code className="bg-gray-800 px-1 rounded">&lt;sourceId&gt;-main</code>.
-          </li>
-          <li>
-            <strong className="text-gray-400">Merge</strong> creates an AI-powered evolve session on a new branch. Claude merges the
-            tracking branch, resolves conflicts, and verifies the build. Accept the session to deploy.
-          </li>
-          <li>
-            Built-in sources cannot be deleted, but can be disabled to exclude them from fetch operations.
-          </li>
-          <li>
-            Custom sources must expose a read-only git HTTP endpoint (e.g. another Primordia instance at{" "}
-            <code className="bg-gray-800 px-1 rounded">/api/git</code>).
-          </li>
-        </ul>
-      </section>
     </div>
   );
 }
