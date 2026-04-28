@@ -696,11 +696,17 @@ export async function runFollowupInWorktree(
   /** Status used locally while Claude is running. Defaults to 'running-claude'. */
   inProgressStatus: LocalSessionStatus = 'running-claude',
   onSuccess?: (session: LocalSession) => Promise<void>,
-  skipChangelog: boolean = false,
+  /**
+   * When set, this is an internal (non-user-visible) agent pass:
+   * - The changelog instruction in the prompt is suppressed.
+   * - A section_start with this sectionType is emitted instead of the normal
+   *   followup/agent section pair.
+   * Pass 'type_fix' for TypeScript auto-fix passes and 'auto_commit' for
+   * Gate-2 unstaged-changes commit passes.
+   */
+  internalSectionType?: 'type_fix' | 'auto_commit',
   /** Temporary file paths for user-uploaded attachments. Copied into worktree/attachments/ and deleted from /tmp. */
   attachmentPaths: string[] = [],
-  /** When true, uses the 'auto_commit' section type (for Gate-2 unstaged-changes commits) instead of 'type_fix'. */
-  isAutoCommit: boolean = false,
 ): Promise<void> {
   const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
 
@@ -710,14 +716,12 @@ export async function runFollowupInWorktree(
   const fuModelId = session.model ?? DEFAULT_MODEL;
 
   try {
-    if (skipChangelog) {
-      if (isAutoCommit) {
-        // Auto-commit passes (Gate 2: uncommitted changes) get their own section heading.
-        appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'auto_commit', label: '📦 Committing unstaged changes…', ts: Date.now() });
-      } else {
-        // Type-fix passes get their own section heading instead of the user-facing follow-up format.
-        appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'type_fix', label: '🔧 Fixing type errors…', ts: Date.now() });
-      }
+    if (internalSectionType) {
+      const sectionLabels: Record<'type_fix' | 'auto_commit', string> = {
+        type_fix: '🔧 Fixing type errors…',
+        auto_commit: '📦 Committing unstaged changes…',
+      };
+      appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: internalSectionType, label: sectionLabels[internalSectionType], ts: Date.now() });
     } else {
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'followup', label: '🔄 Follow-up Request', ts: Date.now() });
       appendSessionEvent(ndjsonPath, { type: 'followup_request', request: followupRequest, attachments: attachmentPaths.map(p => path.basename(p)), ts: Date.now() });
@@ -727,7 +731,7 @@ export async function runFollowupInWorktree(
     }
     session.status = inProgressStatus;
 
-    const changelogInstruction = skipChangelog
+    const changelogInstruction = !!internalSectionType
       ? `Do NOT create or update any changelog file — this fix is part of the automated merge pipeline, not a user-visible change.`
       : `This is a follow-up to changes already made on branch \`${session.branch}\`. Do NOT create a new changelog file. Instead, find the most recent changelog file in \`changelog/\` and update it if your changes invalidate or extend the existing description.`;
 

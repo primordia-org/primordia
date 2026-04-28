@@ -301,7 +301,7 @@ async function runAcceptAsync(
         void runFollowupInWorktree(
           autoFixSession, fixPrompt, repoRoot, 'fixing-types',
           (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch),
-          /* skipChangelog */ true,
+          /* internalSectionType */ 'type_fix',
         );
         return;
       }
@@ -523,7 +523,7 @@ export async function POST(request: Request) {
           userId: user.id,
         };
         // runFollowupInWorktree will emit the 'auto_commit' section_start itself.
-        void runFollowupInWorktree(commitSession, commitPrompt, repoRoot, 'running-claude', /* onSuccess */ undefined, /* skipChangelog */ true, /* attachmentPaths */ [], /* isAutoCommit */ true);
+        void runFollowupInWorktree(commitSession, commitPrompt, repoRoot, 'running-claude', /* onSuccess */ undefined, /* internalSectionType */ 'auto_commit');
         return Response.json({ outcome: 'auto-committing' });
       }
 
