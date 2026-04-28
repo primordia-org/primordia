@@ -33,9 +33,10 @@ interface SectionMetrics {
 }
 
 function formatDuration(ms: number): string {
-  return ms >= 60_000
-    ? `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`
-    : `${(ms / 1000).toFixed(1)}s`;
+  const totalSec = Math.round(ms / 1000);
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
 function MetricsRow({ metrics }: { metrics: SectionMetrics }) {
@@ -270,9 +271,6 @@ function RunningAgentSection({ events, label, isTypeFixSection, worktreePath, ha
       <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
         <span className={`font-semibold text-xs ${headingClass}`}>{runningLabel}</span>
         <span className="ml-auto flex items-center gap-1.5 text-gray-500 text-xs">
-          {elapsed > 0 && (
-            <span className="font-mono">{formatDuration(elapsed)}</span>
-          )}
           <span className="flex items-center gap-1.5 animate-pulse">
             <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
           </span>
