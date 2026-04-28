@@ -15,6 +15,7 @@ import { PageNavBar } from "@/components/PageNavBar";
 import { buildPageTitle } from "@/lib/page-title";
 import { getSessionUser, isAdmin } from "@/lib/auth";
 import { getEvolvePrefs } from "@/lib/user-prefs";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export function generateMetadata(): Metadata {
   return {
@@ -176,11 +177,11 @@ export default async function ChangelogPage({
                 aria-disabled={safePage <= 1}
                 className={
                   safePage <= 1
-                    ? "px-4 py-2 rounded text-sm bg-gray-800 text-gray-600 cursor-not-allowed"
-                    : "px-4 py-2 rounded text-sm bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors"
+                    ? "inline-flex items-center gap-1 px-4 py-2 rounded text-sm bg-gray-800 text-gray-600 cursor-not-allowed"
+                    : "inline-flex items-center gap-1 px-4 py-2 rounded text-sm bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors"
                 }
               >
-                ← Newer
+                <ChevronLeft size={14} /> Newer
               </a>
               <span className="text-xs text-gray-500">
                 {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, entries.length)} of {entries.length}
@@ -190,11 +191,11 @@ export default async function ChangelogPage({
                 aria-disabled={safePage >= totalPages}
                 className={
                   safePage >= totalPages
-                    ? "px-4 py-2 rounded text-sm bg-gray-800 text-gray-600 cursor-not-allowed"
-                    : "px-4 py-2 rounded text-sm bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors"
+                    ? "inline-flex items-center gap-1 px-4 py-2 rounded text-sm bg-gray-800 text-gray-600 cursor-not-allowed"
+                    : "inline-flex items-center gap-1 px-4 py-2 rounded text-sm bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors"
                 }
               >
-                Older →
+                Older <ChevronRight size={14} />
               </a>
             </nav>
           )}
