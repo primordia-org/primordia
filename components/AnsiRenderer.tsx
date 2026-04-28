@@ -207,7 +207,9 @@ export function AnsiRenderer({ text, className }: AnsiRendererProps) {
   if (lines.length === 0) return null;
 
   return (
-    <div className={`font-mono text-xs leading-5 ${className ?? ""}`}>
+    // whitespace-pre is required so that spaces inside span text nodes are
+    // not collapsed by the browser's normal HTML whitespace rules.
+    <div className={`font-mono text-xs leading-5 whitespace-pre ${className ?? ""}`}>
       {lines.map((line, li) => {
         // Empty line → thin vertical spacer
         if (line.spans.length === 0) {
@@ -215,7 +217,7 @@ export function AnsiRenderer({ text, className }: AnsiRendererProps) {
         }
 
         return (
-          <div key={li} className="flex items-center flex-wrap">
+          <div key={li}>
             {line.spans.map((span, si) => <SpanEl key={si} span={span} />)}
           </div>
         );

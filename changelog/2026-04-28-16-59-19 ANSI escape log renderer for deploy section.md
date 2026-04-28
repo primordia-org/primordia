@@ -50,6 +50,12 @@ An interactive test page at `/ansi-test` (modelled after `/markdown-test`) for e
 - **Simulate stream** — replays the current input character-by-character at a configurable speed (0–200 ms/char) to verify `\r` spinner overwrite behaviour live
 - **Side-by-side layout** — raw input on the left, rendered output on the right in a card that matches the deploy section style from `EvolveSessionView`
 
+### Bug fix: whitespace preservation in `AnsiRenderer`
+
+Spaces inside rendered span text were being collapsed by the browser's default HTML whitespace normalisation rules. This caused leading spaces (e.g. the ASCII art banner indentation) and inter-word spaces (e.g. `✓ Using git` → `✓Using git`) to disappear.
+
+Fixed by adding `whitespace-pre` to the outer container div (`white-space` is an inherited CSS property, so all descendant `<span>` elements pick it up automatically). Also removed the now-redundant `flex items-center flex-wrap` from individual line divs — that was leftover from the removed spinner code and actively conflicted with `whitespace-pre` by putting content into a flex formatting context.
+
 ## Why
 
 The "Deploying to production" experience in the UI was notably worse than running `./install.sh` in a terminal: no colors, no spinner animation, no visual distinction between step starts and completions. The plain-text mode was a workaround because the log display couldn't handle escape codes.
