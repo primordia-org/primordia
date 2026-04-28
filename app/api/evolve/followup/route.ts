@@ -137,7 +137,7 @@ export async function POST(request: Request) {
 
   // Fire-and-forget — runFollowupInWorktree handles all state transitions and
   // error cases internally, writing events to the NDJSON log.
-  void runFollowupInWorktree(session, requestText, repoRoot, 'running-claude', undefined, false, savedAttachmentPaths);
+  void runFollowupInWorktree(session, requestText, repoRoot, 'running-claude', undefined, undefined, savedAttachmentPaths);
 
   return Response.json({ ok: true });
 }
