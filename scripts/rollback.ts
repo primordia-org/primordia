@@ -2,7 +2,7 @@
 // scripts/rollback.ts
 // Standalone fast rollback: updates primordia.productionBranch to the previous
 // slot and restarts the proxy service (which will start the rolled-back server).
-// Equivalent to POST /api/rollback but runs directly via bun — use this when
+// Equivalent to POST /api/admin/rollback but runs directly via bun — use this when
 // the server itself is broken or unresponsive.
 //
 // Usage: bun run rollback
