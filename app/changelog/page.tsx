@@ -133,22 +133,38 @@ export default async function ChangelogPage({
               </span>
             )}
           </p>
-          <ol className="space-y-2">
-            {pageEntries.map((entry) => {
+          <ol className="space-y-0">
+            {pageEntries.map((entry, i) => {
               const dateLabel = new Date(entry.date).toLocaleDateString("en-US", {
                 year: "numeric",
-                month: "short",
+                month: "long",
                 day: "numeric",
               });
+              const prevDateLabel = i > 0
+                ? new Date(pageEntries[i - 1].date).toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  })
+                : null;
+              const showSeparator = dateLabel !== prevDateLabel;
 
               return (
-                <li key={entry.filename} id={changelogEntrySlug(entry.filename)}>
-                  <ChangelogEntryDetails
-                    filename={entry.filename}
-                    date={entry.date}
-                    title={entry.title}
-                    dateLabel={dateLabel}
-                  />
+                <li key={entry.filename}>
+                  {showSeparator && (
+                    <div className={`flex items-center gap-3 ${i > 0 ? "mt-6" : ""} mb-2`}>
+                      <div className="flex-1 h-px bg-gray-700" />
+                      <span className="text-xs text-gray-500 whitespace-nowrap">{dateLabel}</span>
+                      <div className="flex-1 h-px bg-gray-700" />
+                    </div>
+                  )}
+                  <div id={changelogEntrySlug(entry.filename)} className={i > 0 && !showSeparator ? "mt-2" : ""}>
+                    <ChangelogEntryDetails
+                      filename={entry.filename}
+                      date={entry.date}
+                      title={entry.title}
+                    />
+                  </div>
                 </li>
               );
             })}
