@@ -1251,17 +1251,19 @@ export default function EvolveSessionView({
             {restartError && (
               <p className="px-4 py-2 text-red-400 text-xs border-b border-gray-800">{restartError}</p>
             )}
-            {serverLogs && (
-              <details className="group" open={proxyServerStatus === 'stopped'}>
-                <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
-                  <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
-                  <span className="text-gray-500">🪵 Server logs</span>
-                </summary>
-                <div className="px-4 py-3 border-t border-gray-800">
+            <details className="group" open={proxyServerStatus === 'stopped'}>
+              <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
+                <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
+                <span className="text-gray-500">🪵 Server logs</span>
+              </summary>
+              <div className="px-4 py-3 border-t border-gray-800">
+                {serverLogs ? (
                   <pre className="text-xs text-gray-400 whitespace-pre-wrap font-mono overflow-x-auto max-h-64 overflow-y-auto">{serverLogs}</pre>
-                </div>
-              </details>
-            )}
+                ) : (
+                  <p className="text-xs text-gray-600 italic">No logs yet…</p>
+                )}
+              </div>
+            </details>
           </div>
         )}
 
