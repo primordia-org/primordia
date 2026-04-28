@@ -10,16 +10,30 @@
 // A source entry in .git/config looks like:
 //
 //   [remote "primordia-official"]
-//       url         = https://primordia.exe.xyz/api/git
-//       fetch       = +refs/heads/*:refs/remotes/primordia-official/*
-//       updateSource = true
-//       displayName  = Primordia Official
-//       builtin      = true
-//       enabled      = true
+//       url             = https://primordia.exe.xyz/api/git
+//       fetch           = +refs/heads/*:refs/remotes/primordia-official/*
+//       updateSource    = true
+//       displayName     = Primordia Official
+//       builtin         = true
+//       enabled         = true
+//       fetchFrequency  = daily
+//       fetchDelayDays  = 7
+//       lastFetchedAt   = 1714300000000
 //
 // The `url` and `fetch` fields are set by `git remote add` (standard git).
-// The `updateSource`, `displayName`, `builtin`, and `enabled` fields are
-// Primordia-specific metadata added on top.
+// The remaining fields are Primordia-specific metadata added on top.
+//
+// fetchFrequency controls how often the background scheduler automatically fetches
+// this source. Values: "never", "hourly", "daily", "weekly". Defaults to "never".
+//
+// fetchDelayDays controls a safety buffer: instead of using the latest commit on
+// the tracking branch, the system only surfaces commits whose committer date is at
+// least N days old. This guards against supply-chain attacks — new upstream commits
+// are held in quarantine for the configured number of days before being offered as
+// available updates. 0 means use the latest commit immediately.
+//
+// lastFetchedAt is the Unix-millisecond timestamp of the most recent successful
+// auto-fetch. Used by the scheduler to decide when the next fetch is due.
 //
 // This means every update source is also a fully functional git remote —
 // `git fetch primordia-official` works without any translation layer.
@@ -32,6 +46,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { spawnSync } from "child_process";
+
+/** How often the scheduler auto-fetches this source. */
+export type FetchFrequency = "never" | "hourly" | "daily" | "weekly";
 
 export interface UpdateSource {
   /** Remote name in git config — also used as the git remote. */
@@ -49,6 +66,22 @@ export interface UpdateSource {
    * be deleted, only disabled (remote.{id}.builtin = true).
    */
   builtin: boolean;
+  /**
+   * How often the background scheduler auto-fetches this source.
+   * "never" (default) disables automatic fetching.
+   */
+  fetchFrequency: FetchFrequency;
+  /**
+   * Safety buffer in days. Only commits whose committer date is at least this
+   * many days old are surfaced as available updates. 0 = no delay (latest tip).
+   * Stored as remote.{id}.fetchDelayDays in git config.
+   */
+  fetchDelayDays: number;
+  /**
+   * Unix-millisecond timestamp of the most recent successful auto-fetch, or null
+   * if never auto-fetched. Stored as remote.{id}.lastFetchedAt.
+   */
+  lastFetchedAt: number | null;
 }
 
 // ─── Built-in source ──────────────────────────────────────────────────────────
@@ -61,6 +94,9 @@ const BUILTIN_SOURCE: UpdateSource = {
   trackingBranch: "primordia-official-main",
   enabled: true,
   builtin: true,
+  fetchFrequency: "never",
+  fetchDelayDays: 0,
+  lastFetchedAt: null,
 };
 
 // ─── Low-level git config helpers ─────────────────────────────────────────────
@@ -105,7 +141,14 @@ function readSourceById(id: string, repoRoot: string): UpdateSource | null {
   const name = gitGet(`remote.${id}.displayName`, repoRoot) ?? id;
   const enabled = gitGet(`remote.${id}.enabled`, repoRoot) !== "false";
   const builtin = gitGet(`remote.${id}.builtin`, repoRoot) === "true";
-  return { id, name, url, trackingBranch: `${id}-main`, enabled, builtin };
+  const freq = gitGet(`remote.${id}.fetchFrequency`, repoRoot);
+  const fetchFrequency: FetchFrequency =
+    freq === "hourly" || freq === "daily" || freq === "weekly" ? freq : "never";
+  const delayRaw = gitGet(`remote.${id}.fetchDelayDays`, repoRoot);
+  const fetchDelayDays = delayRaw ? Math.max(0, parseInt(delayRaw, 10) || 0) : 0;
+  const lastRaw = gitGet(`remote.${id}.lastFetchedAt`, repoRoot);
+  const lastFetchedAt = lastRaw ? parseInt(lastRaw, 10) || null : null;
+  return { id, name, url, trackingBranch: `${id}-main`, enabled, builtin, fetchFrequency, fetchDelayDays, lastFetchedAt };
 }
 
 /**
@@ -117,6 +160,8 @@ function writeSourceMeta(source: UpdateSource, repoRoot: string): void {
   gitSet(`remote.${source.id}.displayName`, source.name, repoRoot);
   gitSet(`remote.${source.id}.builtin`, String(source.builtin), repoRoot);
   gitSet(`remote.${source.id}.enabled`, String(source.enabled), repoRoot);
+  gitSet(`remote.${source.id}.fetchFrequency`, source.fetchFrequency, repoRoot);
+  gitSet(`remote.${source.id}.fetchDelayDays`, String(source.fetchDelayDays), repoRoot);
 }
 
 /**
@@ -148,6 +193,9 @@ function ensureBuiltin(repoRoot: string): UpdateSource {
   const source: UpdateSource = {
     ...BUILTIN_SOURCE,
     enabled: existing?.enabled ?? true,
+    fetchFrequency: existing?.fetchFrequency ?? "never",
+    fetchDelayDays: existing?.fetchDelayDays ?? 0,
+    lastFetchedAt: existing?.lastFetchedAt ?? null,
   };
   writeSourceMeta(source, repoRoot);
   return source;
@@ -200,6 +248,9 @@ export function addSource(repoRoot: string, name: string, url: string): UpdateSo
     trackingBranch: `${id}-main`,
     enabled: true,
     builtin: false,
+    fetchFrequency: "never",
+    fetchDelayDays: 0,
+    lastFetchedAt: null,
   };
 
   // Create the git remote first so `git fetch {id}` works immediately.
@@ -235,6 +286,37 @@ export function setSourceEnabled(repoRoot: string, id: string, enabled: boolean)
   const source = readSourceById(id, repoRoot);
   if (!source) throw new Error(`Update source not found: ${id}`);
   gitSet(`remote.${id}.enabled`, String(enabled), repoRoot);
+}
+
+/**
+ * Update the fetch schedule settings for a source.
+ * Both frequency and delay are updated atomically.
+ */
+export function setSourceSchedule(
+  repoRoot: string,
+  id: string,
+  fetchFrequency: FetchFrequency,
+  fetchDelayDays: number,
+): void {
+  const source = readSourceById(id, repoRoot);
+  if (!source) throw new Error(`Update source not found: ${id}`);
+  gitSet(`remote.${id}.fetchFrequency`, fetchFrequency, repoRoot);
+  gitSet(`remote.${id}.fetchDelayDays`, String(Math.max(0, fetchDelayDays)), repoRoot);
+}
+
+/**
+ * Record the timestamp of a successful auto-fetch for scheduler bookkeeping.
+ */
+export function setLastFetchedAt(repoRoot: string, id: string, timestampMs: number): void {
+  gitSet(`remote.${id}.lastFetchedAt`, String(timestampMs), repoRoot);
+}
+
+/**
+ * Read the last-fetched timestamp for a source, or 0 if never fetched.
+ */
+export function getLastFetchedAt(repoRoot: string, id: string): number {
+  const raw = gitGet(`remote.${id}.lastFetchedAt`, repoRoot);
+  return raw ? parseInt(raw, 10) || 0 : 0;
 }
 
 // ─── Private helpers ──────────────────────────────────────────────────────────

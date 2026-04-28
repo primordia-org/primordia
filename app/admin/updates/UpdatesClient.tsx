@@ -23,10 +23,14 @@ import {
   ToggleLeft,
   ToggleRight,
   ExternalLink,
+  Settings,
+  Clock,
+  ShieldCheck,
 } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import type { SourceStatus, UpdatesResponse, ChangelogEntry } from "@/app/api/admin/updates/route";
+import type { FetchFrequency } from "@/lib/update-sources";
 
 interface UpdatesClientProps {
   initialSources: SourceStatus[];
@@ -66,17 +70,142 @@ function ChangelogEntryCard({ entry }: { entry: ChangelogEntry }) {
 
 // ─── Per-source card ──────────────────────────────────────────────────────────
 
+// ─── Frequency + delay labels ─────────────────────────────────────────────────
+
+const FREQUENCY_OPTIONS: { value: FetchFrequency; label: string }[] = [
+  { value: "never",  label: "Never (manual only)" },
+  { value: "hourly", label: "Every hour" },
+  { value: "daily",  label: "Every day" },
+  { value: "weekly", label: "Every week" },
+];
+
+const DELAY_OPTIONS: { value: number; label: string }[] = [
+  { value: 0,  label: "No delay (latest)" },
+  { value: 1,  label: "1 day" },
+  { value: 3,  label: "3 days" },
+  { value: 7,  label: "1 week" },
+  { value: 14, label: "2 weeks" },
+  { value: 30, label: "1 month" },
+];
+
+function formatLastFetched(ts: number | null): string {
+  if (!ts) return "Never";
+  const diff = Date.now() - ts;
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 2) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+// ─── Per-source settings panel ────────────────────────────────────────────────
+
+interface SourceSettingsPanelProps {
+  source: SourceStatus;
+  onSave: (sourceId: string, freq: FetchFrequency, delayDays: number) => Promise<void>;
+  busy: boolean;
+}
+
+function SourceSettingsPanel({ source, onSave, busy }: SourceSettingsPanelProps) {
+  const [freq, setFreq] = useState<FetchFrequency>(source.fetchFrequency);
+  const [delayDays, setDelayDays] = useState<number>(source.fetchDelayDays);
+  const [saving, setSaving] = useState(false);
+
+  const isDirty = freq !== source.fetchFrequency || delayDays !== source.fetchDelayDays;
+
+  async function handleSave() {
+    setSaving(true);
+    await onSave(source.id, freq, delayDays);
+    setSaving(false);
+  }
+
+  return (
+    <div className="px-4 py-3 bg-gray-900/60 border-t border-gray-700/50 space-y-3">
+      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Schedule settings</p>
+
+      {/* Frequency */}
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 text-xs text-gray-400 w-28 shrink-0">
+          <Clock size={12} strokeWidth={2} />
+          Auto-fetch
+        </div>
+        <select
+          value={freq}
+          onChange={(e) => setFreq(e.target.value as FetchFrequency)}
+          disabled={busy || saving}
+          className="flex-1 rounded-lg bg-gray-800 border border-gray-700 px-2 py-1.5 text-xs text-gray-100 outline-none focus:border-blue-500 transition-colors disabled:opacity-50"
+        >
+          {FREQUENCY_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        {source.lastFetchedAt !== null || source.fetchFrequency !== "never" ? (
+          <span className="text-xs text-gray-600 shrink-0">
+            Last: {formatLastFetched(source.lastFetchedAt)}
+          </span>
+        ) : null}
+      </div>
+
+      {/* Delay */}
+      <div className="flex items-start gap-3">
+        <div className="flex items-center gap-1.5 text-xs text-gray-400 w-28 shrink-0 pt-1.5">
+          <ShieldCheck size={12} strokeWidth={2} />
+          Commit delay
+        </div>
+        <div className="flex-1 space-y-1">
+          <select
+            value={delayDays}
+            onChange={(e) => setDelayDays(parseInt(e.target.value, 10))}
+            disabled={busy || saving}
+            className="w-full rounded-lg bg-gray-800 border border-gray-700 px-2 py-1.5 text-xs text-gray-100 outline-none focus:border-blue-500 transition-colors disabled:opacity-50"
+          >
+            {DELAY_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-600 leading-snug">
+            {delayDays > 0
+              ? `Only commits at least ${delayDays} day${delayDays === 1 ? "" : "s"} old will be shown as available updates. Recent commits are held in a safety buffer.`
+              : "The latest commits are used immediately after fetching."}
+          </p>
+        </div>
+      </div>
+
+      {/* Save */}
+      {isDirty && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={busy || saving}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white transition-colors"
+          >
+            {saving ? <Loader size={12} strokeWidth={2} className="animate-spin" /> : null}
+            Save settings
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Per-source card ──────────────────────────────────────────────────────────
+
 interface SourceCardProps {
   source: SourceStatus;
   onFetch: (sourceId: string) => Promise<void>;
   onToggle: (sourceId: string, enabled: boolean) => Promise<void>;
   onRemove: (sourceId: string) => Promise<void>;
   onCreateSession: (sourceId: string) => Promise<void>;
+  onSaveSettings: (sourceId: string, freq: FetchFrequency, delayDays: number) => Promise<void>;
   busy: boolean;
 }
 
-function SourceCard({ source, onFetch, onToggle, onRemove, onCreateSession, busy }: SourceCardProps) {
+function SourceCard({ source, onFetch, onToggle, onRemove, onCreateSession, onSaveSettings, busy }: SourceCardProps) {
   const [changelogOpen, setChangelogOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <div
@@ -119,6 +248,18 @@ function SourceCard({ source, onFetch, onToggle, onRemove, onCreateSession, busy
                 disabled
               </span>
             )}
+            {source.fetchFrequency !== "never" && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-500 inline-flex items-center gap-1">
+                <Clock size={10} strokeWidth={2} />
+                {FREQUENCY_OPTIONS.find((o) => o.value === source.fetchFrequency)?.label ?? source.fetchFrequency}
+              </span>
+            )}
+            {source.fetchDelayDays > 0 && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-500 inline-flex items-center gap-1">
+                <ShieldCheck size={10} strokeWidth={2} />
+                {DELAY_OPTIONS.find((o) => o.value === source.fetchDelayDays)?.label ?? `${source.fetchDelayDays}d delay`}
+              </span>
+            )}
           </div>
           <a
             href={source.url}
@@ -135,6 +276,11 @@ function SourceCard({ source, onFetch, onToggle, onRemove, onCreateSession, busy
                 ? `${source.aheadCount} new commit${source.aheadCount === 1 ? "" : "s"} · tracking `
                 : "Up to date · tracking "}
               <code className="bg-gray-700/60 px-1 rounded">{source.trackingBranch}</code>
+              {source.fetchDelayDays > 0 && (
+                <span className="text-gray-600">
+                  {" "}(showing commits ≥{source.fetchDelayDays}d old)
+                </span>
+              )}
             </p>
           )}
           {source.fetchError && (
@@ -157,6 +303,19 @@ function SourceCard({ source, onFetch, onToggle, onRemove, onCreateSession, busy
             ) : (
               <ToggleLeft size={16} strokeWidth={2} />
             )}
+          </button>
+
+          {/* Settings */}
+          <button
+            type="button"
+            title="Schedule settings"
+            onClick={() => setSettingsOpen((v) => !v)}
+            disabled={busy}
+            className={`p-1.5 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors ${
+              settingsOpen ? "text-blue-400" : "text-gray-400 hover:text-gray-200"
+            }`}
+          >
+            <Settings size={14} strokeWidth={2} />
           </button>
 
           {/* Fetch */}
@@ -198,6 +357,15 @@ function SourceCard({ source, onFetch, onToggle, onRemove, onCreateSession, busy
           )}
         </div>
       </div>
+
+      {/* Schedule settings panel */}
+      {settingsOpen && (
+        <SourceSettingsPanel
+          source={source}
+          onSave={onSaveSettings}
+          busy={busy}
+        />
+      )}
 
       {/* Changelog entries */}
       {source.trackingBranchExists && source.hasUpdates && (
@@ -383,6 +551,19 @@ export default function UpdatesClient({ initialSources }: UpdatesClientProps) {
     setBusy(false);
   }
 
+  async function handleSaveSettings(sourceId: string, freq: FetchFrequency, delayDays: number) {
+    setBusy(true); clearFeedback();
+    const { data, error } = await post<UpdatesResponse>({
+      action: "update-source-settings",
+      sourceId,
+      fetchFrequency: freq,
+      fetchDelayDays: delayDays,
+    });
+    if (error) setGlobalError(error);
+    else if (data) setSources(data.sources);
+    setBusy(false);
+  }
+
   async function handleToggle(sourceId: string, enabled: boolean) {
     setBusy(true); clearFeedback();
     const { data, error } = await post<UpdatesResponse>({ action: "toggle-source", sourceId, enabled });
@@ -478,6 +659,7 @@ export default function UpdatesClient({ initialSources }: UpdatesClientProps) {
               onToggle={handleToggle}
               onRemove={handleRemove}
               onCreateSession={handleCreateSession}
+              onSaveSettings={handleSaveSettings}
               busy={busy}
             />
           ))}
