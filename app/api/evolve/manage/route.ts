@@ -15,7 +15,7 @@
 //
 //            PRODUCTION (NODE_ENV === 'production'):
 //              1. TypeScript gate — auto-fix via Claude if it fails
-//              2. Run scripts/install.sh from the session worktree with REPORT_STYLE=plain,
+//              2. Run scripts/install.sh from the session worktree with REPORT_STYLE=ansi,
 //                 streaming its output as log_line events. install.sh handles build, DB copy,
 //                 sibling reparenting, proxy spawn, main pointer advancement, and mirror push.
 //              3. Write decision event + self-terminate (proxy already switched traffic)
@@ -162,7 +162,7 @@ async function retryAcceptAfterFix(
     await new Promise<void>((resolve, reject) => {
       const proc = spawn('bash', [installScript, branch], {
         cwd: worktreePath,
-        env: { ...process.env, REPORT_STYLE: 'plain' },
+        env: { ...process.env, REPORT_STYLE: 'ansi' },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       const forward = (data: Buffer) => { void appendLogLine(sessionId, data.toString()); };
@@ -256,7 +256,7 @@ async function retryAcceptAfterFix(
  *
  * Production path:
  *   1. TypeScript gate — auto-fix via Claude if it fails.
- *   2. Run install.sh from the session worktree with REPORT_STYLE=plain,
+ *   2. Run install.sh from the session worktree with REPORT_STYLE=ansi,
  *      streaming its output as log_line events. install.sh handles the build,
  *      DB copy, sibling reparenting, proxy spawn, main advancement, and mirror push.
  *   3. Write the decision event and self-terminate (the proxy has already
@@ -330,7 +330,7 @@ async function runAcceptAsync(
       await new Promise<void>((resolve, reject) => {
         const proc = spawn('bash', [installScript, branch], {
           cwd: worktreePath,
-          env: { ...process.env, REPORT_STYLE: 'plain' },
+          env: { ...process.env, REPORT_STYLE: 'ansi' },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
 
