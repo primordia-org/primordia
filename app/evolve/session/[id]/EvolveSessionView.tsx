@@ -1400,11 +1400,11 @@ export default function EvolveSessionView({
               Fixing type errors… will auto-accept when complete.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-3">
+            <div className="flex">
               <button
                 data-id="session/tab-followup"
                 onClick={() => toggleAction("followup")}
-                className={`px-4 py-3 text-sm font-medium border-b sm:border-b-0 sm:border-r border-gray-700 transition-colors ${
+                className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
                   activeAction === "followup"
                     ? "bg-amber-900/40 text-amber-200"
                     : activeAction !== null
@@ -1419,7 +1419,7 @@ export default function EvolveSessionView({
                 onClick={(isAgentRunning || remainingUpstream > 0) ? undefined : () => toggleAction("accept")}
                 disabled={isAgentRunning || remainingUpstream > 0}
                 title={remainingUpstream > 0 ? `Apply the ${remainingUpstream} upstream commit${remainingUpstream === 1 ? "" : "s"} before accepting` : undefined}
-                className={`px-4 py-3 text-sm font-medium border-b sm:border-b-0 sm:border-r border-gray-700 transition-colors ${
+                className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
                   isAgentRunning || remainingUpstream > 0
                     ? "text-gray-600 cursor-not-allowed"
                     : activeAction === "accept"
@@ -1435,7 +1435,7 @@ export default function EvolveSessionView({
                 data-id="session/tab-reject"
                 onClick={isAgentRunning ? undefined : () => toggleAction("reject")}
                 disabled={isAgentRunning}
-                className={`px-4 py-3 text-sm font-medium transition-colors ${
+                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
                   isAgentRunning
                     ? "text-gray-600 cursor-not-allowed"
                     : activeAction === "reject"
