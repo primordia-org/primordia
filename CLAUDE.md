@@ -121,7 +121,6 @@ primordia/
 │       │   └── route.ts           ← GET hasPrevious check; POST zero-downtime swap to previous slot (admin only)
 │       ├── llm-key/public-key/
 │       │   └── route.ts           ← GET server's ephemeral RSA-OAEP public key as JWK
-│       ├── prune-branches/
 │       │   └── route.ts           ← POST delete all local branches merged into main; streams SSE progress
 │       ├── auth/
 │       │   ├── session/
@@ -147,7 +146,6 @@ primordia/
 │   ├── check-keys/route.ts        ← Returns list of missing required env vars (called on page load)
 │   ├── rollback/route.ts          ← GET hasPrevious check; POST zero-downtime swap to previous slot (admin only)
 │   ├── llm-key/public-key/route.ts ← GET server's ephemeral RSA-OAEP public key as JWK
-│   ├── prune-branches/route.ts    ← POST delete all local branches merged into main; streams SSE progress
 │   ├── git/[...path]/route.ts      ← GET/POST git http-backend proxy (read-only clone/fetch); push (receive-pack) blocked with 403
 │   ├── evolve/route.ts            ← POST start session (requires can_evolve permission), GET status (legacy poll)
 │   ├── evolve/stream/route.ts      ← GET SSE stream of live session progress
@@ -194,10 +192,7 @@ primordia/
 │   ├── NavHeader.tsx              ← Shared nav header (title, branch name, nav links)
 │   ├── PageNavBar.tsx             ← Shared nav header + hamburger for /changelog and /branches pages
 │   ├── CreateSessionFromBranchButton.tsx ← Client component: "+ session" button on Branches page; inline form to start a session on an existing branch
-│   ├── PruneBranchesButton.tsx    ← Client-side trigger button for PruneBranchesDialog
-│   ├── PruneBranchesDialog.tsx    ← Thin wrapper around StreamingDialog for delete-merged-branches action
 │   ├── SimpleMarkdown.tsx         ← Minimal markdown renderer (bold, links, inline code, code blocks)
-│   └── StreamingDialog.tsx        ← Generic modal for SSE-streaming operations (prune-branches, etc.)
 ```
 
 ### Data Flow

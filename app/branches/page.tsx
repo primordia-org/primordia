@@ -14,7 +14,6 @@ import type { Metadata } from "next";
 import type { EvolveSession } from "@/lib/db/types";
 import { listSessionsFromFilesystem } from "@/lib/session-events";
 import { PageNavBar } from "@/components/PageNavBar";
-import { PruneBranchesButton } from "./PruneBranchesButton";
 import { CreateSessionFromBranchButton } from "./CreateSessionFromBranchButton";
 import { buildPageTitle } from "@/lib/page-title";
 import { getSessionUser, isAdmin, hasEvolvePermission } from "@/lib/auth";
@@ -531,13 +530,6 @@ export default async function BranchesPage() {
         initialCavemanMode={evolvePrefs?.initialCavemanMode}
         initialCavemanIntensity={evolvePrefs?.initialCavemanIntensity}
       />
-
-      {/* Actions row — only shown to admins */}
-      {userIsAdmin && (
-        <div className="flex items-center gap-2 mt-3 mb-4">
-          <PruneBranchesButton />
-        </div>
-      )}
 
       {/* ── Active section ── */}
       <div className="mt-2">
