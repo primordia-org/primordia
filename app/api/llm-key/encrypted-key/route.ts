@@ -30,6 +30,18 @@ export async function GET() {
   return Response.json({ ciphertext });
 }
 
+/** JSON body for POST /llm-key/encrypted-key */
+export interface EncryptedKeyBody {
+  iv: string; // Base64-encoded AES-GCM initialisation vector.
+  ciphertext: string; // Base64-encoded AES-GCM ciphertext of the Anthropic API key.
+}
+
+/**
+ * Store an encrypted API key
+ * @description Stores an AES-GCM encrypted Anthropic API key for the authenticated user. The server never sees the AES decryption key — only the ciphertext is persisted.
+ * @tags Llm-key
+ * @body EncryptedKeyBody
+ */
 export async function POST(req: Request) {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });

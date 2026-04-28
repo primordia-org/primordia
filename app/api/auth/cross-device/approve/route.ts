@@ -6,6 +6,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db/index";
 import { getSessionUser } from "@/lib/auth";
 
+/** JSON body for POST /auth/cross-device/approve */
+export interface CrossDeviceApproveBody {
+  tokenId: string; // The cross-device token ID returned by POST /auth/cross-device/start.
+}
+
+/**
+ * Approve a cross-device sign-in token
+ * @description Called by the already-authenticated device to approve a pending cross-device sign-in token. Requires an active session.
+ * @tags Auth
+ * @body CrossDeviceApproveBody
+ */
 export async function POST(request: NextRequest) {
   try {
     const user = await getSessionUser();

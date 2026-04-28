@@ -11,6 +11,17 @@
 import { getSessionUser } from '../../../../lib/auth';
 import { getSessionFromFilesystem } from '../../../../lib/session-events';
 
+/** JSON body for POST /evolve/kill-restart */
+export interface EvolveKillRestartBody {
+  sessionId: string; // The session ID (git branch name) whose preview dev server should be restarted.
+}
+
+/**
+ * Restart a session's preview dev server
+ * @description Delegates to the reverse proxy to kill and restart the session's preview dev server process.
+ * @tags Evolve
+ * @body EvolveKillRestartBody
+ */
 export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) {

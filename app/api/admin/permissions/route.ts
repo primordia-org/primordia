@@ -14,6 +14,19 @@ import { getDb } from "@/lib/db";
 // "admin" is excluded — it is bootstrapped automatically and cannot be delegated.
 const GRANTABLE_ROLES = ["can_evolve"];
 
+/** JSON body for POST /admin/permissions */
+export interface AdminPermissionsBody {
+  userId: string; // UUID of the user to modify.
+  role: 'can_evolve'; // The role to grant or revoke. Only 'can_evolve' is supported via this API.
+  action: 'grant' | 'revoke'; // Whether to grant or revoke the role.
+}
+
+/**
+ * Grant or revoke a user role
+ * @description Grants or revokes a grantable role for a user. The `admin` role cannot be managed via this endpoint. Admin only.
+ * @tags Admin
+ * @body AdminPermissionsBody
+ */
 export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) {

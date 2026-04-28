@@ -56,6 +56,18 @@ export async function GET() {
   return Response.json(settings);
 }
 
+/** JSON body for PATCH /admin/proxy-settings */
+export interface ProxySettingsPatch {
+  previewInactivityMin?: number; // Minutes of inactivity before a preview server is stopped. Must be 1–1440.
+  diskCleanupThresholdPct?: number; // Disk usage % at which automatic worktree cleanup is triggered. Must be 1–100.
+}
+
+/**
+ * Update proxy settings
+ * @description Updates one or more reverse-proxy tuning knobs stored in git config. Admin only.
+ * @tags Admin
+ * @body ProxySettingsPatch
+ */
 export async function PATCH(req: Request) {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });

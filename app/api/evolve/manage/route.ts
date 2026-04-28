@@ -4,12 +4,6 @@
 // POST
 //   Body: { action: "accept" | "reject", sessionId: string }
 
-/**
- * Accept or reject an evolve session
- * @description POST `{ action: "accept" | "reject", sessionId }` to accept (deploy) or reject (discard) a ready evolve session. Requires `can_evolve` or `admin` role.
- * @tags Evolve
- * @openapi
- */
 //
 //   accept — looks up the session, kills the preview dev server, then:
 //
@@ -431,6 +425,18 @@ async function runAcceptAsync(
   }
 }
 
+/** JSON body for POST /evolve/manage */
+export interface EvolveManageBody {
+  action: 'accept' | 'reject'; // Whether to accept (deploy) or reject (discard) the session.
+  sessionId: string; // The session ID (git branch name) to accept or reject.
+}
+
+/**
+ * Accept or reject an evolve session
+ * @description POST to accept (deploy) or reject (discard) a ready evolve session. Requires `can_evolve` or `admin` role.
+ * @tags Evolve
+ * @body EvolveManageBody
+ */
 export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) {

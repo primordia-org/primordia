@@ -124,6 +124,17 @@ export async function GET() {
   return Response.json({ currentBranch, targets });
 }
 
+/** JSON body for POST /admin/rollback */
+export interface AdminRollbackBody {
+  worktreePath: string; // Absolute path of the target registered git worktree to roll back to.
+}
+
+/**
+ * Roll back to a previous production slot
+ * @description Starts the target worktree's server, health-checks it, then zero-downtime swaps it into production. Admin only.
+ * @tags Admin
+ * @body AdminRollbackBody
+ */
 export async function POST(req: Request) {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });
