@@ -462,7 +462,7 @@ export function EvolveRequestForm({
         )}
 
         {/* Action row */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -504,15 +504,16 @@ export function EvolveRequestForm({
             {compact ? "Pick" : "Pick element"}
           </button>
 
-          {/* Spacer pushes submit to the right */}
+          {/* Spacer — pushes submit right when everything fits on one row */}
           <div className="flex-1" />
 
-          {/* Submit button */}
+          {/* Submit button — full-width on mobile when it wraps to its own row */}
           <button
             type="submit"
             data-id="evolve/submit-request"
             disabled={isSubmitDisabled}
-            className={`px-4 ${compact ? "py-1.5 text-xs" : "py-2 text-sm"} rounded-lg font-medium transition-colors bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white disabled:cursor-not-allowed`}
+            title={buttonLabel}
+            className={`px-4 ${compact ? "py-1.5 text-xs" : "py-2 text-sm"} rounded-lg font-medium transition-colors bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white disabled:cursor-not-allowed${compact ? "" : " w-full sm:w-auto text-center"}`}
           >
             {buttonLabel}
           </button>
