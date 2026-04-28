@@ -77,6 +77,17 @@ export function HeroSection({ installUrl, defaultVmName, installBranch }: { inst
         />
       </div>
 
+      {/* BETA sticker */}
+      <div className="animate-fade-up relative mb-6 flex justify-center">
+        <span className="inline-flex items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-4 py-1.5 font-mono text-xs font-semibold uppercase tracking-widest text-amber-400 shadow-[0_0_12px_0_rgba(245,158,11,0.15)]">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
+          </span>
+          Beta &mdash; not ready for prime time
+        </span>
+      </div>
+
       {/* Headline */}
       <h1 className="animate-fade-up-2 relative font-mono font-black text-6xl sm:text-7xl md:text-8xl leading-none tracking-tighter mb-6">
         <span className="text-shimmer">PRIMORDIA</span>

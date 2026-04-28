@@ -3,6 +3,10 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   experimental: {
     swcPlugins: [["swc-plugin-component-annotate", {}]],
+    // Persist the Turbopack compilation cache to .next/cache/turbopack/ between
+    // runs so that background cache-warming builds started after a session becomes
+    // ready can meaningfully speed up the Accept build gates.
+    turbopackFileSystemCacheForBuild: true,
   },
   // Optional base path — set NEXT_BASE_PATH=/my-prefix to serve the app at a sub-path.
   // Leave unset (or empty) to serve from the root (default behaviour).

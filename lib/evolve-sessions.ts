@@ -390,6 +390,42 @@ function parseWorktreePathForBranch(porcelain: string, branchName: string): stri
   return null;
 }
 
+// ─── Background Turbopack cache warming ─────────────────────────────────────
+
+/**
+ * Spawns `bun run build` in the given worktree at the lowest possible CPU and
+ * I/O priority so Turbopack can warm its persistent file-system cache
+ * (.next/cache/turbopack/) in the background while the user reviews the preview.
+ *
+ * By the time the user clicks Accept the cache is already warm, meaning the
+ * mandatory build gate completes much faster.
+ *
+ * The process is fully detached (stdio: 'ignore', detached: true) so it never
+ * blocks the main session pipeline or the Node/Bun event loop.
+ *
+ * `ionice -c 3` (idle I/O class) is attempted via the shell `||` operator so
+ * that the build still runs on kernels / systems that don't support ionice.
+ */
+function spawnCacheWarmBuild(worktreePath: string): void {
+  // Use `sh -c` so we can compose nice + ionice without requiring ionice to exist.
+  // `ionice -c 3 ...` sets idle I/O priority; `|| ...` is the fallback when ionice
+  // is unavailable (e.g. macOS, older kernels, or missing capability).
+  const cmd = 'ionice -c 3 bun run --bun next build || bun run --bun next build';
+  const proc = spawn('nice', ['-n', '19', 'sh', '-c', cmd], {
+    cwd: worktreePath,
+    stdio: 'ignore',
+    detached: true,
+    env: {
+      ...process.env,
+      // Ensure the build uses the same base path the dev server uses so the
+      // Turbopack cache entries are compatible with the Accept build.
+      NEXT_BASE_PATH: process.env.NEXT_BASE_PATH ?? '',
+    },
+  });
+  proc.unref();
+  console.log(`[evolve] cache-warming build started in ${worktreePath} (PID ${proc.pid ?? 'unknown'})`);
+}
+
 // ─── Main flow ────────────────────────────────────────────────────────────────
 
 export async function startLocalEvolve(
@@ -622,6 +658,13 @@ export async function startLocalEvolve(
       workerScript,
     );
     // Worker has exited — 'result' event in the NDJSON log marks completion.
+
+    // Background cache-warming: run `bun run build` at the lowest CPU/IO
+    // priority so Turbopack populates .next/cache/turbopack/ before the user
+    // clicks Accept.  We attempt `ionice -c 3` (idle I/O class) first; if the
+    // kernel doesn't support ionice it is silently ignored via the shell `||`.
+    // The process is fully detached so it never blocks the main pipeline.
+    void spawnCacheWarmBuild(session.worktreePath);
 
   } catch (err) {
     // Write error event to NDJSON (makes inferStatusFromEvents return 'ready').
