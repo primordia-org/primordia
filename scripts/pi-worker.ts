@@ -114,6 +114,15 @@ async function main(): Promise<void> {
   // agent loop exits cleanly and prompt() resolves without throwing — but the
   // task is not complete.
   let lastAssistantStopReason: string | null = null;
+  // Track whether the last assistant turn produced any visible text output.
+  // When the model uses extended thinking / reasoning it can generate output
+  // tokens (thinking blocks) that never fire text_delta events. If the final
+  // turn has NO visible text AND no tool calls, the model stopped silently —
+  // usually because the context window was nearly full and there was no room
+  // left for a real conclusion. We surface this as an error so the user knows
+  // to follow up rather than assuming the task completed successfully.
+  let lastAssistantHadVisibleOutput = false;
+  let lastAssistantHadToolCalls = false;
   // Track the last API-level error message (e.g. invalid API key). The Pi SDK
   // emits a message_update event with assistantMessageEvent.type === 'error'
   // but does NOT throw from session.prompt() — we must detect and re-throw it
@@ -224,6 +233,58 @@ async function main(): Promise<void> {
           // it after prompt() returns.
           lastApiErrorMessage = ae.error.errorMessage ?? `API error (${ae.reason})`;
         }
+      } else if (event.type === 'compaction_start') {
+        // Auto-compaction: the SDK is summarising conversation history to free
+        // up context window space. Log it so the user can see it happened.
+        const ev = event as { type: 'compaction_start'; reason: string };
+        appendSessionEvent(ndjsonPath, {
+          type: 'text',
+          content: `\n\n⚙️ **Context compacting** (${ev.reason}) — summarising conversation history to free up context space.\n`,
+          ts: ts(),
+        });
+      } else if (event.type === 'compaction_end') {
+        const ev = event as {
+          type: 'compaction_end';
+          reason: string;
+          aborted: boolean;
+          willRetry: boolean;
+          errorMessage?: string;
+        };
+        if (!ev.aborted && !ev.errorMessage) {
+          appendSessionEvent(ndjsonPath, {
+            type: 'text',
+            content: `\n\n⚙️ **Context compacted** (${ev.reason}) — history summarised.\n`,
+            ts: ts(),
+          });
+        } else if (ev.errorMessage) {
+          appendSessionEvent(ndjsonPath, {
+            type: 'text',
+            content: `\n\n⚠️ **Context compaction failed**: ${ev.errorMessage}${ev.willRetry ? ' (will retry)' : ''}\n`,
+            ts: ts(),
+          });
+        }
+      } else if (event.type === 'auto_retry_start') {
+        const ev = event as {
+          type: 'auto_retry_start';
+          attempt: number;
+          maxAttempts: number;
+          delayMs: number;
+          errorMessage: string;
+        };
+        appendSessionEvent(ndjsonPath, {
+          type: 'text',
+          content: `\n\n🔄 **Auto-retry** (attempt ${ev.attempt}/${ev.maxAttempts}, delay ${Math.round(ev.delayMs / 1000)}s): ${ev.errorMessage}\n`,
+          ts: ts(),
+        });
+      } else if (event.type === 'auto_retry_end') {
+        const ev = event as { type: 'auto_retry_end'; success: boolean; attempt: number; finalError?: string };
+        if (!ev.success) {
+          appendSessionEvent(ndjsonPath, {
+            type: 'text',
+            content: `\n\n❌ **Auto-retry exhausted** after ${ev.attempt} attempt(s)${ev.finalError ? `: ${ev.finalError}` : ''}.\n`,
+            ts: ts(),
+          });
+        }
       } else if (event.type === 'tool_execution_start') {
         appendSessionEvent(ndjsonPath, {
           type: 'tool_use',
@@ -232,12 +293,19 @@ async function main(): Promise<void> {
           ts: ts(),
         });
       } else if (event.type === 'message_end') {
-        // Track stop reason for post-prompt truncation detection.
+        // Track stop reason and content shape for post-prompt analysis.
         // Cast to a plain object because the union type doesn't expose stopReason
         // directly — only AssistantMessage has it.
         const msg = event.message as unknown as Record<string, unknown>;
         if (msg['role'] === 'assistant' && typeof msg['stopReason'] === 'string') {
           lastAssistantStopReason = msg['stopReason'];
+          const content = (msg['content'] as Array<{ type: string; text?: string }>) ?? [];
+          // Visible text = a text block with non-empty content (not thinking/reasoning)
+          lastAssistantHadVisibleOutput = content.some(
+            (c) => c.type === 'text' && typeof c.text === 'string' && c.text.trim().length > 0,
+          );
+          // Tool calls in this turn = model is still working
+          lastAssistantHadToolCalls = content.some((c) => c.type === 'toolCall');
         }
         // Emit a partial metrics snapshot after each assistant turn so the
         // session view can show live token and cost data while the agent runs.
@@ -302,6 +370,26 @@ async function main(): Promise<void> {
     const incrementalCost = finalStats.cost - baselineStats.cost;
     const durationMs = ts() - startTime;
 
+    // Report context window usage after the session completes. Helps users
+    // understand why Pi may have stopped short — a full context window leaves
+    // no room for a proper conclusion or further tool calls.
+    const contextUsage = session.getContextUsage();
+    if (
+      contextUsage != null &&
+      contextUsage.tokens != null &&
+      contextUsage.percent != null &&
+      contextUsage.percent >= 75
+    ) {
+      appendSessionEvent(ndjsonPath, {
+        type: 'text',
+        content:
+          `\n\n⚠️ **Context window ${Math.round(contextUsage.percent)}% full** (` +
+          `${contextUsage.tokens.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()} tokens). ` +
+          `If the response seems incomplete, follow up to continue.\n`,
+        ts: ts(),
+      });
+    }
+
     // Detect max_tokens truncation: if the model's last response had
     // stopReason 'length', it was cut off before completing its work.
     // The agent loop exits normally in this case (no tool calls → done),
@@ -318,12 +406,37 @@ async function main(): Promise<void> {
       });
     }
 
+    // Detect silent stop: the model's final turn produced no visible text and
+    // no tool calls — only reasoning/thinking tokens (which don't emit
+    // text_delta events). This happens when the context window is nearly full
+    // and the model "thinks" but has no space left for a real response, or
+    // when the model loses track of what it was doing. stopReason is 'stop'
+    // so the max_tokens check above won't catch it.
+    const silentStop =
+      !truncated &&
+      !lastAssistantHadVisibleOutput &&
+      !lastAssistantHadToolCalls &&
+      (lastAssistantStopReason === 'stop' || lastAssistantStopReason === null);
+    if (silentStop) {
+      appendSessionEvent(ndjsonPath, {
+        type: 'text',
+        content:
+          '\n\n\u274c **Pi stopped without generating visible output.** The final response ' +
+          'contained no text or tool calls (only internal reasoning tokens). ' +
+          'This typically means the context window was too full for a proper conclusion. ' +
+          "Follow up with 'please summarise what you found and implement the changes' to continue.",
+        ts: ts(),
+      });
+    }
+
     appendSessionEvent(ndjsonPath, {
       type: 'result',
-      subtype: truncated ? 'error' : 'success',
+      subtype: truncated || silentStop ? 'error' : 'success',
       ...(truncated
         ? { message: 'Pi hit the output token limit (max_tokens) and stopped mid-response.' }
-        : {}),
+        : silentStop
+          ? { message: 'Pi stopped silently — final response had no visible text or tool calls (context window likely full).' }
+          : {}),
       ts: ts(),
     });
     appendSessionEvent(ndjsonPath, {
