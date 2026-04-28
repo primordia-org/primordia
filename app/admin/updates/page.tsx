@@ -142,7 +142,7 @@ export default async function AdminUpdatesPage() {
   ]);
 
   return (
-    <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
+    <main className="flex flex-col w-full max-w-5xl mx-auto px-4 py-6 min-h-dvh">
       <PageNavBar
         subtitle="Admin"
         currentPage="admin"
@@ -152,8 +152,12 @@ export default async function AdminUpdatesPage() {
         initialCavemanMode={evolvePrefs.initialCavemanMode}
         initialCavemanIntensity={evolvePrefs.initialCavemanIntensity}
       />
-      <AdminSubNav currentTab="updates" />
-      <UpdatesClient initialSources={initialSources} />
+      <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
+        <AdminSubNav currentTab="updates" />
+        <div className="flex-1 min-w-0">
+          <UpdatesClient initialSources={initialSources} />
+        </div>
+      </div>
     </main>
   );
 }

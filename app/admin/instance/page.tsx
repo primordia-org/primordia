@@ -44,14 +44,18 @@ export default async function AdminInstancePage() {
   ]);
 
   return (
-    <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
+    <main className="flex flex-col w-full max-w-5xl mx-auto px-4 py-6 min-h-dvh">
       <PageNavBar subtitle="Admin" currentPage="admin" initialSession={sessionUser} />
-      <AdminSubNav currentTab="instance" />
-      <InstanceConfigClient
-        config={config}
-        nodes={nodes}
-        edges={edges}
-      />
+      <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
+        <AdminSubNav currentTab="instance" />
+        <div className="flex-1 min-w-0">
+          <InstanceConfigClient
+            config={config}
+            nodes={nodes}
+            edges={edges}
+          />
+        </div>
+      </div>
     </main>
   );
 }
