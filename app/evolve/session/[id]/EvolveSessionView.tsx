@@ -648,9 +648,9 @@ function WebPreviewCard({
               data-id="session/restart-preview"
               type="button"
               onClick={(e) => { e.preventDefault(); onRestartServer(); }}
-              className="ml-auto text-xs text-gray-400 hover:text-gray-200 transition-colors"
+              className="ml-auto flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
             >
-              <RotateCw size={12} className="inline-block mr-1" />Restart
+              <RotateCw size={12} />Restart
             </button>
           )}
         </summary>
