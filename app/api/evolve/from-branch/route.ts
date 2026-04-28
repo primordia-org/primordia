@@ -20,6 +20,17 @@ import {
   getCandidateWorktreePath,
 } from '../../../../lib/session-events';
 
+/** JSON body for POST /evolve/from-branch */
+export interface EvolveFromBranchBody {
+  branchName: string; // Name of the existing local git branch to attach a session to. Must not contain a slash.
+}
+
+/**
+ * Start an evolve session on an existing branch
+ * @description Attaches the full AI preview pipeline to an existing local git branch (e.g. from an external contributor). Requires `can_evolve` or `admin` role.
+ * @tag Evolve
+ * @body EvolveFromBranchBody
+ */
 export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) {

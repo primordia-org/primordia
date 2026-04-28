@@ -37,6 +37,11 @@ function mimeType(filename: string): string {
   return map[ext] ?? 'application/octet-stream';
 }
 
+/**
+ * Serve a session attachment file
+ * @description Streams an uploaded attachment from the session worktree. Pass `file` (filename) as a query parameter. Images and text files are served inline; others as downloads.
+ * @tag Evolve
+ */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> },

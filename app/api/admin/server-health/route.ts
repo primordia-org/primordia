@@ -133,6 +133,11 @@ function getOldestNonProdWorktree(repoRoot: string): NonProdWorktree | null {
   return candidates[0];
 }
 
+/**
+ * Get server health metrics
+ * @description Returns disk usage, memory usage, and the oldest non-production worktree. Admin only.
+ * @tag Admin
+ */
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });
@@ -146,6 +151,11 @@ export async function GET() {
   return Response.json({ disk, memory, oldestNonProdWorktree });
 }
 
+/**
+ * Delete oldest non-production worktree
+ * @description Removes the oldest non-production git worktree and its branch to free disk space. Admin only.
+ * @tag Admin
+ */
 export async function POST() {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });

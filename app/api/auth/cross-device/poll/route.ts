@@ -7,6 +7,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db/index";
 import { createSession, SESSION_COOKIE, SESSION_DURATION_MS } from "@/lib/auth";
 
+/**
+ * Poll cross-device sign-in status
+ * @description Polled by the requesting device every 2 seconds. Returns `{ status }`. When status is `approved`, the session cookie is set and the device is signed in.
+ * @tag Auth
+ */
 export async function GET(request: NextRequest) {
   try {
     const tokenId = request.nextUrl.searchParams.get("tokenId");

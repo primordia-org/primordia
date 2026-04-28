@@ -1,12 +1,6 @@
 // app/api/auth/passkey/register/start/route.ts
 // Generates WebAuthn registration options.
 
-/**
- * Start passkey registration
- * @description Generates WebAuthn registration options. Call this before `navigator.credentials.create()`. Pass `{ username }` in the body.
- * @tags Auth
- * @openapi
- */
 //
 // Two modes:
 //   1. Logged-in user — adds a passkey to an existing account.
@@ -20,6 +14,11 @@ import { generateRegistrationOptions } from "@simplewebauthn/server";
 import { getDb } from "@/lib/db/index";
 import { generateId, CHALLENGE_COOKIE, getSessionUser } from "@/lib/auth";
 
+/**
+ * Start passkey registration
+ * @description Generates WebAuthn registration options. Call this before `navigator.credentials.create()`. Pass `{ username }` in the body for a new account, or omit when already signed in to add a passkey to an existing account.
+ * @tag Auth
+ */
 export async function POST(request: NextRequest) {
   try {
     const db = await getDb();

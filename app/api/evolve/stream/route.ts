@@ -4,12 +4,6 @@
 // GET ?sessionId=<id>&offset=<n>
 //   sessionId — the evolve session to watch
 
-/**
- * Stream evolve session progress
- * @description SSE stream of live session progress. Pass `sessionId` and optional `offset` (character position). Emits JSON events with `progressText`, `status`, `devServerStatus`, and `previewUrl`.
- * @tags Evolve
- * @openapi
- */
 //   offset    — number of NDJSON lines the client already has (default 0)
 //
 // SSE events:
@@ -31,6 +25,11 @@ function isTerminal(status: string): boolean {
   return status === 'accepted' || status === 'rejected';
 }
 
+/**
+ * Stream evolve session progress
+ * @description SSE stream of live session progress. Pass `sessionId` and optional `offset` (number of events already received). Emits JSON events with `events`, `status`, `devServerStatus`, and `previewUrl`. Final event includes `done: true`.
+ * @tag Evolve
+ */
 export async function GET(request: Request) {
   const user = await getSessionUser();
   if (!user) {

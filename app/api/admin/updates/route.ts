@@ -248,6 +248,11 @@ async function requireAdmin() {
 
 // ─── Route handlers ───────────────────────────────────────────────────────────
 
+/**
+ * List update sources
+ * @description Returns all configured update sources with their current fetch status. Admin only.
+ * @tag Admin
+ */
 export async function GET() {
   const { error } = await requireAdmin();
   if (error) return error;
@@ -257,6 +262,11 @@ export async function GET() {
   return Response.json({ sources: statuses } satisfies UpdatesResponse);
 }
 
+/**
+ * Manage update sources
+ * @description Add, remove, enable, disable, or fetch update sources. Admin only.
+ * @tag Admin
+ */
 export async function POST(request: Request) {
   const { user, error } = await requireAdmin();
   if (error) return error;

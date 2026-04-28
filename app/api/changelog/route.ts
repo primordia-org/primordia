@@ -6,13 +6,6 @@
 // Used by the ChangelogEntryDetails client component to lazy-load
 // entry bodies when a <details> element is first expanded.
 
-/**
- * Get changelog entry
- * @description Returns the raw markdown body of a single changelog file. Pass `filename` as a query parameter (e.g. `2026-01-01-00-00-00 Fix login bug.md`).
- * @tags Changelog
- * @openapi
- */
-
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
@@ -21,6 +14,11 @@ import path from "path";
 // This prevents path traversal attacks.
 const FILENAME_RE = /^(\d{4}-\d{2}-\d{2})-(\d{2}-\d{2}-\d{2}) .+\.md$/;
 
+/**
+ * Get changelog entry
+ * @description Returns the raw markdown body of a single changelog file. Pass `filename` as a query parameter (e.g. `2026-01-01-00-00-00 Fix login bug.md`).
+ * @tag Changelog
+ */
 export async function GET(req: NextRequest) {
   const filename = req.nextUrl.searchParams.get("filename");
 

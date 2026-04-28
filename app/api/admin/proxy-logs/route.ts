@@ -21,6 +21,11 @@ const SSE_HEADERS = {
   Connection: "keep-alive",
 } as const;
 
+/**
+ * Stream proxy service logs
+ * @description SSE stream of the `primordia-proxy` systemd journal (`journalctl -f -n 100`). Admin only. Returns an informational message on non-Linux platforms.
+ * @tag Admin
+ */
 export async function GET(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return new Response("Unauthorized", { status: 401 });

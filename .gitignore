@@ -44,5 +44,8 @@ next-env.d.ts
 # Claude Code worker PID file (written by scripts/claude-worker.ts on startup)
 .primordia-worker.pid
 
+# Generated OpenAPI spec — run `bun run generate-api-docs` to rebuild
+/public/openapi.json
+
 # Structured session event log written to each worktree during Claude sessions
 .primordia-session.ndjson

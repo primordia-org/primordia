@@ -6,6 +6,11 @@
 //   Body: { sessionId: string }
 //   Returns: { ok: true } or { error: string }
 
+/** JSON body for POST /evolve/abort */
+export interface EvolveAbortBody {
+  sessionId: string; // The session ID (git branch name) of the running session to abort.
+}
+
 import { getSessionUser } from '../../../../lib/auth';
 import { abortAgentRun } from '../../../../lib/evolve-sessions';
 import {
@@ -14,6 +19,12 @@ import {
   getSessionFromFilesystem,
 } from '../../../../lib/session-events';
 
+/**
+ * Abort the running Claude Code agent
+ * @description Signals the active Claude Code process to stop and transitions the session back to 'ready' with whatever work was completed.
+ * @tag Evolve
+ * @body EvolveAbortBody
+ */
 export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) {

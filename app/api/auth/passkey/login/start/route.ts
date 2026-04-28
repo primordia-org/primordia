@@ -3,19 +3,17 @@
 // If a username is provided, restricts to that user's credentials.
 // If no username, returns discoverable-credential options (passkey autofill).
 
-/**
- * Start passkey login
- * @description Generates WebAuthn authentication options. Pass optional `{ username }` to scope to that user's credentials, or omit for discoverable-credential (autofill) flow.
- * @tags Auth
- * @openapi
- */
-
 import { NextRequest, NextResponse } from "next/server";
 import { generateAuthenticationOptions } from "@simplewebauthn/server";
 import type { AuthenticatorTransportFuture } from "@simplewebauthn/server";
 import { getDb } from "@/lib/db/index";
 import { generateId, CHALLENGE_COOKIE } from "@/lib/auth";
 
+/**
+ * Start passkey login
+ * @description Generates WebAuthn authentication options. Pass optional `{ username }` in the body to scope to that user's credentials, or omit for discoverable-credential (passkey autofill) flow.
+ * @tag Auth
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as { username?: string };

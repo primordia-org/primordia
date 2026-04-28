@@ -219,6 +219,9 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor i
 That's all the major Markdown syntax. Streaming complete ✓
 `;
 
+/**
+ * @ignore
+ */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   // Delay in ms between each character (default 8 ms → ~125 chars/s)

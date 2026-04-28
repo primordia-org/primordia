@@ -5,6 +5,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
+/**
+ * Get instance identity and social graph
+ * @description Returns this instance's identity and its known social graph (nodes and edges). Also served at `/.well-known/primordia.json`.
+ * @tag Instance
+ */
 export async function GET(req: NextRequest) {
   const db = await getDb();
   const [config, nodes, edges] = await Promise.all([

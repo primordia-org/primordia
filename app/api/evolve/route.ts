@@ -9,13 +9,6 @@
 //   Query: ?sessionId=<id>
 //   Returns: { status, port, previewUrl, branch }
 
-/**
- * Start or poll an evolve session
- * @description POST to start a new AI-powered code-change session (requires `can_evolve` or `admin` role). Returns `{ sessionId }`. GET to poll a session's status by `?sessionId=<id>`.
- * @tags Evolve
- * @openapi
- */
-
 import * as path from 'path';
 import * as fs from 'fs';
 import { getLlmClient } from '../../../lib/llm-client';
@@ -95,6 +88,24 @@ async function findUniqueBranch(slug: string, repoRoot: string): Promise<string>
   return `${base}-${Date.now()}`;
 }
 
+/** Multipart form-data body for POST /evolve */
+export interface EvolvePostFormData {
+  request: string; // The natural-language change request for Claude Code to implement.
+  harness?: string; // Agent harness to use (e.g. 'claude-code'). Defaults to the server default.
+  model?: string; // AI model identifier to pass to the agent harness.
+  cavemanMode?: string; // Enable caveman communication mode. Pass the string 'true' to enable.
+  cavemanIntensity?: string; // Caveman intensity: lite, full, ultra, wenyan-lite, wenyan-full, wenyan-ultra.
+  encryptedApiKey?: string; // Optional RSA-OAEP encrypted Anthropic API key (from /api/llm-key/public-key).
+  attachments?: string; // Optional file attachments copied into the worktree's attachments/ directory.
+}
+
+/**
+ * Start a new evolve session
+ * @description Start a new AI-powered code-change session. Accepts multipart/form-data (supports file attachments) or JSON `{ request, encryptedApiKey? }`. Requires `can_evolve` or `admin` role.
+ * @tag Evolve
+ * @contentType multipart/form-data
+ * @body EvolvePostFormData
+ */
 export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) {
@@ -254,6 +265,11 @@ export async function POST(request: Request) {
   return Response.json({ sessionId });
 }
 
+/**
+ * Poll evolve session status
+ * @description Returns the current status, port, preview URL, branch, and original request for a session. Pass `sessionId` as a query parameter.
+ * @tag Evolve
+ */
 export async function GET(request: Request) {
   const user = await getSessionUser();
   if (!user) {

@@ -14,6 +14,11 @@ function isValidUuid7(v: unknown): v is string {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
 
+/**
+ * Register a child instance
+ * @description Allows a child Primordia instance to register itself with this instance. Creates a graph node and a 'child_of' edge.
+ * @tag Instance
+ */
 export async function POST(req: NextRequest) {
   let body: unknown;
   try {

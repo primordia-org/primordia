@@ -9,6 +9,11 @@
 
 import { getModelOptionsByHarness } from '@/lib/pi-model-registry.server';
 
+/**
+ * List available AI models
+ * @description Returns the available model options grouped by agent harness. Cached for 60 seconds.
+ * @tag Evolve
+ */
 export async function GET() {
   const models = getModelOptionsByHarness();
   return Response.json(models, {

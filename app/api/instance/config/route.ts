@@ -8,6 +8,11 @@ import { getDb } from "@/lib/db";
 import { registerWithParent } from "@/lib/register-with-parent";
 import { validateCanonicalUrl } from "@/lib/validate-canonical-url";
 
+/**
+ * Get instance config
+ * @description Returns this instance's UUID, name, description, canonical URL, and parent URL. Admin only.
+ * @tag Instance
+ */
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -18,6 +23,11 @@ export async function GET() {
   return NextResponse.json(config);
 }
 
+/**
+ * Update instance config
+ * @description Updates editable instance fields (name, description, canonicalUrl, parentUrl). Admin only.
+ * @tag Instance
+ */
 export async function PATCH(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

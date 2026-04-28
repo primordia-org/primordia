@@ -9,6 +9,11 @@ import { getDb } from "@/lib/db/index";
 import { getPublicOrigin } from "@/lib/public-origin";
 import { basePath } from "@/lib/base-path";
 
+/**
+ * Get QR code for cross-device sign-in
+ * @description Returns an SVG QR code encoding the approval URL for the given `tokenId`. Scan with an already-authenticated device.
+ * @tag Auth
+ */
 export async function GET(request: NextRequest) {
   try {
     const tokenId = request.nextUrl.searchParams.get("tokenId");
