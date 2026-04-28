@@ -22,6 +22,7 @@ import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
 import type { SessionEvent } from "@/lib/session-events";
 import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
+import { deriveSmartPreviewUrl } from "@/lib/smart-preview-url";
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────
 
@@ -1168,6 +1169,15 @@ export default function EvolveSessionView({
   /** Whether to show the preview as a desktop sidebar. */
   const showPreviewSidebar = status === "ready" && !!previewUrl;
 
+  /**
+   * The URL to open in the Web Preview panel when it first becomes available.
+   * Derived once from the initial request so the preview starts on the most
+   * relevant page rather than always defaulting to the landing page.
+   */
+  const smartPreviewUrl = previewUrl
+    ? deriveSmartPreviewUrl(initialRequest, previewUrl)
+    : null;
+
   /** Width of the session (left) panel in pixels when sidebar is visible. */
   const [mainWidthPx, setMainWidthPx] = useState(560);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1342,7 +1352,7 @@ export default function EvolveSessionView({
           <div className={showPreviewSidebar ? 'xl:hidden' : ''}>
             <WebPreviewCard
               fullHeight={false}
-              previewUrl={previewUrl}
+              previewUrl={smartPreviewUrl}
               proxyServerStatus={proxyServerStatus}
               serverLogs={serverLogs}
               canEvolve={canEvolve}
@@ -1697,7 +1707,7 @@ export default function EvolveSessionView({
       <aside className="hidden xl:flex xl:flex-col xl:flex-1 xl:sticky xl:top-0 xl:h-dvh bg-gray-950 p-4">
         <WebPreviewCard
           fullHeight
-          previewUrl={previewUrl}
+          previewUrl={smartPreviewUrl}
           proxyServerStatus={proxyServerStatus}
           serverLogs={serverLogs}
           canEvolve={canEvolve}
