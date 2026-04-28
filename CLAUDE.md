@@ -382,6 +382,83 @@ The log is append-only and never truncated for the lifetime of the session.
 
 ---
 
+## Git Config as Key-Value Store
+
+Primordia uses the local `.git/config` file as a lightweight key-value store for **non-sensitive runtime state**. This avoids extra files and keeps all mutable configuration in one well-understood place that git already manages.
+
+### When to use it
+
+Use git config for data that:
+- Is non-sensitive (no secrets, tokens, or credentials)
+- Needs to survive server restarts but doesn't need a full database
+- Is per-repo rather than per-user
+- May be read by the reverse proxy (`scripts/reverse-proxy.ts`) without starting the Next.js app
+
+Do **not** use git config for secrets (use environment variables / `.env.local`) or user-specific data (use SQLite via `lib/db/`).
+
+### Established namespaces
+
+| Namespace | Example key | What it stores |
+|---|---|---|
+| `primordia.*` | `primordia.productionBranch` | App-wide settings; proxy reads these live via `fs.watch` on `.git/config` |
+| `primordia.*` | `primordia.productionHistory` | Multi-value list of previous production branch names (written with `--add`) |
+| `primordia.*` | `primordia.previewInactivityMin` | Proxy tuning knobs (see `app/api/admin/proxy-settings/route.ts`) |
+| `branch.{name}.*` | `branch.main.port` | Per-branch ephemeral port; proxy discovers preview servers this way |
+| `branch.{name}.*` | `branch.feature-x.parent` | Parent branch recorded at worktree creation for upstream-sync |
+| `remote.{name}.*` | `remote.primordia-official.updateSource` | Update source metadata extending the standard git remote section (see `lib/update-sources.ts`) |
+
+### Extending existing git namespaces
+
+Prefer **extending an existing namespace** over inventing a new one when the data naturally belongs to an existing git object. Primordia does this for two namespaces:
+
+- **`branch.{name}.*`** — extended with `branch.{name}.port` (ephemeral preview port) and `branch.{name}.parent` (parent branch for upstream-sync). Git already owns `branch.{name}.merge` and `branch.{name}.rebase`; we just add more fields to the same section.
+
+- **`remote.{name}.*`** — extended with `remote.{name}.updateSource`, `remote.{name}.displayName`, `remote.{name}.builtin`, and `remote.{name}.enabled` to mark and annotate update sources. Git already owns `remote.{name}.url` and `remote.{name}.fetch`; `git remote add` sets those, and Primordia adds the extra fields alongside.
+
+This means an update source entry looks like:
+
+```
+[remote "primordia-official"]
+    url          = https://primordia.exe.xyz/api/git
+    fetch        = +refs/heads/*:refs/remotes/primordia-official/*
+    updateSource = true
+    displayName  = Primordia Official
+    builtin      = true
+    enabled      = true
+```
+
+### Subsection pattern (multi-record collections)
+
+For collections of named records (whether extending an existing namespace or creating a new one), use git config **subsections** — exactly how git stores remotes and branches:
+
+Enumerate all records with `--get-regexp`:
+```bash
+git config --get-regexp 'remote\.[^.]+\.updatesource'
+# → remote.primordia-official.updatesource true
+```
+
+Read one field:
+```bash
+git config --get 'remote.primordia-official.displayName'
+```
+
+Remove a whole record:
+```bash
+git remote remove primordia-official   # standard git — removes entire [remote "..."] section
+# or for Primordia-only sections:
+git config --remove-section 'primordia-custom-section.my-record'
+```
+
+### Output format of `--get-regexp`
+
+Each line is `<key><space><value>` with no `=`. Git **lowercases the section name and field name** but **preserves the subsection name's case**. Always split on the first space to separate key from value. Use `[^.]+` (not `.*`) when matching subsection names in regexes to avoid greedy matches across dots.
+
+### Code reference
+
+See `lib/update-sources.ts` for a complete worked example of the subsection pattern. See `lib/evolve-sessions.ts` (`getOrAssignBranchPort`) for a simple single-key read/write example.
+
+---
+
 ## Design Principles for Claude Code
 
 When implementing changes, follow these principles:
