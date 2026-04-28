@@ -102,6 +102,21 @@ async function retryAcceptAfterFix(
     }
   }
 
+  // Emit a fresh deploy section so post-fix logs appear under the deploy
+  // heading in the UI rather than being buried in the type_fix section.
+  const isProduction = process.env.NODE_ENV === 'production';
+  {
+    const ndjsonPath = getSessionNdjsonPath(worktreePath);
+    if (fs.existsSync(ndjsonPath)) {
+      appendSessionEvent(ndjsonPath, {
+        type: 'section_start',
+        sectionType: 'deploy',
+        label: isProduction ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``,
+        ts: Date.now(),
+      });
+    }
+  }
+
   // Re-run the TypeScript check to verify the fix worked.
   await appendLogLine(sessionId, '- Re-checking TypeScript types…');
   console.log(`[retryAcceptAfterFix] re-running typecheck in ${worktreePath}`);
@@ -137,8 +152,6 @@ async function retryAcceptAfterFix(
       method: 'DELETE',
     });
   } catch { /* proxy not running — preview server may already be gone */ }
-
-  const isProduction = process.env.NODE_ENV === 'production';
 
   if (isProduction) {
     // Run install.sh from the session worktree — same as the normal accept path.

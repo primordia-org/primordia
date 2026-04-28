@@ -498,10 +498,17 @@ function StructuredSection({
       .map((e) => e.content.replace(/\n+$/, ''))
       .join('\n');
     const resultEvent = events.find((e): e is Extract<SessionEvent, { type: 'result' }> => e.type === 'result');
+    const decisionEvent = events.find((e): e is Extract<SessionEvent, { type: 'decision' }> => e.type === 'decision');
     const isProduction = label.includes("production");
     const mergedIntoBranch = !isProduction ? (label.match(/into `([^`]+)`/) ?? [])[1] ?? null : null;
 
-    if (isActive && !resultEvent) {
+    const hasDeployError = resultEvent?.subtype === 'error' || resultEvent?.subtype === 'timeout';
+    // A deploy section is only truly successful when a decision:accepted event
+    // is present in its events. Without one, the section was interrupted
+    // (e.g. type errors found mid-deploy, triggering a type_fix pass).
+    const hasDeploySuccess = !hasDeployError && decisionEvent?.action === 'accepted';
+
+    if (isActive && !hasDeploySuccess && !hasDeployError) {
       return (
         <div className="rounded-lg border border-gray-700 bg-gray-900 text-sm overflow-hidden">
           <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
@@ -515,8 +522,6 @@ function StructuredSection({
         </div>
       );
     }
-
-    const hasDeployError = resultEvent?.subtype === 'error' || resultEvent?.subtype === 'timeout';
 
     if (hasDeployError) {
       const errorMessage = (resultEvent?.message ?? 'The deploy failed with an unknown error.').replace(/^❌\s*/, '');
@@ -537,6 +542,21 @@ function StructuredSection({
               </div>
             </details>
           )}
+        </div>
+      );
+    }
+
+    if (!hasDeploySuccess) {
+      // Deploy section was interrupted before completion (type errors triggered
+      // an auto-fix pass). Show partial logs in a neutral style — the
+      // subsequent deploy section will show the final outcome.
+      return (
+        <div className="rounded-lg border border-gray-700 bg-gray-900 text-sm overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
+            <span className="font-semibold text-xs text-gray-400">{label}</span>
+            <span className="ml-auto text-gray-600 text-xs">paused — fixing type errors</span>
+          </div>
+          {logLines && <div className="px-4 py-3"><pre className="text-xs text-gray-500 whitespace-pre-wrap font-mono">{logLines}</pre></div>}
         </div>
       );
     }
