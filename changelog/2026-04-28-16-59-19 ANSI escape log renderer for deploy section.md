@@ -41,6 +41,15 @@ Two changes:
 1. **Concatenation**: `log_line` contents are now joined verbatim (`''` separator) instead of `'\n'`. This preserves the `\r` and `\033[K` sequences the ANSI parser needs.
 2. **Rendering**: All four deploy sub-states (running, error, interrupted, success) now use `<AnsiRenderer text={rawLog} isActive={...} />` instead of `<pre>` tags.
 
+### New test page: `/ansi-test`
+
+An interactive test page at `/ansi-test` (modelled after `/markdown-test`) for exercising the `AnsiRenderer` component:
+
+- **Sample picker** — five pre-baked samples: static lines, spinner→done sequences, a full install.sh simulation, an error/diagnostics scenario, and plain text with no ANSI codes
+- **Raw input textarea** — shows the current input with `ESC` rendered as `␛` and `\r` as `␍`; editable so you can paste or type any raw sequence
+- **Simulate stream** — replays the current input character-by-character at a configurable speed (0–200 ms/char) to verify `\r` spinner overwrite behaviour live
+- **Side-by-side layout** — raw input on the left, rendered output on the right in a card that matches the deploy section style from `EvolveSessionView`
+
 ## Why
 
 The "Deploying to production" experience in the UI was notably worse than running `./install.sh` in a terminal: no colors, no spinner animation, no visual distinction between step starts and completions. The plain-text mode was a workaround because the log display couldn't handle escape codes.
