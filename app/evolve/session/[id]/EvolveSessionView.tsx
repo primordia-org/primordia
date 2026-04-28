@@ -1197,15 +1197,15 @@ export default function EvolveSessionView({
           </div>
         )}
 
-        {/* Web preview card — inline iframe on mobile; server logs + restart collapsible */}
+        {/* Web preview card — inline iframe + server logs; hidden on desktop when aside is active */}
         {status === "ready" && (
-          <div className="rounded-lg border border-emerald-700/50 bg-gray-900 text-sm overflow-hidden">
+          <div className={`rounded-lg border border-emerald-700/50 bg-gray-900 text-sm overflow-hidden${showPreviewSidebar ? ' xl:hidden' : ''}`}>
             {restartError && (
               <p className="px-4 py-2 text-red-400 text-xs border-b border-gray-800">{restartError}</p>
             )}
 
-            {/* Inline iframe — mobile only (desktop uses sidebar) */}
-            <div className="xl:hidden">
+            {/* Inline iframe */}
+            <div>
               {proxyServerStatus === "running" && previewUrl ? (
                 <WebPreviewPanel src={previewUrl} onElementSelected={handleElementSelected} />
               ) : proxyServerStatus === "starting" ? (
@@ -1602,33 +1602,70 @@ export default function EvolveSessionView({
         onWidthChange={setMainWidthPx}
         containerRef={containerRef}
       />
-      <aside className="hidden xl:flex xl:flex-col xl:flex-1 xl:sticky xl:top-0 xl:h-dvh bg-gray-950 p-4">
-        {proxyServerStatus === "running" ? (
-          <WebPreviewPanel src={previewUrl!} fullHeight onElementSelected={handleElementSelected} />
-        ) : (
-          <div className="flex flex-col flex-1 items-center justify-center gap-4 text-gray-400">
-            {proxyServerStatus === 'starting' ? (
-              <>
-                <div className="w-20 h-20 rounded-full border-2 border-gray-600 flex items-center justify-center animate-pulse">
-                  <span className="text-3xl ml-1">▶</span>
-                </div>
-                <span className="text-sm text-gray-500">Starting preview…</span>
-              </>
-            ) : (
-              <>
+      <aside className="hidden xl:flex xl:flex-col xl:flex-1 xl:sticky xl:top-0 xl:h-dvh bg-gray-950">
+        {/* Iframe area — fills remaining height */}
+        <div className="flex-1 min-h-0 p-4 pb-0">
+          {proxyServerStatus === "running" ? (
+            <WebPreviewPanel src={previewUrl!} fullHeight onElementSelected={handleElementSelected} />
+          ) : (
+            <div className="flex flex-col h-full items-center justify-center gap-4 text-gray-400 rounded-lg border border-emerald-700/50 bg-gray-900">
+              {proxyServerStatus === 'starting' ? (
+                <>
+                  <div className="w-20 h-20 rounded-full border-2 border-gray-600 flex items-center justify-center animate-pulse">
+                    <span className="text-3xl ml-1">▶</span>
+                  </div>
+                  <span className="text-sm text-gray-500">Starting preview…</span>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleRestartServer}
+                    disabled={isRestartingServer}
+                    className="w-20 h-20 rounded-full border-2 border-gray-500 hover:border-white hover:text-white flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="text-3xl ml-1">▶</span>
+                  </button>
+                  <span className="text-sm">Start Preview</span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        {/* Server logs strip — pinned to bottom of aside */}
+        <div className="flex-shrink-0 bg-gray-900 border-t border-emerald-700/50">
+          {restartError && (
+            <p className="px-4 py-2 text-red-400 text-xs border-b border-gray-800">{restartError}</p>
+          )}
+          <details className="group" open={proxyServerStatus === 'stopped'}>
+            <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
+              <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
+              <span className="text-gray-500">🪵 Server logs</span>
+              {canEvolve && (
                 <button
+                  data-id="session/restart-preview"
                   type="button"
-                  onClick={handleRestartServer}
-                  disabled={isRestartingServer}
-                  className="w-20 h-20 rounded-full border-2 border-gray-500 hover:border-white hover:text-white flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={(e) => { e.preventDefault(); handleRestartServer(); }}
+                  disabled={isRestartingServer || proxyServerStatus === "starting"}
+                  className="ml-auto text-xs text-gray-400 hover:text-gray-200 disabled:text-gray-600 transition-colors"
                 >
-                  <span className="text-3xl ml-1">▶</span>
+                  {isRestartingServer || proxyServerStatus === "starting"
+                    ? "Starting…"
+                    : proxyServerStatus === "running"
+                    ? "↺ Restart"
+                    : "▶ Start"}
                 </button>
-                <span className="text-sm">Start Preview</span>
-              </>
-            )}
-          </div>
-        )}
+              )}
+            </summary>
+            <div className="px-4 py-3 border-t border-gray-800">
+              {serverLogs ? (
+                <pre className="text-xs text-gray-400 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">{serverLogs}</pre>
+              ) : (
+                <p className="text-xs text-gray-600 italic">No logs yet…</p>
+              )}
+            </div>
+          </details>
+        </div>
       </aside>
       </>
     )}
