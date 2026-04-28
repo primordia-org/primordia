@@ -13,6 +13,7 @@ import { getSessionUser } from '../../../../../lib/auth';
 import { getSessionFromFilesystem } from '../../../../../lib/session-events';
 
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.avif', '.bmp', '.ico']);
+const INLINE_TEXT_EXTENSIONS = new Set(['.md', '.txt', '.json', '.csv']);
 
 function mimeType(filename: string): string {
   const ext = path.extname(filename).toLowerCase();
@@ -28,8 +29,10 @@ function mimeType(filename: string): string {
     '.ico': 'image/x-icon',
     '.pdf': 'application/pdf',
     '.txt': 'text/plain',
-    '.md': 'text/markdown',
+    // .md served as text/plain so browsers render it inline rather than downloading
+    '.md': 'text/plain; charset=utf-8',
     '.json': 'application/json',
+    '.csv': 'text/plain; charset=utf-8',
   };
   return map[ext] ?? 'application/octet-stream';
 }
@@ -77,15 +80,17 @@ export async function GET(
   const data = fs.readFileSync(filePath);
   const ext = path.extname(safeName).toLowerCase();
   const isImage = IMAGE_EXTENSIONS.has(ext);
+  const isInlineText = INLINE_TEXT_EXTENSIONS.has(ext);
 
   return new Response(data, {
     headers: {
       'Content-Type': mimeType(safeName),
       'Content-Length': String(stat.size),
-      // Inline for images so the browser displays them; attachment for other files
-      'Content-Disposition': isImage
+      // Inline for images and plain-text formats so the browser displays them; attachment for other files
+      'Content-Disposition': (isImage || isInlineText)
         ? `inline; filename="${safeName}"`
         : `attachment; filename="${safeName}"`,
+      'X-Content-Type-Options': 'nosniff',
       'Cache-Control': 'private, max-age=3600',
     },
   });
