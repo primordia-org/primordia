@@ -1197,63 +1197,81 @@ export default function EvolveSessionView({
           </div>
         )}
 
-        {/* Web preview — shown inline on mobile only; desktop uses sidebar */}
-        {status === "ready" && previewUrl && proxyServerStatus === "running" && (
-          <div className="xl:hidden">
-            <WebPreviewPanel src={previewUrl} onElementSelected={handleElementSelected} />
-          </div>
-        )}
-
-        {/* Preview server status + logs — shown when session is ready and proxy is managing the server */}
+        {/* Web preview card — header with URL + restart; inline iframe on mobile; logs collapsible */}
         {status === "ready" && (
           <div className="rounded-lg border border-emerald-700/50 bg-gray-900 text-sm overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-gray-800 flex items-center justify-between">
-              <span className="font-semibold text-xs text-emerald-300">🚀 Preview server</span>
-              <div className="flex items-center gap-3">
-                <span className={`text-xs ${
-                  proxyServerStatus === 'running' ? 'text-emerald-400' :
-                  proxyServerStatus === 'starting' ? 'text-yellow-400 animate-pulse' :
-                  proxyServerStatus === 'stopped' ? 'text-red-400' :
-                  'text-gray-500'
-                }`}>
-                  {proxyServerStatus === 'running' ? 'Running' :
-                   proxyServerStatus === 'starting' ? 'Starting…' :
-                   proxyServerStatus === 'stopped' ? 'Stopped' :
-                   'Checking…'}
-                </span>
-                {canEvolve && (
-                  <button
-                    data-id="session/restart-preview"
-                    type="button"
-                    onClick={handleRestartServer}
-                    disabled={isRestartingServer || proxyServerStatus === "starting"}
-                    className="text-xs text-gray-400 hover:text-gray-200 disabled:text-gray-600 transition-colors"
-                  >
-                    {isRestartingServer || proxyServerStatus === "starting"
-                      ? "Starting…"
-                      : proxyServerStatus === "running"
-                      ? "↺ Restart preview"
-                      : "▶ Start preview"}
-                  </button>
-                )}
-              </div>
-            </div>
-            {previewUrl && (
-              <div className="px-4 py-3 border-b border-gray-800">
+            {/* Header: title, status dot, URL link, restart button */}
+            <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2.5 min-w-0">
+              <span className="font-semibold text-xs text-emerald-300 flex-shrink-0">🚀 Web Preview</span>
+              <span
+                title={proxyServerStatus === 'running' ? 'Running' :
+                       proxyServerStatus === 'starting' ? 'Starting…' :
+                       proxyServerStatus === 'stopped' ? 'Stopped' : 'Checking…'}
+                className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                  proxyServerStatus === 'running' ? 'bg-emerald-400' :
+                  proxyServerStatus === 'starting' ? 'bg-yellow-400 animate-pulse' :
+                  proxyServerStatus === 'stopped' ? 'bg-red-400' :
+                  'bg-gray-600'
+                }`}
+              />
+              {previewUrl && (
                 <a
                   href={previewUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-emerald-400 hover:text-emerald-200 underline break-all text-xs"
+                  className="text-emerald-400 hover:text-emerald-200 underline text-xs truncate flex-1 min-w-0"
                 >
                   {previewUrl}
                 </a>
-                <span className="text-gray-500 text-xs ml-2">(starts on first visit)</span>
-              </div>
-            )}
+              )}
+              {canEvolve && (
+                <button
+                  data-id="session/restart-preview"
+                  type="button"
+                  onClick={handleRestartServer}
+                  disabled={isRestartingServer || proxyServerStatus === "starting"}
+                  className="flex-shrink-0 text-xs text-gray-400 hover:text-gray-200 disabled:text-gray-600 transition-colors"
+                >
+                  {isRestartingServer || proxyServerStatus === "starting"
+                    ? "Starting…"
+                    : proxyServerStatus === "running"
+                    ? "↺ Restart"
+                    : "▶ Start"}
+                </button>
+              )}
+            </div>
+
             {restartError && (
               <p className="px-4 py-2 text-red-400 text-xs border-b border-gray-800">{restartError}</p>
             )}
+
+            {/* Inline iframe — mobile only (desktop uses sidebar) */}
+            <div className="xl:hidden">
+              {proxyServerStatus === "running" && previewUrl ? (
+                <WebPreviewPanel src={previewUrl} onElementSelected={handleElementSelected} />
+              ) : proxyServerStatus === "starting" ? (
+                <div className="px-4 py-8 flex items-center justify-center">
+                  <span className="text-sm text-gray-500 animate-pulse">Starting preview…</span>
+                </div>
+              ) : proxyServerStatus === "stopped" ? (
+                <div className="px-4 py-8 flex flex-col items-center gap-3">
+                  <span className="text-sm text-gray-500">Preview server stopped</span>
+                  {canEvolve && (
+                    <button
+                      data-id="session/start-preview-stopped"
+                      type="button"
+                      onClick={handleRestartServer}
+                      disabled={isRestartingServer}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-800 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs transition-colors"
+                    >
+                      ▶ Start Preview
+                    </button>
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            {/* Server logs (always collapsible; auto-open when stopped) */}
             <details className="group" open={proxyServerStatus === 'stopped'}>
               <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
                 <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
