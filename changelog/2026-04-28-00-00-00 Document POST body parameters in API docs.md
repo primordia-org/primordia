@@ -35,7 +35,7 @@ Each body type is an exported TypeScript interface in the relevant route file. T
 
 ### Auto-generation on first page view
 
-Added `app/api/openapi/route.ts` — a GET handler that serves the OpenAPI spec, generating it automatically via `next-openapi-gen`'s programmatic API on first request if `public/openapi.json` doesn't yet exist on disk. Concurrent first-requests are deduplicated via a shared Promise. The written file acts as an on-disk cache for subsequent requests. Updated `app/api-docs/page.tsx` to point Scalar at `/api/openapi` instead of the static `/openapi.json`.
+Added `app/api/openapi/route.ts` — a GET handler that serves the OpenAPI spec, generating it automatically on first request if `public/openapi.json` doesn't yet exist on disk. Generation runs `bun run generate-api-docs` as a child process (the same command used manually) rather than importing `next-openapi-gen` directly — direct import causes a Next.js build error because the package uses `new URL('../../package.json', import.meta.url)` which the bundler can't resolve. Concurrent first-requests are deduplicated via a shared Promise. The written file acts as an on-disk cache for subsequent requests. Updated `app/api-docs/page.tsx` to point Scalar at `/api/openapi` instead of the static `/openapi.json`.
 
 No build step or install step is needed. Opening `/api-docs` for the first time triggers generation automatically.
 
