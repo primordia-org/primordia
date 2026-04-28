@@ -84,7 +84,16 @@ function loadSummaries(): ChangelogSummary[] {
   }
 }
 
-export default async function ChangelogPage() {
+const PAGE_SIZE = 100;
+
+export default async function ChangelogPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
+  const { page: pageParam } = await searchParams;
+  const currentPage = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
+
   const [entries, user] = await Promise.all([
     Promise.resolve(loadSummaries()),
     getSessionUser(),
@@ -95,6 +104,10 @@ export default async function ChangelogPage() {
         getEvolvePrefs(user.id),
       ])
     : [null, null];
+
+  const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const pageEntries = entries.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-screen">
@@ -114,9 +127,14 @@ export default async function ChangelogPage() {
         <>
           <p className="text-xs text-gray-500 mb-6">
             {entries.length} {entries.length === 1 ? "entry" : "entries"} — click to expand
+            {totalPages > 1 && (
+              <span className="ml-2">
+                (page {safePage} of {totalPages})
+              </span>
+            )}
           </p>
           <ol className="space-y-2">
-            {entries.map((entry) => {
+            {pageEntries.map((entry) => {
               const dateLabel = new Date(entry.date).toLocaleDateString("en-US", {
                 year: "numeric",
                 month: "short",
@@ -135,6 +153,35 @@ export default async function ChangelogPage() {
               );
             })}
           </ol>
+          {totalPages > 1 && (
+            <nav className="flex items-center justify-between mt-8 pt-4 border-t border-gray-700">
+              <a
+                href={safePage > 1 ? `?page=${safePage - 1}` : undefined}
+                aria-disabled={safePage <= 1}
+                className={
+                  safePage <= 1
+                    ? "px-4 py-2 rounded text-sm bg-gray-800 text-gray-600 cursor-not-allowed"
+                    : "px-4 py-2 rounded text-sm bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors"
+                }
+              >
+                ← Newer
+              </a>
+              <span className="text-xs text-gray-500">
+                {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, entries.length)} of {entries.length}
+              </span>
+              <a
+                href={safePage < totalPages ? `?page=${safePage + 1}` : undefined}
+                aria-disabled={safePage >= totalPages}
+                className={
+                  safePage >= totalPages
+                    ? "px-4 py-2 rounded text-sm bg-gray-800 text-gray-600 cursor-not-allowed"
+                    : "px-4 py-2 rounded text-sm bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors"
+                }
+              >
+                Older →
+              </a>
+            </nav>
+          )}
         </>
       )}
     </main>
