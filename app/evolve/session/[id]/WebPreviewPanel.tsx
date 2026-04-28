@@ -396,11 +396,6 @@ interface WebPreviewPanelProps {
   /** Extra classes applied to the outer wrapper element. */
   className?: string;
   /**
-   * When true the outer border, background and rounded corners are omitted so
-   * the panel can be embedded inside a parent that provides its own border.
-   */
-  noBorder?: boolean;
-  /**
    * Called when the user selects an element via the inspector tool.
    * Receives the nearest React component name and a CSS path selector.
    */
@@ -409,7 +404,7 @@ interface WebPreviewPanelProps {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function WebPreviewPanel({ src, fullHeight = false, className, noBorder = false, onElementSelected }: WebPreviewPanelProps) {
+export function WebPreviewPanel({ src, fullHeight = false, className, onElementSelected }: WebPreviewPanelProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // The URL shown in the address bar — starts as the initial src.
   const [urlBarValue, setUrlBarValue] = useState(src);
@@ -539,7 +534,7 @@ export function WebPreviewPanel({ src, fullHeight = false, className, noBorder =
   }, [inspectorActive, cancelInspector]);
 
   return (
-    <div className={`${fullHeight ? 'flex flex-col h-full' : ''} ${noBorder ? '' : 'rounded-lg border border-emerald-700/50 bg-gray-900'} overflow-hidden${className ? ` ${className}` : ''}`}>
+    <div className={`${fullHeight ? 'flex flex-col h-full' : ''} overflow-hidden${className ? ` ${className}` : ''}`}>
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-800 bg-gray-950">
         {/* Nav buttons */}

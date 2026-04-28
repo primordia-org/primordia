@@ -608,18 +608,17 @@ function WebPreviewCard({
         {proxyServerStatus === 'running' && previewUrl ? (
           <WebPreviewPanel
             src={previewUrl}
-            noBorder
             fullHeight={fullHeight}
             onElementSelected={onElementSelected}
           />
         ) : (
-          <div className={`flex flex-col items-center justify-center gap-4 text-gray-400${fullHeight ? ' h-full' : ' h-[600px]'}`}>
+          <div className={`flex flex-col items-center justify-center gap-4${fullHeight ? ' h-full' : ' h-[600px]'}`}>
             {proxyServerStatus === 'starting' ? (
               <>
-                <div className="w-20 h-20 rounded-full border-2 border-gray-600 flex items-center justify-center animate-pulse">
+                <div className="w-20 h-20 rounded-full border-2 border-yellow-600 text-yellow-400 flex items-center justify-center animate-pulse">
                   <span className="text-3xl ml-1">▶</span>
                 </div>
-                <span className="text-sm text-gray-500">Starting preview…</span>
+                <span className="text-sm text-yellow-600 animate-pulse">Starting preview…</span>
               </>
             ) : (
               <>
@@ -628,11 +627,11 @@ function WebPreviewCard({
                   type="button"
                   onClick={onRestartServer}
                   disabled={isRestartingServer}
-                  className="w-20 h-20 rounded-full border-2 border-gray-500 hover:border-white hover:text-white flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-20 h-20 rounded-full border-2 border-gray-500 hover:border-white text-gray-400 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <span className="text-3xl ml-1">▶</span>
                 </button>
-                <span className="text-sm">Start Preview</span>
+                <span className="text-sm text-gray-400">Start Preview</span>
               </>
             )}
           </div>
@@ -644,19 +643,14 @@ function WebPreviewCard({
         <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
           <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
           <span className="text-gray-500">🪵 Server logs</span>
-          {canEvolve && (
+          {canEvolve && proxyServerStatus === 'running' && (
             <button
               data-id="session/restart-preview"
               type="button"
               onClick={(e) => { e.preventDefault(); onRestartServer(); }}
-              disabled={isRestartingServer || proxyServerStatus === 'starting'}
-              className="ml-auto text-xs text-gray-400 hover:text-gray-200 disabled:text-gray-600 transition-colors"
+              className="ml-auto text-xs text-gray-400 hover:text-gray-200 transition-colors"
             >
-              {isRestartingServer || proxyServerStatus === 'starting'
-                ? 'Starting…'
-                : proxyServerStatus === 'running'
-                ? '↺ Restart'
-                : '▶ Start'}
+              ↺ Restart
             </button>
           )}
         </summary>
