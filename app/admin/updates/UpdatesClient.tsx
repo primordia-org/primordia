@@ -88,6 +88,24 @@ const DELAY_OPTIONS: { value: number; label: string }[] = [
   { value: 30, label: "1 month" },
 ];
 
+/** Short human label for a frequency value, used in the schedule summary line. */
+function frequencySummary(freq: FetchFrequency): string | null {
+  switch (freq) {
+    case "hourly": return "Checked hourly";
+    case "daily":  return "Checked daily";
+    case "weekly": return "Checked weekly";
+    default:       return null; // "never" → omit
+  }
+}
+
+/** Short human label for a delay value, used in the schedule summary line. */
+function delaySummary(days: number): string | null {
+  if (days <= 0) return null;
+  const opt = DELAY_OPTIONS.find((o) => o.value === days);
+  const label = opt ? opt.label : `${days}d`;
+  return `Delayed ${label.toLowerCase()}`;
+}
+
 function formatLastFetched(ts: number | null): string {
   if (!ts) return "Never";
   const diff = Date.now() - ts;
@@ -234,7 +252,7 @@ function SourceCard({ source, onFetch, onToggle, onRemove, onCreateSession, onSa
           )}
         </div>
 
-        {/* Name + URL */}
+        {/* Name + URL + schedule summary */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-gray-100">{source.name}</span>
@@ -248,18 +266,6 @@ function SourceCard({ source, onFetch, onToggle, onRemove, onCreateSession, onSa
                 disabled
               </span>
             )}
-            {source.fetchFrequency !== "never" && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-500 inline-flex items-center gap-1">
-                <Clock size={10} strokeWidth={2} />
-                {FREQUENCY_OPTIONS.find((o) => o.value === source.fetchFrequency)?.label ?? source.fetchFrequency}
-              </span>
-            )}
-            {source.fetchDelayDays > 0 && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-500 inline-flex items-center gap-1">
-                <ShieldCheck size={10} strokeWidth={2} />
-                {DELAY_OPTIONS.find((o) => o.value === source.fetchDelayDays)?.label ?? `${source.fetchDelayDays}d delay`}
-              </span>
-            )}
           </div>
           <a
             href={source.url}
@@ -270,17 +276,43 @@ function SourceCard({ source, onFetch, onToggle, onRemove, onCreateSession, onSa
             {source.url}
             <ExternalLink size={10} strokeWidth={2} className="shrink-0" />
           </a>
+          {/* Schedule summary + settings cog */}
+          {(() => {
+            const freqText = frequencySummary(source.fetchFrequency);
+            const delayText = delaySummary(source.fetchDelayDays);
+            const parts = [freqText, delayText].filter(Boolean);
+            return (
+              <div className="flex items-center gap-1.5 mt-0.5">
+                {parts.length > 0 && (
+                  <span className="text-xs text-gray-600">
+                    {parts.join(" · ") + "."}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  title="Schedule settings"
+                  onClick={() => setSettingsOpen((v) => !v)}
+                  disabled={busy}
+                  className={`inline-flex items-center gap-1 text-xs disabled:opacity-40 transition-colors ${
+                    settingsOpen
+                      ? "text-blue-400"
+                      : "text-gray-600 hover:text-gray-300"
+                  }`}
+                >
+                  <Settings size={11} strokeWidth={2} />
+                  {parts.length === 0 && (
+                    <span>Schedule</span>
+                  )}
+                </button>
+              </div>
+            );
+          })()}
           {source.trackingBranchExists && !source.fetchError && (
             <p className="text-xs text-gray-500 mt-0.5">
               {source.hasUpdates
                 ? `${source.aheadCount} new commit${source.aheadCount === 1 ? "" : "s"} · tracking `
                 : "Up to date · tracking "}
               <code className="bg-gray-700/60 px-1 rounded">{source.trackingBranch}</code>
-              {source.fetchDelayDays > 0 && (
-                <span className="text-gray-600">
-                  {" "}(showing commits ≥{source.fetchDelayDays}d old)
-                </span>
-              )}
             </p>
           )}
           {source.fetchError && (
@@ -303,19 +335,6 @@ function SourceCard({ source, onFetch, onToggle, onRemove, onCreateSession, onSa
             ) : (
               <ToggleLeft size={16} strokeWidth={2} />
             )}
-          </button>
-
-          {/* Settings */}
-          <button
-            type="button"
-            title="Schedule settings"
-            onClick={() => setSettingsOpen((v) => !v)}
-            disabled={busy}
-            className={`p-1.5 rounded-lg hover:bg-gray-700 disabled:opacity-40 transition-colors ${
-              settingsOpen ? "text-blue-400" : "text-gray-400 hover:text-gray-200"
-            }`}
-          >
-            <Settings size={14} strokeWidth={2} />
           </button>
 
           {/* Fetch */}
