@@ -63,10 +63,14 @@ export default async function AdminProxyLogsPage() {
       : "";
 
   return (
-    <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-dvh">
+    <main className="flex flex-col w-full max-w-5xl mx-auto px-4 py-6 min-h-dvh">
       <PageNavBar subtitle="Admin" currentPage="admin" initialSession={sessionUser} initialHarness={evolvePrefs.initialHarness} initialModel={evolvePrefs.initialModel} initialCavemanMode={evolvePrefs.initialCavemanMode} initialCavemanIntensity={evolvePrefs.initialCavemanIntensity} />
-      <AdminSubNav currentTab="proxy-logs" />
-      <ServerLogsClient apiPath="/api/admin/proxy-logs" initialOutput={initialLogs} />
+      <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
+        <AdminSubNav currentTab="proxy-logs" />
+        <div className="flex-1 min-w-0">
+          <ServerLogsClient apiPath="/api/admin/proxy-logs" initialOutput={initialLogs} />
+        </div>
+      </div>
     </main>
   );
 }

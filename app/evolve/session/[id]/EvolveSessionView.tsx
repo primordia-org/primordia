@@ -33,9 +33,10 @@ interface SectionMetrics {
 }
 
 function formatDuration(ms: number): string {
-  return ms >= 60_000
-    ? `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`
-    : `${(ms / 1000).toFixed(1)}s`;
+  const totalSec = Math.round(ms / 1000);
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
 function MetricsRow({ metrics }: { metrics: SectionMetrics }) {
@@ -74,7 +75,7 @@ function MetricsRow({ metrics }: { metrics: SectionMetrics }) {
 
 /** A logical section derived from structured session events. */
 interface SectionGroup {
-  type: 'setup' | 'agent' | 'claude' | 'type_fix' | 'followup' | 'deploy' | 'conflict_resolution';
+  type: 'setup' | 'agent' | 'claude' | 'type_fix' | 'auto_commit' | 'followup' | 'deploy' | 'conflict_resolution';
   label: string;
   harness?: string;
   model?: string;
@@ -238,20 +239,21 @@ function splitAgentEventsForDisplay(events: SessionEvent[]): {
   };
 }
 
-/** Render a running agent/type-fix section (streaming events live). */
-function RunningAgentSection({ events, label, isTypeFixSection, worktreePath, harness, model, startTs }: {
+/** Render a running agent/type-fix/auto-commit section (streaming events live). */
+function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, worktreePath, harness, model, startTs }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
+  isAutoCommitSection: boolean;
   worktreePath?: string;
   harness?: string;
   model?: string;
   startTs?: number;
 }) {
-  const borderClass = isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
-  const headingClass = isTypeFixSection ? "text-orange-300" : "text-blue-300";
+  const borderClass = isAutoCommitSection ? "border-green-700/50" : isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
+  const headingClass = isAutoCommitSection ? "text-green-300" : isTypeFixSection ? "text-orange-300" : "text-blue-300";
   const agentLabel = harness ? (model ? `${harness} (${model})` : harness) : 'Claude Code';
-  const runningLabel = isTypeFixSection ? label : `🤖 ${agentLabel} running…`;
+  const runningLabel = (isTypeFixSection || isAutoCommitSection) ? label : `🤖 ${agentLabel} running…`;
 
   // Live elapsed-time counter updated every second.
   const [elapsed, setElapsed] = useState<number>(startTs ? Date.now() - startTs : 0);
@@ -270,9 +272,6 @@ function RunningAgentSection({ events, label, isTypeFixSection, worktreePath, ha
       <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
         <span className={`font-semibold text-xs ${headingClass}`}>{runningLabel}</span>
         <span className="ml-auto flex items-center gap-1.5 text-gray-500 text-xs">
-          {elapsed > 0 && (
-            <span className="font-mono">{formatDuration(elapsed)}</span>
-          )}
           <span className="flex items-center gap-1.5 animate-pulse">
             <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
           </span>
@@ -319,11 +318,12 @@ function RunningAgentSection({ events, label, isTypeFixSection, worktreePath, ha
   );
 }
 
-/** Render a completed agent/type-fix section with tool calls collapsed. */
-function DoneAgentSection({ events, label, isTypeFixSection, worktreePath, harness, model, startTs }: {
+/** Render a completed agent/type-fix/auto-commit section with tool calls collapsed. */
+function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, worktreePath, harness, model, startTs }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
+  isAutoCommitSection: boolean;
   worktreePath?: string;
   harness?: string;
   model?: string;
@@ -336,14 +336,14 @@ function DoneAgentSection({ events, label, isTypeFixSection, worktreePath, harne
   const metricsEvent = [...events].reverse().find((e): e is Extract<SessionEvent, { type: 'metrics' }> => e.type === 'metrics');
   const hasError = resultEvent?.subtype === 'error' || resultEvent?.subtype === 'timeout' || resultEvent?.subtype === 'aborted';
 
-  const borderClass = isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
-  const headingClass = isTypeFixSection ? "text-orange-300" : "text-blue-300";
+  const borderClass = isAutoCommitSection ? "border-green-700/50" : isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
+  const headingClass = isAutoCommitSection ? "text-green-300" : isTypeFixSection ? "text-orange-300" : "text-blue-300";
   const doneBorderClass = hasError ? "border-red-700/50" : borderClass;
   const doneHeadingClass = hasError ? "text-red-400" : headingClass;
   const agentLabel = harness ? (model ? `${harness} (${model})` : harness) : 'Claude Code';
   const doneTitle = hasError
-    ? (isTypeFixSection ? "❌ Auto-fix failed" : `❌ ${agentLabel} errored`)
-    : (isTypeFixSection ? "🔧 Type errors fixed" : `🤖 ${agentLabel} finished`);
+    ? (isAutoCommitSection ? "❌ Auto-commit failed" : isTypeFixSection ? "❌ Auto-fix failed" : `❌ ${agentLabel} errored`)
+    : (isAutoCommitSection ? "📦 Unstaged changes committed" : isTypeFixSection ? "🔧 Type errors fixed" : `🤖 ${agentLabel} finished`);
 
   const { detailEvents, finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
 
@@ -470,20 +470,20 @@ function StructuredSection({
         )}
         {agentEvents.length > 0 && (
           isActive && !hasResult
-            ? <RunningAgentSection events={agentEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />
-            : <DoneAgentSection events={agentEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />
+            ? <RunningAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />
+            : <DoneAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />
         )}
       </>
     );
   }
 
-  // ── Agent / Claude Code (legacy) / type_fix / conflict_resolution ─────────
-  if (type === 'agent' || type === 'claude' || type === 'type_fix' || type === 'conflict_resolution') {
+  // ── Agent / Claude Code (legacy) / type_fix / auto_commit / conflict_resolution ──
+  if (type === 'agent' || type === 'claude' || type === 'type_fix' || type === 'auto_commit' || type === 'conflict_resolution') {
     const hasResult = events.some((e) => e.type === 'result');
     if (isActive && !hasResult) {
-      return <RunningAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />;
+      return <RunningAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />;
     }
-    return <DoneAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />;
+    return <DoneAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />;
   }
 
   // ── Deploy ───────────────────────────────────────────────────────────────
