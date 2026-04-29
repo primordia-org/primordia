@@ -1,4 +1,4 @@
-# QR Login Dialog — Credential Sync for Both Flows + Inline Approve Tab
+# QR Login Dialog — Credential Sync for Both Flows
 
 ## What changed
 
@@ -8,9 +8,7 @@
 
 ### Modified files
 
-- **`components/QrSignInOtherDeviceDialog.tsx`** — The "Sign in on another device" hamburger dialog now has two tabs:
-  - **"Sign in another device"** (push flow, unchanged): shows a QR code with AES keys in the URL fragment for immediate sign-in + credential copy.
-  - **"Approve a sign-in"** (new): lets the logged-in user paste a QR URL or bare token ID from the login page and click "Approve sign-in" inline — no need to scan a QR code or navigate away. If the pasted URL contains a `pk=` credential key, credentials are also encrypted and sent along with the approval.
+- **`components/QrSignInOtherDeviceDialog.tsx`** — The "Sign in on another device" hamburger dialog is unchanged in structure (push flow only): shows a QR code with AES keys in the URL fragment for immediate sign-in + credential copy.
 
 - **`components/auth-tabs/cross-device/index.tsx`** — The login-page pull-flow QR tab now participates in credential sync. On mount it generates an ephemeral ECDH P-256 keypair; the public key is appended to the QR image URL as `pk=<b64url>`. When the poll returns "approved" with an `encryptedCredentials` bundle, the tab decrypts it with the in-memory private key and saves the keys to localStorage. Description updated to reflect that credentials transfer now also works in the pull flow.
 
@@ -31,10 +29,6 @@
 ---
 
 ## Why
-
-### "Approve this login" inline
-
-Previously, approving a pull-flow login required the approver to scan a QR code with their phone camera, navigate to `/login/approve`, and click a button there. Adding an "Approve a sign-in" tab to the existing hamburger dialog means desktop users can complete the full round-trip without touching a camera — they copy-paste the URL from the QR and approve with one click.
 
 ### Credential sync for the pull flow
 
