@@ -3,32 +3,36 @@
 // components/QrSignInOtherDeviceDialog.tsx
 // Dialog shown to already-authenticated users from the hamburger menu.
 //
-// Push flow:
-//   1. Reads AES encryption key JWKs from localStorage (if any are stored).
-//   2. POSTs to /api/auth/cross-device/push to create a pre-approved token.
-//      No keys are sent to the server.
-//   3. Builds a receive URL with keys in the URL fragment (#k1=...&k2=...).
-//      Fragments are never sent to the server — they exist only in the browser.
-//   4. Generates the QR code entirely client-side so the server never sees the
-//      fragment, and therefore never sees the AES keys.
-//   5. The scanning device reads the keys from the fragment on its own page
-//      and stores them in localStorage — keys travel only through the QR code.
+// Push flow (ECIES — no raw credential keys in the QR code):
+//   1. Reads own AES keys from localStorage.
+//   2. Generates two ephemeral ECDH P-256 keypairs (A = sender, B = receiver).
+//      Derives shared AES key = ECDH(A_priv, B_pub).
+//   3. Encrypts credentials with the shared AES key.
+//   4. POSTs the encrypted bundle (+ A_pub) to /api/auth/cross-device/push.
+//      Server stores it on the pre-approved push token.
+//   5. Builds the receive URL:
+//        /login/cross-device-receive?token=<id>#priv=<B_priv_pkcs8_b64url>
+//      B_priv goes only in the URL fragment — browsers never send it to the server.
+//   6. Generates the QR code entirely client-side from the receive URL.
+//
+//   Device B reads B_priv from the fragment, polls the server, gets the bundle
+//   (A_pub + ciphertext), derives ECDH(B_priv, A_pub) = same shared key, decrypts.
+//
+//   Even if someone photographs the QR and obtains B_priv, they still need A_pub
+//   and the server-stored ciphertext. A_pub is not secret, but the ciphertext is
+//   deleted from the server after first retrieval — preventing replay attacks.
 
 import { useState, useEffect, useCallback } from "react";
 import { QrCode, X, RefreshCw } from "lucide-react";
 import { withBasePath, basePath } from "@/lib/base-path";
 import QRCode from "qrcode";
+import { encryptCredentialsForPush } from "@/lib/cross-device-creds";
 
 interface QrSignInOtherDeviceDialogProps {
   onClose: () => void;
 }
 
 type Phase = "loading" | "ready" | "error";
-
-// URL-safe base64 encoding (no +, /, or = padding) so fragment params stay compact.
-function b64uEncode(s: string): string {
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-}
 
 export function QrSignInOtherDeviceDialog({ onClose }: QrSignInOtherDeviceDialogProps) {
   const [phase, setPhase] = useState<Phase>("loading");
@@ -52,23 +56,26 @@ export function QrSignInOtherDeviceDialog({ onClose }: QrSignInOtherDeviceDialog
     setError(null);
     setQrImgSrc(null);
 
-    // Read AES key JWK strings from localStorage.
-    // These never leave the browser in this flow — they travel only via the QR code.
-    let rawApiKeyJwk: string | null = null;
-    let rawCredentialsKeyJwk: string | null = null;
+    // Read own AES credential keys from localStorage.
+    let k1: string | null = null;
+    let k2: string | null = null;
     try {
-      rawApiKeyJwk = localStorage.getItem("primordia_aes_key");
-      rawCredentialsKeyJwk = localStorage.getItem("primordia_credentials_aes_key");
+      k1 = localStorage.getItem("primordia_aes_key");
+      k2 = localStorage.getItem("primordia_credentials_aes_key");
     } catch {
-      // localStorage unavailable — continue without key transfer
+      // localStorage unavailable — continue without credential transfer
     }
 
     try {
-      // Create a pre-approved push token on the server (no keys involved).
+      // ECIES: encrypt credentials for the receiver using two ephemeral ECDH keypairs.
+      // Returns the receiver's private key (for the QR fragment) and the server bundle.
+      const ecies = (k1 || k2) ? await encryptCredentialsForPush(k1, k2) : null;
+
+      // Create a pre-approved push token, storing the encrypted bundle on the server.
       const res = await fetch(withBasePath("/api/auth/cross-device/push"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ encryptedCredentials: ecies?.bundle ?? null }),
       });
       const data = (await res.json()) as { tokenId?: string; error?: string };
       if (!res.ok || !data.tokenId) {
@@ -77,14 +84,13 @@ export function QrSignInOtherDeviceDialog({ onClose }: QrSignInOtherDeviceDialog
         return;
       }
 
-      // Build receive URL. Keys go in the fragment — browsers never send the
-      // fragment to the server, so the AES keys are invisible to the server.
+      // Build receive URL. The receiver's private key goes in the URL fragment —
+      // browsers never send the fragment to the server.
       const origin = window.location.origin;
       const base = `${origin}${basePath}/login/cross-device-receive?token=${data.tokenId}`;
-      const parts: string[] = [];
-      if (rawApiKeyJwk) parts.push(`k1=${b64uEncode(rawApiKeyJwk)}`);
-      if (rawCredentialsKeyJwk) parts.push(`k2=${b64uEncode(rawCredentialsKeyJwk)}`);
-      const receiveUrl = parts.length > 0 ? `${base}#${parts.join("&")}` : base;
+      const receiveUrl = ecies?.receiverPrivB64u
+        ? `${base}#priv=${ecies.receiverPrivB64u}`
+        : base;
 
       // Generate the QR code entirely in the browser.
       const svg = await QRCode.toString(receiveUrl, {
@@ -136,9 +142,8 @@ export function QrSignInOtherDeviceDialog({ onClose }: QrSignInOtherDeviceDialog
 
         {/* Description */}
         <p className="text-sm text-gray-400 leading-relaxed">
-          Scan this QR code on another device to sign in as you. Your API key
-          and credential encryption keys are embedded directly in the QR code —
-          they never pass through the server.
+          Scan this QR code on another device to sign in as you. Your credential
+          keys are transferred securely — they are never exposed in the QR code.
         </p>
 
         {/* QR Code / states */}

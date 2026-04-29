@@ -2,17 +2,18 @@
 
 // app/login/cross-device-receive/page.tsx
 // Visited by Device B after scanning the QR code shown on Device A's
-// "Sign in on another device" dialog.
+// "Sign in on another device" dialog (push flow).
 //
 // Flow:
 //   1. Page reads ?token=<tokenId> from the URL query string.
-//   2. Reads AES key JWKs from the URL fragment (#k1=...&k2=...) — these
-//      were embedded by Device A when generating the QR code client-side and
-//      never passed through the server.
-//   3. Saves the keys to localStorage immediately, then clears the fragment
-//      from the URL bar so the raw keys don't linger in browser history.
-//   4. Polls /api/auth/cross-device/poll (push tokens are pre-approved, so
-//      the first poll should return "approved" and set the session cookie).
+//   2. Reads the receiver's ephemeral ECDH private key from the URL fragment
+//      (#priv=<pkcs8_b64url>) — embedded by Device A client-side, never sent
+//      to the server. Clears the fragment immediately to keep keys out of
+//      browser history.
+//   3. Polls /api/auth/cross-device/poll (push tokens are pre-approved, so
+//      the first poll returns "approved" and sets the session cookie).
+//   4. If the poll response includes an encryptedCredentials bundle, decrypts
+//      it using ECDH(B_priv, A_pub) and saves the credential keys to localStorage.
 //   5. Redirects to the home page.
 
 import { Suspense, useEffect, useState, useRef } from "react";
@@ -20,13 +21,9 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle, Loader2 } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
+import { decryptPushCredentials, type PushCredBundle } from "@/lib/cross-device-creds";
 
 type Phase = "loading" | "approved" | "expired" | "error";
-
-// Decode a base64url-encoded string back to its original value.
-function b64uDecode(s: string): string {
-  return atob(s.replace(/-/g, "+").replace(/_/g, "/"));
-}
 
 function ReceivePageInner() {
   const searchParams = useSearchParams();
@@ -41,37 +38,24 @@ function ReceivePageInner() {
     tokenId ? null : "No token found in URL. This QR code may be invalid."
   );
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Receiver's ephemeral ECDH private key extracted from the QR fragment.
+  // Kept in a ref so the polling closure can always access the latest value.
+  const receiverPrivRef = useRef<string | null>(null);
 
-  // Extract AES key JWKs from the URL fragment and store them in localStorage.
-  // This runs once on mount, before polling starts.
-  // The fragment was embedded by Device A when it generated the QR code client-side —
-  // it was never sent to the server, so we're the first (and only) code that sees it.
+  // Extract the receiver's private key from the URL fragment.
+  // Runs once on mount, before polling, and clears the fragment immediately.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hash = window.location.hash.slice(1); // strip leading #
     if (hash) {
       const params = new URLSearchParams(hash);
-      const k1 = params.get("k1");
-      const k2 = params.get("k2");
-      if (k1) {
-        try {
-          localStorage.setItem("primordia_aes_key", b64uDecode(k1));
-        } catch {
-          // localStorage unavailable — not fatal
-        }
-      }
-      if (k2) {
-        try {
-          localStorage.setItem("primordia_credentials_aes_key", b64uDecode(k2));
-        } catch {
-          // localStorage unavailable — not fatal
-        }
-      }
-      // Remove the fragment from the URL bar so the raw keys don't persist
-      // in browser history or get accidentally shared via URL copy-paste.
+      const priv = params.get("priv");
+      if (priv) receiverPrivRef.current = priv;
+      // Remove the fragment from the URL bar so the private key doesn't
+      // persist in browser history or get accidentally shared.
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
     }
-  }, []); // run once on mount
+  }, []);
 
   useEffect(() => {
     if (!tokenId) return;
@@ -84,14 +68,30 @@ function ReceivePageInner() {
         const data = (await res.json()) as {
           status?: string;
           username?: string;
+          encryptedCredentials?: PushCredBundle;
         };
 
         if (data.status === "approved") {
-          // Stop polling
+          // Stop polling.
           if (pollRef.current) {
             clearInterval(pollRef.current);
             pollRef.current = null;
           }
+
+          // Decrypt and save credential keys if the push bundle is present.
+          if (data.encryptedCredentials && receiverPrivRef.current) {
+            try {
+              const { k1, k2 } = await decryptPushCredentials(
+                receiverPrivRef.current,
+                data.encryptedCredentials
+              );
+              if (k1) localStorage.setItem("primordia_aes_key", k1);
+              if (k2) localStorage.setItem("primordia_credentials_aes_key", k2);
+            } catch {
+              // Decryption failed — sign-in still succeeds; credentials just won't transfer
+            }
+          }
+
           setUsername(data.username ?? null);
           setPhase("approved");
 
@@ -176,7 +176,7 @@ function ReceivePageInner() {
                 This QR code has expired. Ask the other device to generate a new one.
               </p>
               <Link
-                href="/login"
+                href={withBasePath("/login")}
                 className="inline-block text-sm text-blue-400 hover:text-blue-300 transition-colors"
               >
                 Go to sign-in &rarr;
@@ -193,7 +193,7 @@ function ReceivePageInner() {
 
         {/* Back link */}
         <p className="text-center">
-          <Link href="/" className="text-sm text-blue-400 hover:text-blue-300">
+          <Link href={withBasePath("/")} className="text-sm text-blue-400 hover:text-blue-300">
             &larr; Back to Primordia
           </Link>
         </p>

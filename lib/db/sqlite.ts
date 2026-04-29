@@ -365,8 +365,8 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     },
     async createCrossDeviceToken(token: CrossDeviceToken) {
       db.prepare(
-        "INSERT INTO cross_device_tokens (id, status, user_id, expires_at) VALUES (?, ?, ?, ?)"
-      ).run(token.id, token.status, token.userId ?? null, token.expiresAt);
+        "INSERT INTO cross_device_tokens (id, status, user_id, expires_at, encrypted_credentials) VALUES (?, ?, ?, ?, ?)"
+      ).run(token.id, token.status, token.userId ?? null, token.expiresAt, token.encryptedCredentials ?? null);
     },
     async getCrossDeviceToken(id: string) {
       const r = db

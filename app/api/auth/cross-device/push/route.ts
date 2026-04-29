@@ -6,13 +6,15 @@
 // already-authenticated device from the hamburger menu. The token is created in
 // "approved" state with the caller's userId.
 //
-// AES key transfer no longer goes through the server. The client embeds the
-// keys in the URL fragment when generating the QR code client-side. Fragments
-// are never sent to the server, so the keys stay off-server entirely.
+// Credential transfer uses ECIES (see lib/cross-device-creds.ts): the client
+// passes an encrypted credential bundle; the server stores it on the token.
+// The receiving device fetches A_pub + ciphertext via the poll route and decrypts
+// using the ephemeral private key it received from the QR code URL fragment.
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db/index";
 import { generateId, getSessionUser } from "@/lib/auth";
+import type { PushCredBundle } from "@/lib/cross-device-creds";
 
 // Same TTL as pull tokens — 10 minutes to scan the QR code.
 const CROSS_DEVICE_TOKEN_TTL_MS = 10 * 60 * 1000;
@@ -20,16 +22,21 @@ const CROSS_DEVICE_TOKEN_TTL_MS = 10 * 60 * 1000;
 /**
  * Start a "push" cross-device sign-in from the already-authenticated device.
  * @description Creates a pre-approved token. The scanning device uses
- *   GET /api/auth/cross-device/poll to receive the session cookie.
- *   Requires an active session.
+ *   GET /api/auth/cross-device/poll to receive the session cookie and any
+ *   encrypted credentials. Requires an active session.
  * @tag Auth
  */
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
     const user = await getSessionUser();
     if (!user) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
+
+    const body = (await request.json()) as { encryptedCredentials?: PushCredBundle | null };
+    const encryptedCredsJson = body.encryptedCredentials
+      ? JSON.stringify(body.encryptedCredentials)
+      : null;
 
     const db = await getDb();
     const tokenId = generateId();
@@ -40,7 +47,7 @@ export async function POST() {
       status: "approved",
       userId: user.id,
       expiresAt: Date.now() + CROSS_DEVICE_TOKEN_TTL_MS,
-      encryptedCredentials: null,
+      encryptedCredentials: encryptedCredsJson,
     });
 
     // Clean up old tokens opportunistically.
