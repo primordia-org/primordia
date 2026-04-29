@@ -51,8 +51,11 @@ if (_userCredentialsJson) {
   process.env.ANTHROPIC_API_KEY = 'gateway'; // SDK requires non-empty
 }
 
-// Module-level path so cleanup() can reference it regardless of where it exits.
+// Module-level paths so cleanup() can reference them regardless of where it exits.
 let _credentialsFilePath: string | null = null;
+// Lock file written to CLAUDE_CONFIG_DIR to signal this worker is actively using credentials.
+// Only deleted in cleanup(); the credentials file itself is only removed when no lock files remain.
+let _credentialsLockPath: string | null = null;
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
@@ -144,25 +147,42 @@ async function main(): Promise<void> {
   }
 
   // Write credentials.json to CLAUDE_CONFIG_DIR so Claude Code can authenticate
-  // with the user's own subscription. The file is deleted in cleanup() so it
-  // only exists on disk for the duration of this worker's lifetime.
+  // with the user's own subscription. The file is deleted in cleanup() only when
+  // no other worker process is still using it (ref-counted via per-PID lock files).
   if (_userCredentialsJson) {
     const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR ?? (process.env.HOME ?? '/home/exedev') + '/.claude';
     try {
       fs.mkdirSync(claudeConfigDir, { recursive: true });
+      // Write a per-PID lock file BEFORE writing credentials so any concurrent
+      // cleanup() racing against us will see at least one lock file remaining.
+      _credentialsLockPath = path.join(claudeConfigDir, `.credentials.${process.pid}.lock`);
+      fs.writeFileSync(_credentialsLockPath, String(process.pid), { mode: 0o600 });
       _credentialsFilePath = path.join(claudeConfigDir, '.credentials.json');
       fs.writeFileSync(_credentialsFilePath, _userCredentialsJson, { mode: 0o600 });
     } catch (err) {
       process.stderr.write(`Warning: could not write credentials.json: ${err}\n`);
       _credentialsFilePath = null;
+      _credentialsLockPath = null;
     }
   }
 
   function cleanup(): void {
     try { fs.rmSync(pidFile, { force: true }); } catch { /* best-effort */ }
-    // Delete the credentials file so it is only present during the Claude run.
+    // Remove this worker's lock file first, then check if any other workers are
+    // still using the shared credentials file.  Only delete the credentials
+    // file when no lock files remain — this prevents a finishing worker from
+    // deleting credentials that a concurrently running worker still needs.
+    if (_credentialsLockPath) {
+      try { fs.rmSync(_credentialsLockPath, { force: true }); } catch { /* best-effort */ }
+    }
     if (_credentialsFilePath) {
-      try { fs.rmSync(_credentialsFilePath, { force: true }); } catch { /* best-effort */ }
+      try {
+        const dir = path.dirname(_credentialsFilePath);
+        const lockFiles = fs.readdirSync(dir).filter((f) => /^\.credentials\.\d+\.lock$/.test(f));
+        if (lockFiles.length === 0) {
+          fs.rmSync(_credentialsFilePath, { force: true });
+        }
+      } catch { /* best-effort */ }
     }
   }
 

@@ -514,8 +514,10 @@ if [[ "${PROXY_RUNNING}" == "true" && "${PROXY_CHANGED}" == "false" && "${SERVIC
   SPAWN_RESULT=""
   while IFS= read -r _sse_line; do
     SPAWN_RESULT="$_sse_line"
-    # Print log-type messages immediately
-    _sse_text="$(echo "$_sse_line" | grep -o '"text":"[^"]*"' | sed 's/"text":"//;s/"$//' || true)"
+    # Print log-type messages immediately.
+    # sed converts JSON-encoded \u001b (ESC) to the actual ESC byte so that
+    # ANSI colour codes emitted by the proxy render correctly in the terminal.
+    _sse_text="$(echo "$_sse_line" | grep -o '"text":"[^"]*"' | sed 's/"text":"//;s/"$//;s/\\u001b/\x1b/g' || true)"
     if [[ -n "$_sse_text" ]]; then
       printf '%b' "$_sse_text"
     fi

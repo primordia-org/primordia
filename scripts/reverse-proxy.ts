@@ -783,12 +783,37 @@ async function handleProdSpawn(
     if (!clientRes.writableEnded) clientRes.end();
   };
 
+  // ANSI formatting helpers (same palette as scripts/install.sh).
+  const G = '\x1b[0;32m'; // green
+  const R = '\x1b[0m';    // reset
+  // Spinner characters: same \|/- sequence used by install.sh.
+  const SPIN = '\\|/-';
+  let _spinTimer: ReturnType<typeof setInterval> | null = null;
+
+  // _step: print '\ msg' and start a 120 ms spinner (same cadence as install.sh).
+  const _step = (msg: string) => {
+    if (_spinTimer) { clearInterval(_spinTimer); _spinTimer = null; }
+    let i = 0;
+    sendLog(`\\ ${msg}`);
+    _spinTimer = setInterval(() => { sendLog(`\r${SPIN[i++ % 4]} ${msg}`); }, 120);
+  };
+  // _done: kill the spinner and overwrite the line with a green ✓.
+  const _done = (msg: string) => {
+    if (_spinTimer) { clearInterval(_spinTimer); _spinTimer = null; }
+    sendLog(`\r\x1b[K${G}✓${R} ${msg}\n`);
+  };
+  // _success: standalone ✓ line (no preceding _step).
+  const _success = (msg: string) => sendLog(`${G}✓${R} ${msg}\n`);
+
+  // Stop the spinner if the SSE client disconnects mid-deploy.
+  clientReq.on('close', () => { if (_spinTimer) { clearInterval(_spinTimer); _spinTimer = null; } });
+
   try {
     // Snapshot the old upstream port before we change anything.
     const oldPort = upstreamPort;
     const oldEntry = prodServerEntry;
 
-    sendLog('- Starting new production server…\n');
+    _step('Starting server…');
     await killPortOwner(port);
 
     // Spawn new prod server — proxy owns this process.
@@ -814,7 +839,8 @@ async function handleProdSpawn(
     });
 
     // Health check — poll until the server responds or 30 s elapses.
-    sendLog('- Health-checking new slot…\n');
+    _done('Server started');
+    _step('Health-checking server…');
     let healthOk = false;
     let healthError: string | undefined;
     const deadline = Date.now() + 30_000;
@@ -834,6 +860,7 @@ async function handleProdSpawn(
 
     if (!healthOk) {
       try { newServer.kill('SIGTERM'); } catch { /* already gone */ }
+      _done('Health-check failed');
       sendDone(false, `New slot failed health check: ${healthError ?? 'server did not respond'}`);
       return;
     }
@@ -841,7 +868,7 @@ async function handleProdSpawn(
     // Register the new server as the tracked prod process.
     prodServerEntry = { process: newServer, port, branch };
 
-    sendLog('- Activating new slot…\n');
+    _done('Health-check passed');
 
     // Update git config: primordia.productionBranch + history.
     try {
@@ -871,8 +898,10 @@ async function handleProdSpawn(
     // Killing it from the proxy would race with (and likely win against) the old
     // server's remaining work, causing update-service.sh to never run.
     console.log(`[proxy] prod slot activated: ${branch} on :${port} (old :${oldPort}; old server will self-terminate)`);
+    _success('Web traffic is now being directed to this server');
     sendDone(true);
   } catch (err) {
+    if (_spinTimer) { clearInterval(_spinTimer); _spinTimer = null; }
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[proxy] handleProdSpawn error:', msg);
     sendDone(false, msg);
