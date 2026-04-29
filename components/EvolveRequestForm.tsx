@@ -15,6 +15,7 @@ import { Paperclip, Settings, ChevronDown, Crosshair, Loader2 } from "lucide-rea
 import { useRouter } from "next/navigation";
 import { withBasePath } from "../lib/base-path";
 import { encryptStoredApiKey } from "../lib/api-key-client";
+import { encryptStoredCredentials } from "../lib/credentials-client";
 import {
   HARNESS_OPTIONS,
   DEFAULT_HARNESS,
@@ -256,6 +257,8 @@ export function EvolveRequestForm({
         }
         const encryptedApiKey = await encryptStoredApiKey();
         if (encryptedApiKey) formData.append("encryptedApiKey", encryptedApiKey);
+        const encryptedCredentials = await encryptStoredCredentials();
+        if (encryptedCredentials) formData.append("encryptedCredentials", JSON.stringify(encryptedCredentials));
 
         const res = await fetch(withBasePath("/api/evolve"), { method: "POST", body: formData });
         const data = (await res.json()) as { sessionId?: string; error?: string };

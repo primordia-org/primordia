@@ -12,7 +12,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { getLlmClient } from '../../../lib/llm-client';
-import { decryptApiKey } from '../../../lib/llm-encryption';
+import { decryptApiKey, decryptHybridCredentials } from '../../../lib/llm-encryption';
 import {
   startLocalEvolve,
   runGit,
@@ -96,6 +96,7 @@ export interface EvolvePostFormData {
   cavemanMode?: string; // Enable caveman communication mode. Pass the string 'true' to enable.
   cavemanIntensity?: string; // Caveman intensity: lite, full, ultra, wenyan-lite, wenyan-full, wenyan-ultra.
   encryptedApiKey?: string; // Optional RSA-OAEP encrypted Anthropic API key (from /api/llm-key/public-key).
+  encryptedCredentials?: string; // Optional hybrid-encrypted Claude Code credentials.json (JSON: { wrappedKey, iv, ciphertext }).
   attachments?: string; // Optional file attachments copied into the worktree's attachments/ directory.
 }
 
@@ -123,6 +124,7 @@ export async function POST(request: Request) {
   let cavemanMode = false;
   let cavemanIntensity: CavemanIntensity = DEFAULT_CAVEMAN_INTENSITY;
   let encryptedApiKey: string | null = null;
+  let encryptedCredentials: string | null = null;
   const savedAttachmentPaths: string[] = [];
 
   const contentType = request.headers.get('content-type') ?? '';
@@ -145,6 +147,8 @@ export async function POST(request: Request) {
     }
     const encKeyField = formData.get('encryptedApiKey');
     if (typeof encKeyField === 'string' && encKeyField) encryptedApiKey = encKeyField;
+    const encCredsField = formData.get('encryptedCredentials');
+    if (typeof encCredsField === 'string' && encCredsField) encryptedCredentials = encCredsField;
 
     const files = formData.getAll('attachments');
     if (files.length > 0) {
@@ -171,12 +175,13 @@ export async function POST(request: Request) {
       }
     }
   } else {
-    const body = (await request.json()) as { request?: string; encryptedApiKey?: string };
+    const body = (await request.json()) as { request?: string; encryptedApiKey?: string; encryptedCredentials?: string };
     if (!body.request || typeof body.request !== 'string') {
       return Response.json({ error: 'request string required' }, { status: 400 });
     }
     requestText = body.request;
     if (body.encryptedApiKey) encryptedApiKey = body.encryptedApiKey;
+    if (body.encryptedCredentials) encryptedCredentials = body.encryptedCredentials;
   }
 
   // Decrypt the user's API key (if provided) right before use.
@@ -190,6 +195,18 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Could not decrypt API key. Please try submitting again.' }, { status: 400 });
     }
     encryptedApiKey = null; // clear ciphertext from memory
+  }
+
+  // Decrypt the user's Claude Code credentials (if provided).
+  let decryptedCredentials: string | undefined;
+  if (encryptedCredentials) {
+    try {
+      const payload = JSON.parse(encryptedCredentials) as { wrappedKey: string; iv: string; ciphertext: string };
+      decryptedCredentials = await decryptHybridCredentials(payload);
+    } catch {
+      return Response.json({ error: 'Could not decrypt credentials. Please try submitting again.' }, { status: 400 });
+    }
+    encryptedCredentials = null; // clear ciphertext from memory
   }
 
   const repoRoot = process.cwd();
@@ -235,11 +252,13 @@ export async function POST(request: Request) {
     harness,
     model,
     apiKey: decryptedApiKey,
+    credentials: decryptedCredentials,
     userId: user.id,
   };
-  // Clear the decrypted key from this scope immediately after assigning it to
-  // the session object (the worker will consume it via env var then delete it).
+  // Clear decrypted secrets from this scope immediately after assigning them to
+  // the session object (the worker consumes them via env vars then deletes them).
   decryptedApiKey = undefined;
+  decryptedCredentials = undefined;
 
   // Fire-and-forget — run async so POST returns immediately with the session ID.
   // startLocalEvolve handles all error states internally and writes them to the filesystem.

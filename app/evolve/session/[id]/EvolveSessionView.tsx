@@ -15,6 +15,7 @@ import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMen
 import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
 import { encryptStoredApiKey } from "@/lib/api-key-client";
+import { encryptStoredCredentials } from "@/lib/credentials-client";
 import { EvolveRequestForm } from "@/components/EvolveRequestForm";
 import Link from "next/link";
 import type { DiffFileSummary } from "./page";
@@ -1670,6 +1671,8 @@ export default function EvolveSessionView({
                   for (const file of files) formData.append('attachments', file);
                   const encryptedApiKey = await encryptStoredApiKey();
                   if (encryptedApiKey) formData.append('encryptedApiKey', encryptedApiKey);
+                  const encryptedCredentials = await encryptStoredCredentials();
+                  if (encryptedCredentials) formData.append('encryptedCredentials', JSON.stringify(encryptedCredentials));
                   const res = await fetch(withBasePath('/api/evolve/followup'), {
                     method: 'POST',
                     body: formData,

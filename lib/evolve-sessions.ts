@@ -54,6 +54,13 @@ export interface LocalSession {
    */
   apiKey?: string;
   /**
+   * Decrypted Claude Code credentials.json content supplied by the user.
+   * Transient — never persisted to the NDJSON log or SQLite.
+   * When set, the worker writes this JSON to CLAUDE_CONFIG_DIR/.credentials.json
+   * before running Claude Code and deletes it immediately afterwards.
+   */
+  credentials?: string;
+  /**
    * Primordia user ID of the person who initiated this session.
    * Used to set CLAUDE_CONFIG_DIR so each user's Claude configuration
    * (settings, tool approvals, conversation history) is isolated.
@@ -158,6 +165,13 @@ interface WorkerConfig {
    */
   apiKey?: string;
   /**
+   * Decrypted Claude Code credentials.json content to pass to the worker via
+   * environment variable. NOT written to the JSON config file on disk.
+   * The worker writes this to CLAUDE_CONFIG_DIR/.credentials.json, runs Claude
+   * Code, then deletes the file in its cleanup step.
+   */
+  credentials?: string;
+  /**
    * Primordia user ID. CLAUDE_CONFIG_DIR is pointed at a per-user directory
    * so each user's Claude config is isolated.
    * NOT written to the JSON config file — only used to derive the env var.
@@ -210,17 +224,21 @@ async function spawnAgentWorker(
 ): Promise<void> {
   checkWorktreeNotBusy(config.worktreePath);
 
-  // Strip the API key from the JSON config file so it is never written to disk
-  // in plaintext. Pass it instead as a process environment variable.
-  const { apiKey: workerApiKey, ...configWithoutKey } = config;
+  // Strip sensitive fields (API key, credentials) from the JSON config file so
+  // they are never written to disk in plaintext. Pass them instead as process
+  // environment variables. The worker reads and immediately deletes each var.
+  const { apiKey: workerApiKey, credentials: workerCredentials, ...configWithoutSensitive } = config;
   const configFile = `/tmp/primordia-worker-${config.sessionId}.json`;
-  fs.writeFileSync(configFile, JSON.stringify(configWithoutKey), 'utf8');
+  fs.writeFileSync(configFile, JSON.stringify(configWithoutSensitive), 'utf8');
 
   // Build the worker's environment: inherit server env, then optionally inject
-  // the user's API key. The worker reads and immediately deletes this var.
+  // the user's API key and/or credentials.
   const workerEnv: NodeJS.ProcessEnv = { ...process.env };
   if (workerApiKey) {
     workerEnv['PRIMORDIA_USER_API_KEY'] = workerApiKey;
+  }
+  if (workerCredentials) {
+    workerEnv['PRIMORDIA_USER_CREDENTIALS'] = workerCredentials;
   }
   const homeDir = process.env.HOME ?? '/home/exedev';
   workerEnv['CLAUDE_CONFIG_DIR'] = path.join(homeDir, '.claude-users', config.userId);
@@ -654,6 +672,7 @@ export async function startLocalEvolve(
         // model that was logged in the section_start event.
         model: modelId,
         apiKey: session.apiKey,
+        credentials: session.credentials,
         userId: session.userId,
       },
       workerScript,
@@ -805,6 +824,7 @@ export async function runFollowupInWorktree(
         model: fuModelId,
         useContinue: true,
         apiKey: session.apiKey,
+        credentials: session.credentials,
         userId: session.userId,
       },
       fuWorkerScript,
@@ -870,7 +890,7 @@ export async function resolveConflictsWithAgent(
   mergeRoot: string,
   branch: string,
   parentBranch: string,
-  sessionContext: { id: string; harness?: string; model?: string; apiKey?: string; userId: string },
+  sessionContext: { id: string; harness?: string; model?: string; apiKey?: string; credentials?: string; userId: string },
   repoRoot?: string,
 ): Promise<{ success: boolean; log: string }> {
   const root = repoRoot ?? process.cwd();
@@ -913,6 +933,7 @@ export async function resolveConflictsWithAgent(
         timeoutMs: 10 * 60 * 1000,
         model: sessionContext.model,
         apiKey: sessionContext.apiKey,
+        credentials: sessionContext.credentials,
         userId: sessionContext.userId,
       },
       workerScript,

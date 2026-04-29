@@ -38,6 +38,15 @@ if (_userApiKey) {
 // processes spawned by Claude Code (e.g. bash tool invocations).
 delete process.env.PRIMORDIA_USER_API_KEY;
 
+// Stash the credentials JSON from the env var and clear it immediately so
+// child processes spawned by Claude Code (e.g. bash tool) never see it.
+// The actual file write happens at the start of main() once fs is available.
+const _userCredentialsJson = process.env.PRIMORDIA_USER_CREDENTIALS ?? null;
+delete process.env.PRIMORDIA_USER_CREDENTIALS;
+
+// Module-level path so cleanup() can reference it regardless of where it exits.
+let _credentialsFilePath: string | null = null;
+
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import * as fs from 'fs';
@@ -127,8 +136,27 @@ async function main(): Promise<void> {
     process.stderr.write(`Warning: could not write PID file: ${err}\n`);
   }
 
+  // Write credentials.json to CLAUDE_CONFIG_DIR so Claude Code can authenticate
+  // with the user's own subscription. The file is deleted in cleanup() so it
+  // only exists on disk for the duration of this worker's lifetime.
+  if (_userCredentialsJson) {
+    const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR ?? (process.env.HOME ?? '/home/exedev') + '/.claude';
+    try {
+      fs.mkdirSync(claudeConfigDir, { recursive: true });
+      _credentialsFilePath = path.join(claudeConfigDir, '.credentials.json');
+      fs.writeFileSync(_credentialsFilePath, _userCredentialsJson, { mode: 0o600 });
+    } catch (err) {
+      process.stderr.write(`Warning: could not write credentials.json: ${err}\n`);
+      _credentialsFilePath = null;
+    }
+  }
+
   function cleanup(): void {
     try { fs.rmSync(pidFile, { force: true }); } catch { /* best-effort */ }
+    // Delete the credentials file so it is only present during the Claude run.
+    if (_credentialsFilePath) {
+      try { fs.rmSync(_credentialsFilePath, { force: true }); } catch { /* best-effort */ }
+    }
   }
 
   const abortController = new AbortController();
