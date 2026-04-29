@@ -515,7 +515,11 @@ export function EvolveRequestForm({
             title={buttonLabel}
             className={`px-4 ${compact ? "py-1.5 text-xs" : "py-2 text-sm"} rounded-lg font-medium transition-colors bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white disabled:cursor-not-allowed${compact ? "" : " w-full sm:w-auto text-center"}`}
           >
-            {buttonLabel}
+            {/* On small screens show "Submit"; on sm+ show the full label */}
+            <span className="sm:hidden">
+              {disabled && disabledLabel ? disabledLabel : isLoading ? "Submitting…" : "Submit"}
+            </span>
+            <span className="hidden sm:inline">{buttonLabel}</span>
           </button>
         </div>
 
