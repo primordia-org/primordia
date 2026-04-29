@@ -284,6 +284,8 @@ async function main(): Promise<void> {
             content: `\n\n❌ **Auto-retry exhausted** after ${ev.attempt} attempt(s)${ev.finalError ? `: ${ev.finalError}` : ''}.\n`,
             ts: ts(),
           });
+          // Treat exhausted retries as an API error so session reports as errored, not finished.
+          lastApiErrorMessage = ev.finalError ?? 'API error: retries exhausted';
         }
       } else if (event.type === 'tool_execution_start') {
         appendSessionEvent(ndjsonPath, {
@@ -306,6 +308,16 @@ async function main(): Promise<void> {
           );
           // Tool calls in this turn = model is still working
           lastAssistantHadToolCalls = content.some((c) => c.type === 'toolCall');
+          // Capture API errors surfaced as a message_end with stopReason 'error'.
+          // The pi-ai Anthropic provider emits { type: 'error' } on the stream when
+          // the API returns an HTTP error (e.g. 402 credits exhausted). The
+          // agent-loop converts this directly to message_start + message_end without
+          // emitting a message_update event, so the message_update 'error' handler
+          // above never fires. We detect it here instead.
+          if (msg['stopReason'] === 'error' && !lastApiErrorMessage) {
+            const errMsg = typeof msg['errorMessage'] === 'string' ? msg['errorMessage'] : null;
+            lastApiErrorMessage = errMsg ?? 'API error (unknown)';
+          }
         }
         // Emit a partial metrics snapshot after each assistant turn so the
         // session view can show live token and cost data while the agent runs.
