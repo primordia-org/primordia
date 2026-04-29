@@ -67,11 +67,38 @@ function appendLogLine(sessionId: string, content: string): Promise<void> {
 }
 
 
+/** Exit code install.sh uses to signal a typecheck failure specifically. */
+const INSTALL_EXIT_TYPECHECK = 2;
+
+/**
+ * Runs install.sh in the session worktree and resolves with the exit code.
+ * Streams all stdout/stderr to the session log as it arrives.
+ */
+function runInstallSh(
+  sessionId: string,
+  worktreePath: string,
+  branch: string,
+): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const installScript = path.join(worktreePath, 'scripts', 'install.sh');
+    const proc = spawn('bash', [installScript, branch], {
+      cwd: worktreePath,
+      env: { ...process.env, REPORT_STYLE: 'ansi' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const forward = (data: Buffer) => { void appendLogLine(sessionId, data.toString()); };
+    proc.stdout.on('data', forward);
+    proc.stderr.on('data', forward);
+    proc.on('close', (code) => resolve(code ?? 1));
+    proc.on('error', (err) => reject(new Error(`install.sh spawn failed: ${err.message}`)));
+  });
+}
+
 /**
  * Called server-side after a type-fix run completes.
- * Re-runs the TypeScript gate and either merges the branch (→ accepted) or
- * puts the session in an error state. Never loops — if type errors persist
- * after the fix, the session goes to error instead of triggering another fix.
+ * Re-runs install.sh (which re-runs the typecheck gate). If typecheck passes
+ * the install continues through build → deploy. If it fails again the session
+ * goes to error instead of looping.
  */
 async function retryAcceptAfterFix(
   sessionId: string,
@@ -85,9 +112,8 @@ async function retryAcceptAfterFix(
     return;
   }
 
-  const { branch, worktreePath, port } = current;
+  const { branch, worktreePath } = current;
 
-  /** Append an error result event (makes inferred status 'ready') and log the message. */
   async function failWithError(msg: string): Promise<void> {
     await appendLogLine(sessionId, msg);
     const ndjsonPath = getSessionNdjsonPath(worktreePath);
@@ -97,7 +123,7 @@ async function retryAcceptAfterFix(
   }
 
   // Emit a fresh deploy section so post-fix logs appear under the deploy
-  // heading in the UI rather than being buried in the type_fix section.
+  // heading rather than being buried in the type_fix section.
   const isProduction = process.env.NODE_ENV === 'production';
   {
     const ndjsonPath = getSessionNdjsonPath(worktreePath);
@@ -111,36 +137,8 @@ async function retryAcceptAfterFix(
     }
   }
 
-  // Re-run the TypeScript check to verify the fix worked.
-  await appendLogLine(sessionId, '- Re-checking TypeScript types…');
-  console.log(`[retryAcceptAfterFix] re-running typecheck in ${worktreePath}`);
-  const tscResult = await runCmd('bun', ['run', 'typecheck'], worktreePath);
-  console.log(`[retryAcceptAfterFix] typecheck exit code=${tscResult.code}`);
-  if (tscResult.code !== 0) {
-    const typeErrors = (tscResult.stdout + tscResult.stderr).trim();
-    console.log(`[retryAcceptAfterFix] typecheck still failing:\n${typeErrors}`);
-    await failWithError(
-      `❌ Auto-fix failed: TypeScript errors remain after the fix attempt.\n\`\`\`\n${typeErrors}\n\`\`\``,
-    );
-    return;
-  }
-
-  // Also verify the production build succeeds.
-  await appendLogLine(sessionId, '- Re-building for production…');
-  console.log(`[retryAcceptAfterFix] re-running build in ${worktreePath}`);
-  const buildResult = await runCmd('bun', ['run', 'build'], worktreePath);
-  console.log(`[retryAcceptAfterFix] build exit code=${buildResult.code}`);
-  if (buildResult.code !== 0) {
-    const buildErrors = (buildResult.stdout + buildResult.stderr).trim();
-    console.log(`[retryAcceptAfterFix] build still failing:\n${buildErrors}`);
-    await failWithError(
-      `❌ Auto-fix failed: Production build still failing after the fix attempt.\n\`\`\`\n${buildErrors}\n\`\`\``,
-    );
-    return;
-  }
-
-  // Typecheck passed — ask the proxy to kill the preview dev server.
-  console.log(`[retryAcceptAfterFix] typecheck passed, killing preview server for session ${sessionId}`);
+  // Kill the preview dev server before running install.sh.
+  console.log(`[retryAcceptAfterFix] killing preview server for session ${sessionId}`);
   try {
     await fetch(`http://127.0.0.1:${process.env.REVERSE_PROXY_PORT!}/_proxy/preview/${sessionId}`, {
       method: 'DELETE',
@@ -148,27 +146,28 @@ async function retryAcceptAfterFix(
   } catch { /* proxy not running — preview server may already be gone */ }
 
   if (isProduction) {
-    // Run install.sh from the session worktree — same as the normal accept path.
-    const installScript = path.join(worktreePath, 'scripts', 'install.sh');
-    await appendLogLine(sessionId, '- Running install.sh…\n');
-    console.log(`[retryAcceptAfterFix] running install.sh for session ${sessionId}`);
-
-    await new Promise<void>((resolve, reject) => {
-      const proc = spawn('bash', [installScript, branch], {
-        cwd: worktreePath,
-        env: { ...process.env, REPORT_STYLE: 'ansi' },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      const forward = (data: Buffer) => { void appendLogLine(sessionId, data.toString()); };
-      proc.stdout.on('data', forward);
-      proc.stderr.on('data', forward);
-      proc.on('close', (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`install.sh exited with code ${code}`));
-      });
-      proc.on('error', (err) => reject(new Error(`install.sh spawn failed: ${err.message}`)));
+    const exitCode = await runInstallSh(sessionId, worktreePath, branch).catch((err) => {
+      void failWithError(`❌ Auto-fix failed (install.sh spawn error): ${err instanceof Error ? err.message : String(err)}`);
+      return -1;
     });
+    if (exitCode === -1) return;
 
+    if (exitCode === INSTALL_EXIT_TYPECHECK) {
+      const errorsFile = path.join(worktreePath, '.primordia-typecheck-errors.txt');
+      const typeErrors = fs.existsSync(errorsFile) ? fs.readFileSync(errorsFile, 'utf8').trim() : '(no output captured)';
+      console.log(`[retryAcceptAfterFix] typecheck still failing after fix attempt:\n${typeErrors}`);
+      await failWithError(
+        `❌ Auto-fix failed: TypeScript errors remain after the fix attempt.\n\`\`\`\n${typeErrors}\n\`\`\``,
+      );
+      return;
+    }
+
+    if (exitCode !== 0) {
+      await failWithError(`❌ Auto-fix failed: install.sh exited with code ${exitCode}.`);
+      return;
+    }
+
+    // install.sh completed successfully — it has already deployed.
     const ndjsonPath = getSessionNdjsonPath(worktreePath);
     if (fs.existsSync(ndjsonPath)) {
       appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: 'deployed to production', ts: Date.now() });
@@ -176,71 +175,9 @@ async function retryAcceptAfterFix(
     setTimeout(() => process.exit(0), 1000);
 
   } else {
-    // Legacy path (local dev without systemd).
-    console.log(`[retryAcceptAfterFix] checking out parent branch ${parentBranch} in ${repoRoot}`);
-    const checkoutResult = await runGit(['checkout', parentBranch], repoRoot);
-    let mergeRoot = repoRoot;
-    if (checkoutResult.code !== 0) {
-      const alreadyCheckedOutMatch = checkoutResult.stderr.match(
-        /(?:already checked out at|already used by worktree at) '([^']+)'/,
-      );
-      if (alreadyCheckedOutMatch) {
-        mergeRoot = alreadyCheckedOutMatch[1];
-      } else {
-        await failWithError(
-          `\n\n❌ **Accept failed**: \`git checkout ${parentBranch}\` failed:\n${checkoutResult.stderr}\n`,
-        );
-        return;
-      }
-    }
-
-    let stashed = false;
-    const statusResult = await runGit(['status', '--porcelain'], mergeRoot);
-    if (statusResult.stdout.trim()) {
-      const stashResult = await runGit(
-        ['stash', 'push', '-u', '-m', 'primordia-auto-stash-before-merge'],
-        mergeRoot,
-      );
-      stashed = stashResult.code === 0 && !stashResult.stdout.includes('No local changes');
-    }
-
-    await appendLogLine(sessionId, '- Merging branch…');
-    const mergeResult = await runGit(
-      ['merge', branch, '--no-ff', '-m', `chore: merge ${branch}`],
-      mergeRoot,
-    );
-
-    if (mergeResult.code !== 0) {
-      await runGit(['merge', '--abort'], mergeRoot);
-      if (stashed) await runGit(['stash', 'pop'], mergeRoot);
-      await failWithError(
-        `❌ Accept failed: merge conflict in ${mergeRoot}.\n` +
-        `Use Apply Updates on the session page to resolve conflicts before accepting.\n\n` +
-        `Merge error:\n${mergeResult.stderr}`,
-      );
-      return;
-    }
-
-    if (stashed) await runGit(['stash', 'pop'], mergeRoot);
-
-    await appendLogLine(sessionId, '- Installing dependencies…');
-    const installResult = await runCmd('bun', ['install', '--frozen-lockfile'], mergeRoot);
-    if (installResult.code !== 0) {
-      await failWithError(
-        `❌ Accept failed: \`bun install --frozen-lockfile\` failed after merge.\n` +
-        `\`\`\`\n${(installResult.stdout + installResult.stderr).trim()}\n\`\`\``,
-      );
-      return;
-    }
-
-    await runGit(['worktree', 'remove', '--force', worktreePath], repoRoot);
-    await runGit(['branch', '-D', branch], repoRoot);
-    await runGit(['config', '--remove-section', `branch.${branch}`], repoRoot);
-
-    const ndjsonPath = getSessionNdjsonPath(worktreePath);
-    if (fs.existsSync(ndjsonPath)) {
-      appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: `merged into \`${parentBranch}\``, ts: Date.now() });
-    }
+    // Legacy local-dev path: just record success (the merge already happened
+    // before the type-fix loop; we don't re-merge here).
+    await failWithError('❌ Auto-fix retry is only supported in production mode.');
   }
 }
 
@@ -249,10 +186,12 @@ async function retryAcceptAfterFix(
  * immediately and the client can stream progress via the existing SSE endpoint.
  *
  * Production path:
- *   1. TypeScript gate — auto-fix via Claude if it fails.
- *   2. Run install.sh from the session worktree with REPORT_STYLE=ansi,
- *      streaming its output as log_line events. install.sh handles the build,
- *      DB copy, sibling reparenting, proxy spawn, main advancement, and mirror push.
+ *   1. Run install.sh from the session worktree with REPORT_STYLE=ansi,
+ *      streaming its output as log_line events. install.sh handles typecheck
+ *      (exit 2 on failure), build, DB copy, sibling reparenting, proxy spawn,
+ *      main advancement, and mirror push.
+ *   2. On exit code 2: read .primordia-typecheck-errors.txt and trigger the
+ *      auto-fix Claude session (fixing-types → retryAcceptAfterFix).
  *   3. Write the decision event and self-terminate (the proxy has already
  *      switched traffic to the new slot).
  *
@@ -280,31 +219,38 @@ async function runAcceptAsync(
   try {
     const isProduction = process.env.NODE_ENV === 'production';
 
-    // ── TypeScript gate (production only) ────────────────────────────────────
     if (isProduction) {
-      await step('- Type-checking…');
-      const tscResult = await runCmd('bun', ['run', 'typecheck'], worktreePath);
-      if (tscResult.code !== 0) {
-        const typeErrors = (tscResult.stdout + tscResult.stderr).trim();
+      // ── Production: run install.sh from the session worktree ─────────────
+      // install.sh handles: typecheck (exits 2 on failure), bun install, build,
+      // DB copy, sibling reparenting, proxy spawn, main pointer advancement,
+      // and mirror push.
+      const exitCode = await runInstallSh(sessionId, worktreePath, branch);
+
+      if (exitCode === INSTALL_EXIT_TYPECHECK) {
+        // ── TypeScript gate failed: trigger the auto-fix Claude session ───────
+        const errorsFile = path.join(worktreePath, '.primordia-typecheck-errors.txt');
+        const typeErrors = fs.existsSync(errorsFile)
+          ? fs.readFileSync(errorsFile, 'utf8').trim()
+          : '(no output captured)';
         const fixPrompt =
           `The TypeScript type check failed. Fix all type errors so the code compiles ` +
           `without errors. Do not change any runtime behaviour — only fix the type issues.\n\n` +
           `TypeScript compiler output:\n\`\`\`\n${typeErrors}\n\`\`\``;
-        const session = getSessionFromFilesystem(sessionId, repoRoot);
-        if (!session) return;
+        const sessionSnap = getSessionFromFilesystem(sessionId, repoRoot);
+        if (!sessionSnap) return;
         const autoFixSession: LocalSession = {
-          id: session.id,
-          branch: session.branch,
-          worktreePath: session.worktreePath,
-          status: session.status as LocalSession['status'],
+          id: sessionSnap.id,
+          branch: sessionSnap.branch,
+          worktreePath: sessionSnap.worktreePath,
+          status: sessionSnap.status as LocalSession['status'],
           devServerStatus: 'running',
-          port: session.port,
-          previewUrl: session.previewUrl,
-          request: session.request,
-          createdAt: session.createdAt,
+          port: sessionSnap.port,
+          previewUrl: sessionSnap.previewUrl,
+          request: sessionSnap.request,
+          createdAt: sessionSnap.createdAt,
           userId,
         };
-        console.log(`[runAcceptAsync] type errors for session ${sessionId}, starting auto-fix`);
+        console.log(`[runAcceptAsync] typecheck failed for session ${sessionId}, starting auto-fix`);
         void runFollowupInWorktree(
           autoFixSession, fixPrompt, repoRoot, 'fixing-types',
           (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch),
@@ -312,34 +258,10 @@ async function runAcceptAsync(
         );
         return;
       }
-    }
 
-    if (isProduction) {
-      // ── Production: run install.sh from the session worktree ─────────────
-      // install.sh handles: bun install, build, DB copy, sibling reparenting,
-      // proxy spawn (zero-downtime), main pointer advancement, mirror push.
-      const installScript = path.join(worktreePath, 'scripts', 'install.sh');
-      await step('- Running install.sh…\n');
-
-      await new Promise<void>((resolve, reject) => {
-        const proc = spawn('bash', [installScript, branch], {
-          cwd: worktreePath,
-          env: { ...process.env, REPORT_STYLE: 'ansi' },
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-
-        const forward = (data: Buffer) => {
-          void appendLogLine(sessionId, data.toString());
-        };
-        proc.stdout.on('data', forward);
-        proc.stderr.on('data', forward);
-
-        proc.on('close', (code) => {
-          if (code === 0) resolve();
-          else reject(new Error(`install.sh exited with code ${code}`));
-        });
-        proc.on('error', (err) => reject(new Error(`install.sh spawn failed: ${err.message}`)));
-      });
+      if (exitCode !== 0) {
+        throw new Error(`install.sh exited with code ${exitCode}`);
+      }
 
       // Mark as accepted.
       const ndjsonPath = getSessionNdjsonPath(worktreePath);

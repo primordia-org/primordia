@@ -273,7 +273,11 @@ if [[ "${IS_WORKTREE_INSTALL}" == "true" ]]; then
     echo -e "${DIM}  --- typecheck output ---${RESET}" >&2
     cat "$_typecheck_log" >&2
     echo -e "${DIM}  ------------------------${RESET}" >&2
-    rm -f "$_typecheck_log"; exit 1
+    # Write raw errors to a well-known path so the accept endpoint can read
+    # them and pass them to the auto-fix Claude session.
+    cp "$_typecheck_log" "${INSTALL_DIR}/.primordia-typecheck-errors.txt"
+    rm -f "$_typecheck_log"
+    exit 2  # exit 2 = typecheck failure; exit 1 = any other failure
   fi
   rm -f "$_typecheck_log"
   _done "Typecheck passed"
