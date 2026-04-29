@@ -801,6 +801,10 @@ export default function EvolveSessionView({
   const { sessionUser, handleLogout } = useSessionUser();
   const [acceptRejectLoading, setAcceptRejectLoading] = useState(false);
   const [acceptRejectError, setAcceptRejectError] = useState<string | null>(null);
+  /** Session ID of a stuck 'accepting' session that is blocking this accept (from a 409 response). */
+  const [stuckBlockingSessionId, setStuckBlockingSessionId] = useState<string | null>(null);
+  const [isResettingStuck, setIsResettingStuck] = useState(false);
+  const [forceResetError, setForceResetError] = useState<string | null>(null);
   /** Which of the three action panels is currently expanded, or null if all collapsed. */
   const [activeAction, setActiveAction] = useState<"accept" | "reject" | "followup" | null>(null);
   /** Element selected via the WebPreviewPanel inspector tool, to be attached as context to a follow-up. */
@@ -1103,8 +1107,14 @@ export default function EvolveSessionView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'accept', sessionId }),
       });
-      const data = (await res.json()) as { outcome?: string; error?: string; stashWarning?: string };
-      if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
+      const data = (await res.json()) as { outcome?: string; error?: string; stashWarning?: string; stuckSessionId?: string; stuckSessionBranch?: string };
+      if (!res.ok) {
+        if (res.status === 409 && data.stuckSessionId) {
+          setStuckBlockingSessionId(data.stuckSessionId);
+        }
+        throw new Error(data.error ?? `API error: ${res.statusText}`);
+      }
+      setStuckBlockingSessionId(null);
       if (data.outcome === 'accepting') {
         setStatus('accepting');
         setActiveAction(null);
@@ -1150,6 +1160,36 @@ export default function EvolveSessionView({
       setAcceptRejectError(err instanceof Error ? err.message : String(err));
     } finally {
       setAcceptRejectLoading(false);
+    }
+  }
+
+  /**
+   * Force-reset a session that is stuck in 'accepting' or 'fixing-types'.
+   * Writes a result:error event to unblock the session.
+   */
+  async function handleForceReset(targetSessionId: string) {
+    if (isResettingStuck) return;
+    setIsResettingStuck(true);
+    setForceResetError(null);
+    try {
+      const res = await fetch(withBasePath('/api/evolve/reset-stuck'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: targetSessionId }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
+      // If resetting our own session, update local status to ready
+      if (targetSessionId === sessionId) {
+        setStatus('ready');
+        void startStreaming();
+      }
+      // Clear the blocking session indicator
+      setStuckBlockingSessionId(null);
+    } catch (err) {
+      setForceResetError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsResettingStuck(false);
     }
   }
 
@@ -1470,14 +1510,38 @@ export default function EvolveSessionView({
 
           {/* ── Button row (or fixing-types indicator) ── */}
           {status === "accepting" ? (
-            <div className="px-4 py-3 flex items-center gap-2 text-sm text-green-300">
-              <Loader2 size={16} className="animate-spin flex-shrink-0" />
-              Accepting changes…
+            <div className="px-4 py-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm text-green-300">
+                <Loader2 size={16} className="animate-spin flex-shrink-0" />
+                Accepting changes…
+              </div>
+              {canEvolve && (
+                <button
+                  onClick={() => void handleForceReset(sessionId)}
+                  disabled={isResettingStuck}
+                  title="Force-reset if the accept pipeline is stuck (e.g. the server was restarted mid-deploy)"
+                  className="text-xs px-2 py-1 rounded border border-red-700 text-red-400 hover:bg-red-900/30 hover:text-red-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isResettingStuck ? "Resetting…" : "Force Reset"}
+                </button>
+              )}
             </div>
           ) : status === "fixing-types" ? (
-            <div className="px-4 py-3 flex items-center gap-2 text-sm text-amber-300">
-              <Loader2 size={16} className="animate-spin flex-shrink-0" />
-              Fixing type errors… will auto-accept when complete.
+            <div className="px-4 py-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm text-amber-300">
+                <Loader2 size={16} className="animate-spin flex-shrink-0" />
+                Fixing type errors… will auto-accept when complete.
+              </div>
+              {canEvolve && (
+                <button
+                  onClick={() => void handleForceReset(sessionId)}
+                  disabled={isResettingStuck}
+                  title="Force-reset if the type-fix pipeline is stuck (e.g. the server was restarted mid-fix)"
+                  className="text-xs px-2 py-1 rounded border border-red-700 text-red-400 hover:bg-red-900/30 hover:text-red-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isResettingStuck ? "Resetting…" : "Force Reset"}
+                </button>
+              )}
             </div>
           ) : (
             <div className="flex">
@@ -1629,7 +1693,30 @@ export default function EvolveSessionView({
                     {acceptRejectLoading ? "Accepting…" : "Confirm"}
                   </button>
                   {acceptRejectError && (
-                    <p className="text-red-400 text-xs mt-2 whitespace-pre-wrap">{acceptRejectError}</p>
+                    <div className="mt-2">
+                      <p className="text-red-400 text-xs whitespace-pre-wrap">{acceptRejectError}</p>
+                      {stuckBlockingSessionId && canEvolve && (
+                        <div className="mt-2 flex items-center gap-3">
+                          <Link
+                            href={withBasePath(`/evolve/session/${stuckBlockingSessionId}`)}
+                            className="text-xs text-blue-400 hover:text-blue-300 underline"
+                          >
+                            Go to stuck session →
+                          </Link>
+                          <span className="text-gray-600 text-xs">or</span>
+                          <button
+                            onClick={() => void handleForceReset(stuckBlockingSessionId)}
+                            disabled={isResettingStuck}
+                            className="text-xs px-2 py-1 rounded border border-red-700 text-red-400 hover:bg-red-900/30 hover:text-red-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isResettingStuck ? "Resetting…" : "Force Reset stuck session"}
+                          </button>
+                        </div>
+                      )}
+                      {forceResetError && (
+                        <p className="text-red-400 text-xs mt-1">{forceResetError}</p>
+                      )}
+                    </div>
                   )}
                 </>
               ) : (

@@ -560,6 +560,8 @@ export async function POST(request: Request) {
             error:
               `A deploy is already in progress (session "${concurrentDeploy.branch}"). ` +
               `Please wait for it to finish, then try again.`,
+            stuckSessionId: concurrentDeploy.id,
+            stuckSessionBranch: concurrentDeploy.branch,
           },
           { status: 409 },
         );
