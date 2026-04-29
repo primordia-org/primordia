@@ -140,7 +140,9 @@ if [[ "${THIS_FILE}" != "bash" && "${THIS_FILE}" != "-bash" && -n "${THIS_FILE}"
   SCRIPT_DIR="$(cd "$(dirname "${THIS_FILE}")" && pwd)"
 fi
 
+IS_WORKTREE_INSTALL=false
 if [[ -n "$SCRIPT_DIR" ]] && git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+  IS_WORKTREE_INSTALL=true
   WORKTREES_DIR="$(dirname "$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)")"
   PRIMORDIA_DIR="$(dirname "${WORKTREES_DIR}")"
   if [[ -z "${1:-}" ]]; then
@@ -255,6 +257,27 @@ if [[ "$_BUN_OK" != "true" ]]; then
 fi
 rm -f "$_bun_log"
 _done "Dependencies installed"
+
+# ── Typecheck (worktree installs only) ───────────────────────────────────────
+# Run the typechecker before the production build so type errors are caught
+# early and reported clearly, without waiting for a full Next.js build.
+# Skipped on first-time installs because there is no existing production slot
+# to compare against and the build already surfaces type errors.
+
+if [[ "${IS_WORKTREE_INSTALL}" == "true" ]]; then
+  _CURRENT_STEP="bun run typecheck"
+  _step "bun run typecheck..."
+  _typecheck_log=$(mktemp)
+  if ! bun run typecheck > "$_typecheck_log" 2>&1; then
+    printf "\n"
+    echo -e "${DIM}  --- typecheck output ---${RESET}" >&2
+    cat "$_typecheck_log" >&2
+    echo -e "${DIM}  ------------------------${RESET}" >&2
+    rm -f "$_typecheck_log"; exit 1
+  fi
+  rm -f "$_typecheck_log"
+  _done "Typecheck passed"
+fi
 
 # ── Build production bundle ───────────────────────────────────────────────────
 
