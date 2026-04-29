@@ -5,7 +5,7 @@
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { GitBranch, Loader2, FileText, Copy, Check, RotateCw } from "lucide-react";
+import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Key, FileKey } from "lucide-react";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { NavHeader } from "@/components/NavHeader";
@@ -22,7 +22,7 @@ import type { DiffFileSummary } from "./page";
 import { DiffFileExpander } from "./DiffFileExpander";
 import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
-import type { SessionEvent } from "@/lib/session-events";
+import type { SessionEvent, AgentAuthInfo } from "@/lib/session-events";
 import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
 import { deriveSmartPreviewUrl } from "@/lib/smart-preview-url";
 
@@ -85,6 +85,8 @@ interface SectionGroup {
   /** Stable IDs for harness/model — used by the follow-up form to populate selects correctly. */
   harnessId?: string;
   modelId?: string;
+  /** Auth source recorded in the section_start event for this agent run. */
+  auth?: AgentAuthInfo;
   /** Unix ms timestamp from the section_start event — used for live elapsed-time display. */
   startTs?: number;
   events: SessionEvent[];
@@ -101,6 +103,7 @@ function groupEventsIntoSections(events: SessionEvent[]): SectionGroup[] {
         group.model = event.model;
         group.harnessId = event.harnessId;
         group.modelId = event.modelId;
+        group.auth = event.auth;
       }
       sections.push(group);
     } else {
@@ -242,8 +245,31 @@ function splitAgentEventsForDisplay(events: SessionEvent[]): {
   };
 }
 
+/**
+ * Small icon badge shown next to the agent name indicating which auth source
+ * was used for the run. Nothing is rendered for the exe.dev gateway (default).
+ */
+function AgentAuthBadge({ auth }: { auth?: AgentAuthInfo }) {
+  if (!auth || auth.source === 'llm-gateway') return null;
+  if (auth.source === 'api-key') {
+    return (
+      <span title="Used API Key" className="inline-flex items-center text-amber-400/70 hover:text-amber-400 transition-colors cursor-default">
+        <Key size={11} strokeWidth={2.5} aria-label="Used API Key" />
+      </span>
+    );
+  }
+  if (auth.source === 'claude-credentials') {
+    return (
+      <span title="Used Claude Credentials" className="inline-flex items-center text-sky-400/70 hover:text-sky-400 transition-colors cursor-default">
+        <FileKey size={11} strokeWidth={2.5} aria-label="Used Claude Credentials" />
+      </span>
+    );
+  }
+  return null;
+}
+
 /** Render a running agent/type-fix/auto-commit section (streaming events live). */
-function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, worktreePath, harness, model, startTs }: {
+function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, worktreePath, harness, model, auth, startTs }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
@@ -251,6 +277,7 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
   worktreePath?: string;
   harness?: string;
   model?: string;
+  auth?: AgentAuthInfo;
   startTs?: number;
 }) {
   const borderClass = isAutoCommitSection ? "border-green-700/50" : isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
@@ -274,6 +301,7 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
     <div className={`rounded-lg border ${borderClass} bg-gray-900 text-sm overflow-hidden`}>
       <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
         <span className={`font-semibold text-xs ${headingClass}`}>{runningLabel}</span>
+        {!isTypeFixSection && !isAutoCommitSection && <AgentAuthBadge auth={auth} />}
         <span className="ml-auto flex items-center gap-1.5 text-gray-500 text-xs">
           <span className="flex items-center gap-1.5 animate-pulse">
             <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
@@ -322,7 +350,7 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
 }
 
 /** Render a completed agent/type-fix/auto-commit section with tool calls collapsed. */
-function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, worktreePath, harness, model, startTs }: {
+function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, worktreePath, harness, model, auth, startTs }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
@@ -330,6 +358,7 @@ function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection
   worktreePath?: string;
   harness?: string;
   model?: string;
+  auth?: AgentAuthInfo;
   startTs?: number;
 }) {
   const resultEvent = events.find((e): e is Extract<SessionEvent, { type: 'result' }> => e.type === 'result');
@@ -352,8 +381,9 @@ function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection
 
   return (
     <div className={`rounded-lg border ${doneBorderClass} bg-gray-900 text-sm overflow-hidden`}>
-      <div className="px-4 py-2.5 border-b border-gray-800">
+      <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
         <span className={`font-semibold text-xs ${doneHeadingClass}`}>{doneTitle}</span>
+        {!isTypeFixSection && !isAutoCommitSection && <AgentAuthBadge auth={auth} />}
       </div>
       {toolCallCount > 0 && (
         <details className="group border-b border-gray-800">
@@ -478,8 +508,8 @@ function StructuredSection({
         )}
         {agentEvents.length > 0 && (
           isActive && !hasResult
-            ? <RunningAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />
-            : <DoneAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />
+            ? <RunningAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} worktreePath={worktreePath} harness={harness} model={model} auth={section.auth} startTs={startTs} />
+            : <DoneAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} worktreePath={worktreePath} harness={harness} model={model} auth={section.auth} startTs={startTs} />
         )}
       </>
     );
@@ -489,9 +519,9 @@ function StructuredSection({
   if (type === 'agent' || type === 'claude' || type === 'type_fix' || type === 'auto_commit' || type === 'conflict_resolution') {
     const hasResult = events.some((e) => e.type === 'result');
     if (isActive && !hasResult) {
-      return <RunningAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />;
+      return <RunningAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} worktreePath={worktreePath} harness={harness} model={model} auth={section.auth} startTs={startTs} />;
     }
-    return <DoneAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} worktreePath={worktreePath} harness={harness} model={model} startTs={startTs} />;
+    return <DoneAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} worktreePath={worktreePath} harness={harness} model={model} auth={section.auth} startTs={startTs} />;
   }
 
   // ── Deploy ───────────────────────────────────────────────────────────────

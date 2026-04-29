@@ -17,9 +17,27 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { EvolveSession } from './db/types';
 
+/**
+ * Describes which authentication source an agent worker used for a run.
+ * The object is intentionally extensible — new fields can be added without
+ * breaking consumers that only read `source`.
+ */
+export interface AgentAuthInfo {
+  /** Which credential/gateway the worker used to call the LLM. */
+  source: 'llm-gateway' | 'api-key' | 'claude-credentials';
+  // Future fields (e.g. model provider, gateway region, etc.) go here.
+}
+
 export type SessionEvent =
   | { type: 'section_start'; sectionType: 'setup' | 'type_fix' | 'auto_commit' | 'followup' | 'deploy' | 'conflict_resolution'; label: string; ts: number }
-  | { type: 'section_start'; sectionType: 'agent'; harness: string; model: string; harnessId?: string; modelId?: string; label: string; ts: number }
+  | { type: 'section_start'; sectionType: 'agent'; harness: string; model: string; harnessId?: string; modelId?: string; label: string;
+      /**
+       * Which authentication source the agent worker used for this run.
+       * Extensible object so more details can be added over time without a
+       * breaking schema change.
+       */
+      auth?: AgentAuthInfo;
+      ts: number }
   | { type: 'section_start'; sectionType: 'claude'; label: string; ts: number } // legacy
   | { type: 'setup_step'; label: string; done: boolean; ts: number }
   | { type: 'text'; content: string; ts: number }

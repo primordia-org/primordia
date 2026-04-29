@@ -11,6 +11,7 @@ import {
   getSessionNdjsonPath,
   listSessionsFromFilesystem,
   type SessionEvent,
+  type AgentAuthInfo,
 } from './session-events';
 import { HARNESS_OPTIONS, DEFAULT_HARNESS, DEFAULT_MODEL } from './agent-config';
 import { getModelLabel } from './pi-model-registry.server';
@@ -177,6 +178,47 @@ interface WorkerConfig {
    * NOT written to the JSON config file — only used to derive the env var.
    */
   userId: string;
+}
+
+/**
+ * Determine which auth source a session will use and return the corresponding
+ * AgentAuthInfo. Credentials take priority over an API key; both override the
+ * gateway. Enforcing a single source here means the section_start event and
+ * the worker env always agree on which credential was used.
+ *
+ * Rules:
+ *  - Claude Credentials (credentials.json) are only supported by the
+ *    'claude-code' harness. Pi and other harnesses use the Anthropic API
+ *    directly and cannot read a credentials.json file, so credentials are
+ *    silently ignored for those harnesses.
+ *  - If BOTH credentials and an API key are supplied and the harness supports
+ *    credentials, credentials win and the API key is discarded.
+ */
+function resolveAgentAuth(
+  credentials: string | undefined,
+  apiKey: string | undefined,
+  harnessId: string,
+): { auth: AgentAuthInfo; resolvedCredentials: string | undefined; resolvedApiKey: string | undefined } {
+  const credentialsSupported = harnessId === 'claude-code';
+  if (credentials && credentialsSupported) {
+    return {
+      auth: { source: 'claude-credentials' },
+      resolvedCredentials: credentials,
+      resolvedApiKey: undefined, // API key superseded
+    };
+  }
+  if (apiKey) {
+    return {
+      auth: { source: 'api-key' },
+      resolvedCredentials: undefined,
+      resolvedApiKey: apiKey,
+    };
+  }
+  return {
+    auth: { source: 'llm-gateway' },
+    resolvedCredentials: undefined,
+    resolvedApiKey: undefined,
+  };
 }
 
 /** Maps session IDs to the PID of their running agent worker process. */
@@ -641,7 +683,10 @@ export async function startLocalEvolve(
     const modelId = session.model ?? DEFAULT_MODEL;
     const harnessLabel = HARNESS_OPTIONS.find((h) => h.id === harnessId)?.label ?? harnessId;
     const modelLabel = getModelLabel(harnessId, modelId);
-    appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: harnessLabel, model: modelLabel, harnessId, modelId, label: `🤖 ${harnessLabel} (${modelLabel})`, ts: Date.now() });
+    // Resolve auth source — credentials beat API key; both beat the gateway.
+    // This also enforces exclusivity so the worker never receives two sources.
+    const { auth, resolvedApiKey, resolvedCredentials } = resolveAgentAuth(session.credentials, session.apiKey, harnessId);
+    appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: harnessLabel, model: modelLabel, harnessId, modelId, auth, label: `🤖 ${harnessLabel} (${modelLabel})`, ts: Date.now() });
 
     const attachmentSection = worktreeAttachmentPaths.length > 0
       ? `\n\nThe user has attached the following file(s) to this request (already saved in the worktree):\n` +
@@ -671,8 +716,8 @@ export async function startLocalEvolve(
         // Use the resolved modelId so the worker always runs with the same
         // model that was logged in the section_start event.
         model: modelId,
-        apiKey: session.apiKey,
-        credentials: session.credentials,
+        apiKey: resolvedApiKey,
+        credentials: resolvedCredentials,
         userId: session.userId,
       },
       workerScript,
@@ -747,7 +792,9 @@ export async function runFollowupInWorktree(
       appendSessionEvent(ndjsonPath, { type: 'followup_request', request: followupRequest, attachments: attachmentPaths.map(p => path.basename(p)), ts: Date.now() });
       const fuHarnessLabel = HARNESS_OPTIONS.find((h) => h.id === fuHarnessId)?.label ?? fuHarnessId;
       const fuModelLabel = getModelLabel(fuHarnessId, fuModelId);
-      appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: fuHarnessLabel, model: fuModelLabel, harnessId: fuHarnessId, modelId: fuModelId, label: `🤖 ${fuHarnessLabel} (${fuModelLabel})`, ts: Date.now() });
+      // Resolve auth — credentials beat API key; both beat the gateway.
+      const fuAuth = resolveAgentAuth(session.credentials, session.apiKey, fuHarnessId);
+      appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: fuHarnessLabel, model: fuModelLabel, harnessId: fuHarnessId, modelId: fuModelId, auth: fuAuth.auth, label: `🤖 ${fuHarnessLabel} (${fuModelLabel})`, ts: Date.now() });
     }
     session.status = inProgressStatus;
 
@@ -823,8 +870,12 @@ export async function runFollowupInWorktree(
         // model choice overrides the previous run's model.
         model: fuModelId,
         useContinue: true,
-        apiKey: session.apiKey,
-        credentials: session.credentials,
+        // Re-resolve auth to enforce exclusivity (credentials beat API key).
+        // fuAuth may not be in scope when internalSectionType is set.
+        ...(() => {
+          const r = resolveAgentAuth(session.credentials, session.apiKey, fuHarnessId);
+          return { apiKey: r.resolvedApiKey, credentials: r.resolvedCredentials };
+        })(),
         userId: session.userId,
       },
       fuWorkerScript,
@@ -932,8 +983,13 @@ export async function resolveConflictsWithAgent(
         prompt,
         timeoutMs: 10 * 60 * 1000,
         model: sessionContext.model,
-        apiKey: sessionContext.apiKey,
-        credentials: sessionContext.credentials,
+        // Enforce auth exclusivity (credentials beat API key).
+        ...(() => {
+          // Conflict resolution always uses the claude-code harness (resolveConflictsWithAgent
+          // picks the harness from sessionContext, defaulting to DEFAULT_HARNESS).
+          const r = resolveAgentAuth(sessionContext.credentials, sessionContext.apiKey, harnessId);
+          return { apiKey: r.resolvedApiKey, credentials: r.resolvedCredentials };
+        })(),
         userId: sessionContext.userId,
       },
       workerScript,

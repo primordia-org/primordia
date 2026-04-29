@@ -24,8 +24,24 @@
 // If the caller injected PRIMORDIA_USER_API_KEY via env, use the direct
 // Anthropic API with that key.  Otherwise fall back to the exe.dev gateway.
 const GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
-const _userApiKey = process.env.PRIMORDIA_USER_API_KEY;
-if (_userApiKey) {
+
+// Stash both auth env vars and clear them immediately so child processes
+// spawned by Claude Code (e.g. bash tool) never see them.
+const _userApiKey = process.env.PRIMORDIA_USER_API_KEY ?? null;
+const _userCredentialsJson = process.env.PRIMORDIA_USER_CREDENTIALS ?? null;
+delete process.env.PRIMORDIA_USER_API_KEY;
+delete process.env.PRIMORDIA_USER_CREDENTIALS;
+
+// Enforce auth exclusivity — credentials beat API key; both beat the gateway.
+// The server already enforces this via resolveAgentAuth(), but the worker
+// applies the same rule defensively in case of future callers.
+if (_userCredentialsJson) {
+  // Claude Credentials (OAuth): let Claude Code read its own credentials.json.
+  // Clear any leftover API key / base URL so the SDK doesn’t short-circuit to
+  // the API or gateway before Claude Code can load the credentials file.
+  delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_BASE_URL;
+} else if (_userApiKey) {
   // Direct Anthropic API — set the key and make sure no gateway URL is set.
   process.env.ANTHROPIC_API_KEY = _userApiKey;
   delete process.env.ANTHROPIC_BASE_URL;
@@ -34,15 +50,6 @@ if (_userApiKey) {
   process.env.ANTHROPIC_BASE_URL = GATEWAY_BASE_URL;
   process.env.ANTHROPIC_API_KEY = 'gateway'; // SDK requires non-empty
 }
-// Clear from process env immediately so it does not appear in any child
-// processes spawned by Claude Code (e.g. bash tool invocations).
-delete process.env.PRIMORDIA_USER_API_KEY;
-
-// Stash the credentials JSON from the env var and clear it immediately so
-// child processes spawned by Claude Code (e.g. bash tool) never see it.
-// The actual file write happens at the start of main() once fs is available.
-const _userCredentialsJson = process.env.PRIMORDIA_USER_CREDENTIALS ?? null;
-delete process.env.PRIMORDIA_USER_CREDENTIALS;
 
 // Module-level path so cleanup() can reference it regardless of where it exits.
 let _credentialsFilePath: string | null = null;
