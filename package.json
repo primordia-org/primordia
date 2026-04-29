@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun run --bun next dev --turbopack",
     "build": "bun run --bun next build",
-    "start": "next start",
+    "start": "bun run --bun next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "deploy-to-exe.dev": "bash scripts/deploy-to-exe-dev.sh",
