@@ -46,7 +46,13 @@ export async function GET(request: NextRequest) {
 
     const sessionId = await createSession(user.id);
 
-    const response = NextResponse.json({ status: "approved", username: user.username });
+    // Include AES key JWKs if this was a push token — the scanning device
+    // stores them in localStorage to restore credential encryption keys.
+    const responseBody: Record<string, unknown> = { status: "approved", username: user.username };
+    if (token.apiKeyJwk) responseBody.apiKeyJwk = token.apiKeyJwk;
+    if (token.credentialsKeyJwk) responseBody.credentialsKeyJwk = token.credentialsKeyJwk;
+
+    const response = NextResponse.json(responseBody);
     response.cookies.set(SESSION_COOKIE, sessionId, {
       httpOnly: true,
       sameSite: "lax",

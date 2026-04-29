@@ -28,10 +28,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Token not found or expired" }, { status: 404 });
     }
 
-    // Build the approval URL — e.g. https://primordia.example.com/primordia/login/approve?token=<id>
+    // "push" tokens land on the receive page; pull tokens land on the approve page.
     // Use forwarded headers so the URL is correct when running behind a reverse proxy.
     // Include basePath so preview server environments with a path prefix work correctly.
-    const approvalUrl = `${getPublicOrigin(request)}${basePath}/login/approve?token=${tokenId}`;
+    const tokenType = request.nextUrl.searchParams.get("type");
+    const destPath = tokenType === "push"
+      ? `/login/cross-device-receive?token=${tokenId}`
+      : `/login/approve?token=${tokenId}`;
+    const approvalUrl = `${getPublicOrigin(request)}${basePath}${destPath}`;
 
     const svg = await QRCode.toString(approvalUrl, {
       type: "svg",

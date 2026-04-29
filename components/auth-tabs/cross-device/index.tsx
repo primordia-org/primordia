@@ -80,8 +80,11 @@ export default function CrossDeviceTab({ onSuccess }: AuthTabProps) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-300 text-center">
-        Open Primordia on a device where you&apos;re already signed in, then scan this
-        code to sign in here.
+        Show this QR code to a device where you&apos;re already signed in. On that
+        device, open the hamburger menu and choose{" "}
+        <span className="text-white font-medium">Sign in on another device</span>{" "}
+        to scan it. You&apos;ll be signed in here and your credential encryption
+        keys will be copied over automatically.
       </p>
 
       {phase === "loading" && (

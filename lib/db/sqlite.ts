@@ -51,7 +51,9 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       id TEXT PRIMARY KEY,
       status TEXT NOT NULL DEFAULT 'pending',
       user_id TEXT,
-      expires_at INTEGER NOT NULL
+      expires_at INTEGER NOT NULL,
+      api_key_jwk TEXT,
+      credentials_key_jwk TEXT
     );
     CREATE TABLE IF NOT EXISTS roles (
       name TEXT PRIMARY KEY,
@@ -94,6 +96,18 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       PRIMARY KEY (user_id, role_name)
     );
   `);
+
+  // Migration: add push-flow columns to cross_device_tokens
+  try {
+    db.exec("ALTER TABLE cross_device_tokens ADD COLUMN api_key_jwk TEXT");
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    db.exec("ALTER TABLE cross_device_tokens ADD COLUMN credentials_key_jwk TEXT");
+  } catch {
+    // Column already exists — ignore
+  }
 
   // Migration: add id and display_name columns to roles (added when roles got UUIDs + customizable names)
   // Must run before the seed inserts below so existing DBs have the columns ready.
@@ -348,6 +362,20 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         "INSERT INTO cross_device_tokens (id, status, user_id, expires_at) VALUES (?, ?, ?, ?)"
       ).run(token.id, token.status, token.userId ?? null, token.expiresAt);
     },
+    async createCrossDevicePushToken(token: CrossDeviceToken) {
+      db.prepare(
+        `INSERT INTO cross_device_tokens
+           (id, status, user_id, expires_at, api_key_jwk, credentials_key_jwk)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(
+        token.id,
+        token.status,
+        token.userId ?? null,
+        token.expiresAt,
+        token.apiKeyJwk ?? null,
+        token.credentialsKeyJwk ?? null,
+      );
+    },
     async getCrossDeviceToken(id: string) {
       const r = db
         .prepare("SELECT * FROM cross_device_tokens WHERE id = ?")
@@ -356,6 +384,8 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         status: string;
         user_id: string | null;
         expires_at: number;
+        api_key_jwk: string | null;
+        credentials_key_jwk: string | null;
       } | null;
       if (!r) return null;
       return {
@@ -363,6 +393,8 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         status: r.status as CrossDeviceToken["status"],
         userId: r.user_id,
         expiresAt: r.expires_at,
+        apiKeyJwk: r.api_key_jwk ?? null,
+        credentialsKeyJwk: r.credentials_key_jwk ?? null,
       };
     },
     async approveCrossDeviceToken(id: string, userId: string) {

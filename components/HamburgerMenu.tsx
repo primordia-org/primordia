@@ -14,9 +14,10 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { SessionUser } from "../lib/hooks";
-import { Edit, Shield, X, Menu, LogOut, LogIn, Key, GitBranch, FileKey } from "lucide-react";
+import { Edit, Shield, X, Menu, LogOut, LogIn, Key, GitBranch, FileKey, QrCode } from "lucide-react";
 import { ApiKeyDialog } from "./ApiKeyDialog";
 import { CredentialsDialog } from "./CredentialsDialog";
+import { QrSignInOtherDeviceDialog } from "./QrSignInOtherDeviceDialog";
 
 export type { SessionUser };
 
@@ -88,6 +89,7 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
   const [menuOpen, setMenuOpen] = useState(false);
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
   const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false);
+  const [qrSignInDialogOpen, setQrSignInDialogOpen] = useState(false);
   const localRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const menuRef = containerRef ?? localRef;
@@ -130,6 +132,15 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
                 <p className="text-xs text-gray-500">Signed in as</p>
                 <p className="text-sm text-gray-200 font-medium truncate">@{sessionUser.username}</p>
               </div>
+              <button
+                data-id="nav-menu/sign-in-other-device"
+                type="button"
+                onClick={() => { setMenuOpen(false); setQrSignInDialogOpen(true); }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-blue-400 hover:bg-gray-800 transition-colors"
+              >
+                <QrCode size={16} strokeWidth={2} aria-hidden="true" />
+                Sign in on another device
+              </button>
               <button
                 data-id="nav-menu/sign-out"
                 type="button"
@@ -213,6 +224,11 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
       {/* Claude Credentials dialog */}
       {credentialsDialogOpen && (
         <CredentialsDialog onClose={() => setCredentialsDialogOpen(false)} />
+      )}
+
+      {/* Sign in on another device dialog */}
+      {qrSignInDialogOpen && (
+        <QrSignInOtherDeviceDialog onClose={() => setQrSignInDialogOpen(false)} />
       )}
     </div>
   );

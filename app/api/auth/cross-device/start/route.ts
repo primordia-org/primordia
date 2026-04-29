@@ -25,6 +25,8 @@ export async function POST() {
       status: "pending",
       userId: null,
       expiresAt: Date.now() + CROSS_DEVICE_TOKEN_TTL_MS,
+      apiKeyJwk: null,
+      credentialsKeyJwk: null,
     });
 
     // Clean up old tokens opportunistically.
