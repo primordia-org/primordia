@@ -190,7 +190,7 @@ if [[ -z "${BRANCH:-}" ]]; then
     BRANCH="$1"
   else
     # Find the remote branch that points to the same commit as origin/main
-    BRANCH="$(git -C "${BARE_REPO}" branch --format '%(refname:short)' --points-at "$(git -C "${BARE_REPO}" rev-parse main)" | grep -v 'main' | head -1)"
+    BRANCH="$(git -C "${BARE_REPO}" branch --format '%(refname:short)' --points-at "$(git -C "${BARE_REPO}" rev-parse main)" | grep -v 'main' | head -1 || true)"
   fi
 fi
 
@@ -410,7 +410,7 @@ fi
 # inherits all users/sessions/passkeys.  Mirrors what blueGreenAccept() does.
 if [[ -n "$OLD_PROD_BRANCH" && "$OLD_PROD_BRANCH" != "$BRANCH" ]]; then
   OLD_SLOT="$(git -C "${BARE_REPO}" worktree list --porcelain \
-    | awk '/^worktree /{p=$2} /^branch refs\/heads\/'"${OLD_PROD_BRANCH}"'$/{print p; exit}')"
+    | awk '/^worktree /{p=$2} /^branch refs\/heads\/'"${OLD_PROD_BRANCH}"'$/{print p; exit}' || true)"
   if [[ -n "$OLD_SLOT" && -f "${OLD_SLOT}/${DB_NAME}" ]]; then
     _step "Copying production DB..."
     NEW_DB="${INSTALL_DIR}/${DB_NAME}"
@@ -453,7 +453,7 @@ advance_main_and_push() {
     git -C "${BARE_REPO}" update-ref refs/heads/main "$branch_sha"
   fi
 
-  if git -C "${BARE_REPO}" remote | grep -qx mirror; then
+  if git -C "${BARE_REPO}" config --get remote.mirror.url &>/dev/null; then
     _mirror_err="$(mktemp)"
     if git -C "${BARE_REPO}" push mirror 2>"$_mirror_err"; then
       success "Pushed to mirror remote"
