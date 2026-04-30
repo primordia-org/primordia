@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
   const redirectPath =
     passkeys.length === 0
       ? basePath + "/register-passkey?next=" + encodeURIComponent(next)
-      : next;
+      : basePath + next;
 
   const response = NextResponse.redirect(new URL(redirectPath, origin));
   response.cookies.set(SESSION_COOKIE, sessionId, {

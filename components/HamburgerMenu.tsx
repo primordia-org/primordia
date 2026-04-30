@@ -13,7 +13,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { basePath } from "@/lib/base-path";
 import type { SessionUser } from "../lib/hooks";
 import { Edit, Shield, X, Menu, LogOut, LogIn, Key, GitBranch, FileKey, QrCode } from "lucide-react";
 import { ApiKeyDialog } from "./ApiKeyDialog";
@@ -155,7 +154,7 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
           ) : (
             <Link
               data-id="nav-menu/sign-in"
-              href={`/login?next=${encodeURIComponent(basePath + pathname)}`}
+              href={`/login?next=${encodeURIComponent(pathname)}`}
               onClick={() => setMenuOpen(false)}
               className="flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-blue-400 hover:bg-gray-800 transition-colors"
             >
