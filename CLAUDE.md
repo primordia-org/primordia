@@ -39,24 +39,27 @@ primordia/
 ├── LICENSE
 ├── .env.example                   ← Copy to .env.local, fill in secrets
 ├── .gitignore
+├── instrumentation.ts             ← Next.js instrumentation hook; starts update-source background scheduler on server boot
 ├── next.config.ts                 ← Minimal Next.js config
 ├── tailwind.config.ts
 ├── postcss.config.mjs
 ├── eslint.config.mjs
 ├── tsconfig.json
 ├── package.json
+├── bun.d.ts                       ← Ambient TypeScript declarations for Bun built-ins (bun:sqlite, ImportMeta.dir)
+├── openapi-gen.config.json        ← OpenAPI spec generation config for the internal REST API
 │
 ├── changelog/                     ← One .md file per change: YYYY-MM-DD-HH-MM-SS Description.md
 │   └── *.md                       ← Filename = short description; body = full what+why detail
 │
 ├── scripts/
-│   ├── install-for-exe-dev.sh    ← Run on your local machine to provision a new exe.dev VM and install Primordia on it (curl-pipe installer)
-│   ├── install-service.sh        ← First-time install of the proxy systemd service; copies reverse-proxy.ts to ~/primordia-proxy.ts; initialises primordia.productionBranch in git config; enables and starts the service
-│   ├── update-service.sh         ← Run automatically on every blue-green prod deploy; updates ~/primordia-proxy.ts and the systemd symlink only when they changed; runs daemon-reload only if the service unit changed; runs systemctl restart primordia-proxy only if the proxy script changed
 │   ├── reverse-proxy.ts          ← HTTP reverse proxy for zero-downtime blue/green AND preview servers; listens on REVERSE_PROXY_PORT; reads production branch from git config (primordia.productionBranch), then looks up branch.{name}.port; discovers main repo from any worktree in PRIMORDIA_WORKTREES_DIR; on startup spawns the production Next.js server if not already running and tracks the process; captures prod server stdout/stderr in a 50 KB ring buffer; exposes POST /_proxy/prod/spawn (SSE, body: { branch }) — looks up port and worktree path from git config/worktree list, then spawns, health-checks, updates git config, and SIGTERMs old server; exposes GET /_proxy/prod/logs (SSE) — streams prod server log buffer + live output; watches .git/config for instant cutover; routes /preview/{branchName} paths to session preview servers (branches with slashes not supported); installed to ~/primordia-proxy.ts by install-service.sh
 │   ├── assign-branch-ports.sh    ← Idempotent migration script: assigns ephemeral ports to all local branches in git config (branch.{name}.port); main gets 3001, others get 3002+
 │   ├── rollback.ts               ← Standalone CLI rollback script: updates primordia.productionBranch to the previous slot (second entry in primordia.productionHistory) and restarts primordia-proxy; use when the server itself is broken and /api/admin/rollback is unreachable
-│   └── primordia-proxy.service   ← systemd service unit for the reverse proxy; WorkingDirectory=/home/exedev/primordia; is the sole long-running service — responsible for starting the production Next.js server on boot and routing all traffic
+│   ├── install.sh                ← Primordia setup script; supports two invocation methods; idempotent
+│   ├── claude-worker.ts          ← Standalone Claude Code worker process that handles LLM calls via exe.dev gateway
+│   ├── pi-worker.ts              ← Standalone pi coding agent worker process; spawned as detached child surviving restarts
+│   └── test-hmr-proxy.ts         ← Integration tests for reverse proxy WebSocket/HMR tunnel
 │
 ├── public/
 │   (no generated files)
@@ -71,98 +74,29 @@ primordia/
 │   ├── llm-client.ts              ← Creates Anthropic client: gateway (default) or direct API with user-supplied key
 │   ├── llm-encryption.ts          ← Server-side RSA-OAEP keypair (ephemeral, per process); getPublicKeyJwk() + decryptApiKey()
 │   ├── api-key-client.ts          ← Client-side helpers: getStoredApiKey/setStoredApiKey (localStorage) + encryptStoredApiKey() (RSA-OAEP)
+│   ├── agent-config.ts            ← Definitions for supported coding agent harnesses and model options
+│   ├── auto-canonical.ts          ← On first request, derives and persists canonical URL from request origin if not already set
+│   ├── credentials-client.ts      ← Client-side AES-256-GCM encryption helpers for storing Claude Code credentials.json
+│   ├── cross-device-creds.ts      ← ECDH P-256 helpers for credential transfer in pull and push cross-device sign-in flows
+│   ├── pi-model-registry.server.ts ← Builds model option list at runtime from pi ModelRegistry for both claude-code and pi harnesses
+│   ├── public-origin.ts           ← Utility for deriving public-facing origin from request, respecting x-forwarded-* headers
+│   ├── register-with-parent.ts    ← Posts instance identity to parent's registration endpoint and returns status string
+│   ├── session-events.ts          ← Structured event types for session progress logs stored as NDJSON in worktree
+│   ├── smart-preview-url.ts       ← Infers the most relevant preview page path from LLM text output in session events
+│   ├── update-source-scheduler.ts ← Background scheduler that automatically fetches update sources per frequency settings
+│   ├── update-sources.ts          ← Manages git-based update sources via git config remote.{id}.* namespace
+│   ├── user-prefs.ts              ← Server-side helpers for reading per-user preferences (harness, model, caveman) from database
+│   ├── uuid7.ts                   ← UUID v7 helper (delegates to the `uuid` npm package)
+│   ├── validate-canonical-url.ts  ← Validation for Canonical URL field (HTTPS, non-localhost)
+│   ├── auth-providers/            ← Auth provider system (no registry — auto-discovered by login page)
+│   │   ├── types.ts               ← AuthPlugin, AuthPluginServerContext, InstalledPlugin, AuthTabProps
+│   │   ├── passkey/index.ts       ← default export: passkeyPlugin descriptor
+│   │   ├── exe-dev/index.ts       ← default export: exeDevPlugin (reads X-ExeDev-Email header)
+│   │   └── cross-device/index.ts  ← default export: crossDevicePlugin
 │   └── db/
 │       ├── index.ts               ← Factory: getDb() → SQLite (always)
 │       ├── types.ts               ← Shared DB types: User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession, Role; DbAdapter includes role methods
 │       └── sqlite.ts              ← bun:sqlite adapter (includes evolve_sessions, roles, user_roles tables; seeds built-in roles on boot)
-│
-├── app/                           ← Next.js App Router
-│   ├── layout.tsx                 ← Root layout (font, metadata, body styling)
-│   ├── page.tsx                   ← Landing page — marketing/feature overview; links to /chat and /evolve
-│   ├── globals.css                ← Tailwind base imports only
-│   ├── branches/
-│   │   └── page.tsx               ← Server component: git branch tree; publicly viewable; admin-only actions (prune, diagnostics) conditionally hidden
-│   ├── changelog/
-│   │   └── page.tsx               ← Server component: reads changelog/ filenames at runtime; lazy-loads body via /api/changelog
-│   ├── chat/
-│   │   └── page.tsx               ← Server component: chat interface; redirects to /login if unauthenticated
-│   ├── admin/
-│   │   ├── page.tsx               ← Admin panel: owner-only; grant/revoke evolve access per user; tab subnav (Manage Users / Server Logs / Proxy Logs / Rollback / Server Health)
-│   │   ├── logs/
-│   │   │   └── page.tsx           ← Server logs: pre-fetches initial log buffer from /_proxy/prod/logs on server render; delegates live tail to ServerLogsClient; admin only
-│   │   ├── proxy-logs/
-│   │   │   └── page.tsx           ← Proxy logs: pre-fetches first 100 journalctl lines server-side (Linux only; skipped on macOS); delegates live tail to ServerLogsClient; admin only
-│   │   ├── rollback/
-│   │   │   └── page.tsx           ← Deep rollback: lists previous prod slots from primordia.productionHistory; admin only
-│   │   ├── server-health/
-│   │   │   └── page.tsx           ← Server health: disk/memory usage and oldest non-prod worktree cleanup; admin only
-│   │   ├── git-mirror/
-│   │   │   └── page.tsx           ← Git Mirror: shows current mirror remote status and SSH instructions for adding a mirror remote; admin only
-│   │   └── instance/
-│   │       ├── page.tsx           ← Instance identity admin panel: view/edit name+description+uuid7; view graph nodes+edges; admin only
-│   │       └── InstanceConfigClient.tsx ← Client component for instance config editing and graph display
-│   ├── evolve/
-│   │   ├── page.tsx               ← Dedicated "propose a change" page; renders <EvolveForm>; requires evolve permission
-│   │   └── session/
-│   │       └── [id]/
-│   │           └── page.tsx       ← Session-tracking page; publicly viewable; passes canEvolve to hide actions for non-evolvers
-│   ├── login/
-│   │   ├── page.tsx               ← Server component: auto-discovers providers via readdirSync(lib/auth-providers/); collects server props; passes to LoginClient
-│   │   ├── LoginClient.tsx        ← Client component: renders one tab per provider; loads tab components via next/dynamic template-literal import (no static map)
-│   │   └── approve/page.tsx           ← Approval page: authenticated device approves a QR sign-in
-│   └── api/
-│       ├── changelog/
-│       │   └── route.ts           ← GET ?filename=...: returns raw markdown body of one changelog file (lazy-load)
-│       ├── chat/
-│       │   └── route.ts           ← Streams Claude responses via SSE
-│       ├── check-keys/
-│       │   └── route.ts           ← Returns list of missing required env vars (called on page load)
-│       ├── llm-key/public-key/
-│       │   └── route.ts           ← GET server's ephemeral RSA-OAEP public key as JWK
-│       │   └── route.ts           ← POST delete all local branches merged into main; streams SSE progress
-│       ├── auth/
-│       │   ├── session/
-│       │   │   └── route.ts       ← GET current session user
-│       │   ├── logout/
-│       │   │   └── route.ts       ← POST clear session
-│       │   ├── exe-dev/
-│       │   │   └── route.ts       ← GET exe.dev SSO login: reads injected headers, creates/finds user + session
-│       │   ├── passkey/
-│       │   │   ├── register/start/route.ts  ← Generate WebAuthn registration options
-│       │   │   ├── register/finish/route.ts ← Verify registration, create user+session
-│       │   │   ├── login/start/route.ts     ← Generate WebAuthn authentication options
-│       │   │   └── login/finish/route.ts    ← Verify authentication, create session
-│       └── cross-device/
-│           ├── start/route.ts      ← POST create a cross-device token; returns tokenId
-│           ├── poll/route.ts       ← GET poll token status; sets session cookie on approval
-│           ├── approve/route.ts    ← POST approve a token (requires auth on approver device)
-│           └── qr/route.ts         ← GET SVG QR code encoding the approval URL for a tokenId
-│
-│   app/api/ also contains:
-│   ├── changelog/route.ts         ← GET ?filename=...: returns raw markdown body of one changelog file (lazy-load)
-│   ├── chat/route.ts              ← Streams Claude responses via SSE
-│   ├── check-keys/route.ts        ← Returns list of missing required env vars (called on page load)
-│   ├── llm-key/public-key/route.ts ← GET server's ephemeral RSA-OAEP public key as JWK
-│   ├── git/[...path]/route.ts      ← GET/POST git http-backend proxy (read-only clone/fetch); push (receive-pack) blocked with 403
-│   ├── evolve/route.ts            ← POST start session (requires can_evolve permission), GET status (legacy poll)
-│   ├── evolve/stream/route.ts      ← GET SSE stream of live session progress
-│   ├── evolve/manage/route.ts      ← POST accept/reject a local session
-│   ├── evolve/followup/route.ts    ← POST submit a follow-up request on an existing ready session
-│   ├── evolve/abort/route.ts       ← POST abort the running Claude Code instance; transitions session to ready
-│   ├── evolve/kill-restart/route.ts ← POST kill dev server process + restart it in the worktree
-│   ├── evolve/upstream-sync/route.ts ← POST merge parent branch into session worktree ("Apply Updates")
-│   ├── evolve/from-branch/route.ts ← POST start a session on an existing local branch (external contributor workflow)
-│   ├── admin/permissions/route.ts  ← POST grant/revoke grantable roles (can_evolve); admin only
-│   ├── admin/logs/route.ts         ← GET SSE stream of production server logs; admin only
-│   ├── admin/proxy-logs/route.ts   ← GET SSE stream of journalctl -u primordia-proxy; admin only
-│   ├── admin/rollback/route.ts     ← GET/POST previous prod slots from primordia.productionHistory; admin only
-│   └── admin/server-health/route.ts ← GET disk/memory usage; POST delete oldest worktree; admin only
-│
-├── lib/auth-providers/              ← Auth provider system (no registry — auto-discovered by login page)
-│   ├── types.ts                     ← AuthPlugin, AuthPluginServerContext, InstalledPlugin, AuthTabProps
-│   ├── passkey/index.ts             ← default export: passkeyPlugin descriptor
-│   ├── exe-dev/index.ts             ← default export: exeDevPlugin (reads X-ExeDev-Email header)
-│   └── cross-device/index.ts       ← default export: crossDevicePlugin
 │
 ├── components/auth-tabs/            ← Client-side auth tab components (no registry — loaded via dynamic import)
 │   ├── passkey/index.tsx            ← default export: PasskeyTab
@@ -170,26 +104,144 @@ primordia/
 │   └── cross-device/index.tsx      ← default export: CrossDeviceTab
 │
 ├── components/
-│   ├── AcceptRejectBar.tsx        ← Accept/reject bar for local preview worktrees
+│   ├── AdminSubNav.tsx            ← Tab subnav for admin pages: "Manage Users" (/admin), "Server Logs" (/admin/logs), "Proxy Logs" (/admin/proxy-logs), "Rollback" (/admin/rollback), "Server Health" (/admin/server-health), "Git Mirror" (/admin/git-mirror), "Instance" (/admin/instance), "Updates" (/admin/updates)
+│   ├── AnsiRenderer.tsx           ← Renders text with ANSI escape codes as styled React elements (colors, bold, spinner overwrite)
 │   ├── ApiKeyDialog.tsx           ← Modal for setting/clearing user Anthropic API key; stores in localStorage; opened from hamburger menu
-│   ├── AdminPermissionsClient.tsx ← Client component: grant/revoke 'can_evolve' role per user (used by /admin)
-│   ├── AdminRollbackClient.tsx    ← Client component: deep rollback UI; lists previous production slots from primordia.productionHistory with roll-back buttons (used by /admin/rollback)
-│   ├── AdminServerHealthClient.tsx ← Client component: disk/memory usage bars and oldest non-prod worktree delete button (used by /admin/server-health)
-│   ├── AdminSubNav.tsx            ← Tab subnav for admin pages: "Manage Users" (/admin), "Server Logs" (/admin/logs), "Proxy Logs" (/admin/proxy-logs), "Rollback" (/admin/rollback), "Server Health" (/admin/server-health), "Git Mirror" (/admin/git-mirror), "Instance" (/admin/instance)
-│   ├── ForbiddenPage.tsx          ← Server component: 403 access-denied page with page description, required/met/unmet conditions, and how-to-fix
-│   ├── ChatInterface.tsx          ← Main chat UI (chat only); hamburger menu "Propose a change" opens FloatingEvolveDialog
-│   ├── ChangelogEntryDetails.tsx  ← Client component: single changelog <details> widget; lazy-loads body from /api/changelog on first open
-│   ├── EvolveForm.tsx             ← "Submit a request" form; POSTs then redirects to /evolve/session/{id}; used by /evolve page
+│   ├── CredentialsDialog.tsx      ← Modal dialog for pasting Claude Code credentials.json with AES-256-GCM encryption
+│   ├── EvolveRequestForm.tsx      ← Shared evolve request form with harness/model selection, attachments, and element inspector
 │   ├── FloatingEvolveDialog.tsx   ← Draggable, dockable floating popup with the evolve form; opened from hamburger "Propose a change" on any page
-│   ├── EvolveSessionView.tsx      ← Client component for session tracking page; streams live progress via SSE
-│   ├── GitMirrorClient.tsx        ← Client component: Git Mirror admin panel; shows mirror remote status and SSH instructions
+│   ├── ForbiddenPage.tsx          ← Server component: 403 access-denied page with page description, required/met/unmet conditions, and how-to-fix
 │   ├── HamburgerMenu.tsx          ← Reusable hamburger button + dropdown; used by ChatInterface, EvolveForm, EvolveSessionView, PageNavBar
-│   ├── LandingNav.tsx             ← Landing page navbar with mobile hamburger collapse
-│   ├── ServerLogsClient.tsx       ← Client component: live tail of primordia systemd journal via SSE (/admin/logs)
+│   ├── MarkdownContent.tsx        ← Block-prose markdown renderer with dark styling used on session pages and changelogs
 │   ├── NavHeader.tsx              ← Shared nav header (title, branch name, nav links)
+│   ├── PageElementInspector.tsx   ← Full-screen portal overlay for picking DOM elements on current page with screenshot capture
 │   ├── PageNavBar.tsx             ← Shared nav header + hamburger for /changelog and /branches pages
-│   ├── CreateSessionFromBranchButton.tsx ← Client component: "+ session" button on Branches page; inline form to start a session on an existing branch
-│   ├── SimpleMarkdown.tsx         ← Minimal markdown renderer (bold, links, inline code, code blocks)
+│   ├── QrSignInOtherDeviceDialog.tsx ← Dialog for authenticated users to initiate push cross-device sign-in with QR code
+│   ├── ServerLogsClient.tsx       ← Client component: live tail of primordia systemd journal via SSE (/admin/logs)
+│   └── SimpleMarkdown.tsx         ← Minimal markdown renderer (bold, links, inline code, code blocks)
+│
+└── app/                           ← Next.js App Router
+    ├── layout.tsx                 ← Root layout (font, metadata, body styling)
+    ├── page.tsx                   ← Landing page — marketing/feature overview; links to /chat and /evolve
+    ├── globals.css                ← Tailwind base imports only
+    ├── icon.png                   ← App favicon
+    ├── ChangelogNewsticker.tsx    ← Server component: renders last 12 changelog entries as an animated horizontal newsticker
+    ├── CopyButton.tsx             ← Client button: copies text to clipboard with visual feedback
+    ├── InstallBlock.tsx           ← Interactive install UI block with SSH command and live VM name input
+    ├── LandingNav.tsx             ← Floating hamburger menu in top-right of landing page with lazy-loaded evolve dialog
+    ├── LandingSections.tsx        ← Server components for each landing page section (hero, features, how-it-works, etc.)
+    ├── ansi-test/
+    │   └── page.tsx               ← Interactive test page for AnsiRenderer with pre-baked samples and live streaming
+    ├── branches/
+    │   ├── page.tsx               ← Server component: git branch tree; publicly viewable; admin-only actions conditionally hidden
+    │   └── CreateSessionFromBranchButton.tsx ← Client component: "+ session" button; inline form to start a session on an existing branch
+    ├── changelog/
+    │   ├── page.tsx               ← Server component: reads changelog/ filenames at runtime; lazy-loads body via /api/changelog
+    │   └── ChangelogEntryDetails.tsx ← Client component: single changelog <details> widget; lazy-loads body from /api/changelog on first open
+    ├── chat/
+    │   └── page.tsx               ← Server component: chat interface + ChatInterface client; redirects to /login if unauthenticated
+    ├── admin/
+    │   ├── page.tsx               ← Admin panel: grant/revoke evolve access per user; tab subnav
+    │   ├── AdminPermissionsClient.tsx ← Client component: grant/revoke 'can_evolve' role per user
+    │   ├── git-mirror/
+    │   │   ├── page.tsx           ← Git Mirror: shows mirror remote status and SSH instructions; admin only
+    │   │   └── GitMirrorClient.tsx ← Client component: add/remove mirror remote
+    │   ├── instance/
+    │   │   ├── page.tsx           ← Instance identity admin panel: view/edit name+description+uuid7; view graph nodes+edges; admin only
+    │   │   └── InstanceConfigClient.tsx ← Client component for instance config editing and graph display
+    │   ├── logs/
+    │   │   └── page.tsx           ← Server logs: pre-fetches initial log buffer; delegates live tail to ServerLogsClient; admin only
+    │   ├── proxy-logs/
+    │   │   └── page.tsx           ← Proxy logs: pre-fetches first 100 journalctl lines; delegates live tail to ServerLogsClient; admin only
+    │   ├── rollback/
+    │   │   ├── page.tsx           ← Deep rollback: lists previous prod slots from primordia.productionHistory; admin only
+    │   │   └── AdminRollbackClient.tsx ← Client component: deep rollback UI with roll-back buttons per slot
+    │   ├── server-health/
+    │   │   ├── page.tsx           ← Server health: disk/memory usage and oldest non-prod worktree cleanup; admin only
+    │   │   └── AdminServerHealthClient.tsx ← Client component: disk/memory bars and worktree delete button
+    │   └── updates/
+    │       ├── page.tsx           ← Fetch Updates admin page for pulling upstream Primordia changes; admin only
+    │       └── UpdatesClient.tsx  ← Client component: multiple update sources with fetch/merge controls
+    ├── evolve/
+    │   ├── page.tsx               ← Dedicated "propose a change" page; renders <EvolveRequestForm>; requires evolve permission
+    │   └── session/
+    │       └── [id]/
+    │           ├── page.tsx               ← Session-tracking page; publicly viewable; passes canEvolve to hide actions for non-evolvers
+    │           ├── EvolveSessionView.tsx  ← Client component: streams live session progress via SSE; shows preview, diffs, actions
+    │           ├── DiffFileExpander.tsx   ← Expandable file row in git diff summary table; lazy-loads colorized diffs
+    │           ├── HorizontalResizeHandle.tsx ← Drag handle for resizing two-panel horizontal flex layouts
+    │           └── WebPreviewPanel.tsx    ← Inline browser-like preview panel with Back/Forward/Refresh and element inspector mode
+    ├── install.sh/
+    │   └── route.ts               ← Returns install.sh script with origins/base paths rewritten for the current instance
+    ├── login/
+    │   ├── page.tsx               ← Server component: auto-discovers providers via readdirSync(lib/auth-providers/); passes to LoginClient
+    │   ├── LoginClient.tsx        ← Client component: renders one tab per provider; loads tab components via next/dynamic
+    │   ├── approve/
+    │   │   └── page.tsx           ← Approval page: authenticated device approves a QR cross-device sign-in
+    │   └── cross-device-receive/
+    │       └── page.tsx           ← Receive page: new device scanning QR completes cross-device push sign-in flow
+    ├── markdown-test/
+    │   └── page.tsx               ← Interactive test page for MarkdownContent with speed and chunk-size controls
+    ├── register-passkey/
+    │   ├── page.tsx               ← Server component: shown after exe.dev login when user has no passkeys yet
+    │   └── RegisterPasskeyClient.tsx ← Client component: prompts logged-in users to register a passkey
+    ├── schemas/
+    │   └── instance/v1.json/
+    │       └── route.ts           ← Serves the JSON Schema for Primordia instance manifests
+    └── api/
+        ├── changelog/route.ts         ← GET ?filename=...: returns raw markdown body of one changelog file (lazy-load)
+        ├── chat/route.ts              ← Streams Claude responses via SSE
+        ├── git/[...path]/route.ts     ← GET/POST git http-backend proxy (read-only clone/fetch); push blocked with 403
+        ├── markdown-stream/route.ts   ← Streams markdown sample character-by-character via SSE (for testing MarkdownContent)
+        ├── openapi/route.ts           ← Serves OpenAPI spec, generating on first request if not on disk
+        ├── prune-branches/route.ts    ← Returns 410 Gone (superseded endpoint)
+        ├── rollback/route.ts          ← Returns 410 Gone (superseded by /api/admin/rollback)
+        ├── auth/
+        │   ├── session/route.ts       ← GET current session user
+        │   ├── logout/route.ts        ← POST clear session
+        │   ├── exe-dev/route.ts       ← GET exe.dev SSO login: reads injected headers, creates/finds user + session
+        │   ├── passkey/
+        │   │   ├── register/start/route.ts  ← Generate WebAuthn registration options
+        │   │   ├── register/finish/route.ts ← Verify registration, create user+session
+        │   │   ├── login/start/route.ts     ← Generate WebAuthn authentication options
+        │   │   └── login/finish/route.ts    ← Verify authentication, create session
+        │   └── cross-device/
+        │       ├── start/route.ts     ← POST create a cross-device token (pull flow); returns tokenId
+        │       ├── poll/route.ts      ← GET poll token status; sets session cookie on approval
+        │       ├── approve/route.ts   ← POST approve a token (requires auth on approver device)
+        │       ├── push/route.ts      ← POST create pre-approved cross-device token (push flow) with encrypted credentials
+        │       └── qr/route.ts        ← GET SVG QR code encoding the approval URL for a tokenId
+        ├── evolve/
+        │   ├── route.ts               ← POST start session (requires can_evolve permission), GET status (legacy poll)
+        │   ├── stream/route.ts        ← GET SSE stream of live session progress
+        │   ├── manage/route.ts        ← POST accept/reject a local session
+        │   ├── followup/route.ts      ← POST submit a follow-up request on an existing ready session
+        │   ├── abort/route.ts         ← POST abort the running Claude Code instance; transitions session to ready
+        │   ├── kill-restart/route.ts  ← POST kill dev server process + restart it in the worktree
+        │   ├── upstream-sync/route.ts ← POST merge parent branch into session worktree ("Apply Updates")
+        │   ├── from-branch/route.ts   ← POST start a session on an existing local branch (external contributor workflow)
+        │   ├── diff/route.ts          ← GET raw unified diff for a single file in a session branch vs its parent
+        │   ├── diff-summary/route.ts  ← GET per-file diff summary (additions + deletions) for all changed files in a session
+        │   ├── models/route.ts        ← GET available model options grouped by agent harness from the pi ModelRegistry
+        │   ├── reset-stuck/route.ts   ← POST force-reset sessions stuck in 'accepting'/'fixing-types' back to 'ready'
+        │   └── attachment/[sessionId]/route.ts ← GET serve user-uploaded attachment files from a session's worktree
+        ├── llm-key/
+        │   ├── public-key/route.ts        ← GET server's ephemeral RSA-OAEP public key as JWK
+        │   ├── encrypted-key/route.ts     ← Store/retrieve AES-GCM encrypted API key ciphertext
+        │   └── encrypted-credentials/route.ts ← Store/retrieve AES-GCM encrypted Claude Code credentials.json
+        ├── admin/
+        │   ├── permissions/route.ts   ← POST grant/revoke grantable roles (can_evolve); admin only
+        │   ├── logs/route.ts          ← GET SSE stream of production server logs; admin only
+        │   ├── proxy-logs/route.ts    ← GET SSE stream of journalctl -u primordia-proxy; admin only
+        │   ├── rollback/route.ts      ← GET/POST previous prod slots from primordia.productionHistory; admin only
+        │   ├── server-health/route.ts ← GET disk/memory usage; POST delete oldest worktree; admin only
+        │   ├── git-mirror/route.ts    ← GET/POST/DELETE manage "mirror" git remote for push mirroring; admin only
+        │   ├── proxy-settings/route.ts ← GET/PATCH reverse proxy configuration from git config; admin only
+        │   └── updates/route.ts       ← POST manage upstream update sources and create merge sessions; admin only
+        └── instance/
+            ├── config/route.ts        ← GET/PATCH instance metadata (uuid7, name, description, URLs)
+            ├── primordia-json/route.ts ← GET instance identity + social graph at /.well-known/primordia.json
+            └── register/route.ts      ← POST allows child Primordia instances to register as graph nodes
 ```
 
 ### Data Flow
