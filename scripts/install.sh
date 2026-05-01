@@ -403,7 +403,7 @@ Environment=REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}
 Environment=PRIMORDIA_WORKTREES_DIR=${WORKTREES_DIR}
 Environment=HOME=${HOME}
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=/bin/bun ${PRIMORDIA_DIR}/reverse-proxy.ts
+ExecStart=/bin/bun-real ${PRIMORDIA_DIR}/reverse-proxy.ts
 Restart=always
 RestartSec=5
 StandardOutput=journal
