@@ -222,7 +222,7 @@ fi
 # ── Install bun ───────────────────────────────────────────────────────────────
 
 _CURRENT_STEP="install bun"
-export PATH="$HOME/.primordia/bin:$HOME/.bun/bin:$PATH"
+export PATH="$HOME/.bun/bin:$PATH"
 if [[ ! -f "$HOME/.bun/bin/bun" ]]; then
   _step "Installing bun..."
   _bun_install_log=$(mktemp)
@@ -238,20 +238,13 @@ else
 fi
 
 # ── Install sfw shim ──────────────────────────────────────────────────────────
-# ~/.primordia/bin/bun is a shim that runs every bun invocation through sfw
-# (Socket Firewall Free) for network traffic filtering during package installs.
-# ~/.primordia/bin/bun-real symlinks to the actual bun binary.
-# ~/.primordia/bin/ is prepended to PATH so the shim intercepts all bun calls,
-# including those from agents and subprocesses.
+# /bin/bun is a shim that routes every bun invocation through sfw (Socket
+# Firewall Free) for network traffic filtering during package installs.
+# /bin/bun-real symlinks to the actual bun binary at ~/.bun/bin/bun.
+# Pointing /bin/bun to the shim intercepts all callers universally — interactive
+# shells, non-interactive shells, ssh one-liners, systemd services, and agents.
 
 _CURRENT_STEP="install sfw shim"
-mkdir -p "$HOME/.primordia/bin"
-
-# Ensure ~/.primordia/bin and ~/.bun/bin are in .bashrc PATH (interactive shells)
-if ! grep -q '\.primordia/bin' "$HOME/.bashrc" 2>/dev/null; then
-  echo 'export PATH="$HOME/.primordia/bin:$HOME/.bun/bin:$PATH"' >> "$HOME/.bashrc"
-  success "Added ~/.primordia/bin and ~/.bun/bin to PATH in .bashrc"
-fi
 
 # Install sfw globally so the shim can call it
 if [[ ! -f "$HOME/.bun/bin/sfw" ]]; then
@@ -262,23 +255,24 @@ else
   success "Using sfw"
 fi
 
-# Create bun-real symlink → actual bun binary
-if [[ ! -L "$HOME/.primordia/bin/bun-real" ]]; then
-  ln -sf "$HOME/.bun/bin/bun" "$HOME/.primordia/bin/bun-real"
-  success "Created bun-real symlink"
+# Create /bin/bun-real symlink → actual bun binary
+if [[ "$(readlink /bin/bun-real 2>/dev/null)" != "$HOME/.bun/bin/bun" ]]; then
+  sudo ln -sf "$HOME/.bun/bin/bun" /bin/bun-real
+  success "Created /bin/bun-real symlink"
+else
+  success "Using /bin/bun-real"
 fi
 
-# Write the bun shim (idempotent)
-SHIM_PATH="$HOME/.primordia/bin/bun"
+# Write the /bin/bun shim (idempotent)
 SHIM_CONTENT='#!/usr/bin/env bash
 exec bun-real --bun ~/.bun/bin/sfw bun-real "$@"
 '
-if [[ ! -f "$SHIM_PATH" ]] || [[ "$(cat "$SHIM_PATH")" != "$SHIM_CONTENT" ]]; then
-  printf '%s' "$SHIM_CONTENT" > "$SHIM_PATH"
-  chmod +x "$SHIM_PATH"
-  success "Installed bun→sfw shim"
+if [[ "$(cat /bin/bun 2>/dev/null)" != "$SHIM_CONTENT" ]]; then
+  printf '%s' "$SHIM_CONTENT" | sudo tee /bin/bun >/dev/null
+  sudo chmod +x /bin/bun
+  success "Installed /bin/bun→sfw shim"
 else
-  success "Using bun→sfw shim"
+  success "Using /bin/bun→sfw shim"
 fi
 
 # ── Install dependencies ──────────────────────────────────────────────────────
@@ -288,7 +282,7 @@ _step "bun install..."
 cd "${INSTALL_DIR}"
 _bun_log=$(mktemp)
 _BUN_OK=false
-if PRIMORDIA_SFW=1 bun install --frozen-lockfile >> "$_bun_log" 2>&1; then
+if bun install --frozen-lockfile >> "$_bun_log" 2>&1; then
   _BUN_OK=true;
 fi
 if [[ "$_BUN_OK" != "true" ]]; then
@@ -396,7 +390,6 @@ if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; t
   _step "Installing systemd service..."
   SYSTEMD_SERVICE_DIR="/etc/systemd/system"
   PROXY_SERVICE_DST="${SYSTEMD_SERVICE_DIR}/primordia.service"
-  BUN_DIR="$(dirname "$(command -v bun-real)")"
   GENERATED_UNIT=$(cat << UNIT
 [Unit]
 Description=Primordia Reverse Proxy
@@ -409,8 +402,8 @@ WorkingDirectory=${PRIMORDIA_DIR}
 Environment=REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}
 Environment=PRIMORDIA_WORKTREES_DIR=${WORKTREES_DIR}
 Environment=HOME=${HOME}
-Environment=PATH=${HOME}/.primordia/bin:${BUN_DIR}:/usr/local/bin:/usr/bin:/bin
-ExecStart=${HOME}/.primordia/bin/bun ${PRIMORDIA_DIR}/reverse-proxy.ts
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/bin/bun ${PRIMORDIA_DIR}/reverse-proxy.ts
 Restart=always
 RestartSec=5
 StandardOutput=journal
