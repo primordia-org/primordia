@@ -268,7 +268,7 @@ SHIM_CONTENT='#!/usr/bin/env bash
 exec bun-real --bun ~/.bun/bin/sfw bun-real "$@"
 '
 if [[ "$(cat /bin/bun 2>/dev/null)" != "$SHIM_CONTENT" ]]; then
-  printf '%s' "$SHIM_CONTENT" | sudo tee /bin/bun >/dev/null
+  echo "$SHIM_CONTENT" | sudo tee /bin/bun >/dev/null
   sudo chmod +x /bin/bun
   success "Installed /bin/bun→sfw shim"
 else
@@ -616,7 +616,6 @@ fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
-echo ""
 if [[ -z "$OLD_PROD_BRANCH" ]] && [[ "$HOSTNAME_FQDN" == *.exe.xyz ]]; then
   # exe.xyz hosts are private by default — the external URL may not be accessible yet.
   # Print the internal localhost address first so the installer can verify it works
