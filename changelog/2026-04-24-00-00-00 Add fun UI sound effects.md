@@ -20,15 +20,16 @@ Added synthesised sound effects to key UI interactions throughout the app. All s
 | `menuClose` | Hamburger menu closes | Downward sine tick + noise click |
 | `sparkle` | Evolve session submitted / dialog opened | Three ascending sine sparkle tones |
 | `accept` | Evolve session accepted ✅ | Cheerful C–E–G–C major arpeggio |
+| `agentDone` | Agent finished, session ready | Softer/faster C–E–G–C arpeggio |
 | `reject` | Evolve session rejected 🗑️ | Descending minor-third triangle tones |
-| `click` | Generic button click | Short sine pluck at 300 Hz — soft "tock" |
+| `click` | Generic button click | Blue-noise bandpass at 1 kHz — crisp "tick" |
 | `pop` | Generic notification pop | Brief sine blip |
 
 ### Wired into existing components
 
 - **`app/chat/ChatInterface.tsx`** — `send` on form submit, `receive` when the SSE stream finishes with `[DONE]`, `error` on fetch error.
 - **`components/HamburgerMenu.tsx`** — `menuOpen` / `menuClose` on toggle.
-- **`app/evolve/session/[id]/EvolveSessionView.tsx`** — `sparkle` when accept pipeline starts, `accept` on successful accept, `reject` on reject, `error` on accept/reject API errors.
+- **`app/evolve/session/[id]/EvolveSessionView.tsx`** — `sparkle` when accept pipeline starts, `accept` on successful accept, `agentDone` when the session transitions from a running state (`running-claude` / `starting` / `fixing-types`) to `ready`, `reject` on reject, `error` on accept/reject API errors.
 - **`components/EvolveRequestForm.tsx`** — `sparkle` when a new session is created, `error` on submission failure.
 
 ### New page: `app/sound-test/page.tsx`
@@ -43,6 +44,14 @@ Interactive soundboard at `/sound-test` with full audio diagnostics:
 ### Bug fix: `lib/sounds.ts` — silent audio on Firefox Android / Safari
 
 **Root cause:** the original design created a fresh `AudioContext` per sound and immediately called `ctx.close()`. On Firefox for Android (and some Safari versions) new `AudioContext` instances start in the `'suspended'` state even inside a user-gesture handler. The previous `void ctx.resume()` attempt was cancelled by the synchronous `ctx.close()` call that followed — so every sound was silently discarded with no error thrown.
+
+### Redesign: `click` sound — blue-noise bandpass
+
+The sine pluck was too similar to `pop`. Replaced with blue noise (first-order differentiated white noise, which naturally emphasises high frequencies) filtered through a bandpass at 1 kHz (Q = 1.8). The result is a crisp, defined "tick" that is brighter than pink noise and less harsh than white-noise highpass.
+
+### New sound: `agentDone`
+
+Same C–E–G–C ascending arpeggio as `accept` but at lower gain (0.11 vs 0.15) and slightly tighter spacing (70 ms vs 80 ms between notes). Wired into `EvolveSessionView` via a `useEffect` that watches `status` and fires whenever the session transitions from `running-claude`, `starting`, or `fixing-types` into `ready`.
 
 **Fix:** `lib/sounds.ts` now uses a single **persistent module-level `AudioContext`** that is created on first use and never closed. All play functions are now `async` and `await ctx.resume()` before scheduling any nodes, ensuring the context is actually running before any audio is queued. The `useSounds()` public API is unchanged — each method still returns `() => void`; the async play functions are fired with `void fn().catch(...)` internally.
 

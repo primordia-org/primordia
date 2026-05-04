@@ -134,6 +134,53 @@ function tone(ctx: AudioContext, opts: ToneOptions): void {
   osc.stop(t0 + attack + decay + 0.01);
 }
 
+/**
+ * Blue-noise click: differentiate white noise to emphasise high frequencies,
+ * then shape with a bandpass filter for a focused, crisp "tick" that is
+ * brighter than pink noise but far less harsh than raw white-noise highpass.
+ */
+function blueNoiseClick(ctx: AudioContext, start = 0, gain = 0.10): void {
+  const t0 = ctx.currentTime + LOOKAHEAD + start;
+  const ATTACK   = 0.003;
+  const DURATION = 0.030;
+
+  const bufSize = Math.floor(ctx.sampleRate * DURATION);
+  const buf  = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+
+  // First-order difference of white noise boosts high frequencies (blue noise).
+  let prev = 0, peak = 0;
+  for (let i = 0; i < bufSize; i++) {
+    const w = Math.random() * 2 - 1;
+    data[i] = w - prev;
+    prev = w;
+    if (Math.abs(data[i]) > peak) peak = Math.abs(data[i]);
+  }
+  // Normalise with a little headroom so we don’t clip downstream.
+  if (peak > 0) for (let i = 0; i < bufSize; i++) data[i] /= peak * 1.2;
+
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+
+  const gainNode = ctx.createGain();
+  gainNode.gain.setValueAtTime(0, t0);
+  gainNode.gain.linearRampToValueAtTime(gain, t0 + ATTACK);
+  gainNode.gain.exponentialRampToValueAtTime(0.0001, t0 + DURATION);
+
+  // Bandpass centred at 1 kHz shapes the blue noise into a crisp, defined
+  // “tick” — bright enough to be a click, narrow enough not to be harsh.
+  const filter = ctx.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.value = 1000;
+  filter.Q.value = 1.8;
+
+  src.connect(filter);
+  filter.connect(gainNode);
+  gainNode.connect(ctx.destination);
+  src.start(t0);
+  src.stop(t0 + DURATION + 0.01);
+}
+
 /** Tiny burst of noise shaped like a click. */
 function noiseClick(ctx: AudioContext, start = 0, gain = 0.06): void {
   // Always schedule in the future (see LOOKAHEAD note above).
@@ -177,6 +224,7 @@ export type SoundName =
   | "menuClose"
   | "sparkle"
   | "accept"
+  | "agentDone"
   | "reject"
   | "click"
   | "pop";
@@ -244,6 +292,17 @@ async function playAccept(): Promise<void> {
   });
 }
 
+async function playAgentDone(): Promise<void> {
+  const ctx = await getCtx();
+  if (!ctx) return;
+  // Same C–E–G–C arpeggio as accept but softer and a touch faster —
+  // "work finished" rather than "deployed to production".
+  const freqs = [523.25, 659.25, 784, 1046.5];
+  freqs.forEach((f, i) => {
+    tone(ctx, { type: "sine", freq: f, gain: 0.11, attack: 0.01, decay: 0.18, start: i * 0.07 });
+  });
+}
+
 async function playReject(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
@@ -256,10 +315,8 @@ async function playReject(): Promise<void> {
 async function playClick(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
-  // Soft "tock": a short sine pluck rather than filtered noise.
-  // Noise clicks are inherently harsh (broadband energy); a low-frequency sine
-  // with a fast attack and short decay reads as a clean, gentle click.
-  tone(ctx, { type: "sine", freq: 300, gain: 0.13, attack: 0.003, decay: 0.055 });
+  // Blue-noise bandpass: crispier than a sine pluck, not as harsh as white-noise highpass.
+  blueNoiseClick(ctx, 0, 0.10);
 }
 
 async function playPop(): Promise<void> {
@@ -280,6 +337,7 @@ export const RAW_SOUND_MAP: Record<SoundName, () => Promise<void>> = {
   menuClose: playMenuClose,
   sparkle: playSparkle,
   accept: playAccept,
+  agentDone: playAgentDone,
   reject: playReject,
   click: playClick,
   pop: playPop,

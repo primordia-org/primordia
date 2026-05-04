@@ -903,6 +903,19 @@ export default function EvolveSessionView({
   // Keep refs in sync so the visibilitychange handler always has the latest values.
   useEffect(() => { statusRef.current = status; }, [status]);
 
+  // Play a completion chime when the agent finishes and the session becomes ready.
+  const prevStatusRef = useRef(initialStatus);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = status;
+    // Only play when transitioning INTO ready from an active running state,
+    // not on initial mount or when moving through terminal states.
+    const wasRunning = prev === "running-claude" || prev === "starting" || prev === "fixing-types";
+    if (status === "ready" && wasRunning) {
+      sounds.agentDone();
+    }
+  }, [status, sounds]);
+
   // Show the "Stuck?" button if no new NDJSON events have arrived for 30 seconds
   // while the session is in a long-running pipeline state.
   useEffect(() => {
