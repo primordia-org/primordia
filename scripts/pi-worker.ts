@@ -128,6 +128,12 @@ async function main(): Promise<void> {
   // but does NOT throw from session.prompt() — we must detect and re-throw it
   // ourselves so the session is correctly reported as errored rather than done.
   let lastApiErrorMessage: string | null = null;
+  // Track whether the model is currently in an extended thinking / reasoning
+  // phase. During thinking, the SDK emits thinking_start / thinking_delta /
+  // thinking_end events instead of text_delta events. Without explicit handling
+  // these are completely invisible — no progress is written to the NDJSON log
+  // and the session page shows zero activity for up to 2 minutes.
+  let isInThinkingBlock = false;
 
   process.on('SIGTERM', () => {
     userAborted = true;
@@ -225,7 +231,18 @@ async function main(): Promise<void> {
     session.subscribe((event) => {
       if (event.type === 'message_update') {
         const ae = event.assistantMessageEvent;
-        if (ae.type === 'text_delta' && ae.delta) {
+        if (ae.type === 'thinking_start') {
+          // Extended reasoning has started — emit a start-of-thinking marker so
+          // the session view can show a distinct "Reasoning..." indicator instead
+          // of appearing completely frozen for up to 2 minutes.
+          isInThinkingBlock = true;
+          appendSessionEvent(ndjsonPath, { type: 'thinking', content: '', ts: ts() });
+        } else if (ae.type === 'thinking_delta' && ae.delta && isInThinkingBlock) {
+          // Stream reasoning tokens progressively so users can watch the model think.
+          appendSessionEvent(ndjsonPath, { type: 'thinking', content: ae.delta, ts: ts() });
+        } else if (ae.type === 'thinking_end') {
+          isInThinkingBlock = false;
+        } else if (ae.type === 'text_delta' && ae.delta) {
           appendSessionEvent(ndjsonPath, { type: 'text', content: ae.delta, ts: ts() });
         } else if (ae.type === 'error') {
           // Capture API errors (e.g. invalid API key). session.prompt() resolves
