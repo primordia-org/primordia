@@ -84,7 +84,7 @@ async function getCtx(): Promise<AudioContext | null> {
  * 30 ms is comfortably larger than any realistic render quantum and adds only
  * an imperceptible pre-delay before the sound starts.
  */
-const LOOKAHEAD = 0.030;
+const LOOKAHEAD = 0.060;
 
 // ─── Low-level synthesis helpers ─────────────────────────────────────────────
 

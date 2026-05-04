@@ -50,7 +50,7 @@ Interactive soundboard at `/sound-test` with full audio diagnostics:
 
 Three related timing bugs:
 
-1. **Click silent / pop varying in loudness** — `tone()` and `noiseClick()` scheduled events at `ctx.currentTime + 0`. The audio rendering thread runs 1–12 ms *ahead* of the JS thread (one render quantum). Events scheduled at `ctx.currentTime` land in a block the audio thread has already processed and are silently dropped, or the gain envelope is evaluated at its end value (0.0001) making the sound inaudible. Fixed by adding a **30 ms `LOOKAHEAD`** constant applied inside both helpers, so all audio is always scheduled in the future.
+1. **Click silent / pop varying in loudness** — `tone()` and `noiseClick()` scheduled events at `ctx.currentTime + 0`. The audio rendering thread runs 1–12 ms *ahead* of the JS thread (one render quantum). Events scheduled at `ctx.currentTime` land in a block the audio thread has already processed and are silently dropped, or the gain envelope is evaluated at its end value (0.0001) making the sound inaudible. Fixed by adding a **60 ms `LOOKAHEAD`** constant applied inside both helpers, so all audio is always scheduled in the future. 60 ms is below the ~100 ms threshold of perceptible delay while providing a comfortable margin above any realistic render-quantum size.
 
 2. **Onset pop on noise click** — `noiseClick()` jumped the `GainNode` instantaneously from 0 to full amplitude (`setValueAtTime`), creating a waveform discontinuity = audible pop. Fixed with a 3 ms linear ramp-up from 0 instead.
 
