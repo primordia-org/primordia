@@ -225,6 +225,8 @@ export type SoundName =
   | "sparkle"
   | "accept"
   | "agentDone"
+  | "deploy"
+  | "merge"
   | "reject"
   | "click"
   | "pop";
@@ -305,6 +307,38 @@ async function playAgentDone(): Promise<void> {
   });
 }
 
+async function playDeploy(): Promise<void> {
+  const ctx = await getCtx();
+  if (!ctx) return;
+  // Heroic fanfare: quick ascending run (C5–E5–G5) then a triumphant full
+  // C major chord landing on C6, with a noise “cymbal” accent at the climax.
+  // Triangle wave gives a warm, brass-like timbre without being piercing.
+  //
+  // Run — three short notes:
+  tone(ctx, { type: "triangle", freq: 523.25, gain: 0.17, attack: 0.005, decay: 0.12, start: 0.00 }); // C5
+  tone(ctx, { type: "triangle", freq: 659.25, gain: 0.17, attack: 0.005, decay: 0.12, start: 0.07 }); // E5
+  tone(ctx, { type: "triangle", freq: 784,    gain: 0.17, attack: 0.005, decay: 0.12, start: 0.14 }); // G5
+  // Climax — C6 lead + full C major chord together:
+  tone(ctx, { type: "triangle", freq: 1046.5, gain: 0.20, attack: 0.008, decay: 0.55, start: 0.22 }); // C6 lead
+  tone(ctx, { type: "triangle", freq: 784,    gain: 0.10, attack: 0.008, decay: 0.50, start: 0.22 }); // G5
+  tone(ctx, { type: "triangle", freq: 659.25, gain: 0.09, attack: 0.008, decay: 0.48, start: 0.22 }); // E5
+  tone(ctx, { type: "triangle", freq: 523.25, gain: 0.10, attack: 0.008, decay: 0.48, start: 0.22 }); // C5
+  noiseClick(ctx, 0.22, 0.04); // cymbal accent on the beat
+}
+
+async function playMerge(): Promise<void> {
+  const ctx = await getCtx();
+  if (!ctx) return;
+  // Two voices sweeping toward C5 from opposite sides — evocative of two
+  // branches converging — then a clean C major chord settles in place.
+  tone(ctx, { type: "sine", freq: 659.25, endFreq: 523.25, gain: 0.12, attack: 0.01, decay: 0.20, start: 0.00 }); // E5→C5
+  tone(ctx, { type: "sine", freq: 392,    endFreq: 523.25, gain: 0.12, attack: 0.01, decay: 0.20, start: 0.00 }); // G4→C5
+  // Resolution chord:
+  tone(ctx, { type: "sine", freq: 523.25, gain: 0.14, attack: 0.01, decay: 0.30, start: 0.18 }); // C5
+  tone(ctx, { type: "sine", freq: 659.25, gain: 0.10, attack: 0.01, decay: 0.28, start: 0.18 }); // E5
+  tone(ctx, { type: "sine", freq: 784,    gain: 0.09, attack: 0.01, decay: 0.26, start: 0.18 }); // G5
+}
+
 async function playReject(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
@@ -340,6 +374,8 @@ export const RAW_SOUND_MAP: Record<SoundName, () => Promise<void>> = {
   sparkle: playSparkle,
   accept: playAccept,
   agentDone: playAgentDone,
+  deploy: playDeploy,
+  merge: playMerge,
   reject: playReject,
   click: playClick,
   pop: playPop,

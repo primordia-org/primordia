@@ -903,18 +903,26 @@ export default function EvolveSessionView({
   // Keep refs in sync so the visibilitychange handler always has the latest values.
   useEffect(() => { statusRef.current = status; }, [status]);
 
-  // Play a completion chime when the agent finishes and the session becomes ready.
+  // Central sound-on-status-change effect.
+  // Using a single effect with prevStatusRef avoids duplicate sounds when
+  // status is set both by handleAccept() and the SSE stream.
   const prevStatusRef = useRef(initialStatus);
   useEffect(() => {
     const prev = prevStatusRef.current;
     prevStatusRef.current = status;
-    // Only play when transitioning INTO ready from an active running state,
-    // not on initial mount or when moving through terminal states.
+
+    // Agent finished — running → ready
     const wasRunning = prev === "running-claude" || prev === "starting" || prev === "fixing-types";
     if (status === "ready" && wasRunning) {
       sounds.agentDone();
     }
-  }, [status, sounds]);
+
+    // Accepted — fanfare for production deploy, merge chime for dev merge
+    if (status === "accepted" && prev !== "accepted") {
+      if (isProduction) sounds.deploy();
+      else sounds.merge();
+    }
+  }, [status, sounds, isProduction]);
 
   // Show the "Stuck?" button if no new NDJSON events have arrived for 30 seconds
   // while the session is in a long-running pipeline state.
@@ -1210,8 +1218,7 @@ export default function EvolveSessionView({
         void startStreaming();
         return;
       }
-      sounds.accept();
-      setStatus('accepted');
+      setStatus('accepted'); // deploy/merge sound fires via the prevStatusRef useEffect
       abortControllerRef.current?.abort();
     } catch (err) {
       setAcceptRejectError(err instanceof Error ? err.message : String(err));

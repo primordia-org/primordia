@@ -43,6 +43,8 @@ const SOUNDS: SoundEntry[] = [
   { name: "sparkle",   emoji: "✨", label: "Sparkle",    description: "Three ascending tones. Evolve session submitted." },
   { name: "accept",    emoji: "✅", label: "Accept",     description: "C–E–G–C major arpeggio. Session accepted." },
   { name: "agentDone", emoji: "🧠", label: "Agent Done", description: "A–C♯–E–A (A major) arpeggio, 350 ms decay. Agent finished, session ready." },
+  { name: "deploy",    emoji: "🚀", label: "Deploy",     description: "Fanfare: C–E–G run then triumphant C major chord. Branch deployed to production." },
+  { name: "merge",     emoji: "🔀", label: "Merge",      description: "Two converging tones meeting at C5, then a resolution chord. Dev branch merged." },
   { name: "reject",    emoji: "🗑️", label: "Reject",     description: "Descending minor-third tones. Session rejected." },
   { name: "click",     emoji: "👆", label: "Click",      description: "Short noise burst. Generic button click." },
   { name: "pop",       emoji: "🔔", label: "Pop",        description: "Brief sine blip. Generic notification." },
