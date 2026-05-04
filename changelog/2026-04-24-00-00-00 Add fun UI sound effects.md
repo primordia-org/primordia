@@ -40,13 +40,15 @@ Interactive soundboard at `/sound-test` with full audio diagnostics:
 - **Test Tone button** — plays an A-major arpeggio routed through the oscilloscope context, proving the audio pipeline end-to-end independent of the sound buttons. If the waveform moves but no sound is heard, the issue is system/tab volume, not the Web Audio API.
 - **Sound buttons** — each button calls the raw (unwrapped) play function so errors are shown inline rather than silently swallowed, making it easy to see exactly what failed and why.
 
-### Bug fix: `lib/sounds.ts` — Safari suspended AudioContext
+### Bug fix: `lib/sounds.ts` — silent audio on Firefox Android / Safari
 
-`getCtx()` now calls `ctx.resume()` when a newly created `AudioContext` starts in the `'suspended'` state. Safari sometimes suspends new contexts even during a user-gesture handler; without this fix those browsers produce no sound at all.
+**Root cause:** the original design created a fresh `AudioContext` per sound and immediately called `ctx.close()`. On Firefox for Android (and some Safari versions) new `AudioContext` instances start in the `'suspended'` state even inside a user-gesture handler. The previous `void ctx.resume()` attempt was cancelled by the synchronous `ctx.close()` call that followed — so every sound was silently discarded with no error thrown.
+
+**Fix:** `lib/sounds.ts` now uses a single **persistent module-level `AudioContext`** that is created on first use and never closed. All play functions are now `async` and `await ctx.resume()` before scheduling any nodes, ensuring the context is actually running before any audio is queued. The `useSounds()` public API is unchanged — each method still returns `() => void`; the async play functions are fired with `void fn().catch(...)` internally.
 
 ### Export: `RAW_SOUND_MAP`
 
-The internal `SOUND_MAP` is now exported as `RAW_SOUND_MAP` for use by the diagnostic page. The `useSounds()` public API is unchanged.
+Exports `Record<SoundName, () => Promise<void>>` for the diagnostic page, which `await`s each call to surface real errors instead of swallowing them.
 
 ## Why
 

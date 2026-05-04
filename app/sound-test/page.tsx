@@ -165,9 +165,9 @@ function DiagCard({ diag }: { diag: DiagInfo | null }) {
       value: (
         <span className={stateColor[diag.stateOnCreate]}>
           {diag.stateOnCreate === "running"
-            ? "✅ running — audio should play normally"
+            ? "✅ running"
             : diag.stateOnCreate === "suspended"
-            ? "⚠️ suspended — browser blocked audio; try clicking a button first"
+            ? "⚠️ suspended (normal on Firefox/Android/Safari — sounds.ts awaits resume() before scheduling)"
             : diag.stateOnCreate}
         </span>
       ),
@@ -304,20 +304,16 @@ export default function SoundTestPage() {
   }
 
   // ── Play a named sound and capture errors ─────────────────────────────────
-  function playSound(name: SoundName) {
-    initSharedCtx(); // ensure shared ctx is live for the oscilloscope
+  async function playSound(name: SoundName) {
+    initSharedCtx(); // ensure oscilloscope shared ctx is live
     setStatuses((prev) => ({ ...prev, [name]: { status: "idle" } }));
-
-    // Small delay so the UI update flushes before the (synchronous) audio work
-    setTimeout(() => {
-      try {
-        RAW_SOUND_MAP[name]();
-        setStatuses((prev) => ({ ...prev, [name]: { status: "ok" } }));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setStatuses((prev) => ({ ...prev, [name]: { status: "error", error: msg } }));
-      }
-    }, 10);
+    try {
+      await RAW_SOUND_MAP[name]();
+      setStatuses((prev) => ({ ...prev, [name]: { status: "ok" } }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setStatuses((prev) => ({ ...prev, [name]: { status: "error", error: msg } }));
+    }
   }
 
   const statusColor: Record<ButtonStatus, string> = {
@@ -385,9 +381,9 @@ export default function SoundTestPage() {
             Sounds
           </h2>
           <p className="text-xs text-gray-500 mb-3">
-            Each button plays via the raw (unwrapped) function so errors are shown instead of
-            silently swallowed. The oscilloscope above does <em>not</em> react to these — they
-            use their own AudioContext — but any error will appear inline.
+            Each button calls the raw async play function so errors surface inline rather than
+            being silently swallowed. All sounds share one persistent AudioContext that is
+            resumed before scheduling, fixing silent playback on Firefox Android and Safari.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {SOUNDS.map(({ name, emoji, label, description }) => {
