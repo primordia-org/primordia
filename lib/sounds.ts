@@ -373,9 +373,9 @@ async function playDeploy(): Promise<void> {
 
   // ── "Taaaa" (beat "1", t=0) ──────────────────────────────
   // C5+G5 open fifth sustained through "1 e &" (3 × 16th = 375 ms).
-  // sustain = 3S − attack − tiny gap so the note clears before "ta" strikes.
-  tone(ctx, { type: "triangle", freq: 523.25, gain: 0.22, attack: 0.005, sustain: 3 * S - 0.020, decay: 0.05, start: 0 }); // C5
-  tone(ctx, { type: "triangle", freq: 784,    gain: 0.17, attack: 0.005, sustain: 3 * S - 0.020, decay: 0.05, start: 0 }); // G5
+  // decay=0.20 gives the note a proper tail instead of snapping off.
+  tone(ctx, { type: "triangle", freq: 523.25, gain: 0.22, attack: 0.005, sustain: 3 * S - 0.020, decay: 0.20, start: 0 }); // C5
+  tone(ctx, { type: "triangle", freq: 784,    gain: 0.17, attack: 0.005, sustain: 3 * S - 0.020, decay: 0.20, start: 0 }); // G5
   noiseClick(ctx, 0.01, 0.07); // snare accent on the "1"
 
   // ── "ta" (beat "a", t = 3S = 375 ms) ────────────────────────
