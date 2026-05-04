@@ -700,7 +700,7 @@ export async function startLocalEvolve(
       `After making changes:\n` +
       `1. Create a new changelog file in the \`changelog/\` directory named \`YYYY-MM-DD-HH-MM-SS Description of change.md\` (UTC time, e.g. \`2026-03-16-21-00-00 Fix login bug.md\`). The filename is the short description; the file body is the full "what changed + why" detail in markdown. Do NOT add changelog entries to CLAUDE.md itself.\n` +
       `2. Commit all changes with a descriptive message.\n` +
-      `3. In your final message, mention the path of the most relevant page to open in the preview, e.g. "The relevant page is at \`/api-docs\`." Skip this step only if all changes are purely server-side or no single page is more relevant than the landing page.`;
+      `3. In your final message, mention the path of the most relevant page to open in the preview, e.g. "Preview \`/admin\`." Skip this step only if all changes are purely server-side or no single page is more relevant than the landing page.`;
 
     const workerScript = (harnessId === 'pi')
       ? path.join(repoRoot, 'scripts/pi-worker.ts')
@@ -847,7 +847,7 @@ export async function runFollowupInWorktree(
     // .primordia-session.ndjson to reconstruct session history — see CLAUDE.md.
     const previewPathInstruction = internalSectionType
       ? ''
-      : `\n\nIn your final message, mention the path of the most relevant page to open in the preview, e.g. "The relevant page is at \`/chat\`." Skip this only if all changes are purely server-side or no single page is more relevant than the landing page.`;
+      : `\n\nIn your final message, mention the path of the most relevant page to open in the preview, e.g. "Preview \`/admin\`." Skip this only if all changes are purely server-side or no single page is more relevant than the landing page.`;
 
     const prompt =
       `Address the following follow-up request:\n\n` +
