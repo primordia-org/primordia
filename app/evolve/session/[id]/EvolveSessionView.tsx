@@ -204,32 +204,66 @@ function summarizeToolInput(name: string, input: Record<string, unknown>, worktr
  */
 type RenderableEvent = Extract<SessionEvent, { type: 'tool_use' }>
   | Extract<SessionEvent, { type: 'text' }>
-  | Extract<SessionEvent, { type: 'log_line' }>;
+  | Extract<SessionEvent, { type: 'log_line' }>
+  | Extract<SessionEvent, { type: 'thinking' }>;
 
 function mergeConsecutiveTextEvents(events: RenderableEvent[]): RenderableEvent[] {
   const merged: RenderableEvent[] = [];
   for (const event of events) {
-    if (event.type === 'text') {
-      const last = merged[merged.length - 1];
-      if (last?.type === 'text') {
-        merged[merged.length - 1] = { ...last, content: last.content + event.content };
-        continue;
-      }
+    const last = merged[merged.length - 1];
+    if (event.type === 'text' && last?.type === 'text') {
+      merged[merged.length - 1] = { ...last, content: last.content + event.content };
+      continue;
+    }
+    // Merge consecutive thinking deltas into a single thinking block.
+    if (event.type === 'thinking' && last?.type === 'thinking') {
+      merged[merged.length - 1] = { ...last, content: last.content + event.content };
+      continue;
     }
     merged.push(event);
   }
   return merged;
 }
 
+/**
+ * Render an extended thinking / reasoning block as a collapsible details element.
+ * Empty content (start-marker event before any deltas arrive) shows an animated
+ * "Reasoning in progress..." indicator instead of a blank block.
+ */
+function ThinkingBlock({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
+  return (
+    <details className="group my-1">
+      <summary className="flex items-center gap-1.5 text-xs text-purple-400/80 hover:text-purple-300 cursor-pointer select-none list-none">
+        <span className="group-open:rotate-90 transition-transform text-purple-500/60">▶</span>
+        <span className="font-medium">🧠 Extended reasoning</span>
+        {isStreaming && !content && (
+          <span className="text-purple-500/60 animate-pulse ml-1">thinking...</span>
+        )}
+        {content && (
+          <span className="text-purple-500/50 ml-1">({Math.ceil(content.length / 4).toLocaleString()} est. tokens)</span>
+        )}
+      </summary>
+      {content ? (
+        <div className="mt-1 ml-4 pl-3 border-l border-purple-800/40 text-xs text-purple-200/60 font-mono whitespace-pre-wrap break-words leading-relaxed max-h-96 overflow-y-auto">
+          {content}
+        </div>
+      ) : (
+        <div className="mt-1 ml-4 pl-3 border-l border-purple-800/40 text-xs text-purple-400/40 italic">
+          Awaiting reasoning tokens...
+        </div>
+      )}
+    </details>
+  );
+}
+
 /** Split content events into "detail" events (before/including last tool_use) and "final" events. */
 function splitAgentEventsForDisplay(events: SessionEvent[]): {
-  detailEvents: (Extract<SessionEvent, { type: 'tool_use' }> | Extract<SessionEvent, { type: 'text' }>)[];
-  finalEvents: Extract<SessionEvent, { type: 'text' }>[];
+  detailEvents: RenderableEvent[];
+  finalEvents: RenderableEvent[];
   toolCallCount: number;
 } {
-  type ContentEvent = Extract<SessionEvent, { type: 'tool_use' }> | Extract<SessionEvent, { type: 'text' }>;
   const content = events.filter(
-    (e): e is ContentEvent => e.type === 'tool_use' || e.type === 'text',
+    (e): e is RenderableEvent => e.type === 'tool_use' || e.type === 'text' || e.type === 'thinking' || e.type === 'log_line',
   );
   let lastToolIdx = -1;
   for (let i = content.length - 1; i >= 0; i--) {
@@ -237,11 +271,11 @@ function splitAgentEventsForDisplay(events: SessionEvent[]): {
   }
   const toolCallCount = content.filter((e) => e.type === 'tool_use').length;
   if (lastToolIdx === -1) {
-    return { detailEvents: [], finalEvents: content.filter((e): e is Extract<SessionEvent, { type: 'text' }> => e.type === 'text'), toolCallCount: 0 };
+    return { detailEvents: [], finalEvents: content.filter((e): e is RenderableEvent => e.type !== 'tool_use'), toolCallCount: 0 };
   }
   return {
     detailEvents: content.slice(0, lastToolIdx + 1),
-    finalEvents: content.slice(lastToolIdx + 1).filter((e): e is Extract<SessionEvent, { type: 'text' }> => e.type === 'text'),
+    finalEvents: content.slice(lastToolIdx + 1).filter((e): e is RenderableEvent => e.type !== 'tool_use'),
     toolCallCount,
   };
 }
@@ -311,7 +345,7 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
       </div>
       <div className="px-4 py-3 space-y-2">
         {mergeConsecutiveTextEvents(
-          events.filter((e): e is RenderableEvent => e.type === 'tool_use' || e.type === 'text' || e.type === 'log_line')
+          events.filter((e): e is RenderableEvent => e.type === 'tool_use' || e.type === 'text' || e.type === 'log_line' || e.type === 'thinking')
         ).map((event, i) => {
           if (event.type === 'tool_use') {
             if (event.name.toLowerCase() === 'todowrite') {
@@ -334,6 +368,9 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
           }
           if (event.type === 'log_line') {
             return <p key={i} className="text-gray-500 text-xs">{event.content}</p>;
+          }
+          if (event.type === 'thinking') {
+            return <ThinkingBlock key={i} content={event.content} isStreaming />;
           }
           return null;
         })}
@@ -413,14 +450,25 @@ function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection
               if (event.type === 'text') {
                 return <MarkdownContent key={i} text={event.content} className="[&>*:last-child]:mb-0" />;
               }
+              if (event.type === 'thinking') {
+                return <ThinkingBlock key={i} content={event.content} />;
+              }
               return null;
             })}
           </div>
         </details>
       )}
       {finalEvents.length > 0 && (
-        <div className="px-4 py-3">
-          <MarkdownContent text={finalEvents.map((e) => e.content).join('')} />
+        <div className="px-4 py-3 space-y-2">
+          {mergeConsecutiveTextEvents(finalEvents).map((event, i) => {
+            if (event.type === 'thinking') {
+              return <ThinkingBlock key={i} content={event.content} />;
+            }
+            if (event.type === 'text') {
+              return <MarkdownContent key={i} text={event.content} />;
+            }
+            return null;
+          })}
         </div>
       )}
       {hasError && resultEvent?.message && (
