@@ -66,6 +66,26 @@ async function getCtx(): Promise<AudioContext | null> {
   return _sharedCtx;
 }
 
+// ─── Scheduling constant ─────────────────────────────────────────────────────
+
+/**
+ * All audio is scheduled this many seconds in the future relative to
+ * ctx.currentTime.  This is necessary because:
+ *
+ *  1. The audio rendering thread runs ahead of the JS thread by one render
+ *     quantum (64–512 samples = ~1–12 ms depending on hardware and browser).
+ *     Scheduling at ctx.currentTime + 0 means the events land in a block the
+ *     audio thread has already processed, so they are silently dropped or
+ *     rendered at the end-of-ramp value (→ inaudible).
+ *
+ *  2. async getCtx() adds at least one microtask bounce even when the context
+ *     is already running, introducing ~0–2 ms of additional JS overhead.
+ *
+ * 30 ms is comfortably larger than any realistic render quantum and adds only
+ * an imperceptible pre-delay before the sound starts.
+ */
+const LOOKAHEAD = 0.030;
+
 // ─── Low-level synthesis helpers ─────────────────────────────────────────────
 
 type OscType = OscillatorType;
@@ -87,12 +107,13 @@ function tone(ctx: AudioContext, opts: ToneOptions): void {
     freq,
     endFreq = freq,
     gain = 0.18,
-    attack = 0.005,
+    attack = 0.010,  // 10 ms — long enough to prevent onset pops on non-zero-phase oscillators
     decay = 0.08,
     start = 0,
   } = opts;
 
-  const t0 = ctx.currentTime + start;
+  // Always schedule in the future (see LOOKAHEAD note above).
+  const t0 = ctx.currentTime + LOOKAHEAD + start;
 
   const osc = ctx.createOscillator();
   osc.type = type;
@@ -115,8 +136,12 @@ function tone(ctx: AudioContext, opts: ToneOptions): void {
 
 /** Tiny burst of noise shaped like a click. */
 function noiseClick(ctx: AudioContext, start = 0, gain = 0.06): void {
-  const t0 = ctx.currentTime + start;
-  const bufSize = Math.floor(ctx.sampleRate * 0.02);
+  // Always schedule in the future (see LOOKAHEAD note above).
+  const t0 = ctx.currentTime + LOOKAHEAD + start;
+  const ATTACK = 0.003;   // 3 ms ramp — avoids the instantaneous gain jump that causes onset pops
+  const DURATION = 0.030; // 30 ms total — long enough to be audible even with some timing jitter
+
+  const bufSize = Math.floor(ctx.sampleRate * DURATION);
   const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
   const data = buf.getChannelData(0);
   for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
@@ -125,19 +150,21 @@ function noiseClick(ctx: AudioContext, start = 0, gain = 0.06): void {
   src.buffer = buf;
 
   const gainNode = ctx.createGain();
-  gainNode.gain.setValueAtTime(gain, t0);
-  gainNode.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.02);
+  // Ramp up from 0 instead of jumping instantly — eliminates the onset pop.
+  gainNode.gain.setValueAtTime(0, t0);
+  gainNode.gain.linearRampToValueAtTime(gain, t0 + ATTACK);
+  gainNode.gain.exponentialRampToValueAtTime(0.0001, t0 + DURATION);
 
   const filter = ctx.createBiquadFilter();
   filter.type = "highpass";
-  filter.frequency.value = 800;
+  filter.frequency.value = 400; // lowered from 800 Hz — more body, more audible
 
   src.connect(filter);
   filter.connect(gainNode);
   gainNode.connect(ctx.destination);
 
   src.start(t0);
-  src.stop(t0 + 0.025);
+  src.stop(t0 + DURATION + 0.01);
 }
 
 // ─── Individual sound effects ─────────────────────────────────────────────────
@@ -229,7 +256,7 @@ async function playReject(): Promise<void> {
 async function playClick(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
-  noiseClick(ctx, 0, 0.07);
+  noiseClick(ctx, 0, 0.12); // gain raised — click must be clearly audible on its own
 }
 
 async function playPop(): Promise<void> {

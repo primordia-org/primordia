@@ -46,6 +46,16 @@ Interactive soundboard at `/sound-test` with full audio diagnostics:
 
 **Fix:** `lib/sounds.ts` now uses a single **persistent module-level `AudioContext`** that is created on first use and never closed. All play functions are now `async` and `await ctx.resume()` before scheduling any nodes, ensuring the context is actually running before any audio is queued. The `useSounds()` public API is unchanged — each method still returns `() => void`; the async play functions are fired with `void fn().catch(...)` internally.
 
+### Bug fix: onset/offset pops and "click" silence
+
+Three related timing bugs:
+
+1. **Click silent / pop varying in loudness** — `tone()` and `noiseClick()` scheduled events at `ctx.currentTime + 0`. The audio rendering thread runs 1–12 ms *ahead* of the JS thread (one render quantum). Events scheduled at `ctx.currentTime` land in a block the audio thread has already processed and are silently dropped, or the gain envelope is evaluated at its end value (0.0001) making the sound inaudible. Fixed by adding a **30 ms `LOOKAHEAD`** constant applied inside both helpers, so all audio is always scheduled in the future.
+
+2. **Onset pop on noise click** — `noiseClick()` jumped the `GainNode` instantaneously from 0 to full amplitude (`setValueAtTime`), creating a waveform discontinuity = audible pop. Fixed with a 3 ms linear ramp-up from 0 instead.
+
+3. **Short attack pops on tones** — default tone attack increased from 5 ms to 10 ms, giving non-zero-phase oscillators time to ramp up smoothly. `noiseClick` buffer duration extended from 20 ms to 30 ms and filter lowered from 800 Hz to 400 Hz for better audibility.
+
 ### Export: `RAW_SOUND_MAP`
 
 Exports `Record<SoundName, () => Promise<void>>` for the diagnostic page, which `await`s each call to surface real errors instead of swallowing them.
