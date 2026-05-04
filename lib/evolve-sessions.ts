@@ -488,6 +488,13 @@ function spawnCacheWarmBuild(worktreePath: string): void {
     },
   });
   proc.unref();
+  // Write the PID to a well-known file so accept can kill the warmup
+  // build before running its own `bun run build` — Next.js refuses to start
+  // a second build if one is already in progress.
+  if (proc.pid !== undefined) {
+    const pidFile = path.join(worktreePath, '.primordia-warmup-build.pid');
+    try { fs.writeFileSync(pidFile, String(proc.pid)); } catch { /* non-fatal */ }
+  }
   console.log(`[evolve] cache-warming build started in ${worktreePath} (PID ${proc.pid ?? 'unknown'})`);
 }
 

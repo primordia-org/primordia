@@ -73,7 +73,19 @@ const INSTALL_EXIT_TYPECHECK = 2;
 /**
  * Runs install.sh in the session worktree and resolves with the exit code.
  * Streams all stdout/stderr to the session log as it arrives.
+ *
+ * NOTE: We resolve on 'exit' (not 'close') and immediately destroy the I/O
+ * streams afterwards. install.sh spawns a spinner sub-process with `&` and
+ * `disown` that inherits the stdout/stderr pipe write-ends. When install.sh
+ * exits the spinner keeps running and holds those FDs open, so 'close' would
+ * never fire — the promise would hang forever and the session would stay stuck
+ * in 'accepting'. Using 'exit' fires as soon as the main bash process exits,
+ * and destroying the streams closes the read-ends of the pipes, which causes
+ * the spinner sub-process to get SIGPIPE and die on its next write.
  */
+/** Well-known filename used to track the PID of a running install.sh process. */
+export const INSTALL_SH_PID_FILE = '.primordia-installsh.pid';
+
 function runInstallSh(
   sessionId: string,
   worktreePath: string,
@@ -86,10 +98,26 @@ function runInstallSh(
       env: { ...process.env, REPORT_STYLE: 'ansi' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    // Write the PID to a well-known file so reset-stuck can kill install.sh
+    // (and all its child processes) before allowing a re-accept attempt.
+    // Without this, a stuck install.sh keeps running while the user re-accepts,
+    // causing a second concurrent install.sh to race the first one.
+    if (proc.pid !== undefined) {
+      try { fs.writeFileSync(path.join(worktreePath, INSTALL_SH_PID_FILE), String(proc.pid)); } catch { /* non-fatal */ }
+    }
     const forward = (data: Buffer) => { void appendLogLine(sessionId, data.toString()); };
     proc.stdout.on('data', forward);
     proc.stderr.on('data', forward);
-    proc.on('close', (code) => resolve(code ?? 1));
+    proc.on('exit', (code) => {
+      // Destroy the streams so the spinner sub-process (which still holds the
+      // pipe write FDs) gets SIGPIPE and terminates. Without this the streams
+      // stay open and keep delivering spinner noise to the session log.
+      proc.stdout.destroy();
+      proc.stderr.destroy();
+      // Clean up PID file now that the process has exited normally.
+      try { fs.unlinkSync(path.join(worktreePath, INSTALL_SH_PID_FILE)); } catch { /* already gone */ }
+      resolve(code ?? 1);
+    });
     proc.on('error', (err) => reject(new Error(`install.sh spawn failed: ${err.message}`)));
   });
 }
@@ -220,6 +248,36 @@ async function runAcceptAsync(
     const isProduction = process.env.NODE_ENV === 'production';
 
     if (isProduction) {
+      // ── Kill preview dev server + any background warmup build ─────────────
+      // The preview dev server and the background cache-warming `next build`
+      // both hold the Next.js build lock. If either is still running when
+      // install.sh runs `bun run build`, Next.js will refuse with
+      // "Another next build process is already running". Kill them first.
+      console.log(`[runAcceptAsync] killing preview server for session ${sessionId}`);
+      try {
+        await fetch(`http://127.0.0.1:${process.env.REVERSE_PROXY_PORT!}/_proxy/preview/${sessionId}`, {
+          method: 'DELETE',
+        });
+      } catch { /* proxy not running — dev server may already be gone */ }
+
+      // Kill any background cache-warming build that may still be running.
+      const warmupPidFile = path.join(worktreePath, '.primordia-warmup-build.pid');
+      if (fs.existsSync(warmupPidFile)) {
+        try {
+          const warmupPid = parseInt(fs.readFileSync(warmupPidFile, 'utf8').trim(), 10);
+          if (!isNaN(warmupPid)) {
+            // Kill the whole process group in case nice/ionice spawned children.
+            try { process.kill(-warmupPid, 'SIGTERM'); } catch { /* already gone */ }
+            try { process.kill(warmupPid, 'SIGTERM'); } catch { /* already gone */ }
+            console.log(`[runAcceptAsync] sent SIGTERM to warmup build PID ${warmupPid}`);
+          }
+        } catch { /* non-fatal */ }
+        try { fs.unlinkSync(warmupPidFile); } catch { /* non-fatal */ }
+      }
+
+      // Brief pause so the dev server and warmup build can release the lock.
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
       // ── Production: run install.sh from the session worktree ─────────────
       // install.sh handles: typecheck (exits 2 on failure), bun install, build,
       // DB copy, sibling reparenting, proxy spawn, main pointer advancement,
