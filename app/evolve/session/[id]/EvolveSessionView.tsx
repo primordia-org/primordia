@@ -207,8 +207,10 @@ type RenderableEvent = Extract<SessionEvent, { type: 'tool_use' }>
   | Extract<SessionEvent, { type: 'log_line' }>
   | Extract<SessionEvent, { type: 'thinking' }>;
 
-function mergeConsecutiveTextEvents(events: RenderableEvent[]): RenderableEvent[] {
-  const merged: RenderableEvent[] = [];
+type MergedRenderableEvent = RenderableEvent & { endTs?: number };
+
+function mergeConsecutiveTextEvents(events: RenderableEvent[]): MergedRenderableEvent[] {
+  const merged: MergedRenderableEvent[] = [];
   for (const event of events) {
     const last = merged[merged.length - 1];
     if (event.type === 'text' && last?.type === 'text') {
@@ -216,26 +218,47 @@ function mergeConsecutiveTextEvents(events: RenderableEvent[]): RenderableEvent[
       continue;
     }
     // Merge consecutive thinking deltas into a single thinking block.
+    // Track endTs so ThinkingBlock can show "Thought for Xs".
     if (event.type === 'thinking' && last?.type === 'thinking') {
-      merged[merged.length - 1] = { ...last, content: last.content + event.content };
+      merged[merged.length - 1] = { ...last, content: last.content + event.content, endTs: event.ts };
       continue;
     }
-    merged.push(event);
+    merged.push({ ...event });
   }
   return merged;
 }
 
+/** Format a thinking duration into "Xs" or "Xm Ys". */
+function formatThinkDuration(startTs: number, endTs: number): string {
+  const secs = Math.max(0, Math.round((endTs - startTs) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
 /**
- * Render an extended thinking / reasoning block as a collapsible details element.
- * Empty content (start-marker event before any deltas arrive) shows an animated
- * "Reasoning in progress..." indicator instead of a blank block.
+ * Render an extended thinking block as a collapsible details element.
+ * Shows "Thinking..." while streaming, "Thought for Xs" once complete.
  */
-function ThinkingBlock({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
+function ThinkingBlock({
+  content, isStreaming, startTs, endTs,
+}: {
+  content: string;
+  isStreaming?: boolean;
+  startTs?: number;
+  endTs?: number;
+}) {
+  const label = isStreaming
+    ? '🧠 Thinking...'
+    : (startTs != null && endTs != null)
+      ? `🧠 Thought for ${formatThinkDuration(startTs, endTs)}`
+      : '🧠 Thinking';
   return (
     <details className="group/thinking my-1">
       <summary className="flex items-center gap-1.5 text-xs cursor-pointer select-none list-none">
         <span className="inline-block group-open/thinking:rotate-90 transition-transform text-gray-600">▶</span>
-        <span className="text-gray-500">🧠 Thinking</span>
+        <span className="text-gray-500">{label}</span>
       </summary>
       {content ? (
         <div className="mt-1 ml-4 pl-3 border-l border-gray-800 text-xs text-gray-500 font-mono whitespace-pre-wrap break-words leading-relaxed max-h-96 overflow-y-auto">
@@ -445,7 +468,7 @@ function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection
                 return <MarkdownContent key={i} text={event.content} className="[&>*:last-child]:mb-0" />;
               }
               if (event.type === 'thinking') {
-                return <ThinkingBlock key={i} content={event.content} />;
+                return <ThinkingBlock key={i} content={event.content} startTs={event.ts} endTs={event.endTs} />;
               }
               return null;
             })}
@@ -456,7 +479,7 @@ function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection
         <div className="px-4 py-3 space-y-2">
           {mergeConsecutiveTextEvents(finalEvents).map((event, i) => {
             if (event.type === 'thinking') {
-              return <ThinkingBlock key={i} content={event.content} />;
+              return <ThinkingBlock key={i} content={event.content} startTs={event.ts} endTs={event.endTs} />;
             }
             if (event.type === 'text') {
               return <MarkdownContent key={i} text={event.content} />;

@@ -11,11 +11,5 @@
 ## Why
 The previous thinking block was visually noisy: a redundant "Extended reasoning" label, estimated token counts that aren't actionable, and a bright purple color that drew too much attention. The simplified version is quieter and consistent with how tool calls are displayed.
 
-## Also fixed: hard-coded model list to remove pi import from SSR path
-- `lib/agent-config.ts` now exports a hard-coded `MODEL_OPTIONS` record (10 models across claude-code and pi harnesses) instead of relying on `@mariozechner/pi-coding-agent`'s `ModelRegistry` at runtime
-- `app/api/evolve/models/route.ts` now returns `MODEL_OPTIONS` directly — no pi SDK import
-- `lib/user-prefs.ts` now validates saved model preferences against `MODEL_OPTIONS` inline — no pi SDK import
-- `lib/evolve-sessions.ts` now resolves model labels via an inline lookup against `MODEL_OPTIONS` — no pi SDK import
-- `lib/pi-model-registry.server.ts` is kept for reference but is no longer imported anywhere
-
-`@mariozechner/pi-coding-agent` is ESM-only. Turbopack handles ESM externals by creating content-hashed symlinks in `.next/dev/node_modules/`. In fresh worktrees the symlinks may not exist when the first SSR render fires, causing `externalImport('@mariozechner/pi-coding-agent-{hash}')` to fail. Removing the static import from every server-component code path eliminates the failure.
+- Streaming label changed to "🧠 Thinking..."; once the block is complete it shows "🧠 Thought for Xs" (or "Xm Ys" for longer runs)
+- `mergeConsecutiveTextEvents` now tracks `endTs` on merged thinking events so the duration can be computed from the first-delta timestamp to the last-delta timestamp
