@@ -31,6 +31,10 @@ Added synthesised sound effects to key UI interactions throughout the app. All s
 - **`app/evolve/session/[id]/EvolveSessionView.tsx`** — `sparkle` when accept pipeline starts, `accept` on successful accept, `reject` on reject, `error` on accept/reject API errors.
 - **`components/EvolveRequestForm.tsx`** — `sparkle` when a new session is created, `error` on submission failure.
 
+### New page: `app/sound-test/page.tsx`
+
+Interactive soundboard at `/sound-test` — a grid of buttons, one per sound, each labelled with its name, `useSounds()` call, emoji, and a brief description of when it fires. Useful for auditioning or tweaking sounds without needing to trigger the actual UI events.
+
 ## Why
 
 Sound feedback makes the interface feel alive and responsive without adding complexity. Using the Web Audio API keeps the bundle lean — there is nothing to download or cache.
