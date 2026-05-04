@@ -59,7 +59,15 @@ Interactive soundboard at `/sound-test` — oscilloscope now taps the `lib/sound
 
 ### New sounds: `deploy` (fanfare) and `merge`
 
-**`deploy`** — "Ta Daaaa!" fanfare triggered when a branch is deployed to production. A short, punchy C5+G5 open-fifth accent ("Ta!") at 0 ms with a snare-style noise burst, followed 220 ms later by a full four-octave C major chord (C4–G4–C5–E5–G5–C6) with a cymbal crash ("Daaaa!"). The six chord voices enter with a 0–50 ms stagger — like real brass players — so the chord blooms open rather than hitting as a flat wall of sound. Total duration ~1.0 s.
+**`deploy`** — "Taaaa ta Daaaa!" fanfare triggered when a branch is deployed to production.
+
+The rhythm is mapped to 120 BPM 16th-note subdivisions (one 16th = 125 ms):
+
+- **"Taaaa"** (beat "1", 0 ms): C5+G5 open fifth, *sustained* through "1 e &" (3 × 16th = 375 ms) using the new `sustain` envelope parameter.
+- **"ta"** (beat "a", 375 ms): same C5+G5, sustained through "a" (1 × 16th = 125 ms).
+- **"Daaaa!"** (beat "2", 500 ms): full four-octave C major chord (C4–G4–C5–E5–G5–C6) with cymbal crash and 0–50 ms staggered bloom. Total duration ~1.3 s.
+
+Added `sustain?: number` to `ToneOptions` and `tone()`: after the attack ramp, the Web Audio gain node holds at peak until the exponential decay begins, providing a natural sustain phase with no extra automation events.
 
 **`merge`** - Subtle resolution triggered when a development branch is merged. Two sine voices sweep from opposite directions and converge on C5 (E5→C5 and G4→C5), then a C major chord settles. The convergence metaphor directly mirrors two branches meeting. Total duration ~0.5 s.
 

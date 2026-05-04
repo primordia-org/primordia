@@ -122,8 +122,9 @@ interface ToneOptions {
   freq: number;
   endFreq?: number;   // glide target (if different from freq)
   gain?: number;      // 0-1, default 0.18
-  attack?: number;    // seconds, default 0.005
-  decay?: number;     // seconds, default 0.08
+  attack?: number;    // seconds to ramp from 0 to peak, default 0.010
+  sustain?: number;   // seconds held at peak gain before decaying, default 0
+  decay?: number;     // seconds from peak to near-silence, default 0.08
   start?: number;     // seconds offset from now, default 0
 }
 
@@ -135,6 +136,7 @@ function tone(ctx: AudioContext, opts: ToneOptions): void {
     endFreq = freq,
     gain = 0.18,
     attack = 0.010,  // 10 ms - long enough to prevent onset pops on non-zero-phase oscillators
+    sustain = 0,     // seconds held at peak gain before decaying (default: begin decay immediately)
     decay = 0.08,
     start = 0,
   } = opts;
@@ -152,7 +154,10 @@ function tone(ctx: AudioContext, opts: ToneOptions): void {
   const gainNode = ctx.createGain();
   gainNode.gain.setValueAtTime(0, t0);
   gainNode.gain.linearRampToValueAtTime(gain, t0 + attack);
-  gainNode.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + decay);
+  // Web Audio holds the last automation value after the attack ramp ends, so
+  // the gain stays at `gain` from t0+attack until the exponential decay begins.
+  // This implicit hold IS the sustain phase — no extra setValueAtTime needed.
+  gainNode.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + sustain + decay);
 
   osc.connect(gainNode);
   // Route through the shared analyser when the sound-test page has attached one;
@@ -160,7 +165,7 @@ function tone(ctx: AudioContext, opts: ToneOptions): void {
   gainNode.connect(_analyser ?? ctx.destination);
 
   osc.start(t0);
-  osc.stop(t0 + attack + decay + 0.01);
+  osc.stop(t0 + attack + sustain + decay + 0.01);
 }
 
 /**
@@ -341,19 +346,34 @@ async function playDeploy(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
   //
-  // "Ta  Daaaa!"
+  // Rhythm: "Taaaa  ta  Daaaa!"
   //
-  // ── "Ta!" (0 ms) ────────────────────────────────────
-  // Short, punchy open-fifth accent (C5 + G5 = power with no thirds).
-  tone(ctx, { type: "triangle", freq: 523.25, gain: 0.22, attack: 0.005, decay: 0.18, start: 0.00 }); // C5
-  tone(ctx, { type: "triangle", freq: 784,    gain: 0.17, attack: 0.005, decay: 0.16, start: 0.00 }); // G5
-  noiseClick(ctx, 0.01, 0.07); // snare-style accent
+  // Reference: 120 BPM → one 16th note = 0.125 s
+  // Beat subdivisions: 1  e  &  a  |  2  e  &  a
+  // Onsets:            *           *  *
+  //                    └─ "Taaaa"  ┘  └─ "ta"
+  //                 held 3×16th    held 1×16th
+  //                                         └─ chord blooms here
   //
-  // ── "Daaaa!" (220 ms) ─────────────────────────────
-  // Full C major chord across four octaves. Notes enter with a 0–50 ms stagger
-  // (like real brass players), which creates a swelling “bloom” rather than
-  // all voices hitting as a flat wall of sound.
-  const B = 0.22;
+  const S = 0.125; // one 16th note at 120 BPM
+
+  // ── "Taaaa" (beat "1", t=0) ──────────────────────────────
+  // C5+G5 open fifth sustained through "1 e &" (3 × 16th = 375 ms).
+  // sustain = 3S − attack − tiny gap so the note clears before "ta" strikes.
+  tone(ctx, { type: "triangle", freq: 523.25, gain: 0.22, attack: 0.005, sustain: 3 * S - 0.020, decay: 0.05, start: 0 }); // C5
+  tone(ctx, { type: "triangle", freq: 784,    gain: 0.17, attack: 0.005, sustain: 3 * S - 0.020, decay: 0.05, start: 0 }); // G5
+  noiseClick(ctx, 0.01, 0.07); // snare accent on the "1"
+
+  // ── "ta" (beat "a", t = 3S = 375 ms) ────────────────────────
+  // Same C5+G5, held through "a" (1 × 16th = 125 ms).
+  const T2 = 3 * S; // 0.375 s
+  tone(ctx, { type: "triangle", freq: 523.25, gain: 0.19, attack: 0.005, sustain: 1 * S - 0.020, decay: 0.05, start: T2 });
+  tone(ctx, { type: "triangle", freq: 784,    gain: 0.15, attack: 0.005, sustain: 1 * S - 0.020, decay: 0.05, start: T2 });
+
+  // ── "Daaaa!" (beat "2", t = 4S = 500 ms) ────────────────────
+  // Full C major chord across four octaves with staggered entry (0–50 ms)
+  // so the chord swells open like a real brass section.
+  const B = 4 * S; // 0.500 s
   tone(ctx, { type: "triangle", freq: 261.63, gain: 0.10, attack: 0.030, decay: 0.90, start: B + 0.00 }); // C4 bass
   tone(ctx, { type: "sine",     freq: 392,    gain: 0.09, attack: 0.025, decay: 0.85, start: B + 0.01 }); // G4
   tone(ctx, { type: "triangle", freq: 523.25, gain: 0.14, attack: 0.020, decay: 0.80, start: B + 0.00 }); // C5
