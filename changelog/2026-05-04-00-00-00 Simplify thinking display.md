@@ -4,7 +4,8 @@
 - Label changed from "🧠 Extended reasoning" to "🧠 Thinking"
 - Removed estimated token count `(N est. tokens)` from the summary line
 - Removed special purple color styling; thinking blocks now use the same neutral gray as tool call blocks
-- Added `inline-block` to the caret `<span>` so the rotate-90 transition animates properly (matching tool call behavior)
+- Added `inline-block` to the caret `<span>` so the rotate-90 transition animates properly
+- Used Tailwind named group (`group/thinking` / `group-open/thinking:rotate-90`) so the caret rotation responds to the thinking `<details>` open state rather than an ancestor `group` — fixes broken animation when thinking blocks are nested inside the "tool calls made" collapsible
 - Removed the "thinking..." animated pulse and "Awaiting reasoning tokens..." placeholder text in favor of a simple "Thinking..." fallback
 
 ## Why

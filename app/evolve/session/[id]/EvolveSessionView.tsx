@@ -232,9 +232,9 @@ function mergeConsecutiveTextEvents(events: RenderableEvent[]): RenderableEvent[
  */
 function ThinkingBlock({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
   return (
-    <details className="group my-1">
+    <details className="group/thinking my-1">
       <summary className="flex items-center gap-1.5 text-xs cursor-pointer select-none list-none">
-        <span className="inline-block group-open:rotate-90 transition-transform text-gray-600">▶</span>
+        <span className="inline-block group-open/thinking:rotate-90 transition-transform text-gray-600">▶</span>
         <span className="text-gray-500">🧠 Thinking</span>
       </summary>
       {content ? (
