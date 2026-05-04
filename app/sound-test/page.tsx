@@ -3,7 +3,7 @@
 // app/sound-test/page.tsx
 // Soundboard with full audio diagnostics:
 //   • Browser / AudioContext support check
-//   • Live oscilloscope — taps the lib/sounds.ts singleton so EVERY sound
+//   • Live oscilloscope - taps the lib/sounds.ts singleton so EVERY sound
 //     button animates the waveform, not just the dedicated test tone
 //   • Per-sound buttons that surface errors instead of swallowing them
 
@@ -39,20 +39,34 @@ interface SoundEntry {
 }
 
 const SOUNDS: SoundEntry[] = [
-  { name: "send",      emoji: "📤", label: "Send",       description: "Upward triangle sweep + blue-noise accent. Sent message." },
-  { name: "receive",   emoji: "📥", label: "Receive",    description: "Two-note chime (C5 → E5). AI response finished." },
-  { name: "error",     emoji: "❌", label: "Error",      description: "Descending sawtooth buzz. API / network error." },
-  { name: "menuOpen",  emoji: "☰",  label: "Menu Open",  description: "Soft pop + upward sine tick. Hamburger opened." },
-  { name: "menuClose", emoji: "✕",  label: "Menu Close", description: "Downward sine tick + blue-noise accent. Hamburger closed." },
-  { name: "sparkle",   emoji: "✨", label: "Sparkle",    description: "Three ascending tones. Evolve session submitted." },
-  { name: "accept",    emoji: "✅", label: "Accept",     description: "C–E–G–C major arpeggio." },
-  { name: "agentDone",  emoji: "🧠", label: "Agent Done",  description: "A–C♯–E–A (A major) arpeggio, 350 ms decay. Agent finished successfully." },
-  { name: "agentError", emoji: "😨", label: "Agent Error", description: "A5–F♯5–D♯5 descending (two minor thirds) then dramatic leap up to C6." },
-  { name: "deploy",    emoji: "🚀", label: "Deploy",     description: "Fanfare: C–E–G run then triumphant C major chord. Branch deployed to production." },
-  { name: "merge",     emoji: "🔀", label: "Merge",      description: "Two converging tones meeting at C5, then a resolution chord. Dev branch merged." },
-  { name: "reject",    emoji: "🗑️", label: "Reject",     description: "\"GOOD bye\": E5+G4 close together then C4 rings out. Cheerful dismissal." },
-  { name: "click",     emoji: "👆", label: "Click",      description: "Blue-noise bandpass at 1 kHz — crisp tick." },
-  { name: "pop",       emoji: "🔔", label: "Pop",        description: "Brief sine blip (660 → 440 Hz). Generic notification." },
+  { name: "send",      emoji: "📤", label: "Send",
+    description: "Triangle glide 200→600 Hz + blue-noise accent at 20 ms. Sent message." },
+  { name: "receive",   emoji: "📥", label: "Receive",
+    description: "Sine chime: C5 at 0 ms then E5 at 120 ms. AI response finished." },
+  { name: "error",     emoji: "❌", label: "Error",
+    description: "Dual sawtooth descend: 350→140 Hz and 280→110 Hz offset by 50 ms. API / network error." },
+  { name: "menuOpen",  emoji: "☰",  label: "Menu Open",
+    description: "Blue-noise burst + sine tick sweeping 440→520 Hz. Menu opened." },
+  { name: "menuClose", emoji: "✕",  label: "Menu Close",
+    description: "Sine tick sweeping 500→380 Hz + blue-noise burst. Menu closed." },
+  { name: "sparkle",   emoji: "✨", label: "Sparkle",
+    description: "Three ascending sines at 880, 1108, 1320 Hz, 70 ms apart. Session submitted." },
+  { name: "accept",    emoji: "✅", label: "Accept",
+    description: "C5–E5–G5–C6 major arpeggio, sine, 80 ms spacing, 220 ms decay." },
+  { name: "agentDone",  emoji: "🧠", label: "Agent Done",
+    description: "A4–C♯5–E5–A5 (A major) arpeggio, sine, 100 ms spacing, 350 ms decay. Agent finished." },
+  { name: "agentError", emoji: "😨", label: "Agent Error",
+    description: "A5–F♯5–D♯5 descend (minor thirds, 130 ms apart) then leap up to C6. Suspenseful, unresolved." },
+  { name: "deploy",    emoji: "🚀", label: "Deploy",
+    description: '"Taaaa ta Daaaa!" at 120 BPM: C5+G5 triangle held 3 sixteenths, same held 1 sixteenth, then full triangle C major chord C4–G4–C5–E5–G5–C6 with cymbal crash.' },
+  { name: "merge",     emoji: "🔀", label: "Merge",
+    description: "E5→C5 and G4→C5 sweep simultaneously (converging branches), then C5+E5+G5 chord settles." },
+  { name: "reject",    emoji: "🗑️", label: "Reject",
+    description: '"GOOD bye": E5+G4 sine chord together, then C4 alone rings out (450 ms decay). Cheerful dismissal.' },
+  { name: "click",     emoji: "👆", label: "Click",
+    description: "Blue noise through 1 kHz bandpass (Q=1.8), 30 ms. Generic button click." },
+  { name: "pop",       emoji: "🔔", label: "Pop",
+    description: "Sine glide 660→440 Hz, 80 ms decay. Generic notification." },
 ];
 
 // ─── Oscilloscope canvas ──────────────────────────────────────────────────────
@@ -141,7 +155,7 @@ function DiagCard({ diag }: { diag: DiagInfo | null }) {
   if (!diag) {
     return (
       <div className="rounded-xl border border-gray-700 bg-gray-900 px-4 py-3 text-xs text-gray-500 animate-pulse">
-        Checking audio environment…
+        Checking audio environment...
       </div>
     );
   }
@@ -168,7 +182,7 @@ function DiagCard({ diag }: { diag: DiagInfo | null }) {
           {diag.stateOnCreate === "running"
             ? "✅ running"
             : diag.stateOnCreate === "suspended"
-            ? "⚠️ suspended (normal on Firefox/Android/Safari — sounds.ts awaits resume() before scheduling)"
+            ? "⚠️ suspended (normal on Firefox/Android/Safari - sounds.ts awaits resume() before scheduling)"
             : diag.stateOnCreate}
         </span>
       ),
@@ -294,7 +308,7 @@ export default function SoundTestPage() {
         <div>
           <h1 className="text-2xl font-bold text-white mb-1">🔊 Sound Effects</h1>
           <p className="text-gray-400 text-sm">
-            All sounds are synthesised via the Web Audio API — no audio files.
+            All sounds are synthesised via the Web Audio API - no audio files.
             The oscilloscope monitors the shared AudioContext, so every button animates the waveform.
           </p>
         </div>
@@ -321,7 +335,7 @@ export default function SoundTestPage() {
           </h2>
           <Oscilloscope analyser={analyser} />
           <p className="mt-2 text-xs text-gray-500">
-            Taps the shared AudioContext singleton — every sound button below animates this waveform.
+            Taps the shared AudioContext singleton - every sound button below animates this waveform.
             {!analyser && (
               <span className="text-yellow-500"> Click any button to initialise the context.</span>
             )}

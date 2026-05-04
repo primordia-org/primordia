@@ -389,11 +389,11 @@ async function playDeploy(): Promise<void> {
   // so the chord swells open like a real brass section.
   const B = 4 * S; // 0.500 s
   tone(ctx, { type: "triangle", freq: 261.63, gain: 0.10, attack: 0.030, decay: 0.90, start: B + 0.00 }); // C4 bass
-  tone(ctx, { type: "sine",     freq: 392,    gain: 0.09, attack: 0.025, decay: 0.85, start: B + 0.01 }); // G4
+  tone(ctx, { type: "triangle", freq: 392,    gain: 0.09, attack: 0.025, decay: 0.85, start: B + 0.01 }); // G4
   tone(ctx, { type: "triangle", freq: 523.25, gain: 0.14, attack: 0.020, decay: 0.80, start: B + 0.00 }); // C5
-  tone(ctx, { type: "sine",     freq: 659.25, gain: 0.11, attack: 0.020, decay: 0.78, start: B + 0.03 }); // E5
+  tone(ctx, { type: "triangle", freq: 659.25, gain: 0.11, attack: 0.020, decay: 0.78, start: B + 0.03 }); // E5
   tone(ctx, { type: "triangle", freq: 784,    gain: 0.12, attack: 0.015, decay: 0.75, start: B + 0.01 }); // G5
-  tone(ctx, { type: "sine",     freq: 1046.5, gain: 0.11, attack: 0.015, decay: 0.70, start: B + 0.05 }); // C6 shimmer
+  tone(ctx, { type: "triangle", freq: 1046.5, gain: 0.11, attack: 0.015, decay: 0.70, start: B + 0.05 }); // C6 shimmer
   noiseClick(ctx, B, 0.08); // cymbal crash on the bloom
 }
 
@@ -417,7 +417,7 @@ async function playReject(): Promise<void> {
   // then C4 rings out alone as "bye".
   tone(ctx, { type: "sine", freq: 659.25, gain: 0.14, attack: 0.01, decay: 0.18, start: 0.00 }); // E5 — "GOOD" (chord)
   tone(ctx, { type: "sine", freq: 392,    gain: 0.13, attack: 0.01, decay: 0.18, start: 0.00 }); // G4 — "GOOD" (chord)
-  tone(ctx, { type: "sine", freq: 261.63, gain: 0.16, attack: 0.01, decay: 0.45, start: 0.22 }); // C4 — "bye" (rings out)
+  tone(ctx, { type: "sine", freq: 261.63, gain: 0.24, attack: 0.01, decay: 0.45, start: 0.22 }); // C4 — "bye" (rings out)
 }
 
 async function playClick(): Promise<void> {

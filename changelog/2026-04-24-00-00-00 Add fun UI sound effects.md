@@ -84,7 +84,9 @@ The sine pluck was too similar to `pop`. Replaced with blue noise (first-order d
 
 `agentError` — Dramatic failure motif: A5–F♯5–D♯5 (two descending minor thirds, 130 ms spacing) then a major-sixth leap up to C6 (500 ms decay). Bumped up one octave for more urgency and to avoid muddiness in the lower register.
 
-`reject` redesigned — "GOOD bye" motif: E5 and G4 struck simultaneously as a chord ("GOOD"), then C4 rings out alone as "bye" (220 ms offset, 450 ms decay). Descending C-major triad — a cheerful dismissal rather than a sad ending.
+`reject` redesigned — "GOOD bye" motif: E5 and G4 struck simultaneously as a chord ("GOOD"), then C4 rings out alone as "bye" (220 ms offset, 450 ms decay, gain raised to 0.24 for perceived loudness parity with the chord). Descending C-major triad — a cheerful dismissal rather than a sad ending.
+
+**`deploy` fanfare now uses triangle wave for all six chord voices** — G4, E5, and C6 were previously `sine`; switched to `triangle` for consistent brass-like timbre throughout.
 
 Both are wired in `EvolveSessionView`’s status-change `useEffect`. On `running → ready`, the effect reads `eventsRef.current` (a ref kept in sync with `events` state) to find the most-recent `result` event. If its `subtype` is `error`, `timeout`, or `aborted`, `agentError` plays; otherwise `agentDone` plays. Using a ref avoids adding `events` to the effect’s dep array, which would make it fire on every SSE event.
 
