@@ -220,6 +220,36 @@ async function runAcceptAsync(
     const isProduction = process.env.NODE_ENV === 'production';
 
     if (isProduction) {
+      // ── Kill preview dev server + any background warmup build ─────────────
+      // The preview dev server and the background cache-warming `next build`
+      // both hold the Next.js build lock. If either is still running when
+      // install.sh runs `bun run build`, Next.js will refuse with
+      // "Another next build process is already running". Kill them first.
+      console.log(`[runAcceptAsync] killing preview server for session ${sessionId}`);
+      try {
+        await fetch(`http://127.0.0.1:${process.env.REVERSE_PROXY_PORT!}/_proxy/preview/${sessionId}`, {
+          method: 'DELETE',
+        });
+      } catch { /* proxy not running — dev server may already be gone */ }
+
+      // Kill any background cache-warming build that may still be running.
+      const warmupPidFile = path.join(worktreePath, '.primordia-warmup-build.pid');
+      if (fs.existsSync(warmupPidFile)) {
+        try {
+          const warmupPid = parseInt(fs.readFileSync(warmupPidFile, 'utf8').trim(), 10);
+          if (!isNaN(warmupPid)) {
+            // Kill the whole process group in case nice/ionice spawned children.
+            try { process.kill(-warmupPid, 'SIGTERM'); } catch { /* already gone */ }
+            try { process.kill(warmupPid, 'SIGTERM'); } catch { /* already gone */ }
+            console.log(`[runAcceptAsync] sent SIGTERM to warmup build PID ${warmupPid}`);
+          }
+        } catch { /* non-fatal */ }
+        try { fs.unlinkSync(warmupPidFile); } catch { /* non-fatal */ }
+      }
+
+      // Brief pause so the dev server and warmup build can release the lock.
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
       // ── Production: run install.sh from the session worktree ─────────────
       // install.sh handles: typecheck (exits 2 on failure), bun install, build,
       // DB copy, sibling reparenting, proxy spawn, main pointer advancement,
