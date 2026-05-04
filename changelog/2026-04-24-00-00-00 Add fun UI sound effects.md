@@ -33,7 +33,20 @@ Added synthesised sound effects to key UI interactions throughout the app. All s
 
 ### New page: `app/sound-test/page.tsx`
 
-Interactive soundboard at `/sound-test` — a grid of buttons, one per sound, each labelled with its name, `useSounds()` call, emoji, and a brief description of when it fires. Useful for auditioning or tweaking sounds without needing to trigger the actual UI events.
+Interactive soundboard at `/sound-test` with full audio diagnostics:
+
+- **Diagnostics panel** — shows `AudioContext` browser support, the state it starts in (`running` vs `suspended`), simplified browser/OS string, and any initialisation error.
+- **Live oscilloscope** — canvas-based waveform visualiser fed by a persistent shared `AudioContext` with an `AnalyserNode`. Turns green/cyan as audio level rises.
+- **Test Tone button** — plays an A-major arpeggio routed through the oscilloscope context, proving the audio pipeline end-to-end independent of the sound buttons. If the waveform moves but no sound is heard, the issue is system/tab volume, not the Web Audio API.
+- **Sound buttons** — each button calls the raw (unwrapped) play function so errors are shown inline rather than silently swallowed, making it easy to see exactly what failed and why.
+
+### Bug fix: `lib/sounds.ts` — Safari suspended AudioContext
+
+`getCtx()` now calls `ctx.resume()` when a newly created `AudioContext` starts in the `'suspended'` state. Safari sometimes suspends new contexts even during a user-gesture handler; without this fix those browsers produce no sound at all.
+
+### Export: `RAW_SOUND_MAP`
+
+The internal `SOUND_MAP` is now exported as `RAW_SOUND_MAP` for use by the diagnostic page. The `useSounds()` public API is unchanged.
 
 ## Why
 

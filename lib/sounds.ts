@@ -26,7 +26,14 @@ function getCtx(): AudioContext | null {
   // Safari still uses the webkit prefix in some older versions
   const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!AC) return null;
-  return new AC();
+  const ctx = new AC();
+  // Safari sometimes starts AudioContexts in 'suspended' state even during a
+  // user-gesture handler. Call resume() unconditionally — it's a no-op when
+  // already running and fixes silent playback on Safari.
+  if (ctx.state === "suspended") {
+    void ctx.resume();
+  }
+  return ctx;
 }
 
 type OscType = OscillatorType;
@@ -211,6 +218,20 @@ function playPop(): void {
 }
 
 // ─── React hook ───────────────────────────────────────────────────────────────
+
+/** @internal Raw play functions — exported for the sound-test diagnostic page only. */
+export const RAW_SOUND_MAP: Record<SoundName, () => void> = {
+  send: playSend,
+  receive: playReceive,
+  error: playError,
+  menuOpen: playMenuOpen,
+  menuClose: playMenuClose,
+  sparkle: playSparkle,
+  accept: playAccept,
+  reject: playReject,
+  click: playClick,
+  pop: playPop,
+};
 
 const SOUND_MAP: Record<SoundName, () => void> = {
   send: playSend,
