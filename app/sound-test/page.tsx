@@ -302,14 +302,35 @@ export default function SoundTestPage() {
   };
 
   return (
-    <main className="min-h-dvh bg-gray-950 text-gray-100 px-4 py-10">
+    <div className="min-h-dvh bg-gray-950 text-gray-100 flex flex-col">
+
+      {/* ── Sticky oscilloscope bar ── */}
+      <div className="sticky top-0 z-10 bg-gray-950/95 backdrop-blur border-b border-gray-800 px-4 py-3">
+        <div className="max-w-2xl mx-auto">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Oscilloscope</span>
+            {analyser ? (
+              <span className="text-xs text-gray-600">
+                <span className={ctxLiveState === "running" ? "text-green-500" : "text-yellow-500"}>●</span>
+                {" "}{ctxLiveState}
+              </span>
+            ) : (
+              <span className="text-xs text-yellow-600">click any button to initialise</span>
+            )}
+          </div>
+          <Oscilloscope analyser={analyser} />
+        </div>
+      </div>
+
+      {/* ── Scrollable content ── */}
+      <main className="flex-1 px-4 py-10">
       <div className="max-w-2xl mx-auto space-y-8">
 
         <div>
           <h1 className="text-2xl font-bold text-white mb-1">🔊 Sound Effects</h1>
           <p className="text-gray-400 text-sm">
-            All sounds are synthesised via the Web Audio API - no audio files.
-            The oscilloscope monitors the shared AudioContext, so every button animates the waveform.
+            All sounds synthesised via the Web Audio API — no audio files.
+            Every button animates the oscilloscope above.
           </p>
         </div>
 
@@ -317,29 +338,6 @@ export default function SoundTestPage() {
         <section>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">Diagnostics</h2>
           <DiagCard diag={diag} />
-          {analyser && (
-            <div className="mt-1.5 flex items-center gap-2 text-xs">
-              <span className="text-gray-600">Shared context:</span>
-              <span className={ctxLiveState === "running" ? "text-green-400" : "text-yellow-400"}>
-                {ctxLiveState}
-              </span>
-              <span className="text-gray-700">· oscilloscope connected</span>
-            </div>
-          )}
-        </section>
-
-        {/* ── Oscilloscope ── */}
-        <section>
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">
-            Oscilloscope
-          </h2>
-          <Oscilloscope analyser={analyser} />
-          <p className="mt-2 text-xs text-gray-500">
-            Taps the shared AudioContext singleton - every sound button below animates this waveform.
-            {!analyser && (
-              <span className="text-yellow-500"> Click any button to initialise the context.</span>
-            )}
-          </p>
         </section>
 
         {/* ── Sound buttons ── */}
@@ -383,6 +381,7 @@ export default function SoundTestPage() {
           Source: <code className="font-mono">lib/sounds.ts</code>
         </p>
       </div>
-    </main>
+      </main>
+    </div>
   );
 }
