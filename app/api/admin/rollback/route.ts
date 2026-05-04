@@ -115,7 +115,7 @@ export async function GET() {
   })();
 
   // Build targets from history entries after index 0, matched to existing worktrees.
-  const targets: Array<{ branch: string; worktreePath: string; reflogIndex: number }> = [];
+  const targets: Array<{ branch: string; worktreePath: string; reflogIndex: number; ctimeMs: number }> = [];
   const seenPaths = new Set<string>();
   for (let i = 1; i < historyBranches.length; i++) {
     const wt = branchToWorktree.get(historyBranches[i]);
@@ -123,7 +123,9 @@ export async function GET() {
     if (wt.path === currentPath) continue;
     if (seenPaths.has(wt.path)) continue;
     seenPaths.add(wt.path);
-    targets.push({ branch: wt.branch, worktreePath: wt.path, reflogIndex: i });
+    let ctimeMs = 0;
+    try { ctimeMs = fs.statSync(wt.path).ctimeMs; } catch { /* best-effort */ }
+    targets.push({ branch: wt.branch, worktreePath: wt.path, reflogIndex: i, ctimeMs });
   }
 
   return Response.json({ currentBranch, targets });

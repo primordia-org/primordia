@@ -296,7 +296,6 @@ export default function AdminServerHealthClient() {
               <p className="text-sm text-gray-200 font-mono truncate">
                 {oldestNonProdWorktree.branch}
               </p>
-              <p className="text-xs text-gray-500 truncate">{oldestNonProdWorktree.path}</p>
               {oldestNonProdWorktree.ctimeMs > 0 && (
                 <p className="text-xs text-gray-600 mt-0.5">
                   {new Date(oldestNonProdWorktree.ctimeMs).toLocaleString()}
