@@ -14,7 +14,7 @@ interface NavHeaderProps {
    * Which page we're currently on — used to suppress self-referential nav
    * links (e.g. don't show "Changelog" link on the changelog page itself).
    */
-  currentPage?: "changelog" | "branches" | "admin";
+  currentPage?: "changelog" | "branches" | "admin" | "api-docs";
 }
 
 export function NavHeader({
@@ -49,6 +49,14 @@ export function NavHeader({
             {" "}·{" "}
             <Link data-id="nav/branches-link" href="/branches" className="text-blue-400 hover:text-blue-300">
               Branches
+            </Link>
+          </>
+        )}
+        {currentPage !== "api-docs" && (
+          <>
+            {" "}·{" "}
+            <Link data-id="nav/api-docs-link" href="/api-docs" className="text-blue-400 hover:text-blue-300">
+              API Docs
             </Link>
           </>
         )}

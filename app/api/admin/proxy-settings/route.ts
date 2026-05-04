@@ -40,6 +40,11 @@ function writeGitConfig(key: string, value: string, repoRoot: string): boolean {
   return result.status === 0;
 }
 
+/**
+ * Get proxy settings
+ * @description Returns the current reverse-proxy tuning configuration (with defaults if not set). Admin only.
+ * @tag Admin
+ */
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });
@@ -56,6 +61,18 @@ export async function GET() {
   return Response.json(settings);
 }
 
+/** JSON body for PATCH /admin/proxy-settings */
+export interface ProxySettingsPatch {
+  previewInactivityMin?: number; // Minutes of inactivity before a preview server is stopped. Must be 1–1440.
+  diskCleanupThresholdPct?: number; // Disk usage % at which automatic worktree cleanup is triggered. Must be 1–100.
+}
+
+/**
+ * Update proxy settings
+ * @description Updates one or more reverse-proxy tuning knobs stored in git config. Admin only.
+ * @tag Admin
+ * @body ProxySettingsPatch
+ */
 export async function PATCH(req: Request) {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });

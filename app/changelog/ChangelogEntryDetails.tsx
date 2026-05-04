@@ -15,10 +15,9 @@ interface Props {
   filename: string;
   date: string;    // ISO 8601, e.g. "2026-03-16T00:03:00"
   title: string;
-  dateLabel: string;
 }
 
-export function ChangelogEntryDetails({ filename, date, title, dateLabel }: Props) {
+export function ChangelogEntryDetails({ filename, date, title }: Props) {
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const fetchedRef = useRef(false);
@@ -49,11 +48,7 @@ export function ChangelogEntryDetails({ filename, date, title, dateLabel }: Prop
             ▶
           </span>
         )}
-        {/* Date */}
-        <time dateTime={date} className="text-xs text-gray-500 w-24 flex-shrink-0">
-          {dateLabel}
-        </time>
-        {/* Title */}
+        {/* Title (date shown in section header above group) */}
         <span className="text-sm text-gray-100 leading-snug">{title}</span>
       </summary>
 

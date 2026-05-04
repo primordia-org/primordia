@@ -14,6 +14,11 @@ import {
   SESSION_DURATION_MS,
 } from "@/lib/auth";
 
+/**
+ * Finish passkey registration
+ * @description Verifies the WebAuthn `RegistrationResponseJSON` from the browser, creates the user and passkey record, and sets a session cookie.
+ * @tag Auth
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as RegistrationResponseJSON;

@@ -34,9 +34,15 @@ export interface Session {
 
 /**
  * A short-lived token that coordinates cross-device authentication.
- * The "requester" device (e.g. laptop) creates one and shows a QR code.
- * The "approver" device (e.g. phone, already signed in) scans the QR and
- * approves it; the requester then polls until approved and gets a session.
+ *
+ * Pull flow: the "requester" device (e.g. phone) creates one and shows a QR
+ * code; the "approver" device (already signed in) scans and approves it.
+ * The QR URL embeds the requester's ephemeral ECDH public key (`pk=`) so the
+ * approver can encrypt its credentials for the requester when approving.
+ *
+ * Push flow: the logged-in device creates a pre-approved token (status already
+ * "approved"). AES key transfer happens via the QR code URL fragment — the keys
+ * are embedded client-side and never touch the server.
  */
 export interface CrossDeviceToken {
   id: string;
@@ -45,6 +51,12 @@ export interface CrossDeviceToken {
   /** Set when the approver approves — the userId of the approving user. */
   userId: string | null;
   expiresAt: number;
+  /**
+   * JSON-encoded EncryptedCredBundle (from lib/cross-device-creds.ts), or null.
+   * Set by the approver when it encrypts its own AES credentials for the requester.
+   * Only present in the pull flow when the requester embedded a `pk=` param in the QR URL.
+   */
+  encryptedCredentials: string | null;
 }
 
 /**
@@ -77,6 +89,37 @@ export interface Role {
   name: string;
   displayName: string;
   description: string;
+  createdAt: number;
+}
+
+/** This instance's identity and settings. */
+export interface InstanceConfig {
+  uuid7: string;
+  name: string;
+  description: string;
+  /** The public-facing URL of this instance (e.g. https://primordia.example.com). */
+  canonicalUrl: string;
+  /** URL of the parent instance to register with (empty string = no parent). */
+  parentUrl: string;
+}
+
+/** A known peer Primordia instance in the social graph. */
+export interface GraphNode {
+  uuid7: string;
+  /** Current canonical URL, or empty string if unknown. */
+  url: string;
+  name: string;
+  description: string | null;
+  registeredAt: number;
+}
+
+/** A directed relationship between two instances. */
+export interface GraphEdge {
+  id: string;
+  from: string; // uuid7
+  to: string;   // uuid7
+  type: string; // e.g. "fork"
+  date: string; // ISO date string YYYY-MM-DD
   createdAt: number;
 }
 
@@ -115,7 +158,8 @@ export interface DbAdapter {
   // Cross-device QR tokens
   createCrossDeviceToken(token: CrossDeviceToken): Promise<void>;
   getCrossDeviceToken(id: string): Promise<CrossDeviceToken | null>;
-  approveCrossDeviceToken(id: string, userId: string): Promise<void>;
+  /** Approve the token. Pass encryptedCredentials (JSON string) if the approver is syncing keys. */
+  approveCrossDeviceToken(id: string, userId: string, encryptedCredentials?: string | null): Promise<void>;
   deleteCrossDeviceToken(id: string): Promise<void>;
   deleteExpiredCrossDeviceTokens(): Promise<void>;
 
@@ -129,5 +173,13 @@ export interface DbAdapter {
   // User preferences (key-value store per user)
   getUserPreferences(userId: string, keys: string[]): Promise<Record<string, string>>;
   setUserPreferences(userId: string, prefs: Record<string, string>): Promise<void>;
+
+  // Instance identity & social graph
+  getInstanceConfig(): Promise<InstanceConfig>;
+  setInstanceConfig(fields: Partial<Pick<InstanceConfig, "name" | "description" | "canonicalUrl" | "parentUrl">>): Promise<void>;
+  getGraphNodes(): Promise<GraphNode[]>;
+  upsertGraphNode(node: GraphNode): Promise<void>;
+  getGraphEdges(): Promise<GraphEdge[]>;
+  upsertGraphEdge(edge: GraphEdge): Promise<void>;
 
 }

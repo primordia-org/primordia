@@ -1,17 +1,17 @@
-// app/login/page.tsx — Server component: auto-discovers installed auth providers
-// by scanning lib/auth-providers/, collects per-provider server props, then
-// delegates to the client-side login UI.
+// app/login/page.tsx — Server component: resolves enabled auth providers,
+// collects per-provider server props, then delegates to the client UI.
 //
-// To add a new auth provider, no changes are needed here — just create:
-//   lib/auth-providers/<id>/index.ts   (default export: AuthPlugin)
-//   components/auth-tabs/<id>/index.tsx (default export: ComponentType<AuthTabProps>)
+// To add, remove, or reorder providers: edit lib/auth-providers/registry.ts,
+// then update the PLUGIN_MAP below to match.
 
-import { readdirSync } from "fs";
-import path from "path";
 import { headers } from "next/headers";
 import type { Metadata } from "next";
 import { getSessionUser } from "@/lib/auth";
-import type { AuthPlugin, InstalledPlugin } from "@/lib/auth-providers/types";
+import type { InstalledPlugin, AuthPluginMap } from "@/lib/auth-providers/types";
+import { ENABLED_PROVIDERS } from "@/lib/auth-providers/registry";
+import exeDevPlugin from "@/lib/auth-providers/exe-dev/index";
+import passkeyPlugin from "@/lib/auth-providers/passkey/index";
+import crossDevicePlugin from "@/lib/auth-providers/cross-device/index";
 import LoginClient from "./LoginClient";
 import { buildPageTitle } from "@/lib/page-title";
 
@@ -19,27 +19,20 @@ export function generateMetadata(): Metadata {
   return { title: buildPageTitle("Login") };
 }
 
-/**
- * Scan lib/auth-providers/ and dynamically import each provider's descriptor.
- * Providers are sorted alphabetically by directory name for a stable tab order.
- */
-async function discoverProviders(
+// Maps provider ids to their server-side plugin descriptors.
+// TypeScript enforces that every ENABLED_PROVIDERS id has exactly one entry here.
+const PLUGIN_MAP: AuthPluginMap<typeof ENABLED_PROVIDERS> = {
+  "exe-dev": exeDevPlugin,
+  "passkey": passkeyPlugin,
+  "cross-device": crossDevicePlugin,
+};
+
+async function resolveProviders(
   ctx: { headers: { get(name: string): string | null } }
 ): Promise<InstalledPlugin[]> {
-  const dir = path.join(process.cwd(), "lib", "auth-providers");
-
-  const ids = readdirSync(dir, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && !d.name.startsWith("."))
-    .map((d) => d.name)
-    .sort();
-
   return Promise.all(
-    ids.map(async (id) => {
-      // Dynamic import — webpack creates a context module that bundles all
-      // lib/auth-providers/*/index files at build time.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mod = (await import(`@/lib/auth-providers/${id}/index`)) as any;
-      const plugin: AuthPlugin = mod.default ?? mod;
+    ENABLED_PROVIDERS.map(async (id) => {
+      const plugin = PLUGIN_MAP[id];
       const serverProps = plugin.getServerProps
         ? await plugin.getServerProps(ctx)
         : {};
@@ -53,7 +46,7 @@ export default async function LoginPage() {
   const initialUser = user ? { id: user.id, username: user.username } : null;
 
   const headerStore = await headers();
-  const plugins = await discoverProviders({ headers: headerStore });
+  const plugins = await resolveProviders({ headers: headerStore });
 
   return <LoginClient initialUser={initialUser} plugins={plugins} />;
 }

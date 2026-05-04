@@ -10,6 +10,11 @@
 import { type NextRequest } from "next/server";
 import { getSessionUser, isAdmin } from "@/lib/auth";
 
+/**
+ * Stream production server logs
+ * @description SSE stream of the production Next.js server's stdout/stderr via the reverse proxy's ring buffer. Pass `n` (default 100) to set how many historical lines to replay. Admin only.
+ * @tag Admin
+ */
 export async function GET(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) return new Response("Unauthorized", { status: 401 });

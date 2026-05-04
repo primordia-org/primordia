@@ -3,6 +3,10 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   experimental: {
     swcPlugins: [["swc-plugin-component-annotate", {}]],
+    // Persist the Turbopack compilation cache to .next/cache/turbopack/ between
+    // runs so that background cache-warming builds started after a session becomes
+    // ready can meaningfully speed up the Accept build gates.
+    turbopackFileSystemCacheForBuild: true,
   },
   // Optional base path — set NEXT_BASE_PATH=/my-prefix to serve the app at a sub-path.
   // Leave unset (or empty) to serve from the root (default behaviour).
@@ -19,9 +23,38 @@ const nextConfig: NextConfig = {
   // Note: ESLint config was removed in Next.js 16; ESLint is no longer run during builds.
   typescript: { ignoreBuildErrors: true },
 
+  // Map /.well-known/primordia.json → /api/instance/primordia-json
+  async rewrites() {
+    return [
+      {
+        source: "/.well-known/primordia.json",
+        destination: "/api/instance/primordia-json",
+      },
+    ];
+  },
+
   // Allow HMR WebSocket connections from exe.dev reverse-proxy hostnames.
   // Next.js 16 blocks cross-origin requests to dev resources by default.
   allowedDevOrigins: ["*.exe.xyz"],
+
+  // Tell Next.js not to bundle the pi coding agent SDK. It uses native modules
+  // (e.g. @mariozechner/clipboard) that can't be processed by Turbopack/webpack.
+  // Keeping it external means it runs in the Node.js server process as-is.
+  // All @mariozechner/* packages must be listed here so Turbopack treats every
+  // package in the namespace as a Node.js external rather than trying to bundle
+  // them.  Omitting sub-packages (pi-tui, pi-agent-core, jiti, the native
+  // clipboard binaries) causes Turbopack to generate content-hashed chunk IDs
+  // for them that the runtime then cannot resolve.
+  serverExternalPackages: [
+    '@mariozechner/pi-coding-agent',
+    '@mariozechner/pi-ai',
+    '@mariozechner/pi-tui',
+    '@mariozechner/pi-agent-core',
+    '@mariozechner/jiti',
+    '@mariozechner/clipboard',
+    '@mariozechner/clipboard-linux-x64-gnu',
+    '@mariozechner/clipboard-linux-x64-musl',
+  ],
 
   // Tell webpack not to bundle bun:sqlite. It's only available at runtime in
   // the Bun environment. The sqlite adapter is always used (no Neon fallback).

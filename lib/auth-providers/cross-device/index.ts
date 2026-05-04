@@ -9,7 +9,7 @@
 
 import type { AuthPlugin } from "../types";
 
-const plugin: AuthPlugin = {
+const plugin: AuthPlugin<"cross-device"> = {
   id: "cross-device",
   label: "QR Code",
   // QR flow is initiated entirely client-side; no server props needed.

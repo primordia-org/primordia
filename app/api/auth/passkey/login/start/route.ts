@@ -9,6 +9,11 @@ import type { AuthenticatorTransportFuture } from "@simplewebauthn/server";
 import { getDb } from "@/lib/db/index";
 import { generateId, CHALLENGE_COOKIE } from "@/lib/auth";
 
+/**
+ * Start passkey login
+ * @description Generates WebAuthn authentication options. Pass optional `{ username }` in the body to scope to that user's credentials, or omit for discoverable-credential (passkey autofill) flow.
+ * @tag Auth
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as { username?: string };

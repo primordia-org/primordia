@@ -534,7 +534,7 @@ export function WebPreviewPanel({ src, fullHeight = false, className, onElementS
   }, [inspectorActive, cancelInspector]);
 
   return (
-    <div className={`${fullHeight ? 'flex flex-col h-full' : ''} rounded-lg border border-emerald-700/50 bg-gray-900 overflow-hidden${className ? ` ${className}` : ''}`}>
+    <div className={`${fullHeight ? 'flex flex-col h-full' : ''} overflow-hidden${className ? ` ${className}` : ''}`}>
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-800 bg-gray-950">
         {/* Nav buttons */}

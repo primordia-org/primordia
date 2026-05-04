@@ -16,6 +16,11 @@ import {
   SESSION_DURATION_MS,
 } from "@/lib/auth";
 
+/**
+ * Finish passkey login
+ * @description Verifies the WebAuthn `AuthenticationResponseJSON`, updates the credential counter, and sets a session cookie.
+ * @tag Auth
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as AuthenticationResponseJSON;

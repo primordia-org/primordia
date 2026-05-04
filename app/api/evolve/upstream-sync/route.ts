@@ -4,10 +4,22 @@
 //   Body: { sessionId: string; action: "merge" }
 //   Returns: { outcome: "merged" | "merged-with-conflict-resolution"; log: string }
 
-import { runGit, resolveConflictsWithClaude } from '../../../../lib/evolve-sessions';
+import { runCommand, runGit, resolveConflictsWithAgent } from '../../../../lib/evolve-sessions';
 import { getSessionUser } from '../../../../lib/auth';
 import { getSessionFromFilesystem } from '../../../../lib/session-events';
 
+/** JSON body for POST /evolve/upstream-sync */
+export interface EvolveUpstreamSyncBody {
+  sessionId: string; // The session ID (git branch name) to sync upstream changes into.
+  action: 'merge'; // The sync strategy. Currently only 'merge' is supported.
+}
+
+/**
+ * Merge parent branch into a session
+ * @description Merges the session's parent branch into the session worktree to pick up upstream changes. Auto-resolves conflicts via Claude if needed.
+ * @tag Evolve
+ * @body EvolveUpstreamSyncBody
+ */
 export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) {
@@ -48,8 +60,8 @@ export async function POST(request: Request) {
     );
     if (result.code !== 0) {
       // Merge produced conflicts — attempt auto-resolution with Claude before giving up.
-      // resolveConflictsWithClaude(root, mergedBranch, targetBranch) resolves in-place.
-      const resolution = await resolveConflictsWithClaude(worktreePath, parentBranch, branch, sessionContext, repoRoot);
+      // resolveConflictsWithAgent(root, mergedBranch, targetBranch) resolves in-place.
+      const resolution = await resolveConflictsWithAgent(worktreePath, parentBranch, branch, sessionContext, repoRoot);
       if (!resolution.success) {
         await runGit(['merge', '--abort'], worktreePath);
         return Response.json(
@@ -57,12 +69,16 @@ export async function POST(request: Request) {
           { status: 500 },
         );
       }
+      const installResult = await runCommand('bun', ['install'], worktreePath);
+      const installLog = installResult.stdout + installResult.stderr;
       return Response.json({
         outcome: 'merged-with-conflict-resolution',
-        log: result.stdout + result.stderr + '\n\n' + resolution.log,
+        log: result.stdout + result.stderr + '\n\n' + resolution.log + (installLog ? '\n' + installLog : ''),
       });
     }
-    return Response.json({ outcome: 'merged', log: result.stdout + result.stderr });
+    const installResult = await runCommand('bun', ['install'], worktreePath);
+    const installLog = installResult.stdout + installResult.stderr;
+    return Response.json({ outcome: 'merged', log: result.stdout + result.stderr + (installLog ? '\n' + installLog : '') });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return Response.json({ error: msg }, { status: 500 });

@@ -2,11 +2,21 @@
 // Polled by the "requester" device (e.g. laptop) every 2 seconds.
 // Returns the token status.  When "approved", creates a session and sets the
 // session cookie so the requester is immediately signed in.
+//
+// If the token carries an encryptedCredentials blob (set by the approver when
+// the QR URL contained a `pk=` ECDH key), it is returned in the approved
+// response so the requester can decrypt and save the credentials locally.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db/index";
 import { createSession, SESSION_COOKIE, SESSION_DURATION_MS } from "@/lib/auth";
+import type { EncryptedCredBundle } from "@/lib/cross-device-creds";
 
+/**
+ * Poll cross-device sign-in status
+ * @description Polled by the requesting device every 2 seconds. Returns `{ status }`. When status is `approved`, the session cookie is set and the device is signed in. If encryptedCredentials is present, the requester should decrypt it using its ephemeral ECDH private key.
+ * @tag Auth
+ */
 export async function GET(request: NextRequest) {
   try {
     const tokenId = request.nextUrl.searchParams.get("tokenId");
@@ -32,6 +42,8 @@ export async function GET(request: NextRequest) {
 
     // Token is approved — issue a session for the requester device.
     // Delete the token first to prevent double-issuance on concurrent polls.
+    // Read encryptedCredentials before deletion so we can return it.
+    const encryptedCredentials = token.encryptedCredentials;
     await db.deleteCrossDeviceToken(tokenId);
 
     const user = await db.getUserById(token.userId!);
@@ -41,7 +53,21 @@ export async function GET(request: NextRequest) {
 
     const sessionId = await createSession(user.id);
 
-    const response = NextResponse.json({ status: "approved", username: user.username });
+    // Parse the credential bundle (if present) so the client gets a typed object.
+    let credBundle: EncryptedCredBundle | null = null;
+    if (encryptedCredentials) {
+      try {
+        credBundle = JSON.parse(encryptedCredentials) as EncryptedCredBundle;
+      } catch {
+        // Malformed JSON — skip; sign-in still succeeds
+      }
+    }
+
+    const response = NextResponse.json({
+      status: "approved",
+      username: user.username,
+      encryptedCredentials: credBundle ?? undefined,
+    });
     response.cookies.set(SESSION_COOKIE, sessionId, {
       httpOnly: true,
       sameSite: "lax",

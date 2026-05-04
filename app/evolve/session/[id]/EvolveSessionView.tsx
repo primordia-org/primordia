@@ -5,7 +5,8 @@
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { GitBranch, Loader2 } from "lucide-react";
+import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Key, FileKey } from "lucide-react";
+import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { NavHeader } from "@/components/NavHeader";
 
@@ -15,14 +16,16 @@ import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
 import { encryptStoredApiKey } from "@/lib/api-key-client";
 import { useSounds } from "@/lib/sounds";
+import { encryptStoredCredentials } from "@/lib/credentials-client";
 import { EvolveRequestForm } from "@/components/EvolveRequestForm";
 import Link from "next/link";
 import type { DiffFileSummary } from "./page";
 import { DiffFileExpander } from "./DiffFileExpander";
 import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
-import type { SessionEvent } from "@/lib/session-events";
-import { HARNESS_OPTIONS, MODEL_OPTIONS_BY_HARNESS } from "@/lib/agent-config";
+import type { SessionEvent, AgentAuthInfo } from "@/lib/session-events";
+import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
+import { deriveSmartPreviewUrl } from "@/lib/smart-preview-url";
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────
 
@@ -34,9 +37,10 @@ interface SectionMetrics {
 }
 
 function formatDuration(ms: number): string {
-  return ms >= 60_000
-    ? `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`
-    : `${(ms / 1000).toFixed(1)}s`;
+  const totalSec = Math.round(ms / 1000);
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
 function MetricsRow({ metrics }: { metrics: SectionMetrics }) {
@@ -75,13 +79,17 @@ function MetricsRow({ metrics }: { metrics: SectionMetrics }) {
 
 /** A logical section derived from structured session events. */
 interface SectionGroup {
-  type: 'setup' | 'agent' | 'claude' | 'type_fix' | 'followup' | 'deploy' | 'conflict_resolution';
+  type: 'setup' | 'agent' | 'claude' | 'type_fix' | 'auto_commit' | 'followup' | 'deploy' | 'conflict_resolution';
   label: string;
   harness?: string;
   model?: string;
   /** Stable IDs for harness/model — used by the follow-up form to populate selects correctly. */
   harnessId?: string;
   modelId?: string;
+  /** Auth source recorded in the section_start event for this agent run. */
+  auth?: AgentAuthInfo;
+  /** Unix ms timestamp from the section_start event — used for live elapsed-time display. */
+  startTs?: number;
   events: SessionEvent[];
 }
 
@@ -90,12 +98,13 @@ function groupEventsIntoSections(events: SessionEvent[]): SectionGroup[] {
   const sections: SectionGroup[] = [{ type: 'setup', label: 'Setup', events: [] }];
   for (const event of events) {
     if (event.type === 'section_start') {
-      const group: SectionGroup = { type: event.sectionType, label: event.label, events: [] };
+      const group: SectionGroup = { type: event.sectionType, label: event.label, events: [], startTs: event.ts };
       if (event.sectionType === 'agent') {
         group.harness = event.harness;
         group.model = event.model;
         group.harnessId = event.harnessId;
         group.modelId = event.modelId;
+        group.auth = event.auth;
       }
       sections.push(group);
     } else {
@@ -213,7 +222,7 @@ function mergeConsecutiveTextEvents(events: RenderableEvent[]): RenderableEvent[
 }
 
 /** Split content events into "detail" events (before/including last tool_use) and "final" events. */
-function splitClaudeEventsForDisplay(events: SessionEvent[]): {
+function splitAgentEventsForDisplay(events: SessionEvent[]): {
   detailEvents: (Extract<SessionEvent, { type: 'tool_use' }> | Extract<SessionEvent, { type: 'text' }>)[];
   finalEvents: Extract<SessionEvent, { type: 'text' }>[];
   toolCallCount: number;
@@ -237,26 +246,67 @@ function splitClaudeEventsForDisplay(events: SessionEvent[]): {
   };
 }
 
-/** Render a running Claude/type-fix section (streaming events live). */
-function RunningClaudeSection({ events, label, isTypeFixSection, worktreePath, harness, model }: {
+/**
+ * Small icon badge shown next to the agent name indicating which auth source
+ * was used for the run. Nothing is rendered for the exe.dev gateway (default).
+ */
+function AgentAuthBadge({ auth }: { auth?: AgentAuthInfo }) {
+  if (!auth || auth.source === 'llm-gateway') return null;
+  if (auth.source === 'api-key') {
+    return (
+      <span title="Used API Key" className="inline-flex items-center text-amber-400/70 hover:text-amber-400 transition-colors cursor-default">
+        <Key size={11} strokeWidth={2.5} aria-label="Used API Key" />
+      </span>
+    );
+  }
+  if (auth.source === 'claude-credentials') {
+    return (
+      <span title="Used Claude Credentials" className="inline-flex items-center text-sky-400/70 hover:text-sky-400 transition-colors cursor-default">
+        <FileKey size={11} strokeWidth={2.5} aria-label="Used Claude Credentials" />
+      </span>
+    );
+  }
+  return null;
+}
+
+/** Render a running agent/type-fix/auto-commit section (streaming events live). */
+function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, worktreePath, harness, model, auth, startTs }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
+  isAutoCommitSection: boolean;
   worktreePath?: string;
   harness?: string;
   model?: string;
+  auth?: AgentAuthInfo;
+  startTs?: number;
 }) {
-  const borderClass = isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
-  const headingClass = isTypeFixSection ? "text-orange-300" : "text-blue-300";
+  const borderClass = isAutoCommitSection ? "border-green-700/50" : isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
+  const headingClass = isAutoCommitSection ? "text-green-300" : isTypeFixSection ? "text-orange-300" : "text-blue-300";
   const agentLabel = harness ? (model ? `${harness} (${model})` : harness) : 'Claude Code';
-  const runningLabel = isTypeFixSection ? label : `🤖 ${agentLabel} running…`;
+  const runningLabel = (isTypeFixSection || isAutoCommitSection) ? label : `🤖 ${agentLabel} running…`;
+
+  // Live elapsed-time counter updated every second.
+  const [elapsed, setElapsed] = useState<number>(startTs ? Date.now() - startTs : 0);
+  useEffect(() => {
+    if (!startTs) return;
+    setElapsed(Date.now() - startTs);
+    const id = setInterval(() => setElapsed(Date.now() - startTs), 1000);
+    return () => clearInterval(id);
+  }, [startTs]);
+
+  // Most-recent partial metrics emitted by the worker (if any).
+  const latestMetrics = [...events].reverse().find((e): e is Extract<SessionEvent, { type: 'metrics' }> => e.type === 'metrics');
 
   return (
     <div className={`rounded-lg border ${borderClass} bg-gray-900 text-sm overflow-hidden`}>
       <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
         <span className={`font-semibold text-xs ${headingClass}`}>{runningLabel}</span>
-        <span className="ml-auto flex items-center gap-1.5 text-gray-500 text-xs animate-pulse">
-          <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
+        {!isTypeFixSection && !isAutoCommitSection && <AgentAuthBadge auth={auth} />}
+        <span className="ml-auto flex items-center gap-1.5 text-gray-500 text-xs">
+          <span className="flex items-center gap-1.5 animate-pulse">
+            <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
+          </span>
         </span>
       </div>
       <div className="px-4 py-3 space-y-2">
@@ -288,38 +338,53 @@ function RunningClaudeSection({ events, label, isTypeFixSection, worktreePath, h
           return null;
         })}
       </div>
+      {latestMetrics && (
+        <MetricsRow metrics={{
+          durationMs: elapsed > 0 ? elapsed : (latestMetrics.durationMs ?? undefined),
+          costUsd: latestMetrics.costUsd ?? undefined,
+          inputTokens: latestMetrics.inputTokens ?? undefined,
+          outputTokens: latestMetrics.outputTokens ?? undefined,
+        }} />
+      )}
     </div>
   );
 }
 
-/** Render a completed Claude/type-fix section with tool calls collapsed. */
-function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath, harness, model }: {
+/** Render a completed agent/type-fix/auto-commit section with tool calls collapsed. */
+function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, worktreePath, harness, model, auth, startTs }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
+  isAutoCommitSection: boolean;
   worktreePath?: string;
   harness?: string;
   model?: string;
+  auth?: AgentAuthInfo;
+  startTs?: number;
 }) {
   const resultEvent = events.find((e): e is Extract<SessionEvent, { type: 'result' }> => e.type === 'result');
-  const metricsEvent = events.find((e): e is Extract<SessionEvent, { type: 'metrics' }> => e.type === 'metrics');
+  // Use the LAST metrics event — the final one written after the result event
+  // contains accurate totals, while earlier intermediate events are partial
+  // snapshots emitted after each assistant turn.
+  const metricsEvent = [...events].reverse().find((e): e is Extract<SessionEvent, { type: 'metrics' }> => e.type === 'metrics');
   const hasError = resultEvent?.subtype === 'error' || resultEvent?.subtype === 'timeout' || resultEvent?.subtype === 'aborted';
 
-  const borderClass = isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
-  const headingClass = isTypeFixSection ? "text-orange-300" : "text-blue-300";
+  const borderClass = isAutoCommitSection ? "border-green-700/50" : isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
+  const headingClass = isAutoCommitSection ? "text-green-300" : isTypeFixSection ? "text-orange-300" : "text-blue-300";
   const doneBorderClass = hasError ? "border-red-700/50" : borderClass;
   const doneHeadingClass = hasError ? "text-red-400" : headingClass;
   const agentLabel = harness ? (model ? `${harness} (${model})` : harness) : 'Claude Code';
   const doneTitle = hasError
-    ? (isTypeFixSection ? "❌ Auto-fix failed" : `❌ ${agentLabel} errored`)
-    : (isTypeFixSection ? "🔧 Type errors fixed" : `🤖 ${agentLabel} finished`);
+    ? (isAutoCommitSection ? "❌ Auto-commit failed" : isTypeFixSection ? "❌ Auto-fix failed" : `❌ ${agentLabel} errored`)
+    : (isAutoCommitSection ? "📦 Unstaged changes committed" : isTypeFixSection ? "🔧 Type errors fixed" : `🤖 ${agentLabel} finished`);
 
-  const { detailEvents, finalEvents, toolCallCount } = splitClaudeEventsForDisplay(events);
+  const { detailEvents, finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
 
   return (
     <div className={`rounded-lg border ${doneBorderClass} bg-gray-900 text-sm overflow-hidden`}>
-      <div className="px-4 py-2.5 border-b border-gray-800">
+      <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
         <span className={`font-semibold text-xs ${doneHeadingClass}`}>{doneTitle}</span>
+        {!isTypeFixSection && !isAutoCommitSection && <AgentAuthBadge auth={auth} />}
       </div>
       {toolCallCount > 0 && (
         <details className="group border-b border-gray-800">
@@ -358,9 +423,19 @@ function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath, harn
           <MarkdownContent text={finalEvents.map((e) => e.content).join('')} />
         </div>
       )}
+      {hasError && resultEvent?.message && (
+        <div className="px-4 py-3 border-t border-gray-800">
+          <p className="text-xs font-semibold text-red-400 mb-1">Error details</p>
+          <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{resultEvent.message}</pre>
+        </div>
+      )}
       {metricsEvent && (
         <MetricsRow metrics={{
-          durationMs: metricsEvent.durationMs ?? undefined,
+          // Prefer the recorded durationMs; fall back to computing from
+          // section_start → result timestamps when durationMs is null/0.
+          durationMs: (metricsEvent.durationMs != null && metricsEvent.durationMs > 0)
+            ? metricsEvent.durationMs
+            : (startTs != null && resultEvent != null ? resultEvent.ts - startTs : undefined),
           costUsd: metricsEvent.costUsd ?? undefined,
           inputTokens: metricsEvent.inputTokens ?? undefined,
           outputTokens: metricsEvent.outputTokens ?? undefined,
@@ -371,11 +446,13 @@ function DoneClaudeSection({ events, label, isTypeFixSection, worktreePath, harn
 }
 
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.avif', '.bmp', '.ico']);
+const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
 
 function AttachmentChip({ name, sessionId }: { name: string; sessionId: string }) {
   const url = withBasePath(`/api/evolve/attachment/${encodeURIComponent(sessionId)}?file=${encodeURIComponent(name)}`);
   const ext = name.includes('.') ? ('.' + name.split('.').pop()!.toLowerCase()) : '';
   const isImage = IMAGE_EXTENSIONS.has(ext);
+  const isMarkdown = MARKDOWN_EXTENSIONS.has(ext);
   return (
     <a
       href={url}
@@ -387,6 +464,9 @@ function AttachmentChip({ name, sessionId }: { name: string; sessionId: string }
       {isImage && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt="" className="h-4 w-4 rounded object-cover flex-shrink-0" />
+      )}
+      {isMarkdown && (
+        <FileText size={12} className="flex-shrink-0 text-gray-400" aria-hidden="true" />
       )}
       <span className="truncate">{name}</span>
     </a>
@@ -405,17 +485,17 @@ function StructuredSection({
   sessionId: string;
   worktreePath?: string;
 }) {
-  const { type, label, harness, model, events } = section;
+  const { type, label, harness, model, events, startTs } = section;
 
   // ── Follow-up request ────────────────────────────────────────────────────
   if (type === 'followup') {
     const requestEvent = events.find((e): e is Extract<SessionEvent, { type: 'followup_request' }> => e.type === 'followup_request');
-    const claudeEvents = events.filter((e) => e.type !== 'followup_request');
-    const hasResult = claudeEvents.some((e) => e.type === 'result');
+    const agentEvents = events.filter((e) => e.type !== 'followup_request');
+    const hasResult = agentEvents.some((e) => e.type === 'result');
     return (
       <>
         {requestEvent && (
-          <div className="px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm">
+          <div className="px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-x-auto">
             <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Follow-up request</p>
             <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{requestEvent.request}</p>
             {requestEvent.attachments && requestEvent.attachments.length > 0 && (
@@ -427,35 +507,45 @@ function StructuredSection({
             )}
           </div>
         )}
-        {claudeEvents.length > 0 && (
+        {agentEvents.length > 0 && (
           isActive && !hasResult
-            ? <RunningClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} />
-            : <DoneClaudeSection events={claudeEvents} label={label} isTypeFixSection={false} worktreePath={worktreePath} harness={harness} model={model} />
+            ? <RunningAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} worktreePath={worktreePath} harness={harness} model={model} auth={section.auth} startTs={startTs} />
+            : <DoneAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} worktreePath={worktreePath} harness={harness} model={model} auth={section.auth} startTs={startTs} />
         )}
       </>
     );
   }
 
-  // ── Agent / Claude Code (legacy) / type_fix / conflict_resolution ─────────
-  if (type === 'agent' || type === 'claude' || type === 'type_fix' || type === 'conflict_resolution') {
+  // ── Agent / Claude Code (legacy) / type_fix / auto_commit / conflict_resolution ──
+  if (type === 'agent' || type === 'claude' || type === 'type_fix' || type === 'auto_commit' || type === 'conflict_resolution') {
     const hasResult = events.some((e) => e.type === 'result');
     if (isActive && !hasResult) {
-      return <RunningClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} />;
+      return <RunningAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} worktreePath={worktreePath} harness={harness} model={model} auth={section.auth} startTs={startTs} />;
     }
-    return <DoneClaudeSection events={events} label={label} isTypeFixSection={type === 'type_fix'} worktreePath={worktreePath} harness={harness} model={model} />;
+    return <DoneAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} worktreePath={worktreePath} harness={harness} model={model} auth={section.auth} startTs={startTs} />;
   }
 
   // ── Deploy ───────────────────────────────────────────────────────────────
   if (type === 'deploy') {
-    const logLines = events
+    // Concatenate log_line chunks verbatim — no added separators — so that
+    // \r and ANSI erase-EOL sequences in the ANSI-mode install.sh output are
+    // preserved for AnsiRenderer to process into the correct final lines.
+    const rawLog = events
       .filter((e): e is Extract<SessionEvent, { type: 'log_line' }> => e.type === 'log_line')
-      .map((e) => e.content.replace(/\n+$/, ''))
-      .join('\n');
+      .map((e) => e.content)
+      .join('');
     const resultEvent = events.find((e): e is Extract<SessionEvent, { type: 'result' }> => e.type === 'result');
+    const decisionEvent = events.find((e): e is Extract<SessionEvent, { type: 'decision' }> => e.type === 'decision');
     const isProduction = label.includes("production");
     const mergedIntoBranch = !isProduction ? (label.match(/into `([^`]+)`/) ?? [])[1] ?? null : null;
 
-    if (isActive && !resultEvent) {
+    const hasDeployError = resultEvent?.subtype === 'error' || resultEvent?.subtype === 'timeout';
+    // A deploy section is only truly successful when a decision:accepted event
+    // is present in its events. Without one, the section was interrupted
+    // (e.g. type errors found mid-deploy, triggering a type_fix pass).
+    const hasDeploySuccess = !hasDeployError && decisionEvent?.action === 'accepted';
+
+    if (isActive && !hasDeploySuccess && !hasDeployError) {
       return (
         <div className="rounded-lg border border-gray-700 bg-gray-900 text-sm overflow-hidden">
           <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
@@ -465,7 +555,45 @@ function StructuredSection({
               Running…
             </span>
           </div>
-          {logLines && <div className="px-4 py-3"><pre className="text-xs text-gray-400 whitespace-pre-wrap font-mono">{logLines}</pre></div>}
+          {rawLog && <div className="px-4 py-3"><AnsiRenderer text={rawLog} /></div>}
+        </div>
+      );
+    }
+
+    if (hasDeployError) {
+      const errorMessage = (resultEvent?.message ?? 'The deploy failed with an unknown error.').replace(/^❌\s*/, '');
+      return (
+        <div className="rounded-lg bg-red-900/40 border border-red-700/50 text-sm overflow-hidden">
+          <div className="px-4 py-4">
+            <p className="text-red-200 font-semibold">❌ Deploy failed</p>
+            <p className="text-red-300/80 text-xs mt-1">{errorMessage}</p>
+          </div>
+          {rawLog && (
+            <details className="group border-t border-red-800/50">
+              <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-red-900/30 transition-colors list-none text-xs">
+                <span className="text-red-700 group-open:rotate-90 transition-transform">▶</span>
+                <span className="text-red-700/80">Deploy log</span>
+              </summary>
+              <div className="px-4 py-3 border-t border-red-800/50">
+                <AnsiRenderer text={rawLog} />
+              </div>
+            </details>
+          )}
+        </div>
+      );
+    }
+
+    if (!hasDeploySuccess) {
+      // Deploy section was interrupted before completion (type errors triggered
+      // an auto-fix pass). Show partial logs in a neutral style — the
+      // subsequent deploy section will show the final outcome.
+      return (
+        <div className="rounded-lg border border-gray-700 bg-gray-900 text-sm overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
+            <span className="font-semibold text-xs text-gray-400">{label}</span>
+            <span className="ml-auto text-gray-600 text-xs">paused — fixing type errors</span>
+          </div>
+          {rawLog && <div className="px-4 py-3"><AnsiRenderer text={rawLog} className="opacity-60" /></div>}
         </div>
       );
     }
@@ -482,14 +610,14 @@ function StructuredSection({
                 : "The branch was accepted and the worktree has been removed."}
           </p>
         </div>
-        {logLines && (
+        {rawLog && (
           <details className="group border-t border-green-800/50">
             <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-green-900/30 transition-colors list-none text-xs">
               <span className="text-green-700 group-open:rotate-90 transition-transform">▶</span>
               <span className="text-green-700/80">Deploy log</span>
             </summary>
             <div className="px-4 py-3 border-t border-green-800/50">
-              <pre className="text-xs text-gray-400 whitespace-pre-wrap font-mono">{logLines}</pre>
+              <AnsiRenderer text={rawLog} />
             </div>
           </details>
         )}
@@ -501,6 +629,99 @@ function StructuredSection({
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
+
+// Shared web-preview card: iframe/placeholder + server logs in one unit.
+// Used for both the inline (mobile) position and the desktop sidebar so the
+// two places are literally the same component.
+function WebPreviewCard({
+  fullHeight,
+  previewUrl,
+  proxyServerStatus,
+  serverLogs,
+  canEvolve,
+  isRestartingServer,
+  restartError,
+  onRestartServer,
+  onElementSelected,
+}: {
+  fullHeight: boolean;
+  previewUrl: string | null;
+  proxyServerStatus: 'starting' | 'running' | 'stopped' | 'unknown';
+  serverLogs: string;
+  canEvolve: boolean;
+  isRestartingServer: boolean;
+  restartError: string | null;
+  onRestartServer: () => void;
+  onElementSelected: (info: ElementSelection) => void;
+}) {
+  return (
+    <div className={`rounded-lg border border-emerald-700/50 bg-gray-900 text-sm overflow-hidden flex flex-col${fullHeight ? ' h-full' : ''}`}>
+      {restartError && (
+        <p className="px-4 py-2 text-red-400 text-xs border-b border-gray-800 flex-shrink-0">{restartError}</p>
+      )}
+
+      {/* Iframe / placeholder area */}
+      <div className={fullHeight ? 'flex-1 min-h-0' : ''}>
+        {proxyServerStatus === 'running' && previewUrl ? (
+          <WebPreviewPanel
+            src={previewUrl}
+            fullHeight={fullHeight}
+            onElementSelected={onElementSelected}
+          />
+        ) : (
+          <div className={`flex flex-col items-center justify-center gap-4${fullHeight ? ' h-full' : ' h-[600px]'}`}>
+            {proxyServerStatus === 'starting' ? (
+              <>
+                <div className="w-20 h-20 rounded-full border-2 border-yellow-600 text-yellow-400 flex items-center justify-center animate-pulse">
+                  <span className="text-3xl ml-1">▶</span>
+                </div>
+                <span className="text-sm text-yellow-600 animate-pulse">Starting preview…</span>
+              </>
+            ) : (
+              <>
+                <button
+                  data-id="session/start-preview"
+                  type="button"
+                  onClick={onRestartServer}
+                  disabled={isRestartingServer}
+                  className="w-20 h-20 rounded-full border-2 border-gray-500 hover:border-white text-gray-400 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="text-3xl ml-1">▶</span>
+                </button>
+                <span className="text-sm text-gray-400">Start Preview</span>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Server logs — always collapsible; auto-open when stopped */}
+      <details className="group flex-shrink-0 border-t border-emerald-700/50" open={proxyServerStatus === 'stopped'}>
+        <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
+          <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
+          <span className="text-gray-500">🪵 Server logs</span>
+          {canEvolve && proxyServerStatus === 'running' && (
+            <button
+              data-id="session/restart-preview"
+              type="button"
+              onClick={(e) => { e.preventDefault(); onRestartServer(); }}
+              className="ml-auto flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+            >
+              <RotateCw size={12} />Restart
+            </button>
+          )}
+        </summary>
+        <div className="px-4 py-3 border-t border-gray-800">
+          {serverLogs ? (
+            <pre className="text-xs text-gray-400 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">{serverLogs}</pre>
+          ) : (
+            <p className="text-xs text-gray-600 italic">No logs yet…</p>
+          )}
+        </div>
+      </details>
+    </div>
+  );
+}
 
 interface EvolveSessionViewProps {
   sessionId: string;
@@ -539,6 +760,33 @@ interface EvolveSessionViewProps {
   initialCavemanIntensity?: import("@/lib/user-prefs").CavemanIntensity;
 }
 
+// ─── CopyBranchName ──────────────────────────────────────────────────────────
+
+function CopyBranchName({ branch }: { branch: string }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    navigator.clipboard.writeText(branch).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <code className="font-mono text-amber-200 text-sm">{branch}</code>
+      <button
+        onClick={handleCopy}
+        title={copied ? "Copied!" : "Copy branch name"}
+        className="flex-shrink-0 p-1 rounded text-amber-500 hover:text-amber-200 hover:bg-amber-700/40 transition-colors"
+        aria-label={copied ? "Copied!" : "Copy branch name"}
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+      </button>
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function EvolveSessionView({
@@ -562,6 +810,14 @@ export default function EvolveSessionView({
   initialCavemanMode,
   initialCavemanIntensity,
 }: EvolveSessionViewProps) {
+  const [modelOptionsByHarness, setModelOptionsByHarness] = useState<Record<string, ModelOption[]>>({});
+  useEffect(() => {
+    fetch(withBasePath('/api/evolve/models'))
+      .then((r) => r.json())
+      .then((data: Record<string, ModelOption[]>) => setModelOptionsByHarness(data))
+      .catch(() => { /* silently fall back to empty list */ });
+  }, []);
+
   const [events, setEvents] = useState<SessionEvent[]>(initialEvents);
   const [status, setStatus] = useState(initialStatus);
   const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl);
@@ -578,6 +834,16 @@ export default function EvolveSessionView({
   const { sessionUser, handleLogout } = useSessionUser();
   const [acceptRejectLoading, setAcceptRejectLoading] = useState(false);
   const [acceptRejectError, setAcceptRejectError] = useState<string | null>(null);
+  /** Session ID of a stuck 'accepting' session that is blocking this accept (from a 409 response). */
+  const [stuckBlockingSessionId, setStuckBlockingSessionId] = useState<string | null>(null);
+  const [isResettingStuck, setIsResettingStuck] = useState(false);
+  const [forceResetError, setForceResetError] = useState<string | null>(null);
+  /** Timestamp of the last NDJSON event received from the SSE stream (ms since epoch). */
+  const lastNdjsonEventTimeRef = useRef<number>(Date.now());
+  /** Whether the "Stuck?" button should be visible (30 s since last NDJSON event). */
+  const [showStuckButton, setShowStuckButton] = useState(false);
+  /** Whether the stuck-reset confirmation dialog is open. */
+  const [stuckConfirmOpen, setStuckConfirmOpen] = useState(false);
   /** Which of the three action panels is currently expanded, or null if all collapsed. */
   const [activeAction, setActiveAction] = useState<"accept" | "reject" | "followup" | null>(null);
   /** Element selected via the WebPreviewPanel inspector tool, to be attached as context to a follow-up. */
@@ -637,6 +903,27 @@ export default function EvolveSessionView({
   // Keep refs in sync so the visibilitychange handler always has the latest values.
   useEffect(() => { statusRef.current = status; }, [status]);
 
+  // Show the "Stuck?" button if no new NDJSON events have arrived for 30 seconds
+  // while the session is in a long-running pipeline state.
+  useEffect(() => {
+    const STUCK_THRESHOLD_MS = 30_000;
+    const isLongRunning = status === "accepting" || status === "fixing-types";
+    if (!isLongRunning) {
+      setShowStuckButton(false);
+      return;
+    }
+    // Reset timer whenever we enter a long-running state.
+    lastNdjsonEventTimeRef.current = Date.now();
+    setShowStuckButton(false);
+
+    const interval = setInterval(() => {
+      if (Date.now() - lastNdjsonEventTimeRef.current >= STUCK_THRESHOLD_MS) {
+        setShowStuckButton(true);
+      }
+    }, 2_000);
+    return () => clearInterval(interval);
+  }, [status]);
+
   // When the session becomes ready (e.g. after Claude finishes), refresh the
   // diff summary so the "Files changed" section reflects the latest commits.
   useEffect(() => {
@@ -656,7 +943,7 @@ export default function EvolveSessionView({
     function onVisibilityChange() {
       if (document.visibilityState !== "visible") return;
       const s = statusRef.current;
-      const isTerminalStatus = s === "accepted" || s === "rejected" || s === "ready";
+      const isTerminalStatus = s === "accepted" || s === "rejected";
       if (!isTerminalStatus) {
         void startStreaming();
       }
@@ -705,6 +992,9 @@ export default function EvolveSessionView({
             if (parsed.events && parsed.events.length > 0) {
               setEvents((prev) => [...prev, ...parsed.events!]);
               if (parsed.lineCount != null) lineCountRef.current = parsed.lineCount;
+              // Reset the stuck-button timer whenever new events arrive.
+              lastNdjsonEventTimeRef.current = Date.now();
+              setShowStuckButton(false);
             } else if (parsed.lineCount != null) {
               lineCountRef.current = parsed.lineCount;
             }
@@ -727,8 +1017,7 @@ export default function EvolveSessionView({
   useEffect(() => {
     const alreadyTerminal =
       initialStatus === "accepted" ||
-      initialStatus === "rejected" ||
-      initialStatus === "ready";
+      initialStatus === "rejected";
     if (alreadyTerminal) return;
 
     void startStreaming();
@@ -861,6 +1150,9 @@ export default function EvolveSessionView({
       const data = (await res.json()) as { outcome?: string; log?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? `Server error: ${res.status}`);
       setRemainingUpstream(0);
+      // Restart the SSE stream so any new events written during conflict
+      // resolution (or the merge itself) are picked up immediately.
+      void startStreaming();
     } catch (err) {
       setUpstreamSyncError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -878,8 +1170,14 @@ export default function EvolveSessionView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'accept', sessionId }),
       });
-      const data = (await res.json()) as { outcome?: string; error?: string; stashWarning?: string };
-      if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
+      const data = (await res.json()) as { outcome?: string; error?: string; stashWarning?: string; stuckSessionId?: string; stuckSessionBranch?: string };
+      if (!res.ok) {
+        if (res.status === 409 && data.stuckSessionId) {
+          setStuckBlockingSessionId(data.stuckSessionId);
+        }
+        throw new Error(data.error ?? `API error: ${res.statusText}`);
+      }
+      setStuckBlockingSessionId(null);
       if (data.outcome === 'accepting') {
         sounds.sparkle();
         setStatus('accepting');
@@ -889,6 +1187,12 @@ export default function EvolveSessionView({
       }
       if (data.outcome === 'auto-fixing-types') {
         setStatus('fixing-types');
+        setActiveAction(null);
+        void startStreaming();
+        return;
+      }
+      if (data.outcome === 'auto-committing') {
+        setStatus('running-claude');
         setActiveAction(null);
         void startStreaming();
         return;
@@ -926,6 +1230,36 @@ export default function EvolveSessionView({
     }
   }
 
+  /**
+   * Force-reset a session that is stuck in 'accepting' or 'fixing-types'.
+   * Writes a result:error event to unblock the session.
+   */
+  async function handleForceReset(targetSessionId: string) {
+    if (isResettingStuck) return;
+    setIsResettingStuck(true);
+    setForceResetError(null);
+    try {
+      const res = await fetch(withBasePath('/api/evolve/reset-stuck'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: targetSessionId }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
+      // If resetting our own session, update local status to ready
+      if (targetSessionId === sessionId) {
+        setStatus('ready');
+        void startStreaming();
+      }
+      // Clear the blocking session indicator
+      setStuckBlockingSessionId(null);
+    } catch (err) {
+      setForceResetError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsResettingStuck(false);
+    }
+  }
+
   // Toggle an action panel open/closed. Clicking the active button collapses the panel.
   const toggleAction = useCallback((action: "accept" | "reject" | "followup") => {
     setActiveAction(prev => (prev === action ? null : action));
@@ -946,12 +1280,21 @@ export default function EvolveSessionView({
   /** Whether to show the preview as a desktop sidebar. */
   const showPreviewSidebar = status === "ready" && !!previewUrl;
 
+  /**
+   * The URL to open in the Web Preview panel when it first becomes available.
+   * Derived once from the initial request so the preview starts on the most
+   * relevant page rather than always defaulting to the landing page.
+   */
+  const smartPreviewUrl = previewUrl
+    ? deriveSmartPreviewUrl(events, previewUrl)
+    : null;
+
   /** Width of the session (left) panel in pixels when sidebar is visible. */
   const [mainWidthPx, setMainWidthPx] = useState(560);
   const containerRef = useRef<HTMLDivElement>(null);
 
   /** True while the session pipeline is actively running (not yet ready for action). */
-  const isClaudeRunning = status === "starting" || status === "running-claude" || status === "fixing-types";
+  const isAgentRunning = status === "starting" || status === "running-claude" || status === "fixing-types";
 
   // ─── Derive setup/content sections from events ───────────────────────────
 
@@ -973,8 +1316,20 @@ export default function EvolveSessionView({
       : undefined);
   const sessionModel = lastAgentSection?.modelId
     ?? (lastAgentSection?.model && sessionHarness
-      ? MODEL_OPTIONS_BY_HARNESS[sessionHarness]?.find((m) => m.label === lastAgentSection.model)?.id
+      ? modelOptionsByHarness[sessionHarness]?.find((m) => m.label === lastAgentSection.model)?.id
       : undefined);
+  // Human-readable agent label for UI messages like "Waiting for X to finish…"
+  // Label for the *currently running* agent — derived from the active section
+  // (last content section while the pipeline is running). This is correct even
+  // for follow-up requests that use a different harness/model than the original.
+  // Note: activeSection.harness / .model are human-readable labels, not IDs.
+  const activeSection = isAgentRunning ? contentSections[contentSections.length - 1] : undefined;
+  const activeHarnessLabel = activeSection?.harness ?? undefined;
+  const activeModelLabel = activeSection?.model ?? undefined;
+  const agentRunningLabel = activeHarnessLabel
+    ? (activeModelLabel ? `${activeHarnessLabel} (${activeModelLabel})` : activeHarnessLabel)
+    : 'the agent';
+
   // Setup is active while it's the only section and session isn't terminal
   const isSetupActive = !isTerminal && contentSections.length === 0;
   const setupStepCount = setupSection
@@ -1026,7 +1381,7 @@ export default function EvolveSessionView({
         const initialReqEvent = events.find((e): e is Extract<SessionEvent, { type: 'initial_request' }> => e.type === 'initial_request');
         const attachments = initialReqEvent?.attachments ?? [];
         return (
-          <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm">
+          <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-x-auto">
             <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Your request</p>
             <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{initialRequest}</p>
             {attachments.length > 0 && (
@@ -1055,7 +1410,7 @@ export default function EvolveSessionView({
             "Created branch"
           )}
         </p>
-        <code className="font-mono text-amber-200 text-sm">{sessionBranch}</code>
+        <CopyBranchName branch={sessionBranch} />
 
         {/* Setup steps */}
         {!isSetupActive && setupSection && setupStepCount > 0 && (
@@ -1103,54 +1458,20 @@ export default function EvolveSessionView({
           </div>
         )}
 
-        {/* Web preview — shown inline on mobile only; desktop uses sidebar */}
-        {status === "ready" && previewUrl && proxyServerStatus === "running" && (
-          <div className="xl:hidden">
-            <WebPreviewPanel src={previewUrl} onElementSelected={handleElementSelected} />
-          </div>
-        )}
-
-        {/* Preview server status + logs — shown when session is ready and proxy is managing the server */}
+        {/* Web preview card — hidden on desktop when sidebar is active (aside shows it there) */}
         {status === "ready" && (
-          <div className="rounded-lg border border-emerald-700/50 bg-gray-900 text-sm overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-gray-800 flex items-center justify-between">
-              <span className="font-semibold text-xs text-emerald-300">🚀 Preview server</span>
-              <span className={`text-xs ${
-                proxyServerStatus === 'running' ? 'text-emerald-400' :
-                proxyServerStatus === 'starting' ? 'text-yellow-400 animate-pulse' :
-                proxyServerStatus === 'stopped' ? 'text-red-400' :
-                'text-gray-500'
-              }`}>
-                {proxyServerStatus === 'running' ? 'Running' :
-                 proxyServerStatus === 'starting' ? 'Starting…' :
-                 proxyServerStatus === 'stopped' ? 'Stopped' :
-                 'Checking…'}
-              </span>
-            </div>
-            {previewUrl && (
-              <div className="px-4 py-3 border-b border-gray-800">
-                <a
-                  href={previewUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-emerald-400 hover:text-emerald-200 underline break-all text-xs"
-                >
-                  {previewUrl}
-                </a>
-                <span className="text-gray-500 text-xs ml-2">(starts on first visit)</span>
-              </div>
-            )}
-            {serverLogs && (
-              <details className="group" open={proxyServerStatus === 'stopped'}>
-                <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
-                  <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
-                  <span className="text-gray-500">🪵 Server logs</span>
-                </summary>
-                <div className="px-4 py-3 border-t border-gray-800">
-                  <pre className="text-xs text-gray-400 whitespace-pre-wrap font-mono overflow-x-auto max-h-64 overflow-y-auto">{serverLogs}</pre>
-                </div>
-              </details>
-            )}
+          <div className={showPreviewSidebar ? 'xl:hidden' : ''}>
+            <WebPreviewCard
+              fullHeight={false}
+              previewUrl={smartPreviewUrl}
+              proxyServerStatus={proxyServerStatus}
+              serverLogs={serverLogs}
+              canEvolve={canEvolve}
+              isRestartingServer={isRestartingServer}
+              restartError={restartError}
+              onRestartServer={handleRestartServer}
+              onElementSelected={handleElementSelected}
+            />
           </div>
         )}
 
@@ -1237,7 +1558,7 @@ export default function EvolveSessionView({
           {/* ── Header ── */}
           <div className="px-4 py-2 border-b border-gray-700 flex items-center justify-between">
             <p className="text-gray-500 text-xs font-medium uppercase tracking-wide">Available Actions</p>
-            {isClaudeRunning ? (
+            {isAgentRunning ? (
               <button
                 data-id="session/abort"
                 type="button"
@@ -1247,40 +1568,47 @@ export default function EvolveSessionView({
               >
                 {isAborting ? "Aborting…" : "⏹ Abort"}
               </button>
-            ) : status === "ready" ? (
-              <button
-                data-id="session/restart-preview"
-                type="button"
-                onClick={handleRestartServer}
-                disabled={isRestartingServer || proxyServerStatus === "starting"}
-                className="text-xs text-gray-400 hover:text-gray-200 disabled:text-gray-600 transition-colors"
-              >
-                {isRestartingServer || proxyServerStatus === "starting"
-                  ? "Starting…"
-                  : proxyServerStatus === "running"
-                  ? "↺ Restart preview"
-                  : "▶ Start preview"}
-              </button>
             ) : null}
           </div>
 
           {abortError && (
             <p className="px-4 py-2 text-red-400 text-xs border-b border-gray-700">{abortError}</p>
           )}
-          {restartError && (
-            <p className="px-4 py-2 text-red-400 text-xs border-b border-gray-700">{restartError}</p>
-          )}
 
           {/* ── Button row (or fixing-types indicator) ── */}
           {status === "accepting" ? (
-            <div className="px-4 py-3 flex items-center gap-2 text-sm text-green-300">
-              <Loader2 size={16} className="animate-spin flex-shrink-0" />
-              Accepting changes…
+            <div className="px-4 py-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm text-green-300">
+                <Loader2 size={16} className="animate-spin flex-shrink-0" />
+                Accepting changes…
+              </div>
+              {canEvolve && showStuckButton && (
+                <button
+                  onClick={() => setStuckConfirmOpen(true)}
+                  disabled={isResettingStuck}
+                  title="No activity for 30 s — click to force-reset if the accept pipeline is stuck"
+                  className="text-xs px-2 py-1 rounded border border-yellow-700 text-yellow-400 hover:bg-yellow-900/30 hover:text-yellow-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Stuck?
+                </button>
+              )}
             </div>
           ) : status === "fixing-types" ? (
-            <div className="px-4 py-3 flex items-center gap-2 text-sm text-amber-300">
-              <Loader2 size={16} className="animate-spin flex-shrink-0" />
-              Fixing type errors… will auto-accept when complete.
+            <div className="px-4 py-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm text-amber-300">
+                <Loader2 size={16} className="animate-spin flex-shrink-0" />
+                Fixing type errors… will auto-accept when complete.
+              </div>
+              {canEvolve && showStuckButton && (
+                <button
+                  onClick={() => setStuckConfirmOpen(true)}
+                  disabled={isResettingStuck}
+                  title="No activity for 30 s — click to force-reset if the type-fix pipeline is stuck"
+                  className="text-xs px-2 py-1 rounded border border-yellow-700 text-yellow-400 hover:bg-yellow-900/30 hover:text-yellow-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Stuck?
+                </button>
+              )}
             </div>
           ) : (
             <div className="flex">
@@ -1299,11 +1627,11 @@ export default function EvolveSessionView({
               </button>
               <button
                 data-id="session/tab-accept"
-                onClick={(isClaudeRunning || remainingUpstream > 0) ? undefined : () => toggleAction("accept")}
-                disabled={isClaudeRunning || remainingUpstream > 0}
+                onClick={(isAgentRunning || remainingUpstream > 0) ? undefined : () => toggleAction("accept")}
+                disabled={isAgentRunning || remainingUpstream > 0}
                 title={remainingUpstream > 0 ? `Apply the ${remainingUpstream} upstream commit${remainingUpstream === 1 ? "" : "s"} before accepting` : undefined}
                 className={`flex-1 px-4 py-3 text-sm font-medium border-r border-gray-700 transition-colors ${
-                  isClaudeRunning || remainingUpstream > 0
+                  isAgentRunning || remainingUpstream > 0
                     ? "text-gray-600 cursor-not-allowed"
                     : activeAction === "accept"
                     ? "bg-green-900/40 text-green-200"
@@ -1316,10 +1644,10 @@ export default function EvolveSessionView({
               </button>
               <button
                 data-id="session/tab-reject"
-                onClick={isClaudeRunning ? undefined : () => toggleAction("reject")}
-                disabled={isClaudeRunning}
+                onClick={isAgentRunning ? undefined : () => toggleAction("reject")}
+                disabled={isAgentRunning}
                 className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                  isClaudeRunning
+                  isAgentRunning
                     ? "text-gray-600 cursor-not-allowed"
                     : activeAction === "reject"
                     ? "bg-red-900/40 text-red-200"
@@ -1359,8 +1687,8 @@ export default function EvolveSessionView({
               <EvolveRequestForm
                 placeholder="Describe what to fix or improve…"
                 submitLabel="Submit follow-up"
-                disabled={isClaudeRunning}
-                disabledLabel="Waiting for Claude to finish…"
+                disabled={isAgentRunning}
+                disabledLabel={`Waiting for ${agentRunningLabel} to finish…`}
                 autoFocus
                 defaultHarness={sessionHarness}
                 defaultModel={sessionModel}
@@ -1379,6 +1707,8 @@ export default function EvolveSessionView({
                   for (const file of files) formData.append('attachments', file);
                   const encryptedApiKey = await encryptStoredApiKey();
                   if (encryptedApiKey) formData.append('encryptedApiKey', encryptedApiKey);
+                  const encryptedCredentials = await encryptStoredCredentials();
+                  if (encryptedCredentials) formData.append('encryptedCredentials', JSON.stringify(encryptedCredentials));
                   const res = await fetch(withBasePath('/api/evolve/followup'), {
                     method: 'POST',
                     body: formData,
@@ -1432,7 +1762,30 @@ export default function EvolveSessionView({
                     {acceptRejectLoading ? "Accepting…" : "Confirm"}
                   </button>
                   {acceptRejectError && (
-                    <p className="text-red-400 text-xs mt-2 whitespace-pre-wrap">{acceptRejectError}</p>
+                    <div className="mt-2">
+                      <p className="text-red-400 text-xs whitespace-pre-wrap">{acceptRejectError}</p>
+                      {stuckBlockingSessionId && canEvolve && (
+                        <div className="mt-2 flex items-center gap-3">
+                          <Link
+                            href={withBasePath(`/evolve/session/${stuckBlockingSessionId}`)}
+                            className="text-xs text-blue-400 hover:text-blue-300 underline"
+                          >
+                            Go to stuck session →
+                          </Link>
+                          <span className="text-gray-600 text-xs">or</span>
+                          <button
+                            onClick={() => void handleForceReset(stuckBlockingSessionId)}
+                            disabled={isResettingStuck}
+                            className="text-xs px-2 py-1 rounded border border-red-700 text-red-400 hover:bg-red-900/30 hover:text-red-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isResettingStuck ? "Resetting…" : "Force Reset stuck session"}
+                          </button>
+                        </div>
+                      )}
+                      {forceResetError && (
+                        <p className="text-red-400 text-xs mt-1">{forceResetError}</p>
+                      )}
+                    </div>
                   )}
                 </>
               ) : (
@@ -1512,17 +1865,61 @@ export default function EvolveSessionView({
         containerRef={containerRef}
       />
       <aside className="hidden xl:flex xl:flex-col xl:flex-1 xl:sticky xl:top-0 xl:h-dvh bg-gray-950 p-4">
-        {proxyServerStatus === "running" ? (
-          <WebPreviewPanel src={previewUrl!} fullHeight onElementSelected={handleElementSelected} />
-        ) : (
-          <div className="flex flex-col flex-1 items-center justify-center gap-2 text-gray-500">
-            <span className={`text-sm ${proxyServerStatus === 'starting' ? 'animate-pulse' : ''}`}>
-              {proxyServerStatus === 'starting' ? '⏳ Starting preview server…' : '🔍 Checking preview server…'}
-            </span>
-          </div>
-        )}
+        <WebPreviewCard
+          fullHeight
+          previewUrl={smartPreviewUrl}
+          proxyServerStatus={proxyServerStatus}
+          serverLogs={serverLogs}
+          canEvolve={canEvolve}
+          isRestartingServer={isRestartingServer}
+          restartError={restartError}
+          onRestartServer={handleRestartServer}
+          onElementSelected={handleElementSelected}
+        />
       </aside>
       </>
+    )}
+
+    {/* ── Stuck? confirmation dialog ── */}
+    {stuckConfirmOpen && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        onClick={() => setStuckConfirmOpen(false)}
+      >
+        <div
+          className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h2 className="text-white font-semibold text-base mb-2">Force Reset?</h2>
+          <p className="text-gray-400 text-sm mb-5">
+            No progress has been logged for over 30 seconds. This resets the session to{" "}
+            <span className="text-amber-300">ready</span> so you can retry or make a follow-up
+            request. Use this only if the pipeline appears genuinely stuck (e.g. the server was
+            restarted mid-deploy).
+          </p>
+          {forceResetError && (
+            <p className="text-red-400 text-xs mb-3">{forceResetError}</p>
+          )}
+          <div className="flex gap-3 justify-end">
+            <button
+              onClick={() => setStuckConfirmOpen(false)}
+              className="px-4 py-2 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                setStuckConfirmOpen(false);
+                void handleForceReset(sessionId);
+              }}
+              disabled={isResettingStuck}
+              className="px-4 py-2 rounded-lg text-sm bg-red-800 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isResettingStuck ? "Resetting…" : "Force Reset"}
+            </button>
+          </div>
+        </div>
+      </div>
     )}
     </div>
   );

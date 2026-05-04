@@ -182,6 +182,11 @@ async function handleGitRequest(req: NextRequest, pathInfo: string): Promise<Res
 
 // ─── Route exports ─────────────────────────────────────────────────────────────
 
+/**
+ * Git HTTP smart protocol (read-only)
+ * @description Handles git clone/fetch requests via `git http-backend`. Push (`git-receive-pack`) is permanently blocked with 403. Clone with `git clone <host>/api/git`.
+ * @tag Git
+ */
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ path: string[] }> },
@@ -190,6 +195,11 @@ export async function GET(
   return handleGitRequest(req, "/" + path.join("/"));
 }
 
+/**
+ * Git HTTP smart protocol POST (read-only)
+ * @description Handles git upload-pack POST requests for fetch/clone. `git-receive-pack` (push) is permanently blocked with 403.
+ * @tag Git
+ */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ path: string[] }> },

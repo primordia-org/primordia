@@ -5,16 +5,19 @@
 // scanning the QR code shown on the "requester" device (e.g. laptop).
 //
 // Flow:
-//   1. Page reads ?token=<tokenId> from the URL.
+//   1. Page reads ?token=<tokenId> and optional ?pk=<ecdhPubKey> from the URL.
 //   2. Checks if the visitor is currently signed in via /api/auth/session.
 //   3. If signed in: shows an "Approve sign-in?" card with Approve / Reject.
-//   4. If not signed in: prompts the user to sign in first.
+//   4. On Approve: if pk is present, encrypts own AES credentials for the requester
+//      using ECDH P-256, then POSTs { tokenId, encryptedCredentials } together.
+//   5. If not signed in: prompts the user to sign in first.
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Check } from "lucide-react";
+import { Check, KeyRound } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
+import { encryptCredentialsForRequester } from "@/lib/cross-device-creds";
 
 type Phase =
   | "loading"       // checking session
@@ -28,13 +31,14 @@ function ApprovePageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const tokenId = searchParams.get("token");
+  // Requester's ephemeral ECDH public key (base64url). Present only in the pull flow.
+  const pk = searchParams.get("pk");
 
-  // Initialise phase from tokenId synchronously so we never call setState
-  // inside an effect body (which triggers the react-hooks/set-state-in-effect rule).
   const [phase, setPhase] = useState<Phase>(() =>
     tokenId ? "loading" : "error"
   );
   const [username, setUsername] = useState<string | null>(null);
+  const [credsSynced, setCredsSynced] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(() =>
     tokenId
       ? null
@@ -66,10 +70,23 @@ function ApprovePageInner() {
     setPhase("approving");
     setErrorMsg(null);
     try {
+      // If the requester embedded an ECDH public key in the QR URL, encrypt
+      // our own credentials for it so it can save them on sign-in.
+      let encryptedCredentials = null;
+      if (pk) {
+        try {
+          const k1 = localStorage.getItem("primordia_aes_key");
+          const k2 = localStorage.getItem("primordia_credentials_aes_key");
+          encryptedCredentials = await encryptCredentialsForRequester(pk, k1, k2);
+        } catch {
+          // Encryption failed — proceed with approval without credential sync
+        }
+      }
+
       const res = await fetch(withBasePath("/api/auth/cross-device/approve"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tokenId }),
+        body: JSON.stringify({ tokenId, encryptedCredentials }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok) {
@@ -77,6 +94,7 @@ function ApprovePageInner() {
         setErrorMsg(data.error ?? "Approval failed.");
         return;
       }
+      setCredsSynced(!!encryptedCredentials);
       setPhase("done");
     } catch {
       setPhase("error");
@@ -84,13 +102,25 @@ function ApprovePageInner() {
     }
   }
 
+  // Detect whether this approver has any credentials worth syncing.
+  const hasCredentials = (() => {
+    try {
+      return (
+        !!localStorage.getItem("primordia_aes_key") ||
+        !!localStorage.getItem("primordia_credentials_aes_key")
+      );
+    } catch {
+      return false;
+    }
+  })();
+
   return (
     <main className="flex flex-col items-center justify-center min-h-dvh px-4 py-12 bg-gray-950">
       <div className="w-full max-w-sm space-y-6">
         {/* Header */}
         <div className="text-center">
           <h1 className="text-2xl font-bold text-white tracking-tight">
-            Sign in on another device
+            Approve this login
           </h1>
           <p className="text-sm text-gray-400 mt-1">
             A device is waiting to be signed in.
@@ -111,7 +141,7 @@ function ApprovePageInner() {
                 You need to be signed in to approve a login request.
               </p>
               <Link
-                href={`/login?next=${encodeURIComponent(`/login/approve?token=${tokenId}`)}`}
+                href={withBasePath(`/login?next=${encodeURIComponent(`/login/approve?token=${tokenId}${pk ? `&pk=${pk}` : ""}`)}`)}
                 className="inline-block w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white text-center transition-colors"
               >
                 Sign in first
@@ -130,6 +160,16 @@ function ApprovePageInner() {
                   Allow another device to sign in as you?
                 </p>
               </div>
+
+              {pk && hasCredentials && (
+                <div className="flex items-start gap-2 bg-blue-900/20 border border-blue-800/30 rounded-lg px-3 py-2">
+                  <KeyRound size={14} strokeWidth={2} className="text-blue-400 mt-0.5 shrink-0" aria-hidden="true" />
+                  <p className="text-xs text-blue-300">
+                    Your credential keys will also be copied to the other device.
+                  </p>
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={handleApprove}
@@ -158,8 +198,9 @@ function ApprovePageInner() {
             <div className="text-center space-y-3">
               <p className="text-sm text-green-400 bg-green-900/20 border border-green-800/30 rounded-lg px-3 py-2">
                 Done! The other device is now signed in.
+                {credsSynced && " Credentials were also copied."}
               </p>
-              <Link href="/" className="text-sm text-blue-400 hover:text-blue-300">
+              <Link href={withBasePath("/")} className="text-sm text-blue-400 hover:text-blue-300">
                 Go to Primordia &rarr;
               </Link>
             </div>
@@ -174,7 +215,7 @@ function ApprovePageInner() {
 
         {/* Back link */}
         <p className="text-center">
-          <Link href="/" className="text-sm text-blue-400 hover:text-blue-300">
+          <Link href={withBasePath("/")} className="text-sm text-blue-400 hover:text-blue-300">
             &larr; Back to Primordia
           </Link>
         </p>
@@ -190,4 +231,3 @@ export default function ApprovePage() {
     </Suspense>
   );
 }
-

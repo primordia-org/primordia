@@ -10,6 +10,11 @@ import { execSync } from "child_process";
 import { getSessionFromFilesystem } from "@/lib/session-events";
 import type { DiffFileSummary } from "@/app/evolve/session/[id]/page";
 
+/**
+ * Get diff summary for a session
+ * @description Returns per-file additions/deletions for all files changed in the session branch vs its parent. Pass `sessionId` as a query parameter.
+ * @tag Evolve
+ */
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const sessionId = searchParams.get("sessionId");

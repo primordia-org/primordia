@@ -11,8 +11,10 @@ import {
   getSessionNdjsonPath,
   listSessionsFromFilesystem,
   type SessionEvent,
+  type AgentAuthInfo,
 } from './session-events';
-import { HARNESS_OPTIONS, MODEL_OPTIONS_BY_HARNESS, DEFAULT_HARNESS, DEFAULT_MODEL } from './agent-config';
+import { HARNESS_OPTIONS, DEFAULT_HARNESS, DEFAULT_MODEL } from './agent-config';
+import { getModelLabel } from './pi-model-registry.server';
 
 export type LocalSessionStatus =
   | 'starting'
@@ -52,6 +54,13 @@ export interface LocalSession {
    * Anthropic API directly. When omitted, the gateway is used.
    */
   apiKey?: string;
+  /**
+   * Decrypted Claude Code credentials.json content supplied by the user.
+   * Transient — never persisted to the NDJSON log or SQLite.
+   * When set, the worker writes this JSON to CLAUDE_CONFIG_DIR/.credentials.json
+   * before running Claude Code and deletes it immediately afterwards.
+   */
+  credentials?: string;
   /**
    * Primordia user ID of the person who initiated this session.
    * Used to set CLAUDE_CONFIG_DIR so each user's Claude configuration
@@ -157,6 +166,13 @@ interface WorkerConfig {
    */
   apiKey?: string;
   /**
+   * Decrypted Claude Code credentials.json content to pass to the worker via
+   * environment variable. NOT written to the JSON config file on disk.
+   * The worker writes this to CLAUDE_CONFIG_DIR/.credentials.json, runs Claude
+   * Code, then deletes the file in its cleanup step.
+   */
+  credentials?: string;
+  /**
    * Primordia user ID. CLAUDE_CONFIG_DIR is pointed at a per-user directory
    * so each user's Claude config is isolated.
    * NOT written to the JSON config file — only used to derive the env var.
@@ -164,7 +180,48 @@ interface WorkerConfig {
   userId: string;
 }
 
-/** Maps session IDs to the PID of their running Claude worker process. */
+/**
+ * Determine which auth source a session will use and return the corresponding
+ * AgentAuthInfo. Credentials take priority over an API key; both override the
+ * gateway. Enforcing a single source here means the section_start event and
+ * the worker env always agree on which credential was used.
+ *
+ * Rules:
+ *  - Claude Credentials (credentials.json) are only supported by the
+ *    'claude-code' harness. Pi and other harnesses use the Anthropic API
+ *    directly and cannot read a credentials.json file, so credentials are
+ *    silently ignored for those harnesses.
+ *  - If BOTH credentials and an API key are supplied and the harness supports
+ *    credentials, credentials win and the API key is discarded.
+ */
+function resolveAgentAuth(
+  credentials: string | undefined,
+  apiKey: string | undefined,
+  harnessId: string,
+): { auth: AgentAuthInfo; resolvedCredentials: string | undefined; resolvedApiKey: string | undefined } {
+  const credentialsSupported = harnessId === 'claude-code';
+  if (credentials && credentialsSupported) {
+    return {
+      auth: { source: 'claude-credentials' },
+      resolvedCredentials: credentials,
+      resolvedApiKey: undefined, // API key superseded
+    };
+  }
+  if (apiKey) {
+    return {
+      auth: { source: 'api-key' },
+      resolvedCredentials: undefined,
+      resolvedApiKey: apiKey,
+    };
+  }
+  return {
+    auth: { source: 'llm-gateway' },
+    resolvedCredentials: undefined,
+    resolvedApiKey: undefined,
+  };
+}
+
+/** Maps session IDs to the PID of their running agent worker process. */
 const activeWorkerPids = new Map<string, number>();
 
 /** Returns true if the OS process with the given PID is still alive. */
@@ -196,30 +253,34 @@ function checkWorktreeNotBusy(worktreePath: string): void {
 }
 
 /**
- * Spawns a detached Claude Code worker process for the given config.
+ * Spawns a detached agent worker process for the given config.
  * The worker process is independent of the server — it survives server
  * restarts. Awaiting this function waits for the worker to exit.
  *
  * If the server exits while this is awaited, the worker keeps running.
  * On server restart, reconnectRunningWorkers() re-attaches to live workers.
  */
-async function spawnClaudeWorker(
+async function spawnAgentWorker(
   config: WorkerConfig,
   workerScriptPath: string,
 ): Promise<void> {
   checkWorktreeNotBusy(config.worktreePath);
 
-  // Strip the API key from the JSON config file so it is never written to disk
-  // in plaintext. Pass it instead as a process environment variable.
-  const { apiKey: workerApiKey, ...configWithoutKey } = config;
+  // Strip sensitive fields (API key, credentials) from the JSON config file so
+  // they are never written to disk in plaintext. Pass them instead as process
+  // environment variables. The worker reads and immediately deletes each var.
+  const { apiKey: workerApiKey, credentials: workerCredentials, ...configWithoutSensitive } = config;
   const configFile = `/tmp/primordia-worker-${config.sessionId}.json`;
-  fs.writeFileSync(configFile, JSON.stringify(configWithoutKey), 'utf8');
+  fs.writeFileSync(configFile, JSON.stringify(configWithoutSensitive), 'utf8');
 
   // Build the worker's environment: inherit server env, then optionally inject
-  // the user's API key. The worker reads and immediately deletes this var.
+  // the user's API key and/or credentials.
   const workerEnv: NodeJS.ProcessEnv = { ...process.env };
   if (workerApiKey) {
     workerEnv['PRIMORDIA_USER_API_KEY'] = workerApiKey;
+  }
+  if (workerCredentials) {
+    workerEnv['PRIMORDIA_USER_CREDENTIALS'] = workerCredentials;
   }
   const homeDir = process.env.HOME ?? '/home/exedev';
   workerEnv['CLAUDE_CONFIG_DIR'] = path.join(homeDir, '.claude-users', config.userId);
@@ -234,7 +295,7 @@ async function spawnClaudeWorker(
 
     if (!proc.pid) {
       fs.rmSync(configFile, { force: true });
-      reject(new Error('Failed to spawn Claude worker: no PID assigned'));
+      reject(new Error('Failed to spawn agent worker: no PID assigned'));
       return;
     }
 
@@ -255,16 +316,16 @@ async function spawnClaudeWorker(
     proc.on('error', (err: Error) => {
       activeWorkerPids.delete(config.sessionId);
       try { fs.rmSync(configFile, { force: true }); } catch { /* best-effort */ }
-      reject(new Error(`Claude worker spawn failed: ${err.message}`));
+      reject(new Error(`Agent worker spawn failed: ${err.message}`));
     });
   });
 }
 
 /**
- * On server startup: reconnect to any Claude worker processes that survived
+ * On server startup: reconnect to any agent worker processes that survived
  * from before the restart. For each session in a running state:
  *   - If the worker's PID file exists and the process is alive, register its
- *     PID so abortClaudeRun() can still send SIGTERM to it.
+ *     PID so abortAgentRun() can still send SIGTERM to it.
  *   - If the PID file is missing or the process is dead, mark the session as
  *     'ready' with a recovery note (consistent with the abort endpoint behavior).
  *
@@ -304,7 +365,7 @@ export async function reconnectRunningWorkers(repoRoot: string): Promise<void> {
       continue;
     }
 
-    // Worker is still running — register it so abortClaudeRun() works.
+    // Worker is still running — register it so abortAgentRun() works.
     activeWorkerPids.set(record.id, livePid);
     // Background: unregister PID when the worker eventually finishes.
     const sessionId = record.id;
@@ -318,11 +379,11 @@ export async function reconnectRunningWorkers(repoRoot: string): Promise<void> {
 }
 
 /**
- * Signals the running Claude Code worker for the given session to stop.
+ * Signals the running agent worker for the given session to stop.
  * Returns true if a live worker was found and signalled, false if the
  * session has no registered worker PID.
  */
-export function abortClaudeRun(sessionId: string): boolean {
+export function abortAgentRun(sessionId: string): boolean {
   const pid = activeWorkerPids.get(sessionId);
   if (pid === undefined) return false;
   try {
@@ -336,6 +397,22 @@ export function abortClaudeRun(sessionId: string): boolean {
 }
 
 // ─── Git ──────────────────────────────────────────────────────────────────────
+
+export function runCommand(
+  cmd: string,
+  args: string[],
+  cwd: string,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  return new Promise((resolve) => {
+    const proc = spawn(cmd, args, { cwd });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    proc.on('close', (code) => resolve({ stdout, stderr, code: code ?? 1 }));
+    proc.on('error', (err) => resolve({ stdout: '', stderr: err.message, code: 1 }));
+  });
+}
 
 export function runGit(
   args: string[],
@@ -371,6 +448,42 @@ function parseWorktreePathForBranch(porcelain: string, branchName: string): stri
     }
   }
   return null;
+}
+
+// ─── Background Turbopack cache warming ─────────────────────────────────────
+
+/**
+ * Spawns `bun run build` in the given worktree at the lowest possible CPU and
+ * I/O priority so Turbopack can warm its persistent file-system cache
+ * (.next/cache/turbopack/) in the background while the user reviews the preview.
+ *
+ * By the time the user clicks Accept the cache is already warm, meaning the
+ * mandatory build gate completes much faster.
+ *
+ * The process is fully detached (stdio: 'ignore', detached: true) so it never
+ * blocks the main session pipeline or the Node/Bun event loop.
+ *
+ * `ionice -c 3` (idle I/O class) is attempted via the shell `||` operator so
+ * that the build still runs on kernels / systems that don't support ionice.
+ */
+function spawnCacheWarmBuild(worktreePath: string): void {
+  // Use `sh -c` so we can compose nice + ionice without requiring ionice to exist.
+  // `ionice -c 3 ...` sets idle I/O priority; `|| ...` is the fallback when ionice
+  // is unavailable (e.g. macOS, older kernels, or missing capability).
+  const cmd = 'ionice -c 3 bun run --bun next build || bun run --bun next build';
+  const proc = spawn('nice', ['-n', '19', 'sh', '-c', cmd], {
+    cwd: worktreePath,
+    stdio: 'ignore',
+    detached: true,
+    env: {
+      ...process.env,
+      // Ensure the build uses the same base path the dev server uses so the
+      // Turbopack cache entries are compatible with the Accept build.
+      NEXT_BASE_PATH: process.env.NEXT_BASE_PATH ?? '',
+    },
+  });
+  proc.unref();
+  console.log(`[evolve] cache-warming build started in ${worktreePath} (PID ${proc.pid ?? 'unknown'})`);
 }
 
 // ─── Main flow ────────────────────────────────────────────────────────────────
@@ -569,8 +682,11 @@ export async function startLocalEvolve(
     const harnessId = session.harness ?? DEFAULT_HARNESS;
     const modelId = session.model ?? DEFAULT_MODEL;
     const harnessLabel = HARNESS_OPTIONS.find((h) => h.id === harnessId)?.label ?? harnessId;
-    const modelLabel = (MODEL_OPTIONS_BY_HARNESS[harnessId] ?? []).find((m) => m.id === modelId)?.label ?? modelId;
-    appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: harnessLabel, model: modelLabel, harnessId, modelId, label: `🤖 ${harnessLabel} (${modelLabel})`, ts: Date.now() });
+    const modelLabel = getModelLabel(harnessId, modelId);
+    // Resolve auth source — credentials beat API key; both beat the gateway.
+    // This also enforces exclusivity so the worker never receives two sources.
+    const { auth, resolvedApiKey, resolvedCredentials } = resolveAgentAuth(session.credentials, session.apiKey, harnessId);
+    appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: harnessLabel, model: modelLabel, harnessId, modelId, auth, label: `🤖 ${harnessLabel} (${modelLabel})`, ts: Date.now() });
 
     const attachmentSection = worktreeAttachmentPaths.length > 0
       ? `\n\nThe user has attached the following file(s) to this request (already saved in the worktree):\n` +
@@ -583,26 +699,37 @@ export async function startLocalEvolve(
       `${taskRequest}${attachmentSection}\n\n` +
       `After making changes:\n` +
       `1. Create a new changelog file in the \`changelog/\` directory named \`YYYY-MM-DD-HH-MM-SS Description of change.md\` (UTC time, e.g. \`2026-03-16-21-00-00 Fix login bug.md\`). The filename is the short description; the file body is the full "what changed + why" detail in markdown. Do NOT add changelog entries to CLAUDE.md itself.\n` +
-      `2. Commit all changes with a descriptive message.`;
+      `2. Commit all changes with a descriptive message.\n` +
+      `3. In your final message, mention the path of the most relevant page to open in the preview, e.g. "The relevant page is at \`/api-docs\`." Skip this step only if all changes are purely server-side or no single page is more relevant than the landing page.`;
 
     const workerScript = (harnessId === 'pi')
       ? path.join(repoRoot, 'scripts/pi-worker.ts')
       : path.join(repoRoot, 'scripts/claude-worker.ts');
 
-    await spawnClaudeWorker(
+    await spawnAgentWorker(
       {
         sessionId: session.id,
         worktreePath: session.worktreePath,
         repoRoot,
         prompt,
         timeoutMs: 20 * 60 * 1000,
-        model: session.model,
-        apiKey: session.apiKey,
+        // Use the resolved modelId so the worker always runs with the same
+        // model that was logged in the section_start event.
+        model: modelId,
+        apiKey: resolvedApiKey,
+        credentials: resolvedCredentials,
         userId: session.userId,
       },
       workerScript,
     );
     // Worker has exited — 'result' event in the NDJSON log marks completion.
+
+    // Background cache-warming: run `bun run build` at the lowest CPU/IO
+    // priority so Turbopack populates .next/cache/turbopack/ before the user
+    // clicks Accept.  We attempt `ionice -c 3` (idle I/O class) first; if the
+    // kernel doesn't support ionice it is silently ignored via the shell `||`.
+    // The process is fully detached so it never blocks the main pipeline.
+    void spawnCacheWarmBuild(session.worktreePath);
 
   } catch (err) {
     // Write error event to NDJSON (makes inferStatusFromEvents return 'ready').
@@ -634,29 +761,44 @@ export async function runFollowupInWorktree(
   /** Status used locally while Claude is running. Defaults to 'running-claude'. */
   inProgressStatus: LocalSessionStatus = 'running-claude',
   onSuccess?: (session: LocalSession) => Promise<void>,
-  skipChangelog: boolean = false,
+  /**
+   * When set, this is an internal (non-user-visible) agent pass:
+   * - The changelog instruction in the prompt is suppressed.
+   * - A section_start with this sectionType is emitted instead of the normal
+   *   followup/agent section pair.
+   * Pass 'type_fix' for TypeScript auto-fix passes and 'auto_commit' for
+   * Gate-2 unstaged-changes commit passes.
+   */
+  internalSectionType?: 'type_fix' | 'auto_commit',
   /** Temporary file paths for user-uploaded attachments. Copied into worktree/attachments/ and deleted from /tmp. */
   attachmentPaths: string[] = [],
 ): Promise<void> {
   const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
 
   const fuHarnessId = session.harness ?? DEFAULT_HARNESS;
+  // Resolve the model ID now so the section_start label and worker config are always consistent.
+  // This also means the user's model choice for a follow-up always overrides the previous run's model.
+  const fuModelId = session.model ?? DEFAULT_MODEL;
 
   try {
-    if (skipChangelog) {
-      // Type-fix passes get their own section heading instead of the user-facing follow-up format.
-      appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'type_fix', label: '🔧 Fixing type errors…', ts: Date.now() });
+    if (internalSectionType) {
+      const sectionLabels: Record<'type_fix' | 'auto_commit', string> = {
+        type_fix: '🔧 Fixing type errors…',
+        auto_commit: '📦 Committing unstaged changes…',
+      };
+      appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: internalSectionType, label: sectionLabels[internalSectionType], ts: Date.now() });
     } else {
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'followup', label: '🔄 Follow-up Request', ts: Date.now() });
       appendSessionEvent(ndjsonPath, { type: 'followup_request', request: followupRequest, attachments: attachmentPaths.map(p => path.basename(p)), ts: Date.now() });
-      const fuModelId = session.model ?? DEFAULT_MODEL;
       const fuHarnessLabel = HARNESS_OPTIONS.find((h) => h.id === fuHarnessId)?.label ?? fuHarnessId;
-      const fuModelLabel = (MODEL_OPTIONS_BY_HARNESS[fuHarnessId] ?? []).find((m) => m.id === fuModelId)?.label ?? fuModelId;
-      appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: fuHarnessLabel, model: fuModelLabel, harnessId: fuHarnessId, modelId: fuModelId, label: `🤖 ${fuHarnessLabel} (${fuModelLabel})`, ts: Date.now() });
+      const fuModelLabel = getModelLabel(fuHarnessId, fuModelId);
+      // Resolve auth — credentials beat API key; both beat the gateway.
+      const fuAuth = resolveAgentAuth(session.credentials, session.apiKey, fuHarnessId);
+      appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: fuHarnessLabel, model: fuModelLabel, harnessId: fuHarnessId, modelId: fuModelId, auth: fuAuth.auth, label: `🤖 ${fuHarnessLabel} (${fuModelLabel})`, ts: Date.now() });
     }
     session.status = inProgressStatus;
 
-    const changelogInstruction = skipChangelog
+    const changelogInstruction = !!internalSectionType
       ? `Do NOT create or update any changelog file — this fix is part of the automated merge pipeline, not a user-visible change.`
       : `This is a follow-up to changes already made on branch \`${session.branch}\`. Do NOT create a new changelog file. Instead, find the most recent changelog file in \`changelog/\` and update it if your changes invalidate or extend the existing description.`;
 
@@ -696,31 +838,44 @@ export async function runFollowupInWorktree(
         `\n\nRead and use these files as needed. If they are images or assets that should be added to the project, copy them to an appropriate location (e.g., \`public/\`) with a descriptive filename.`
       : '';
 
-    // With `continue: true`, Claude Code resumes the existing session in this
-    // worktree and already has full context (original request, prior follow-ups,
-    // everything it did). No need to manually reconstruct session history.
+    // With `useContinue: true` the harness resumes the most recent session in
+    // this worktree so it has full conversation history without us having to
+    // reconstruct it.  Both Claude Code and pi support resuming with a different
+    // model, so the user's model choice always takes effect even when changing it
+    // mid-session.  If the agent has no native memory of the worktree (e.g. the
+    // harness was switched and useContinue falls back gracefully), it can read
+    // .primordia-session.ndjson to reconstruct session history — see CLAUDE.md.
+    const previewPathInstruction = internalSectionType
+      ? ''
+      : `\n\nIn your final message, mention the path of the most relevant page to open in the preview, e.g. "The relevant page is at \`/chat\`." Skip this only if all changes are purely server-side or no single page is more relevant than the landing page.`;
+
     const prompt =
       `Address the following follow-up request:\n\n` +
       `${followupRequest}${attachmentSection}\n\n` +
-      `${changelogInstruction} Commit all changes with a descriptive message.`;
+      `${changelogInstruction} Commit all changes with a descriptive message.${previewPathInstruction}`;
 
-    // Spawn a detached worker process — same pattern as startLocalEvolve.
-    // useContinue resumes the most recent session in the worktree so the agent
-    // has full conversation history without us having to reconstruct it.
     const fuWorkerScript = (fuHarnessId === 'pi')
       ? path.join(repoRoot, 'scripts/pi-worker.ts')
       : path.join(repoRoot, 'scripts/claude-worker.ts');
 
-    await spawnClaudeWorker(
+    await spawnAgentWorker(
       {
         sessionId: session.id,
         worktreePath: session.worktreePath,
         repoRoot,
         prompt,
         timeoutMs: 20 * 60 * 1000,
-        model: session.model,
+        // Use the resolved fuModelId so the worker always runs with the same
+        // model that was logged in the section_start event, and the user's
+        // model choice overrides the previous run's model.
+        model: fuModelId,
         useContinue: true,
-        apiKey: session.apiKey,
+        // Re-resolve auth to enforce exclusivity (credentials beat API key).
+        // fuAuth may not be in scope when internalSectionType is set.
+        ...(() => {
+          const r = resolveAgentAuth(session.credentials, session.apiKey, fuHarnessId);
+          return { apiKey: r.resolvedApiKey, credentials: r.resolvedCredentials };
+        })(),
         userId: session.userId,
       },
       fuWorkerScript,
@@ -782,11 +937,11 @@ export async function restartDevServerInWorktree(
  * Returns { success: true } when the agent committed the resolved merge, or
  * { success: false, log } with a human-readable explanation when it could not.
  */
-export async function resolveConflictsWithClaude(
+export async function resolveConflictsWithAgent(
   mergeRoot: string,
   branch: string,
   parentBranch: string,
-  sessionContext: { id: string; harness?: string; model?: string; apiKey?: string; userId: string },
+  sessionContext: { id: string; harness?: string; model?: string; apiKey?: string; credentials?: string; userId: string },
   repoRoot?: string,
 ): Promise<{ success: boolean; log: string }> {
   const root = repoRoot ?? process.cwd();
@@ -820,7 +975,7 @@ export async function resolveConflictsWithClaude(
     : path.join(root, 'scripts/claude-worker.ts');
 
   try {
-    await spawnClaudeWorker(
+    await spawnAgentWorker(
       {
         sessionId: sessionContext.id,
         worktreePath: mergeRoot,
@@ -828,7 +983,13 @@ export async function resolveConflictsWithClaude(
         prompt,
         timeoutMs: 10 * 60 * 1000,
         model: sessionContext.model,
-        apiKey: sessionContext.apiKey,
+        // Enforce auth exclusivity (credentials beat API key).
+        ...(() => {
+          // Conflict resolution always uses the claude-code harness (resolveConflictsWithAgent
+          // picks the harness from sessionContext, defaulting to DEFAULT_HARNESS).
+          const r = resolveAgentAuth(sessionContext.credentials, sessionContext.apiKey, harnessId);
+          return { apiKey: r.resolvedApiKey, credentials: r.resolvedCredentials };
+        })(),
         userId: sessionContext.userId,
       },
       workerScript,

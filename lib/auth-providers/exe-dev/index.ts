@@ -10,7 +10,7 @@
 
 import type { AuthPlugin } from "../types";
 
-const plugin: AuthPlugin = {
+const plugin: AuthPlugin<"exe-dev"> = {
   id: "exe-dev",
   label: "exe.dev",
   async getServerProps({ headers }) {

@@ -6,14 +6,25 @@
 //   Body: { sessionId: string }
 //   Returns: { ok: true } or { error: string }
 
+/** JSON body for POST /evolve/abort */
+export interface EvolveAbortBody {
+  sessionId: string; // The session ID (git branch name) of the running session to abort.
+}
+
 import { getSessionUser } from '../../../../lib/auth';
-import { abortClaudeRun } from '../../../../lib/evolve-sessions';
+import { abortAgentRun } from '../../../../lib/evolve-sessions';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
   getSessionFromFilesystem,
 } from '../../../../lib/session-events';
 
+/**
+ * Abort the running Claude Code agent
+ * @description Signals the active Claude Code process to stop and transitions the session back to 'ready' with whatever work was completed.
+ * @tag Evolve
+ * @body EvolveAbortBody
+ */
 export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) {
@@ -42,7 +53,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const aborted = abortClaudeRun(body.sessionId);
+  const aborted = abortAgentRun(body.sessionId);
   if (!aborted) {
     // No in-memory abort controller found — the server likely restarted while the
     // Claude Code process was running, wiping in-memory state but leaving the session

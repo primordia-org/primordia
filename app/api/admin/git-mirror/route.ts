@@ -34,6 +34,17 @@ function mirrorExists(): boolean {
   }
 }
 
+/** JSON body for POST /admin/git-mirror */
+export interface AdminGitMirrorBody {
+  url: string; // SSH or HTTPS URL of the remote repository to mirror pushes to.
+}
+
+/**
+ * Add or update the push mirror remote
+ * @description Adds (or updates) a 'mirror' git remote as a push mirror and verifies the connection with an initial push. Admin only.
+ * @tag Admin
+ * @body AdminGitMirrorBody
+ */
 export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: "Authentication required" }, { status: 401 });
@@ -72,6 +83,11 @@ export async function POST(request: Request) {
   }
 }
 
+/**
+ * Remove the push mirror remote
+ * @description Removes the 'mirror' git remote. Admin only.
+ * @tag Admin
+ */
 export async function DELETE() {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: "Authentication required" }, { status: 401 });

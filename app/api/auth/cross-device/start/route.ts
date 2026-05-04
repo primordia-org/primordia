@@ -10,6 +10,11 @@ import { generateId } from "@/lib/auth";
 // Tokens expire after 10 minutes — long enough to find your phone and scan.
 const CROSS_DEVICE_TOKEN_TTL_MS = 10 * 60 * 1000;
 
+/**
+ * Start cross-device sign-in
+ * @description Creates a new cross-device auth token. Returns `{ tokenId }` which the requesting device uses to display a QR code and poll for approval.
+ * @tag Auth
+ */
 export async function POST() {
   try {
     const db = await getDb();
@@ -20,6 +25,7 @@ export async function POST() {
       status: "pending",
       userId: null,
       expiresAt: Date.now() + CROSS_DEVICE_TOKEN_TTL_MS,
+      encryptedCredentials: null,
     });
 
     // Clean up old tokens opportunistically.

@@ -9,6 +9,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { execSync } from "child_process";
 import { getSessionFromFilesystem } from "@/lib/session-events";
 
+/**
+ * Get raw diff for a single file
+ * @description Returns the unified diff for one file in the session branch vs its parent. Pass `sessionId` and `file` (relative path) as query parameters.
+ * @tag Evolve
+ */
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const sessionId = searchParams.get("sessionId");

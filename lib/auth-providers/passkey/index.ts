@@ -6,7 +6,7 @@
 
 import type { AuthPlugin } from "../types";
 
-const plugin: AuthPlugin = {
+const plugin: AuthPlugin<"passkey"> = {
   id: "passkey",
   label: "Passkey",
   // No server-side data needed; all passkey state is managed client-side.

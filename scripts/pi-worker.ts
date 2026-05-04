@@ -37,7 +37,14 @@ import {
 // LLM backend configuration
 // ---------------------------------------------------------------------------
 
-const GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
+const ANTHROPIC_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
+const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai';
+
+/** Infer the pi provider name from a model ID. Defaults to 'anthropic'. */
+function inferProvider(modelId: string): 'anthropic' | 'openai' {
+  if (modelId.startsWith('gpt-') || /^o\d/.test(modelId)) return 'openai';
+  return 'anthropic';
+}
 
 // Capture and immediately clear the injected user API key so it does not
 // persist in process.env (and cannot leak to child processes).
@@ -96,13 +103,26 @@ async function main(): Promise<void> {
   let timedOut = false;
   let userAborted = false;
   // Holds the session reference once created so signal handlers can abort it.
-  let activeSession: { abort(): Promise<void> } | null = null;
+  let activeSession: { abort(): Promise<void>; getSessionStats(): { tokens: { input: number; output: number }; cost: number } } | null = null;
+  // Baseline stats snapshot taken before the prompt runs — used to compute
+  // incremental metrics for this run only (avoids counting prior follow-up runs).
+  // Stored in outer scope so abort/timeout/error paths can compute partial metrics.
+  let baselineStatsRef: { tokens: { input: number; output: number }; cost: number } | null = null;
   // Track the last assistant message stop reason so we can detect max_tokens
   // truncation after session.prompt() resolves. When the model hits max_tokens
   // the response is cut off mid-generation; no tool calls are included, so the
   // agent loop exits cleanly and prompt() resolves without throwing — but the
   // task is not complete.
   let lastAssistantStopReason: string | null = null;
+  // Track whether the last assistant turn produced any visible text output.
+  // When the model uses extended thinking / reasoning it can generate output
+  // tokens (thinking blocks) that never fire text_delta events. If the final
+  // turn has NO visible text AND no tool calls, the model stopped silently —
+  // usually because the context window was nearly full and there was no room
+  // left for a real conclusion. We surface this as an error so the user knows
+  // to follow up rather than assuming the task completed successfully.
+  let lastAssistantHadVisibleOutput = false;
+  let lastAssistantHadToolCalls = false;
   // Track the last API-level error message (e.g. invalid API key). The Pi SDK
   // emits a message_update event with assistantMessageEvent.type === 'error'
   // but does NOT throw from session.prompt() — we must detect and re-throw it
@@ -123,11 +143,15 @@ async function main(): Promise<void> {
     // Auth — use the user-supplied API key when available, otherwise fall back
     // to the exe.dev LLM gateway (which handles auth with any non-empty key).
     const authStorage = AuthStorage.create();
+    const modelProvider = modelId ? inferProvider(modelId) : 'anthropic';
     if (_userApiKey) {
-      authStorage.setRuntimeApiKey('anthropic', _userApiKey);
-      process.stderr.write('Using user-supplied Anthropic API key\n');
+      authStorage.setRuntimeApiKey(modelProvider, _userApiKey);
+      process.stderr.write(`Using user-supplied ${modelProvider} API key\n`);
     } else {
+      // Gateway handles auth for all providers — set a placeholder key for each
+      // supported provider so the SDK knows auth is configured.
       authStorage.setRuntimeApiKey('anthropic', 'gateway');
+      authStorage.setRuntimeApiKey('openai', 'gateway');
       process.stderr.write('Using exe.dev LLM gateway\n');
     }
 
@@ -136,9 +160,9 @@ async function main(): Promise<void> {
     // Resolve the model object from the string ID, if provided.
     let model: ReturnType<typeof modelRegistry.find> | undefined;
     if (modelId) {
-      model = modelRegistry.find('anthropic', modelId) ?? undefined;
+      model = modelRegistry.find(modelProvider, modelId) ?? undefined;
       if (!model) {
-        process.stderr.write(`Warning: model '${modelId}' not found in registry, using default\n`);
+        process.stderr.write(`Warning: model '${modelId}' not found in registry for provider '${modelProvider}', using default\n`);
       }
     }
 
@@ -153,8 +177,14 @@ async function main(): Promise<void> {
     // extensionFactories are always applied even when noExtensions is true
     // (which only disables file-based extension discovery).
     const extensionFactories: ExtensionFactory[] = _userApiKey
-      ? [] // direct Anthropic API — no custom baseUrl needed
-      : [(pi: Parameters<ExtensionFactory>[0]) => { pi.registerProvider('anthropic', { baseUrl: GATEWAY_BASE_URL }); }];
+      ? [] // direct provider API — no custom baseUrl needed
+      : [
+          (pi: Parameters<ExtensionFactory>[0]) => {
+            // Route all supported providers through the exe.dev LLM gateway.
+            pi.registerProvider('anthropic', { baseUrl: ANTHROPIC_GATEWAY_BASE_URL });
+            pi.registerProvider('openai', { baseUrl: OPENAI_GATEWAY_BASE_URL });
+          },
+        ];
 
     // Resource loader: use the worktree as cwd so pi discovers AGENTS.md
     // (symlinked to CLAUDE.md) and other project context, and append the
@@ -189,6 +219,7 @@ async function main(): Promise<void> {
     // carries token/cost totals from all previous turns.  Subtracting the
     // baseline gives us only the tokens / cost consumed by THIS run.
     const baselineStats = session.getSessionStats();
+    baselineStatsRef = baselineStats;
 
     // Subscribe to events and write them to the NDJSON log.
     session.subscribe((event) => {
@@ -202,6 +233,60 @@ async function main(): Promise<void> {
           // it after prompt() returns.
           lastApiErrorMessage = ae.error.errorMessage ?? `API error (${ae.reason})`;
         }
+      } else if (event.type === 'compaction_start') {
+        // Auto-compaction: the SDK is summarising conversation history to free
+        // up context window space. Log it so the user can see it happened.
+        const ev = event as { type: 'compaction_start'; reason: string };
+        appendSessionEvent(ndjsonPath, {
+          type: 'text',
+          content: `\n\n⚙️ **Context compacting** (${ev.reason}) — summarising conversation history to free up context space.\n`,
+          ts: ts(),
+        });
+      } else if (event.type === 'compaction_end') {
+        const ev = event as {
+          type: 'compaction_end';
+          reason: string;
+          aborted: boolean;
+          willRetry: boolean;
+          errorMessage?: string;
+        };
+        if (!ev.aborted && !ev.errorMessage) {
+          appendSessionEvent(ndjsonPath, {
+            type: 'text',
+            content: `\n\n⚙️ **Context compacted** (${ev.reason}) — history summarised.\n`,
+            ts: ts(),
+          });
+        } else if (ev.errorMessage) {
+          appendSessionEvent(ndjsonPath, {
+            type: 'text',
+            content: `\n\n⚠️ **Context compaction failed**: ${ev.errorMessage}${ev.willRetry ? ' (will retry)' : ''}\n`,
+            ts: ts(),
+          });
+        }
+      } else if (event.type === 'auto_retry_start') {
+        const ev = event as {
+          type: 'auto_retry_start';
+          attempt: number;
+          maxAttempts: number;
+          delayMs: number;
+          errorMessage: string;
+        };
+        appendSessionEvent(ndjsonPath, {
+          type: 'text',
+          content: `\n\n🔄 **Auto-retry** (attempt ${ev.attempt}/${ev.maxAttempts}, delay ${Math.round(ev.delayMs / 1000)}s): ${ev.errorMessage}\n`,
+          ts: ts(),
+        });
+      } else if (event.type === 'auto_retry_end') {
+        const ev = event as { type: 'auto_retry_end'; success: boolean; attempt: number; finalError?: string };
+        if (!ev.success) {
+          appendSessionEvent(ndjsonPath, {
+            type: 'text',
+            content: `\n\n❌ **Auto-retry exhausted** after ${ev.attempt} attempt(s)${ev.finalError ? `: ${ev.finalError}` : ''}.\n`,
+            ts: ts(),
+          });
+          // Treat exhausted retries as an API error so session reports as errored, not finished.
+          lastApiErrorMessage = ev.finalError ?? 'API error: retries exhausted';
+        }
       } else if (event.type === 'tool_execution_start') {
         appendSessionEvent(ndjsonPath, {
           type: 'tool_use',
@@ -210,13 +295,44 @@ async function main(): Promise<void> {
           ts: ts(),
         });
       } else if (event.type === 'message_end') {
-        // Track stop reason for post-prompt truncation detection.
+        // Track stop reason and content shape for post-prompt analysis.
         // Cast to a plain object because the union type doesn't expose stopReason
         // directly — only AssistantMessage has it.
         const msg = event.message as unknown as Record<string, unknown>;
         if (msg['role'] === 'assistant' && typeof msg['stopReason'] === 'string') {
           lastAssistantStopReason = msg['stopReason'];
+          const content = (msg['content'] as Array<{ type: string; text?: string }>) ?? [];
+          // Visible text = a text block with non-empty content (not thinking/reasoning)
+          lastAssistantHadVisibleOutput = content.some(
+            (c) => c.type === 'text' && typeof c.text === 'string' && c.text.trim().length > 0,
+          );
+          // Tool calls in this turn = model is still working
+          lastAssistantHadToolCalls = content.some((c) => c.type === 'toolCall');
+          // Capture API errors surfaced as a message_end with stopReason 'error'.
+          // The pi-ai Anthropic provider emits { type: 'error' } on the stream when
+          // the API returns an HTTP error (e.g. 402 credits exhausted). The
+          // agent-loop converts this directly to message_start + message_end without
+          // emitting a message_update event, so the message_update 'error' handler
+          // above never fires. We detect it here instead.
+          if (msg['stopReason'] === 'error' && !lastApiErrorMessage) {
+            const errMsg = typeof msg['errorMessage'] === 'string' ? msg['errorMessage'] : null;
+            lastApiErrorMessage = errMsg ?? 'API error (unknown)';
+          }
         }
+        // Emit a partial metrics snapshot after each assistant turn so the
+        // session view can show live token and cost data while the agent runs.
+        const midStats = session.getSessionStats();
+        const midInput = midStats.tokens.input - baselineStats.tokens.input;
+        const midOutput = midStats.tokens.output - baselineStats.tokens.output;
+        const midCost = midStats.cost - baselineStats.cost;
+        appendSessionEvent(ndjsonPath, {
+          type: 'metrics',
+          durationMs: ts() - startTime,
+          inputTokens: midInput > 0 ? midInput : null,
+          outputTokens: midOutput > 0 ? midOutput : null,
+          costUsd: midCost > 0 ? midCost : null,
+          ts: ts(),
+        });
       }
     });
 
@@ -226,13 +342,21 @@ async function main(): Promise<void> {
     } catch (err) {
       if (timedOut) {
         appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'timeout', message: 'Pi agent timed out after 20 minutes.', ts: ts() });
-        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: null, outputTokens: null, costUsd: null, ts: ts() });
+        const timeoutStats = activeSession?.getSessionStats();
+        const timeoutInput = timeoutStats && baselineStatsRef ? timeoutStats.tokens.input - baselineStatsRef.tokens.input : null;
+        const timeoutOutput = timeoutStats && baselineStatsRef ? timeoutStats.tokens.output - baselineStatsRef.tokens.output : null;
+        const timeoutCost = timeoutStats && baselineStatsRef ? timeoutStats.cost - baselineStatsRef.cost : null;
+        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: timeoutInput != null && timeoutInput > 0 ? timeoutInput : null, outputTokens: timeoutOutput != null && timeoutOutput > 0 ? timeoutOutput : null, costUsd: timeoutCost != null && timeoutCost > 0 ? timeoutCost : null, ts: ts() });
         clearTimeout(timeoutId);
         cleanup();
         process.exit(0);
       } else if (userAborted) {
         appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'aborted', message: 'Pi agent was aborted by user.', ts: ts() });
-        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: null, outputTokens: null, costUsd: null, ts: ts() });
+        const abortStats = activeSession?.getSessionStats();
+        const abortInput = abortStats && baselineStatsRef ? abortStats.tokens.input - baselineStatsRef.tokens.input : null;
+        const abortOutput = abortStats && baselineStatsRef ? abortStats.tokens.output - baselineStatsRef.tokens.output : null;
+        const abortCost = abortStats && baselineStatsRef ? abortStats.cost - baselineStatsRef.cost : null;
+        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: abortInput != null && abortInput > 0 ? abortInput : null, outputTokens: abortOutput != null && abortOutput > 0 ? abortOutput : null, costUsd: abortCost != null && abortCost > 0 ? abortCost : null, ts: ts() });
         clearTimeout(timeoutId);
         cleanup();
         process.exit(0);
@@ -258,6 +382,26 @@ async function main(): Promise<void> {
     const incrementalCost = finalStats.cost - baselineStats.cost;
     const durationMs = ts() - startTime;
 
+    // Report context window usage after the session completes. Helps users
+    // understand why Pi may have stopped short — a full context window leaves
+    // no room for a proper conclusion or further tool calls.
+    const contextUsage = session.getContextUsage();
+    if (
+      contextUsage != null &&
+      contextUsage.tokens != null &&
+      contextUsage.percent != null &&
+      contextUsage.percent >= 75
+    ) {
+      appendSessionEvent(ndjsonPath, {
+        type: 'text',
+        content:
+          `\n\n⚠️ **Context window ${Math.round(contextUsage.percent)}% full** (` +
+          `${contextUsage.tokens.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()} tokens). ` +
+          `If the response seems incomplete, follow up to continue.\n`,
+        ts: ts(),
+      });
+    }
+
     // Detect max_tokens truncation: if the model's last response had
     // stopReason 'length', it was cut off before completing its work.
     // The agent loop exits normally in this case (no tool calls → done),
@@ -274,12 +418,37 @@ async function main(): Promise<void> {
       });
     }
 
+    // Detect silent stop: the model's final turn produced no visible text and
+    // no tool calls — only reasoning/thinking tokens (which don't emit
+    // text_delta events). This happens when the context window is nearly full
+    // and the model "thinks" but has no space left for a real response, or
+    // when the model loses track of what it was doing. stopReason is 'stop'
+    // so the max_tokens check above won't catch it.
+    const silentStop =
+      !truncated &&
+      !lastAssistantHadVisibleOutput &&
+      !lastAssistantHadToolCalls &&
+      (lastAssistantStopReason === 'stop' || lastAssistantStopReason === null);
+    if (silentStop) {
+      appendSessionEvent(ndjsonPath, {
+        type: 'text',
+        content:
+          '\n\n\u274c **Pi stopped without generating visible output.** The final response ' +
+          'contained no text or tool calls (only internal reasoning tokens). ' +
+          'This typically means the context window was too full for a proper conclusion. ' +
+          "Follow up with 'please summarise what you found and implement the changes' to continue.",
+        ts: ts(),
+      });
+    }
+
     appendSessionEvent(ndjsonPath, {
       type: 'result',
-      subtype: truncated ? 'error' : 'success',
+      subtype: truncated || silentStop ? 'error' : 'success',
       ...(truncated
         ? { message: 'Pi hit the output token limit (max_tokens) and stopped mid-response.' }
-        : {}),
+        : silentStop
+          ? { message: 'Pi stopped silently — final response had no visible text or tool calls (context window likely full).' }
+          : {}),
       ts: ts(),
     });
     appendSessionEvent(ndjsonPath, {
@@ -297,7 +466,11 @@ async function main(): Promise<void> {
     clearTimeout(timeoutId);
     const msg = err instanceof Error ? err.message : String(err);
     appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'error', message: msg, ts: ts() });
-    appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: null, outputTokens: null, costUsd: null, ts: ts() });
+    const errStats = activeSession?.getSessionStats();
+    const errInput = errStats && baselineStatsRef ? errStats.tokens.input - baselineStatsRef.tokens.input : null;
+    const errOutput = errStats && baselineStatsRef ? errStats.tokens.output - baselineStatsRef.tokens.output : null;
+    const errCost = errStats && baselineStatsRef ? errStats.cost - baselineStatsRef.cost : null;
+    appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: errInput != null && errInput > 0 ? errInput : null, outputTokens: errOutput != null && errOutput > 0 ? errOutput : null, costUsd: errCost != null && errCost > 0 ? errCost : null, ts: ts() });
     cleanup();
     process.exit(1);
   }

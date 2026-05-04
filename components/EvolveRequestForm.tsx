@@ -15,17 +15,16 @@ import { Paperclip, Settings, ChevronDown, Crosshair, Loader2 } from "lucide-rea
 import { useRouter } from "next/navigation";
 import { withBasePath } from "../lib/base-path";
 import { encryptStoredApiKey } from "../lib/api-key-client";
+import { encryptStoredCredentials } from "../lib/credentials-client";
 import {
   HARNESS_OPTIONS,
-  MODEL_OPTIONS_BY_HARNESS,
   DEFAULT_HARNESS,
   DEFAULT_MODEL,
-} from "../lib/agent-config";
-import {
   CAVEMAN_INTENSITIES,
   DEFAULT_CAVEMAN_INTENSITY,
+  type ModelOption,
   type CavemanIntensity,
-} from "../lib/user-prefs";
+} from "../lib/agent-config";
 import { PageElementInspector, PageElementInfo, captureElementFiles } from "./PageElementInspector";
 import { useSounds } from "@/lib/sounds";
 
@@ -163,6 +162,17 @@ export function EvolveRequestForm({
   const [cavemanIntensity, setCavemanIntensity] = useState<CavemanIntensity>(
     initialCavemanIntensity ?? DEFAULT_CAVEMAN_INTENSITY,
   );
+  // ── Dynamic model list (fetched from /api/evolve/models) ──────────────────
+  const [modelOptionsByHarness, setModelOptionsByHarness] = useState<Record<string, ModelOption[]>>({});
+  useEffect(() => {
+    fetch(withBasePath('/api/evolve/models'))
+      .then((r) => r.json())
+      .then((data: Record<string, ModelOption[]>) => {
+        setModelOptionsByHarness(data);
+      })
+      .catch(() => { /* silently fall back to empty list */ });
+  }, []);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -249,6 +259,8 @@ export function EvolveRequestForm({
         }
         const encryptedApiKey = await encryptStoredApiKey();
         if (encryptedApiKey) formData.append("encryptedApiKey", encryptedApiKey);
+        const encryptedCredentials = await encryptStoredCredentials();
+        if (encryptedCredentials) formData.append("encryptedCredentials", JSON.stringify(encryptedCredentials));
 
         const res = await fetch(withBasePath("/api/evolve"), { method: "POST", body: formData });
         const data = (await res.json()) as { sessionId?: string; error?: string };
@@ -458,7 +470,7 @@ export function EvolveRequestForm({
         )}
 
         {/* Action row */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -500,17 +512,22 @@ export function EvolveRequestForm({
             {compact ? "Pick" : "Pick element"}
           </button>
 
-          {/* Spacer pushes submit to the right */}
+          {/* Spacer — pushes submit right when everything fits on one row */}
           <div className="flex-1" />
 
-          {/* Submit button */}
+          {/* Submit button — full-width on mobile when it wraps to its own row */}
           <button
             type="submit"
             data-id="evolve/submit-request"
             disabled={isSubmitDisabled}
-            className={`px-4 ${compact ? "py-1.5 text-xs" : "py-2 text-sm"} rounded-lg font-medium transition-colors bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white disabled:cursor-not-allowed`}
+            title={buttonLabel}
+            className={`px-4 ${compact ? "py-1.5 text-xs" : "py-2 text-sm"} rounded-lg font-medium transition-colors bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white disabled:cursor-not-allowed${compact ? "" : " w-full sm:w-auto text-center"}`}
           >
-            {buttonLabel}
+            {/* On small screens show "Submit"; on sm+ show the full label */}
+            <span className="sm:hidden">
+              {disabled && disabledLabel ? disabledLabel : isLoading ? "Submitting…" : "Submit"}
+            </span>
+            <span className="hidden sm:inline">{buttonLabel}</span>
           </button>
         </div>
 
@@ -541,7 +558,7 @@ export function EvolveRequestForm({
                   value={selectedHarness}
                   onChange={(e) => {
                     const harness = e.target.value;
-                    const models = MODEL_OPTIONS_BY_HARNESS[harness];
+                    const models = modelOptionsByHarness[harness];
                     const newModel = models?.[0]?.id ?? DEFAULT_MODEL;
                     setSelectedHarness(harness);
                     setSelectedModel(newModel);
@@ -556,43 +573,53 @@ export function EvolveRequestForm({
                   ))}
                 </select>
               </div>
-              <div className="flex items-center gap-3">
-                <label className="text-xs text-gray-400 w-14 flex-shrink-0">Model</label>
-                <select
-                  data-id="evolve/model-select"
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  disabled={isLoading}
-                  className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
-                >
-                  {(MODEL_OPTIONS_BY_HARNESS[selectedHarness] ?? []).map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-400 w-14 flex-shrink-0">Caveman</span>
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    data-id="evolve/caveman-mode"
-                    type="checkbox"
-                    checked={cavemanMode}
-                    onChange={(e) => setCavemanMode(e.target.checked)}
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-3">
+                  <label className="text-xs text-gray-400 w-14 flex-shrink-0">Model</label>
+                  <select
+                    data-id="evolve/model-select"
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
                     disabled={isLoading}
-                    className="accent-amber-500 disabled:opacity-50"
-                  />
-                  <span className="text-xs text-gray-400">
-                    Caveman mode — cuts ~75% output tokens
-                  </span>
-                </label>
-                {cavemanMode && (
+                    className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
+                  >
+                    {(modelOptionsByHarness[selectedHarness] ?? []).map((m) => (
+                      <option key={m.id} value={m.id} title={m.description}>
+                        {m.inputPriceLabel ? `${m.label} (${m.inputPriceLabel})` : m.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {(() => {
+                  const sel = (modelOptionsByHarness[selectedHarness] ?? []).find(
+                    (m) => m.id === selectedModel,
+                  );
+                  return sel?.description ? (
+                    <p className="ml-[4.25rem] text-[10px] text-gray-500 leading-tight">
+                      {sel.description}
+                    </p>
+                  ) : null;
+                })()}
+              </div>
+              <div className="border-t border-gray-800 pt-2">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 mb-2">Skills</p>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      data-id="evolve/caveman-mode"
+                      type="checkbox"
+                      checked={cavemanMode}
+                      onChange={(e) => setCavemanMode(e.target.checked)}
+                      disabled={isLoading}
+                      className="accent-amber-500 disabled:opacity-50"
+                    />
+                    <span className="text-xs text-gray-400">Caveman - reduce output tokens</span>
+                  </label>
                   <select
                     data-id="evolve/caveman-intensity"
                     value={cavemanIntensity}
                     onChange={(e) => setCavemanIntensity(e.target.value as CavemanIntensity)}
-                    disabled={isLoading}
+                    disabled={isLoading || !cavemanMode}
                     className="text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1 focus:outline-none focus:border-gray-500 disabled:opacity-50"
                   >
                     {CAVEMAN_INTENSITIES.map((level) => (
@@ -601,7 +628,7 @@ export function EvolveRequestForm({
                       </option>
                     ))}
                   </select>
-                )}
+                </div>
               </div>
             </div>
           )}

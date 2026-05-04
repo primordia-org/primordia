@@ -1,8 +1,12 @@
 // app/api/auth/session/route.ts — Returns the currently logged-in user (or null).
-
 import { NextResponse } from "next/server";
 import { getSessionUser, isAdmin } from "@/lib/auth";
 
+/**
+ * Get current session
+ * @description Returns the currently authenticated user, or null if no session exists.
+ * @tag Auth
+ */
 export async function GET() {
   try {
     const user = await getSessionUser();

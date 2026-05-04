@@ -16,6 +16,11 @@ import { getDb } from "@/lib/db/index";
 import { generateId, createSession, SESSION_COOKIE, SESSION_DURATION_MS } from "@/lib/auth";
 import { getPublicOrigin } from "@/lib/public-origin";
 
+/**
+ * exe.dev SSO login
+ * @description Reads injected `X-ExeDev-Email` header from the exe.dev proxy to find or create a user and issue a session. Redirects to `/__exe.dev/login` if the header is absent.
+ * @tag Auth
+ */
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const next = searchParams.get("next") ?? "/";
@@ -62,7 +67,7 @@ export async function GET(req: NextRequest) {
   const redirectPath =
     passkeys.length === 0
       ? basePath + "/register-passkey?next=" + encodeURIComponent(next)
-      : next;
+      : basePath + next;
 
   const response = NextResponse.redirect(new URL(redirectPath, origin));
   response.cookies.set(SESSION_COOKIE, sessionId, {

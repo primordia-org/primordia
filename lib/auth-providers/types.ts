@@ -1,13 +1,14 @@
 // lib/auth-providers/types.ts
 // Core interfaces for the pluggable authentication system.
 //
-// To create a new auth provider:
+// To add a new auth provider:
 //   1. Create lib/auth-providers/<id>/index.ts  — export a default AuthPlugin
 //   2. Create components/auth-tabs/<id>/index.tsx — export a default ComponentType<AuthTabProps>
-//   3. Add API routes under app/(<id>-auth)/api/auth/<id>/
+//   3. Add API routes under app/api/auth/<id>/
+//   4. Add the provider to lib/auth-providers/registry.ts (controls order + enabled state)
 //
-// No registry files to edit. The login page auto-discovers providers by
-// scanning lib/auth-providers/ with fs.readdirSync at request time.
+// To disable a provider: remove it from lib/auth-providers/registry.ts.
+// This disables both the login tab and all API routes atomically.
 
 /**
  * Minimal context passed to a plugin's getServerProps().
@@ -23,9 +24,9 @@ export interface AuthPluginServerContext {
  * Server-side descriptor for one authentication mechanism.
  * Export this as the default export from lib/auth-providers/<id>/index.ts.
  */
-export interface AuthPlugin {
+export interface AuthPlugin<Id extends string = string> {
   /** Immutable slug — must match the directory name and the tab component directory. */
-  id: string;
+  id: Id;
   /** Human-readable name shown on the login tab. */
   label: string;
   /**
@@ -64,3 +65,29 @@ export interface AuthTabProps {
   nextUrl: string;
   onSuccess: (username: string) => void;
 }
+
+import type { ComponentType } from "react";
+
+/** One entry in the AUTH_TABS array in LoginClient.tsx. */
+export interface AuthTabEntry<Id extends string> {
+  id: Id;
+  component: ComponentType<AuthTabProps>;
+}
+
+/**
+ * Maps a const tuple of provider id strings to a tuple of AuthTabEntry objects.
+ * Used to type AUTH_TABS in LoginClient.tsx so TypeScript enforces that the
+ * component list matches ENABLED_PROVIDERS exactly (order and ids).
+ */
+export type AuthTabList<T extends readonly string[]> = {
+  [I in keyof T]: AuthTabEntry<T[I] & string>;
+};
+
+/**
+ * Maps a const tuple of provider id strings to a record of server-side plugins.
+ * Used to type PLUGIN_MAP in page.tsx so TypeScript enforces that every enabled
+ * provider id has exactly one plugin entry (no missing, no extras).
+ */
+export type AuthPluginMap<T extends readonly string[]> = {
+  [K in T[number]]: AuthPlugin<K>;
+};

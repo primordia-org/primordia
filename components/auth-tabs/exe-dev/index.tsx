@@ -49,7 +49,7 @@ export default function ExeDevTab({ serverProps, nextUrl }: AuthTabProps) {
       ) : (
         /* Not yet authenticated — redirect through exe.dev login */
         <a
-          href={`/api/auth/exe-dev?next=${encodeURIComponent(nextUrl)}`}
+          href={withBasePath(`/api/auth/exe-dev?next=${encodeURIComponent(nextUrl)}`)}
           className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white transition-colors"
         >
           <ChevronRight

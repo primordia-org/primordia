@@ -53,3 +53,49 @@ export async function decryptApiKey(ciphertextBase64: string): Promise<string> {
   );
   return new TextDecoder().decode(plaintext);
 }
+
+/**
+ * Decrypts a hybrid-encrypted credentials payload produced by the client's
+ * `encryptStoredCredentials()`. The payload format:
+ *   { wrappedKey: string, iv: string, ciphertext: string } (all base64)
+ *
+ * Because credentials.json can exceed RSA-OAEP's plaintext size limit, the
+ * client uses a hybrid scheme: an ephemeral AES-256-GCM key encrypts the
+ * payload, and RSA-OAEP encrypts only the 32-byte AES key.
+ *
+ * Throws if the wrapped key was encrypted with a different keypair or if the
+ * ciphertext is corrupt.
+ */
+export async function decryptHybridCredentials(
+  payload: { wrappedKey: string; iv: string; ciphertext: string },
+): Promise<string> {
+  const { privateKey } = await getKeyPair();
+
+  // 1. Unwrap the ephemeral AES key using RSA-OAEP
+  const wrappedKeyBytes = Buffer.from(payload.wrappedKey, 'base64');
+  const aesKeyRaw = await subtle.decrypt(
+    { name: 'RSA-OAEP' },
+    privateKey,
+    wrappedKeyBytes,
+  );
+
+  // 2. Import the raw AES key
+  const aesKey = await subtle.importKey(
+    'raw',
+    aesKeyRaw,
+    { name: 'AES-GCM' },
+    false,
+    ['decrypt'],
+  );
+
+  // 3. Decrypt the payload with AES-GCM
+  const iv = Buffer.from(payload.iv, 'base64');
+  const ciphertext = Buffer.from(payload.ciphertext, 'base64');
+  const plaintext = await subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    aesKey,
+    ciphertext,
+  );
+
+  return new TextDecoder().decode(plaintext);
+}

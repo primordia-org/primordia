@@ -9,6 +9,11 @@ import { getDb } from "@/lib/db/index";
 import { getPublicOrigin } from "@/lib/public-origin";
 import { basePath } from "@/lib/base-path";
 
+/**
+ * Get QR code for cross-device sign-in
+ * @description Returns an SVG QR code encoding the approval URL for the given `tokenId`. Scan with an already-authenticated device.
+ * @tag Auth
+ */
 export async function GET(request: NextRequest) {
   try {
     const tokenId = request.nextUrl.searchParams.get("tokenId");
@@ -23,10 +28,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Token not found or expired" }, { status: 404 });
     }
 
-    // Build the approval URL — e.g. https://primordia.example.com/primordia/login/approve?token=<id>
+    // "push" tokens land on the receive page; pull tokens land on the approve page.
     // Use forwarded headers so the URL is correct when running behind a reverse proxy.
     // Include basePath so preview server environments with a path prefix work correctly.
-    const approvalUrl = `${getPublicOrigin(request)}${basePath}/login/approve?token=${tokenId}`;
+    const tokenType = request.nextUrl.searchParams.get("type");
+    // Optional: the requester may embed its ephemeral ECDH public key so the
+    // approver can encrypt credentials for it. Forward it to the destination URL.
+    const pk = request.nextUrl.searchParams.get("pk");
+    const pkSuffix = pk ? `&pk=${encodeURIComponent(pk)}` : "";
+    const destPath = tokenType === "push"
+      ? `/login/cross-device-receive?token=${tokenId}`
+      : `/login/approve?token=${tokenId}${pkSuffix}`;
+    const approvalUrl = `${getPublicOrigin(request)}${basePath}${destPath}`;
 
     const svg = await QRCode.toString(approvalUrl, {
       type: "svg",

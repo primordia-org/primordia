@@ -65,6 +65,27 @@
 }
 @media (prefers-reduced-motion: reduce) { .install-cursor-unfocused { animation: none; } }
 
+/* ── Changelog newsticker ───────────────────────────────────────────────── */
+
+@keyframes ticker-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-ticker {
+  animation: ticker-scroll 120s linear infinite;
+}
+
+.animate-ticker:hover {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ticker {
+    animation: none;
+  }
+}
+
 .text-shimmer {
   background: linear-gradient(
     90deg,

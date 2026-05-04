@@ -3,6 +3,7 @@
 //
 // GET ?sessionId=<id>&offset=<n>
 //   sessionId — the evolve session to watch
+
 //   offset    — number of NDJSON lines the client already has (default 0)
 //
 // SSE events:
@@ -18,9 +19,17 @@ import * as fs from 'fs';
 const POLL_INTERVAL_MS = 500;
 
 function isTerminal(status: string): boolean {
-  return status === 'accepted' || status === 'rejected' || status === 'ready';
+  // 'ready' is NOT terminal here: the session can still receive new events
+  // (e.g. conflict-resolution runs triggered by upstream-sync, or follow-up
+  // requests).  Only 'accepted' and 'rejected' are truly final.
+  return status === 'accepted' || status === 'rejected';
 }
 
+/**
+ * Stream evolve session progress
+ * @description SSE stream of live session progress. Pass `sessionId` and optional `offset` (number of events already received). Emits JSON events with `events`, `status`, `devServerStatus`, and `previewUrl`. Final event includes `done: true`.
+ * @tag Evolve
+ */
 export async function GET(request: Request) {
   const user = await getSessionUser();
   if (!user) {

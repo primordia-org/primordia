@@ -3,27 +3,16 @@
 //
 // POST
 //   Body: { action: "accept" | "reject", sessionId: string }
+
 //
-//   accept — looks up the session in SQLite, kills the preview dev server
-//            (via the reverse proxy management API), then performs one of two merge paths:
+//   accept — looks up the session, kills the preview dev server, then:
 //
-//            BLUE/GREEN (production, when NODE_ENV === 'production'):
-//              1. bun install --frozen-lockfile in the session worktree
-//              2. No merge commit — Gate 1 guarantees session branch already contains parentBranch;
-//                 parentBranch is NOT advanced (old slot stays at its original commit for rollback).
-//                 Sibling sessions whose git config parent = parentBranch are reparented to session
-//                 branch so "Apply Updates" picks up the new production code going forward.
-//              3. Copy production DB into new slot (VACUUM INTO — atomic snapshot); fix .env.local symlink
-//              4. Persist "accepted" status + final progress log to DB
-//              5. Final VACUUM INTO new slot DB (captures complete accepted state)
-//              6. POST /_proxy/prod/spawn → proxy spawns new prod server, health-checks, sets
-//                 primordia.productionBranch in git config, and switches traffic (does NOT kill old server)
-//              7. Run scripts/update-service.sh — daemon-reload if service unit changed;
-//                 restart primordia-proxy if reverse-proxy.ts changed (non-fatal on error).
-//                 Must run AFTER step 6: if the proxy script changed, restarting before spawn
-//                 would kill the proxy before it handles the spawn request.
-//              8. Old prod server self-terminates (process.exit) after update-service.sh completes.
-//              9. Old slot kept indefinitely as registered git worktree (enables deep rollback via /admin/rollback)
+//            PRODUCTION (NODE_ENV === 'production'):
+//              1. TypeScript gate — auto-fix via Claude if it fails
+//              2. Run scripts/install.sh from the session worktree with REPORT_STYLE=ansi,
+//                 streaming its output as log_line events. install.sh handles build, DB copy,
+//                 sibling reparenting, proxy spawn, main pointer advancement, and mirror push.
+//              3. Write decision event + self-terminate (proxy already switched traffic)
 //
 //            LEGACY (local dev, NODE_ENV !== 'production'):
 //              git checkout → stash → merge → stash-pop → bun install → worktree remove
@@ -31,15 +20,13 @@
 //   reject — kills the preview dev server, removes the worktree and branch
 //            without merging, updates the session status to "rejected".
 
-import { execSync, execFileSync, spawn } from 'child_process';
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Database } from 'bun:sqlite';
 import {
   runGit,
   runFollowupInWorktree,
-  resolveConflictsWithClaude,
-  getRepoRoot,
+  resolveConflictsWithAgent,
   type LocalSession,
 } from '../../../../lib/evolve-sessions';
 import { getSessionUser } from '../../../../lib/auth';
@@ -79,273 +66,39 @@ function appendLogLine(sessionId: string, content: string): Promise<void> {
   return Promise.resolve();
 }
 
-/**
- * Reparents sibling evolve sessions in git config.
- *
- * When a session branch is accepted as the new production, any other in-flight
- * sessions whose `branch.{X}.parent` was the old parentBranch should now treat
- * the accepted session branch as their parent.  This ensures "Apply Updates"
- * correctly offers the new production changes to those sessions going forward.
- *
- * The parentBranch ref itself is NOT advanced — leaving it at its pre-accept
- * commit is what makes the production history rollback work correctly.
- */
-function reparentSiblings(
-  repoRoot: string,
-  parentBranch: string,
-  newParentBranch: string,
-): void {
-  try {
-    const configList = execFileSync('git', ['config', '--list'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    for (const line of configList.split('\n')) {
-      const match = line.match(/^branch\.(.+)\.parent=(.+)$/);
-      if (match && match[2] === parentBranch) {
-        const siblingBranch = match[1];
-        if (siblingBranch !== newParentBranch) {
-          try {
-            execFileSync('git', ['config', `branch.${siblingBranch}.parent`, newParentBranch], {
-              cwd: repoRoot,
-              encoding: 'utf8',
-              stdio: ['pipe', 'pipe', 'pipe'],
-            });
-          } catch { /* best-effort */ }
-        }
-      }
-    }
-  } catch { /* best-effort */ }
-}
 
-const DB_NAME = '.primordia-auth.db';
+/** Exit code install.sh uses to signal a typecheck failure specifically. */
+const INSTALL_EXIT_TYPECHECK = 2;
 
 /**
- * Creates a consistent point-in-time snapshot of the SQLite DB using
- * VACUUM INTO — safe while the source DB is being actively written to.
+ * Runs install.sh in the session worktree and resolves with the exit code.
+ * Streams all stdout/stderr to the session log as it arrives.
  */
-function copyDb(srcDir: string, dstDir: string): void {
-  const srcDb = path.join(srcDir, DB_NAME);
-  if (!fs.existsSync(srcDb)) return;
-  const dstDb = path.join(dstDir, DB_NAME);
-  // VACUUM INTO fails if the destination file already exists
-  fs.rmSync(dstDb, { force: true });
-  fs.rmSync(dstDb + '-wal', { force: true });
-  fs.rmSync(dstDb + '-shm', { force: true });
-  const db = new Database(srcDb);
-  try {
-    db.prepare('VACUUM INTO ?').run(dstDb);
-  } finally {
-    db.close();
-  }
-}
-
-type BlueGreenAcceptResult =
-  | { ok: false; error: string }
-  | { ok: true; branch: string };
-
-/**
- * Blue/green accept path.
- *
- * Builds and activates the session worktree as the new production slot without
- * running any git or bun commands in the live production directory.
- *
- * Returns { ok: false, error } on failure, or { ok: true, branch } on success.
- */
-async function blueGreenAccept(
+function runInstallSh(
+  sessionId: string,
   worktreePath: string,
   branch: string,
-  parentBranch: string,
-  repoRoot: string,
-  onStep: (text: string) => Promise<void> = async () => {},
-): Promise<BlueGreenAcceptResult> {
-  // Compute the main repo root (shared .git dir's parent) — needed for
-  // install-service.sh path and as the fallback old-slot on first accept.
-  const mainRepoRoot = getRepoRoot(worktreePath);
-
-  // Find the current production slot via primordia.productionBranch in git config.
-  // Falls back to the main repo on the very first accept (before git config is set).
-  let oldSlot: string = mainRepoRoot;
-  try {
-    const prodBranch = execFileSync('git', ['config', '--get', 'primordia.productionBranch'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    if (prodBranch) {
-      const wtOut = execFileSync('git', ['worktree', 'list', '--porcelain'], {
-        cwd: repoRoot,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      let curPath: string | undefined;
-      let curBranch: string | null = null;
-      for (const line of wtOut.split('\n')) {
-        if (line.startsWith('worktree ')) { curPath = line.slice(9); curBranch = null; }
-        else if (line.startsWith('branch ')) { curBranch = line.slice(7).replace('refs/heads/', ''); }
-        else if (line === '' && curPath && curBranch === prodBranch) { oldSlot = curPath; break; }
-      }
-      // Handle last entry (no trailing blank line)
-      if (oldSlot === mainRepoRoot && curPath && curBranch === prodBranch) oldSlot = curPath;
-    }
-  } catch {
-    // primordia.productionBranch not yet set — fall through to mainRepoRoot default
-  }
-
-  // Step 1: ensure node_modules are up to date in the session worktree.
-  // This is the only bun install that runs, and it runs in the worktree (not production).
-  await onStep('- Installing dependencies…\n');
-  const installResult = await runCmd('bun', ['install', '--frozen-lockfile'], worktreePath);
-  if (installResult.code !== 0) {
-    return { ok: false, error:
-      `bun install --frozen-lockfile failed in session worktree:\n` +
-      (installResult.stdout + installResult.stderr).trim()
-    };
-  }
-
-  // Step 2: no merge commit — Gate 1 (ancestor check) guarantees the session
-  // branch already contains all commits from parentBranch, so it is the correct
-  // tree for production.  parentBranch is intentionally NOT advanced here:
-  // keeping the old slot's branch at its pre-accept commit is what lets the PROD
-  // reflog hash-matching rollback find it later.  Instead, reparent any sibling
-  // sessions that branched off parentBranch so their "Apply Updates" action will
-  // pull in the new production code going forward.
-  reparentSiblings(repoRoot, parentBranch, branch);
-
-  // Copy the production database into the new slot via VACUUM INTO — an atomic,
-  // consistent snapshot safe to take while the live server writes.
-  try {
-    copyDb(oldSlot, path.resolve(worktreePath));
-  } catch {
-    // Non-fatal: the worktree's existing DB snapshot from session creation is still usable.
-  }
-
-  // Fix the .env.local symlink in the new slot so it always points directly to
-  // the main repo's copy — which is never deleted. Without this, the symlink
-  // would point to the old slot's .env.local, which gets cleaned up on the next
-  // accept, leaving a dangling link.
-  const mainEnvPath = path.join(mainRepoRoot, '.env.local');
-  const worktreeEnvPath = path.join(path.resolve(worktreePath), '.env.local');
-  if (fs.existsSync(mainEnvPath)) {
-    fs.rmSync(worktreeEnvPath, { force: true });
-    fs.symlinkSync(mainEnvPath, worktreeEnvPath);
-  }
-
-  // Spawning the new prod server, health-checking it, and switching traffic are
-  // handled by the proxy (POST /_proxy/prod/spawn) after the final DB writes.
-  return { ok: true, branch };
-}
-
-/**
- * Moves the `main` branch pointer to the HEAD of the accepted session branch,
- * checks it out in the main repo dir, and (if a remote named "mirror" exists)
- * pushes to it. The mirror remote is the recommended way to sync with GitHub.
- *
- * Non-fatal: errors are logged as warnings so a push failure never blocks a deploy.
- */
-async function moveMainAndPush(
-  worktreePath: string,
-  branch: string,
-  onStep: (text: string) => Promise<void>,
-): Promise<void> {
-  // Resolve the main repo root from the shared .git dir so we run git
-  // commands against the repo rather than just the worktree checkout.
-  const mainRepoRoot = getRepoRoot(worktreePath);
-
-  await onStep('- Advancing main branch pointer…\n');
-
-  // Resolve the SHA for the accepted branch so we can update the ref at the
-  // plumbing level.  `git branch -f main <branch>` would fail when `main` is
-  // currently checked out in the main repo; `git update-ref` bypasses that.
-  const resolveResult = await runGit(['rev-parse', branch], mainRepoRoot);
-  if (resolveResult.code !== 0) {
-    await onStep(`  ⚠ Could not resolve ${branch} SHA: ${resolveResult.stderr.trim()}\n`);
-    return;
-  }
-  const branchSha = resolveResult.stdout.trim();
-
-  // Force-update the `main` ref directly — safe even when main is checked out.
-  const moveResult = await runGit(['update-ref', 'refs/heads/main', branchSha], mainRepoRoot);
-  if (moveResult.code !== 0) {
-    await onStep(`  ⚠ Could not move main branch: ${moveResult.stderr.trim()}\n`);
-    return;
-  }
-
-  // Check out `main` in the main repo dir (~/primordia) so it tracks the
-  // latest production code and doesn't stay on a detached HEAD or old branch.
-  // --force discards any local modifications so the checkout always succeeds.
-  await onStep('- Checking out main in ~/primordia…\n');
-  const checkoutResult = await runGit(['checkout', '--force', 'main'], mainRepoRoot);
-  if (checkoutResult.code !== 0) {
-    await onStep(`  ⚠ Could not checkout main in ${mainRepoRoot}: ${checkoutResult.stderr.trim()}\n`);
-  }
-
-  // Push to the mirror remote if one exists (configured via /admin/git-mirror).
-  const remotesResult = await runGit(['remote'], mainRepoRoot);
-  const remotes = remotesResult.stdout.split('\n').map((r) => r.trim()).filter(Boolean);
-  if (remotes.includes('mirror')) {
-    await onStep('- Pushing to mirror remote…\n');
-    const pushResult = await runGit(['push', 'mirror'], mainRepoRoot);
-    if (pushResult.code !== 0) {
-      await onStep(`  ⚠ Could not push to mirror: ${pushResult.stderr.trim()}\n`);
-    }
-  }
-}
-
-/**
- * Asks the reverse proxy to spawn the new production server, health-check it,
- * update primordia.productionBranch in git config, and kill the old server.
- * Streams SSE events from the proxy and pipes each log line through onStep.
- */
-async function spawnProdViaProxy(
-  branch: string,
-  onStep: (text: string) => Promise<void>,
-): Promise<void> {
-  const proxyPort = process.env.REVERSE_PROXY_PORT!;
-
-  try {
-    const response = await fetch(`http://127.0.0.1:${proxyPort}/_proxy/prod/spawn`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ branch }),
+): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const installScript = path.join(worktreePath, 'scripts', 'install.sh');
+    const proc = spawn('bash', [installScript, branch], {
+      cwd: worktreePath,
+      env: { ...process.env, REPORT_STYLE: 'ansi' },
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      await onStep('⚠️ No response stream from proxy\n');
-      return;
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split('\n\n');
-      buffer = parts.pop() ?? '';
-      for (const part of parts) {
-        const dataLine = part.split('\n').find((l) => l.startsWith('data: '));
-        if (!dataLine) continue;
-        try {
-          const data = JSON.parse(dataLine.slice(6)) as { type: string; text?: string; ok?: boolean; error?: string };
-          if (data.type === 'log' && data.text) await onStep(data.text);
-          else if (data.type === 'done' && !data.ok) await onStep(`❌ Proxy spawn failed: ${data.error ?? 'unknown error'}\n`);
-        } catch { /* ignore malformed SSE events */ }
-      }
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await onStep(`⚠️ Could not reach proxy for prod spawn: ${msg}\n`);
-  }
+    const forward = (data: Buffer) => { void appendLogLine(sessionId, data.toString()); };
+    proc.stdout.on('data', forward);
+    proc.stderr.on('data', forward);
+    proc.on('close', (code) => resolve(code ?? 1));
+    proc.on('error', (err) => reject(new Error(`install.sh spawn failed: ${err.message}`)));
+  });
 }
 
 /**
  * Called server-side after a type-fix run completes.
- * Re-runs the TypeScript gate and either merges the branch (→ accepted) or
- * puts the session in an error state. Never loops — if type errors persist
- * after the fix, the session goes to error instead of triggering another fix.
+ * Re-runs install.sh (which re-runs the typecheck gate). If typecheck passes
+ * the install continues through build → deploy. If it fails again the session
+ * goes to error instead of looping.
  */
 async function retryAcceptAfterFix(
   sessionId: string,
@@ -359,9 +112,8 @@ async function retryAcceptAfterFix(
     return;
   }
 
-  const { branch, worktreePath, port } = current;
+  const { branch, worktreePath } = current;
 
-  /** Append an error result event (makes inferred status 'ready') and log the message. */
   async function failWithError(msg: string): Promise<void> {
     await appendLogLine(sessionId, msg);
     const ndjsonPath = getSessionNdjsonPath(worktreePath);
@@ -370,178 +122,81 @@ async function retryAcceptAfterFix(
     }
   }
 
-  // Re-run the TypeScript check to verify the fix worked.
-  await appendLogLine(sessionId, '- Re-checking TypeScript types…');
-  console.log(`[retryAcceptAfterFix] re-running typecheck in ${worktreePath}`);
-  const tscResult = await runCmd('bun', ['run', 'typecheck'], worktreePath);
-  console.log(`[retryAcceptAfterFix] typecheck exit code=${tscResult.code}`);
-  if (tscResult.code !== 0) {
-    const typeErrors = (tscResult.stdout + tscResult.stderr).trim();
-    console.log(`[retryAcceptAfterFix] typecheck still failing:\n${typeErrors}`);
-    await failWithError(
-      `❌ Auto-fix failed: TypeScript errors remain after the fix attempt.\n\`\`\`\n${typeErrors}\n\`\`\``,
-    );
-    return;
+  // Emit a fresh deploy section so post-fix logs appear under the deploy
+  // heading rather than being buried in the type_fix section.
+  const isProduction = process.env.NODE_ENV === 'production';
+  {
+    const ndjsonPath = getSessionNdjsonPath(worktreePath);
+    if (fs.existsSync(ndjsonPath)) {
+      appendSessionEvent(ndjsonPath, {
+        type: 'section_start',
+        sectionType: 'deploy',
+        label: isProduction ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``,
+        ts: Date.now(),
+      });
+    }
   }
 
-  // Also verify the production build succeeds.
-  await appendLogLine(sessionId, '- Re-building for production…');
-  console.log(`[retryAcceptAfterFix] re-running build in ${worktreePath}`);
-  const buildResult = await runCmd('bun', ['run', 'build'], worktreePath);
-  console.log(`[retryAcceptAfterFix] build exit code=${buildResult.code}`);
-  if (buildResult.code !== 0) {
-    const buildErrors = (buildResult.stdout + buildResult.stderr).trim();
-    console.log(`[retryAcceptAfterFix] build still failing:\n${buildErrors}`);
-    await failWithError(
-      `❌ Auto-fix failed: Production build still failing after the fix attempt.\n\`\`\`\n${buildErrors}\n\`\`\``,
-    );
-    return;
-  }
-
-  // Both typecheck and build passed — ask the proxy to kill the preview dev server.
-  console.log(`[retryAcceptAfterFix] typecheck passed, killing preview server for session ${sessionId}`);
+  // Kill the preview dev server before running install.sh.
+  console.log(`[retryAcceptAfterFix] killing preview server for session ${sessionId}`);
   try {
     await fetch(`http://127.0.0.1:${process.env.REVERSE_PROXY_PORT!}/_proxy/preview/${sessionId}`, {
       method: 'DELETE',
     });
   } catch { /* proxy not running — preview server may already be gone */ }
 
-  // ── Merge: blue/green or legacy ────────────────────────────────────────────
-
-  const isProduction = process.env.NODE_ENV === 'production';
-  let bgAcceptResult: BlueGreenAcceptResult | null = null;
-
   if (isProduction) {
-    // Blue/green path: build is already done in the worktree, swap the slot.
-    console.log(`[retryAcceptAfterFix] blue/green accept for session ${sessionId}`);
-    const bgResult = await blueGreenAccept(worktreePath, branch, parentBranch, repoRoot, (text) => appendLogLine(sessionId, text));
-    if (!bgResult.ok) {
-      console.log(`[retryAcceptAfterFix] blue/green accept failed: ${bgResult.error}`);
-      await failWithError(`❌ Accept failed: ${bgResult.error}`);
-      return;
-    }
-    bgAcceptResult = bgResult;
-  } else {
-    // Legacy path (local dev without systemd).
+    const exitCode = await runInstallSh(sessionId, worktreePath, branch).catch((err) => {
+      void failWithError(`❌ Auto-fix failed (install.sh spawn error): ${err instanceof Error ? err.message : String(err)}`);
+      return -1;
+    });
+    if (exitCode === -1) return;
 
-    // Checkout the parent branch so the merge lands on the right branch.
-    console.log(`[retryAcceptAfterFix] checking out parent branch ${parentBranch} in ${repoRoot}`);
-    const checkoutResult = await runGit(['checkout', parentBranch], repoRoot);
-    console.log(`[retryAcceptAfterFix] checkout exit code=${checkoutResult.code}${checkoutResult.code !== 0 ? ` stderr=${checkoutResult.stderr}` : ''}`);
-    let mergeRoot = repoRoot;
-    if (checkoutResult.code !== 0) {
-      const alreadyCheckedOutMatch = checkoutResult.stderr.match(
-        /(?:already checked out at|already used by worktree at) '([^']+)'/,
-      );
-      if (alreadyCheckedOutMatch) {
-        mergeRoot = alreadyCheckedOutMatch[1];
-        console.log(`[retryAcceptAfterFix] parent branch already checked out at ${mergeRoot}`);
-      } else {
-        await failWithError(
-          `\n\n❌ **Accept failed**: \`git checkout ${parentBranch}\` failed:\n${checkoutResult.stderr}\n`,
-        );
-        return;
-      }
-    }
-
-    // Stash any uncommitted changes so they don't block the merge.
-    let stashed = false;
-    const statusResult = await runGit(['status', '--porcelain'], mergeRoot);
-    if (statusResult.stdout.trim()) {
-      console.log(`[retryAcceptAfterFix] stashing uncommitted changes in ${mergeRoot}`);
-      const stashResult = await runGit(
-        ['stash', 'push', '-u', '-m', 'primordia-auto-stash-before-merge'],
-        mergeRoot,
-      );
-      stashed = stashResult.code === 0 && !stashResult.stdout.includes('No local changes');
-      console.log(`[retryAcceptAfterFix] stash result: stashed=${stashed}`);
-    }
-
-    // Merge the preview branch.
-    await appendLogLine(sessionId, '- Merging branch…');
-    console.log(`[retryAcceptAfterFix] merging branch ${branch} into ${parentBranch} at ${mergeRoot}`);
-    const mergeResult = await runGit(
-      ['merge', branch, '--no-ff', '-m', `chore: merge ${branch}`],
-      mergeRoot,
-    );
-    console.log(`[retryAcceptAfterFix] merge exit code=${mergeResult.code}${mergeResult.code !== 0 ? ` stderr=${mergeResult.stderr}` : ''}`);
-
-    if (mergeResult.code !== 0) {
-      await runGit(['merge', '--abort'], mergeRoot);
-      if (stashed) await runGit(['stash', 'pop'], mergeRoot);
+    if (exitCode === INSTALL_EXIT_TYPECHECK) {
+      const errorsFile = path.join(worktreePath, '.primordia-typecheck-errors.txt');
+      const typeErrors = fs.existsSync(errorsFile) ? fs.readFileSync(errorsFile, 'utf8').trim() : '(no output captured)';
+      console.log(`[retryAcceptAfterFix] typecheck still failing after fix attempt:\n${typeErrors}`);
       await failWithError(
-        `❌ Accept failed: merge conflict in ${mergeRoot}.\n` +
-        `This should not happen when the branch is up-to-date. ` +
-        `Use Apply Updates on the session page to resolve conflicts before accepting.\n\n` +
-        `Merge error:\n${mergeResult.stderr}`,
+        `❌ Auto-fix failed: TypeScript errors remain after the fix attempt.\n\`\`\`\n${typeErrors}\n\`\`\``,
       );
       return;
     }
 
-    if (stashed) await runGit(['stash', 'pop'], mergeRoot);
-
-    // Sync dependencies after merge so the running server reflects any
-    // package.json changes that came in from the accepted branch.
-    await appendLogLine(sessionId, '- Installing dependencies…');
-    console.log(`[retryAcceptAfterFix] running bun install --frozen-lockfile in ${mergeRoot}`);
-    const installResult = await runCmd('bun', ['install', '--frozen-lockfile'], mergeRoot);
-    console.log(`[retryAcceptAfterFix] bun install exit code=${installResult.code}`);
-    if (installResult.code !== 0) {
-      await failWithError(
-        `❌ Accept failed: \`bun install --frozen-lockfile\` failed after merge.\n` +
-        `\`\`\`\n${(installResult.stdout + installResult.stderr).trim()}\n\`\`\``,
-      );
+    if (exitCode !== 0) {
+      await failWithError(`❌ Auto-fix failed: install.sh exited with code ${exitCode}.`);
       return;
     }
 
-    // Cleanup.
-    await runGit(['worktree', 'remove', '--force', worktreePath], repoRoot);
-    await runGit(['branch', '-D', branch], repoRoot);
-    await runGit(['config', '--remove-section', `branch.${branch}`], repoRoot);
-  }
-
-  // Mark as accepted and log the decision.
-  console.log(`[retryAcceptAfterFix] merge complete, marking session ${sessionId} as accepted`);
-  {
+    // install.sh completed successfully — it has already deployed.
     const ndjsonPath = getSessionNdjsonPath(worktreePath);
     if (fs.existsSync(ndjsonPath)) {
-      appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: isProduction ? 'deployed to production' : `merged into \`${parentBranch}\``, ts: Date.now() });
+      appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: 'deployed to production', ts: Date.now() });
     }
-  }
-
-  // (Production only) Final VACUUM INTO + proxy spawn + slot activation.
-  if (isProduction && bgAcceptResult && bgAcceptResult.ok) {
-    try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
-    await spawnProdViaProxy(bgAcceptResult.branch,
-      (text) => appendLogLine(sessionId, text));
-    // Move the `main` branch pointer to the accepted branch and push it so
-    // external clones always reflect the latest production code.
-    await moveMainAndPush(worktreePath, bgAcceptResult.branch,
-      (text) => appendLogLine(sessionId, text));
-    // Run update-service.sh AFTER the proxy has accepted the new prod instance.
-    // If the proxy script changed, this will restart primordia-proxy — doing it
-    // before spawnProdViaProxy would kill the proxy before it could handle the
-    // spawn request, leaving the branch marked accepted but not actually serving.
-    await appendLogLine(sessionId, '- Updating service files…');
-    const retryUpdateScript = path.join(worktreePath, 'scripts', 'update-service.sh');
-    const retryUpdateResult = await runCmd('bash', [retryUpdateScript], worktreePath);
-    if (retryUpdateResult.code !== 0) {
-      await appendLogLine(sessionId, `  ⚠ update-service.sh exited ${retryUpdateResult.code}: ${(retryUpdateResult.stdout + retryUpdateResult.stderr).trim()}`);
-    }
-    // Self-terminate: the proxy has switched traffic to the new slot. This old
-    // production server's work is done. Delay briefly so the final log write
-    // can flush to SQLite before the process exits.
     setTimeout(() => process.exit(0), 1000);
+
+  } else {
+    // Legacy local-dev path: just record success (the merge already happened
+    // before the type-fix loop; we don't re-merge here).
+    await failWithError('❌ Auto-fix retry is only supported in production mode.');
   }
 }
 
 /**
- * Runs the long accept steps (type-check, build, merge) asynchronously so
- * the POST handler can return immediately and the client can stream progress
- * via the existing SSE endpoint.
+ * Runs the accept steps asynchronously so the POST handler can return
+ * immediately and the client can stream progress via the existing SSE endpoint.
  *
- * Writes step labels to NDJSON events as each stage begins, and sets the
- * session status to "accepted" (or "ready" with error log) when done.
+ * Production path:
+ *   1. Run install.sh from the session worktree with REPORT_STYLE=ansi,
+ *      streaming its output as log_line events. install.sh handles typecheck
+ *      (exit 2 on failure), build, DB copy, sibling reparenting, proxy spawn,
+ *      main advancement, and mirror push.
+ *   2. On exit code 2: read .primordia-typecheck-errors.txt and trigger the
+ *      auto-fix Claude session (fixing-types → retryAcceptAfterFix).
+ *   3. Write the decision event and self-terminate (the proxy has already
+ *      switched traffic to the new slot).
+ *
+ * Legacy path (local dev, NODE_ENV !== 'production'):
+ *   git merge → bun install (unchanged from before).
  */
 async function runAcceptAsync(
   sessionId: string,
@@ -562,88 +217,63 @@ async function runAcceptAsync(
   }
 
   try {
-
     const isProduction = process.env.NODE_ENV === 'production';
 
     if (isProduction) {
-      // Gate 3: TypeScript must compile without errors.
-      await step('- Type-checking…');
-      const tscResult = await runCmd('bun', ['run', 'typecheck'], worktreePath);
-      if (tscResult.code !== 0) {
-        const typeErrors = (tscResult.stdout + tscResult.stderr).trim();
+      // ── Production: run install.sh from the session worktree ─────────────
+      // install.sh handles: typecheck (exits 2 on failure), bun install, build,
+      // DB copy, sibling reparenting, proxy spawn, main pointer advancement,
+      // and mirror push.
+      const exitCode = await runInstallSh(sessionId, worktreePath, branch);
+
+      if (exitCode === INSTALL_EXIT_TYPECHECK) {
+        // ── TypeScript gate failed: trigger the auto-fix Claude session ───────
+        const errorsFile = path.join(worktreePath, '.primordia-typecheck-errors.txt');
+        const typeErrors = fs.existsSync(errorsFile)
+          ? fs.readFileSync(errorsFile, 'utf8').trim()
+          : '(no output captured)';
         const fixPrompt =
           `The TypeScript type check failed. Fix all type errors so the code compiles ` +
           `without errors. Do not change any runtime behaviour — only fix the type issues.\n\n` +
           `TypeScript compiler output:\n\`\`\`\n${typeErrors}\n\`\`\``;
-        const session = getSessionFromFilesystem(sessionId, repoRoot);
-        if (!session) return;
+        const sessionSnap = getSessionFromFilesystem(sessionId, repoRoot);
+        if (!sessionSnap) return;
         const autoFixSession: LocalSession = {
-          id: session.id,
-          branch: session.branch,
-          worktreePath: session.worktreePath,
-          status: session.status as LocalSession['status'],
+          id: sessionSnap.id,
+          branch: sessionSnap.branch,
+          worktreePath: sessionSnap.worktreePath,
+          status: sessionSnap.status as LocalSession['status'],
           devServerStatus: 'running',
-          port: session.port,
-          previewUrl: session.previewUrl,
-          request: session.request,
-          createdAt: session.createdAt,
+          port: sessionSnap.port,
+          previewUrl: sessionSnap.previewUrl,
+          request: sessionSnap.request,
+          createdAt: sessionSnap.createdAt,
           userId,
         };
-        console.log(`[runAcceptAsync] type errors for session ${sessionId}, starting auto-fix`);
+        console.log(`[runAcceptAsync] typecheck failed for session ${sessionId}, starting auto-fix`);
         void runFollowupInWorktree(
           autoFixSession, fixPrompt, repoRoot, 'fixing-types',
           (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch),
-          /* skipChangelog */ true,
+          /* internalSectionType */ 'type_fix',
         );
         return;
       }
 
-      // Gate 4: production build must succeed.
-      await step('- Building for production…');
-      const buildResult = await runCmd('bun', ['run', 'build'], worktreePath);
-      if (buildResult.code !== 0) {
-        const buildErrors = (buildResult.stdout + buildResult.stderr).trim();
-        const buildFixPrompt =
-          `The production build failed (\`bun run build\`). Fix all build errors so the build ` +
-          `completes successfully. Do not change any runtime behaviour — only fix the build issues.\n\n` +
-          `Build output:\n\`\`\`\n${buildErrors}\n\`\`\``;
-        const session = getSessionFromFilesystem(sessionId, repoRoot);
-        if (!session) return;
-        const autoFixSession: LocalSession = {
-          id: session.id,
-          branch: session.branch,
-          worktreePath: session.worktreePath,
-          status: session.status as LocalSession['status'],
-          devServerStatus: 'running',
-          port: session.port,
-          previewUrl: session.previewUrl,
-          request: session.request,
-          createdAt: session.createdAt,
-          userId,
-        };
-        console.log(`[runAcceptAsync] build errors for session ${sessionId}, starting auto-fix`);
-        void runFollowupInWorktree(
-          autoFixSession, buildFixPrompt, repoRoot, 'fixing-types',
-          (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch),
-          /* skipChangelog */ true,
-        );
-        return;
+      if (exitCode !== 0) {
+        throw new Error(`install.sh exited with code ${exitCode}`);
       }
-    }
 
-    // ── Merge: blue/green or legacy ──────────────────────────────────────────
-    let bgAcceptResult: BlueGreenAcceptResult | null = null;
-
-    if (isProduction) {
-      // Blue/green path: build is already done in the worktree, swap the slot.
-      const bgResult = await blueGreenAccept(worktreePath, branch, parentBranch, repoRoot, step);
-      if (!bgResult.ok) {
-        await failWithError(`❌ Accept failed: ${bgResult.error}`);
-        return;
+      // Mark as accepted.
+      const ndjsonPath = getSessionNdjsonPath(worktreePath);
+      if (fs.existsSync(ndjsonPath)) {
+        appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: 'deployed to production', ts: Date.now() });
       }
-      bgAcceptResult = bgResult;
+
+      // Self-terminate: the proxy has already switched traffic to the new slot.
+      setTimeout(() => process.exit(0), 1000);
+
     } else {
-      // Legacy path (local dev without systemd).
+      // ── Legacy path (local dev without systemd) ───────────────────────────
       const checkoutResult = await runGit(['checkout', parentBranch], repoRoot);
       let mergeRoot = repoRoot;
       if (checkoutResult.code !== 0) {
@@ -660,7 +290,6 @@ async function runAcceptAsync(
         }
       }
 
-      // Stash any uncommitted local changes so they don't block the merge.
       let stashed = false;
       const statusResult = await runGit(['status', '--porcelain'], mergeRoot);
       if (statusResult.stdout.trim()) {
@@ -671,7 +300,6 @@ async function runAcceptAsync(
         stashed = stashResult.code === 0 && !stashResult.stdout.includes('No local changes');
       }
 
-      // Merge the preview branch into the parent branch.
       await step('- Merging branch…');
       const mergeResult = await runGit(
         ['merge', branch, '--no-ff', '-m', `chore: merge ${branch}`],
@@ -693,12 +321,10 @@ async function runAcceptAsync(
       if (stashed) {
         const popResult = await runGit(['stash', 'pop'], mergeRoot);
         if (popResult.code !== 0) {
-          // Non-fatal — log the warning but continue. The merge succeeded.
           await step(`⚠️ Merge succeeded but restoring stashed changes produced a conflict. Run \`git stash pop\` manually to resolve.`);
         }
       }
 
-      // Sync dependencies after merge.
       await step('- Installing dependencies…');
       const installResult = await runCmd('bun', ['install', '--frozen-lockfile'], mergeRoot);
       if (installResult.code !== 0) {
@@ -709,43 +335,10 @@ async function runAcceptAsync(
         return;
       }
 
-      // Keep the worktree intact so logs and the preview server remain
-      // accessible after the merge. The user can manually clean up later.
-    }
-
-    // Mark as accepted (decision event makes inferred status 'accepted').
-    {
       const ndjsonPath = getSessionNdjsonPath(worktreePath);
       if (fs.existsSync(ndjsonPath)) {
-        appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: isProduction ? 'deployed to production' : `merged into \`${parentBranch}\``, ts: Date.now() });
+        appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: `merged into \`${parentBranch}\``, ts: Date.now() });
       }
-    }
-
-    // (Production only) Final VACUUM INTO + proxy spawn + slot activation.
-    // Done here — after the session is fully written — so the new slot's DB
-    // contains the complete "accepted" progress log and status. Without this,
-    // the DB copied in blueGreenAccept would be missing the final entries,
-    // leaving the session stuck in "Accepting changes" on refresh.
-    if (isProduction && bgAcceptResult && bgAcceptResult.ok) {
-      try { copyDb(process.cwd(), path.resolve(worktreePath)); } catch { /* best-effort */ }
-      await spawnProdViaProxy(bgAcceptResult.branch, step);
-      // Move the `main` branch pointer to the accepted branch and push it so
-      // external clones always reflect the latest production code.
-      await moveMainAndPush(worktreePath, bgAcceptResult.branch, step);
-      // Run update-service.sh AFTER the proxy has accepted the new prod instance.
-      // If the proxy script changed, this will restart primordia-proxy — doing it
-      // before spawnProdViaProxy would kill the proxy before it could handle the
-      // spawn request, leaving the branch marked accepted but not actually serving.
-      await step('- Updating service files…');
-      const updateServiceScript = path.join(worktreePath, 'scripts', 'update-service.sh');
-      const updateServiceResult = await runCmd('bash', [updateServiceScript], worktreePath);
-      if (updateServiceResult.code !== 0) {
-        await step(`  ⚠ update-service.sh exited ${updateServiceResult.code}: ${(updateServiceResult.stdout + updateServiceResult.stderr).trim()}`);
-      }
-      // Self-terminate: the proxy has switched traffic to the new slot. This old
-      // production server's work is done. Delay briefly so the final log write
-      // can flush to SQLite before the process exits.
-      setTimeout(() => process.exit(0), 1000);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -754,6 +347,18 @@ async function runAcceptAsync(
   }
 }
 
+/** JSON body for POST /evolve/manage */
+export interface EvolveManageBody {
+  action: 'accept' | 'reject'; // Whether to accept (deploy) or reject (discard) the session.
+  sessionId: string; // The session ID (git branch name) to accept or reject.
+}
+
+/**
+ * Accept or reject an evolve session
+ * @description POST to accept (deploy) or reject (discard) a ready evolve session. Requires `can_evolve` or `admin` role.
+ * @tag Evolve
+ * @body EvolveManageBody
+ */
 export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) {
@@ -823,7 +428,7 @@ export async function POST(request: Request) {
           worktreePath,
         );
         if (mergeResult.code !== 0) {
-          const resolution = await resolveConflictsWithClaude(worktreePath, parentBranch, branch, sessionContext, repoRoot);
+          const resolution = await resolveConflictsWithAgent(worktreePath, parentBranch, branch, sessionContext, repoRoot);
           if (!resolution.success) {
             await runGit(['merge', '--abort'], worktreePath);
             return Response.json(
@@ -835,24 +440,38 @@ export async function POST(request: Request) {
       }
 
       // Gate 2: worktree must have no uncommitted changes.
+      // If there are uncommitted changes, automatically start a follow-up agent
+      // session with "commit changes" as the prompt instead of showing an error.
       const worktreeStatus = await runGit(['status', '--porcelain'], worktreePath);
       if (worktreeStatus.stdout.trim()) {
-        return Response.json(
-          {
-            error:
-              `Cannot accept: session worktree has uncommitted changes:\n\n` +
-              `${worktreeStatus.stdout.trim()}\n\n` +
-              `All changes must be committed before the session can be accepted.`,
-          },
-          { status: 400 },
-        );
+        const uncommittedFiles = worktreeStatus.stdout.trim();
+        const commitPrompt =
+          `The session has uncommitted changes that must be committed before the branch can be accepted into production. ` +
+          `Please commit all uncommitted changes with a clear, descriptive git commit message. ` +
+          `Do not modify any files — only stage and commit the existing changes.\n\n` +
+          `Uncommitted changes:\n\`\`\`\n${uncommittedFiles}\n\`\`\`\n\n` +
+          `Do NOT create or update the changelog file for this commit.`;
+        const commitSession: LocalSession = {
+          id: session.id,
+          branch: session.branch,
+          worktreePath: session.worktreePath,
+          status: 'ready',
+          devServerStatus: 'running',
+          port: session.port,
+          previewUrl: session.previewUrl,
+          request: session.request,
+          createdAt: session.createdAt,
+          userId: user.id,
+        };
+        // runFollowupInWorktree will emit the 'auto_commit' section_start itself.
+        void runFollowupInWorktree(commitSession, commitPrompt, repoRoot, 'running-claude', /* onSuccess */ undefined, /* internalSectionType */ 'auto_commit');
+        return Response.json({ outcome: 'auto-committing' });
       }
 
       // ── Gate 3: no concurrent deploy ──────────────────────────────────────
       // Reject if another session is already mid-deploy. Two concurrent accepts
-      // would both call spawnProdViaProxy; the second one would overwrite the
-      // first deploy with code that was built from the old production branch,
-      // effectively rolling back the first deploy's changes.
+      // would race in install.sh; the second one could overwrite the first
+      // deploy's production slot before it's healthy.
       const allSessions = listSessionsFromFilesystem(repoRoot);
       const concurrentDeploy = allSessions.find(
         (s) => s.status === 'accepting' && s.id !== body.sessionId,
@@ -863,6 +482,8 @@ export async function POST(request: Request) {
             error:
               `A deploy is already in progress (session "${concurrentDeploy.branch}"). ` +
               `Please wait for it to finish, then try again.`,
+            stuckSessionId: concurrentDeploy.id,
+            stuckSessionBranch: concurrentDeploy.branch,
           },
           { status: 409 },
         );

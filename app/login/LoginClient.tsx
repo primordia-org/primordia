@@ -1,50 +1,35 @@
 "use client";
 
 // app/login/LoginClient.tsx — Interactive login UI (client component).
-// Renders one tab per installed auth provider. Tab components are loaded via
-// next/dynamic using the provider's id — no static import map required.
+// Renders one tab per enabled auth provider (order from lib/auth-providers/registry.ts).
 //
-// Webpack creates a context module for the @/components/auth-tabs/*/index
-// pattern at build time, bundling every installed tab component automatically.
+// AUTH_TABS must match ENABLED_PROVIDERS exactly — TypeScript enforces this via
+// AuthTabList<EnabledProviders>. Static imports enable tree-shaking of disabled providers.
 
-import { Suspense, useState, useEffect, type ComponentType } from "react";
+import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import dynamic from "next/dynamic";
-import type { InstalledPlugin, AuthTabProps } from "@/lib/auth-providers/types";
+import { ArrowRight } from "lucide-react";
+import type { InstalledPlugin, AuthTabList } from "@/lib/auth-providers/types";
+import { ENABLED_PROVIDERS } from "@/lib/auth-providers/registry";
+import ExeDevTab from "@/components/auth-tabs/exe-dev/index";
+import PasskeyTab from "@/components/auth-tabs/passkey/index";
+import CrossDeviceTab from "@/components/auth-tabs/cross-device/index";
+
+// TypeScript enforces that this tuple matches ENABLED_PROVIDERS in order and ids.
+// If you add/remove/reorder a provider in registry.ts, update this array to match.
+const AUTH_TABS: AuthTabList<typeof ENABLED_PROVIDERS> = [
+  { id: "exe-dev",       component: ExeDevTab },
+  { id: "passkey",       component: PasskeyTab },
+  { id: "cross-device",  component: CrossDeviceTab },
+];
 
 interface LoginClientProps {
   initialUser: { id: string; username: string } | null;
   plugins: InstalledPlugin[];
 }
 
-// Module-level cache so each dynamic component is only created once, not on
-// every render. Keys are provider ids (e.g. "passkey", "exe-dev").
-const tabCache = new Map<string, ComponentType<AuthTabProps>>();
-
-function getTabComponent(pluginId: string): ComponentType<AuthTabProps> {
-  if (!tabCache.has(pluginId)) {
-    tabCache.set(
-      pluginId,
-      // Webpack resolves this template literal to a context module containing
-      // all files matching components/auth-tabs/*/index at build time.
-      // The correct component is selected at runtime by pluginId.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dynamic<AuthTabProps>(() => import(`@/components/auth-tabs/${pluginId}/index`) as Promise<any>)
-    );
-  }
-  return tabCache.get(pluginId)!;
-}
-
-export default function LoginClient(props: LoginClientProps) {
-  return (
-    <Suspense>
-      <LoginPageInner {...props} />
-    </Suspense>
-  );
-}
-
-function LoginPageInner({ initialUser, plugins }: LoginClientProps) {
+export default function LoginClient({ initialUser, plugins }: LoginClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextUrl = searchParams.get("next") ?? "/";
@@ -81,13 +66,12 @@ function LoginPageInner({ initialUser, plugins }: LoginClientProps) {
               <p className="text-lg font-semibold text-white">{initialUser!.username}</p>
             </div>
             <div className="space-y-2 pt-1">
-              <button
-                type="button"
-                onClick={() => router.push(nextUrl)}
-                className="w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+              <Link
+                href={nextUrl}
+                className="w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white transition-colors flex items-center justify-center gap-1.5"
               >
-                Proceed to Primordia &rarr;
-              </button>
+                Proceed to Primordia <ArrowRight size={16} />
+              </Link>
               <button
                 type="button"
                 onClick={() => setIgnoringSession(true)}
@@ -139,7 +123,9 @@ function LoginPageInner({ initialUser, plugins }: LoginClientProps) {
             {/* Active plugin tab content */}
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
               {plugins.map((plugin) => {
-                const TabComponent = getTabComponent(plugin.id);
+                const tab = AUTH_TABS.find((t) => t.id === plugin.id);
+                if (!tab) return null;
+                const TabComponent = tab.component;
                 // Render all tabs; hide inactive ones with CSS to preserve
                 // internal state (e.g. QR polling timers).
                 return (
@@ -162,11 +148,11 @@ function LoginPageInner({ initialUser, plugins }: LoginClientProps) {
           </>
         )}
 
-        {/* Edge case: no providers discovered */}
+        {/* Edge case: no providers configured */}
         {!showLoggedInBanner && plugins.length === 0 && (
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center text-sm text-gray-400">
-            No authentication providers are configured. Create a directory under{" "}
-            <code className="text-gray-300">lib/auth-providers/</code> to add one.
+            No authentication providers are configured. Add a provider to{" "}
+            <code className="text-gray-300">lib/auth-providers/registry.ts</code>.
           </div>
         )}
       </div>

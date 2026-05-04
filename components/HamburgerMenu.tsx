@@ -1,22 +1,47 @@
 "use client";
 
-// components/HamburgerMenu.tsx
-// Reusable hamburger menu button + dropdown. Used by ChatInterface, EvolveForm,
-// EvolveSessionView, and PageNavBar. Manages open/close state and click-outside
-// behaviour internally; callers pass the session user and page-specific items.
-//
-// buildStandardMenuItems() returns the shared navigation items (Go to chat,
-// Propose a change, Admin) used by every primary app page,
-// so callers don't have to duplicate the icon JSX. Pass `currentPath` to
-// suppress the link to whichever page the user is already on.
-
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useSounds } from "@/lib/sounds";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
 import type { SessionUser } from "../lib/hooks";
-import { MessageSquare, Edit, Shield, X, Menu, LogOut, LogIn, Key, GitBranch } from "lucide-react";
+import { Edit, Shield, X, Menu, LogOut, LogIn, Key, GitBranch, FileKey, QrCode } from "lucide-react";
+import { AdminUpdatesBell } from "./AdminUpdatesBell";
 import { ApiKeyDialog } from "./ApiKeyDialog";
+import { CredentialsDialog } from "./CredentialsDialog";
+import { QrSignInOtherDeviceDialog } from "./QrSignInOtherDeviceDialog";
+
+const cn = (...inputs: Parameters<typeof clsx>) => twMerge(clsx(inputs));
+const ROW = "flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-800 transition-colors";
+
+function MenuBtn({ dataId, className, onClick, children }: {
+  dataId?: string;
+  className?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button type="button" data-id={dataId} onClick={onClick} className={cn(ROW, "w-full text-left", className)}>
+      {children}
+    </button>
+  );
+}
+
+function MenuLink({ dataId, className, href, onClick, children }: {
+  dataId?: string;
+  className?: string;
+  href: string;
+  onClick?: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link data-id={dataId} href={href} onClick={onClick} className={cn(ROW, className)}>
+      {children}
+    </Link>
+  );
+}
 
 export type { SessionUser };
 
@@ -24,8 +49,7 @@ export type { SessionUser };
 export interface MenuItem {
   icon: React.ReactNode;
   label: string;
-  /** Full Tailwind hover-colour class, e.g. "hover:text-amber-400". */
-  hoverColor: string;
+  className?: string;
   href?: string;
   onClick?: () => void;
   /** Stable data-id for testing/telemetry, e.g. "nav-menu/propose-change". */
@@ -42,7 +66,7 @@ interface HamburgerMenuProps {
 }
 
 /**
- * Returns the standard set of navigation items (Go to chat, Propose a change,
+ * Returns the standard set of navigation items (Propose a change, Branches,
  * Admin) shared by all primary app pages. Any item whose `href` matches
  * `currentPath` is omitted, so the menu never links to the page you're already on.
  */
@@ -58,22 +82,15 @@ export function buildStandardMenuItems({
 }): MenuItem[] {
   const items: MenuItem[] = [
     {
-      label: "Go to chat",
-      hoverColor: "hover:text-blue-400",
-      href: "/chat",
-      dataId: "nav-menu/go-to-chat",
-      icon: <MessageSquare size={16} strokeWidth={2} aria-hidden="true" />,
-    },
-    {
       label: "Propose a change",
-      hoverColor: "hover:text-amber-400",
+      className: "hover:text-amber-400",
       ...(onEvolveClick ? { onClick: onEvolveClick } : { href: "/evolve" }),
       dataId: "nav-menu/propose-change",
       icon: <Edit size={16} strokeWidth={2} aria-hidden="true" />,
     },
     {
       label: "Branches",
-      hoverColor: "hover:text-green-400",
+      className: "hover:text-green-400",
       href: "/branches",
       dataId: "nav-menu/branches",
       icon: <GitBranch size={16} strokeWidth={2} aria-hidden="true" />,
@@ -82,7 +99,7 @@ export function buildStandardMenuItems({
   if (isAdmin) {
     items.push({
       label: "Admin",
-      hoverColor: "hover:text-purple-400",
+      className: "hover:text-purple-400",
       href: "/admin",
       dataId: "nav-menu/admin",
       icon: <Shield size={16} strokeWidth={2} aria-hidden="true" />,
@@ -95,6 +112,8 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
   const sounds = useSounds();
   const [menuOpen, setMenuOpen] = useState(false);
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
+  const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false);
+  const [qrSignInDialogOpen, setQrSignInDialogOpen] = useState(false);
   const localRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const menuRef = containerRef ?? localRef;
@@ -112,6 +131,8 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
   }, [menuOpen, handleClickOutside]);
 
   return (
+    <div className="flex items-center gap-1">
+    <AdminUpdatesBell isAdmin={sessionUser?.isAdmin ?? false} />
     <div className="relative" ref={menuRef}>
       <button
         data-id="nav/menu-toggle"
@@ -141,65 +162,52 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
                 <p className="text-xs text-gray-500">Signed in as</p>
                 <p className="text-sm text-gray-200 font-medium truncate">@{sessionUser.username}</p>
               </div>
-              <button
-                data-id="nav-menu/sign-out"
-                type="button"
-                onClick={() => { setMenuOpen(false); onLogout(); }}
-                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-red-400 hover:bg-gray-800 transition-colors"
-              >
+              <MenuBtn dataId="nav-menu/sign-in-other-device" className="hover:text-blue-400" onClick={() => { setMenuOpen(false); setQrSignInDialogOpen(true); }}>
+                <QrCode size={16} strokeWidth={2} aria-hidden="true" />
+                Sign in on another device
+              </MenuBtn>
+              <MenuBtn dataId="nav-menu/sign-out" className="hover:text-red-400" onClick={() => { setMenuOpen(false); onLogout(); }}>
                 <LogOut size={16} strokeWidth={2} aria-hidden="true" />
                 Sign out
-              </button>
+              </MenuBtn>
             </>
           ) : (
-            <Link
-              data-id="nav-menu/sign-in"
-              href={`/login?next=${encodeURIComponent(pathname)}`}
-              onClick={() => setMenuOpen(false)}
-              className="flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-blue-400 hover:bg-gray-800 transition-colors"
-            >
+            <MenuLink dataId="nav-menu/sign-in" className="hover:text-blue-400" href={`/login?next=${encodeURIComponent(pathname)}`} onClick={() => setMenuOpen(false)}>
               <LogIn size={16} strokeWidth={2} aria-hidden="true" />
               Log in
-            </Link>
+            </MenuLink>
           )}
 
-          {/* API Key settings — available to any logged-in user */}
+          {/* API Key and credentials settings — available to any logged-in user */}
           {sessionUser && (
-            <button
-              data-id="nav-menu/api-key"
-              type="button"
-              onClick={() => { setMenuOpen(false); setApiKeyDialogOpen(true); }}
-              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-amber-400 hover:bg-gray-800 transition-colors"
-            >
-              <Key size={16} strokeWidth={2} aria-hidden="true" />
-              API Key
-            </button>
+            <>
+              <MenuBtn dataId="nav-menu/api-key" className="hover:text-amber-400" onClick={() => { setMenuOpen(false); setApiKeyDialogOpen(true); }}>
+                <Key size={16} strokeWidth={2} aria-hidden="true" />
+                API Key
+              </MenuBtn>
+              {/*
+              Disabling for now since claude-worker.ts uses the Agent SDK which does not support claude.ai subscriptions.
+              We can refactor it to use claude code directly in the near future. But I'm really enjoying `pi`.
+              */}
+              {/* <MenuBtn dataId="nav-menu/credentials" className="hover:text-sky-400" onClick={() => { setMenuOpen(false); setCredentialsDialogOpen(true); }}>
+                <FileKey size={16} strokeWidth={2} aria-hidden="true" />
+                Claude Credentials
+              </MenuBtn> */}
+            </>
           )}
 
           {/* Page-specific items */}
           {items.map((item, i) =>
             item.href ? (
-              <Link
-                key={i}
-                href={item.href}
-                data-id={item.dataId}
-                onClick={() => { setMenuOpen(false); item.onClick?.(); }}
-                className={`flex items-center gap-3 px-4 py-3 text-sm text-gray-300 ${item.hoverColor} hover:bg-gray-800 transition-colors`}
-              >
+              <MenuLink key={i} href={item.href} dataId={item.dataId} className={item.className} onClick={() => { setMenuOpen(false); item.onClick?.(); }}>
                 {item.icon}
                 {item.label}
-              </Link>
+              </MenuLink>
             ) : (
-              <button
-                key={i}
-                type="button"
-                data-id={item.dataId}
-                onClick={() => { setMenuOpen(false); item.onClick?.(); }}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 ${item.hoverColor} hover:bg-gray-800 transition-colors`}
-              >
+              <MenuBtn key={i} dataId={item.dataId} className={item.className} onClick={() => { setMenuOpen(false); item.onClick?.(); }}>
                 {item.icon}
                 {item.label}
-              </button>
+              </MenuBtn>
             )
           )}
         </div>
@@ -209,6 +217,17 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
       {apiKeyDialogOpen && (
         <ApiKeyDialog onClose={() => setApiKeyDialogOpen(false)} />
       )}
+
+      {/* Claude Credentials dialog */}
+      {/* {credentialsDialogOpen && (
+        <CredentialsDialog onClose={() => setCredentialsDialogOpen(false)} />
+      )} */}
+
+      {/* Sign in on another device dialog */}
+      {qrSignInDialogOpen && (
+        <QrSignInOtherDeviceDialog onClose={() => setQrSignInDialogOpen(false)} />
+      )}
+    </div>
     </div>
   );
 }
