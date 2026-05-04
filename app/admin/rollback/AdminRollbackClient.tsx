@@ -108,7 +108,6 @@ export default function AdminRollbackClient() {
             >
               <div className="min-w-0">
                 <p className="text-sm text-gray-200 font-mono truncate">{target.branch}</p>
-                <p className="text-xs text-gray-500 truncate">{target.worktreePath}</p>
               </div>
               <button
                 data-id="admin-rollback/apply-rollback"
