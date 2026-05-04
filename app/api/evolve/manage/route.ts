@@ -73,6 +73,15 @@ const INSTALL_EXIT_TYPECHECK = 2;
 /**
  * Runs install.sh in the session worktree and resolves with the exit code.
  * Streams all stdout/stderr to the session log as it arrives.
+ *
+ * NOTE: We resolve on 'exit' (not 'close') and immediately destroy the I/O
+ * streams afterwards. install.sh spawns a spinner sub-process with `&` and
+ * `disown` that inherits the stdout/stderr pipe write-ends. When install.sh
+ * exits the spinner keeps running and holds those FDs open, so 'close' would
+ * never fire — the promise would hang forever and the session would stay stuck
+ * in 'accepting'. Using 'exit' fires as soon as the main bash process exits,
+ * and destroying the streams closes the read-ends of the pipes, which causes
+ * the spinner sub-process to get SIGPIPE and die on its next write.
  */
 function runInstallSh(
   sessionId: string,
@@ -89,7 +98,14 @@ function runInstallSh(
     const forward = (data: Buffer) => { void appendLogLine(sessionId, data.toString()); };
     proc.stdout.on('data', forward);
     proc.stderr.on('data', forward);
-    proc.on('close', (code) => resolve(code ?? 1));
+    proc.on('exit', (code) => {
+      // Destroy the streams so the spinner sub-process (which still holds the
+      // pipe write FDs) gets SIGPIPE and terminates. Without this the streams
+      // stay open and keep delivering spinner noise to the session log.
+      proc.stdout.destroy();
+      proc.stderr.destroy();
+      resolve(code ?? 1);
+    });
     proc.on('error', (err) => reject(new Error(`install.sh spawn failed: ${err.message}`)));
   });
 }

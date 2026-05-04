@@ -306,6 +306,7 @@ if [[ "${IS_WORKTREE_INSTALL}" == "true" ]]; then
   _step "bun run typecheck..."
   _typecheck_log=$(mktemp)
   if ! bun run typecheck > "$_typecheck_log" 2>&1; then
+    _spin_kill  # stop spinner so its pipe-holding sub-process exits before we do
     printf "\n"
     echo -e "${DIM}  --- typecheck output ---${RESET}" >&2
     cat "$_typecheck_log" >&2
@@ -326,6 +327,7 @@ _CURRENT_STEP="bun run build"
 _step "bun run build..."
 _build_log=$(mktemp)
 if ! bun run build > "$_build_log" 2>&1; then
+  _spin_kill  # stop spinner so its pipe-holding sub-process exits before we do
   printf "\n"
   echo -e "${DIM}  --- build output ---${RESET}" >&2
   cat "$_build_log" >&2
