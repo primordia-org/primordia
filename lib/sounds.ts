@@ -1,6 +1,6 @@
 // lib/sounds.ts
 // Fun synthesised UI sound effects via the Web Audio API.
-// No audio files — all sounds are generated procedurally so there is nothing
+// No audio files - all sounds are generated procedurally so there is nothing
 // to download and no CORS headaches.
 //
 // Usage:
@@ -17,7 +17,7 @@
 //   sounds.click();         // generic button click
 //   sounds.pop();           // generic pop / notification
 //
-// Implementation note — why a persistent shared AudioContext:
+// Implementation note - why a persistent shared AudioContext:
 //   On Firefox for Android (and some other mobile browsers) every new
 //   AudioContext starts in the 'suspended' state even when created inside a
 //   user-gesture handler.  The previous design created a fresh AudioContext per
@@ -27,13 +27,40 @@
 //
 //   The fix: one module-level AudioContext that is created on first use, awaits
 //   ctx.resume() before scheduling any nodes, and is never closed.  This is
-//   also cheaper — no create/GC overhead per sound.
+//   also cheaper - no create/GC overhead per sound.
 
 import { useRef, useCallback } from "react";
 
 // ─── Shared AudioContext ──────────────────────────────────────────────────────
 
 let _sharedCtx: AudioContext | null = null;
+
+/**
+ * Optional AnalyserNode attached by the /sound-test page.
+ * When set, all tone() and noiseClick() outputs route through it so the
+ * oscilloscope visualises every sound — not just the test tone.
+ * Must be on the same AudioContext as _sharedCtx.
+ */
+let _analyser: AnalyserNode | null = null;
+
+/**
+ * Attach or detach an AnalyserNode from the sounds output chain.
+ * The caller is responsible for connecting the node to ctx.destination.
+ * Pass null to revert all sounds to connecting directly to ctx.destination.
+ */
+export function setSharedAnalyser(an: AnalyserNode | null): void {
+  _analyser = an;
+}
+
+/**
+ * Initialise (and resume) the shared AudioContext, then return it.
+ * Exported so the /sound-test page can create an AnalyserNode on the same
+ * context before any sound plays.  Must be called from a user-gesture handler
+ * or an async function that originates from one.
+ */
+export async function initAndGetSharedCtx(): Promise<AudioContext | null> {
+  return getCtx();
+}
 
 /**
  * Returns the shared AudioContext, creating and resuming it if necessary.
@@ -73,13 +100,13 @@ async function getCtx(): Promise<AudioContext | null> {
  * ctx.currentTime.  This is necessary because:
  *
  *  1. The audio rendering thread runs ahead of the JS thread by one render
- *     quantum (64–512 samples = ~1–12 ms depending on hardware and browser).
+ *     quantum (64-512 samples = ~1-12 ms depending on hardware and browser).
  *     Scheduling at ctx.currentTime + 0 means the events land in a block the
  *     audio thread has already processed, so they are silently dropped or
  *     rendered at the end-of-ramp value (→ inaudible).
  *
  *  2. async getCtx() adds at least one microtask bounce even when the context
- *     is already running, introducing ~0–2 ms of additional JS overhead.
+ *     is already running, introducing ~0-2 ms of additional JS overhead.
  *
  * 30 ms is comfortably larger than any realistic render quantum and adds only
  * an imperceptible pre-delay before the sound starts.
@@ -94,7 +121,7 @@ interface ToneOptions {
   type?: OscType;
   freq: number;
   endFreq?: number;   // glide target (if different from freq)
-  gain?: number;      // 0–1, default 0.18
+  gain?: number;      // 0-1, default 0.18
   attack?: number;    // seconds, default 0.005
   decay?: number;     // seconds, default 0.08
   start?: number;     // seconds offset from now, default 0
@@ -107,7 +134,7 @@ function tone(ctx: AudioContext, opts: ToneOptions): void {
     freq,
     endFreq = freq,
     gain = 0.18,
-    attack = 0.010,  // 10 ms — long enough to prevent onset pops on non-zero-phase oscillators
+    attack = 0.010,  // 10 ms - long enough to prevent onset pops on non-zero-phase oscillators
     decay = 0.08,
     start = 0,
   } = opts;
@@ -128,27 +155,23 @@ function tone(ctx: AudioContext, opts: ToneOptions): void {
   gainNode.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + decay);
 
   osc.connect(gainNode);
-  gainNode.connect(ctx.destination);
+  // Route through the shared analyser when the sound-test page has attached one;
+  // otherwise connect directly to the hardware output.
+  gainNode.connect(_analyser ?? ctx.destination);
 
   osc.start(t0);
   osc.stop(t0 + attack + decay + 0.01);
 }
 
 /**
- * Blue-noise click: differentiate white noise to emphasise high frequencies,
- * then shape with a bandpass filter for a focused, crisp "tick" that is
- * brighter than pink noise but far less harsh than raw white-noise highpass.
+ * Generate a blue-noise AudioBuffer of the requested duration.
+ * Blue noise is produced by first-order differentiation of white noise, which
+ * boosts high frequencies while still being normalisable to [-1, 1].
  */
-function blueNoiseClick(ctx: AudioContext, start = 0, gain = 0.10): void {
-  const t0 = ctx.currentTime + LOOKAHEAD + start;
-  const ATTACK   = 0.003;
-  const DURATION = 0.030;
-
-  const bufSize = Math.floor(ctx.sampleRate * DURATION);
+function makeBlueNoiseBuf(ctx: AudioContext, durationSec: number): AudioBuffer {
+  const bufSize = Math.floor(ctx.sampleRate * durationSec);
   const buf  = ctx.createBuffer(1, bufSize, ctx.sampleRate);
   const data = buf.getChannelData(0);
-
-  // First-order difference of white noise boosts high frequencies (blue noise).
   let prev = 0, peak = 0;
   for (let i = 0; i < bufSize; i++) {
     const w = Math.random() * 2 - 1;
@@ -158,17 +181,27 @@ function blueNoiseClick(ctx: AudioContext, start = 0, gain = 0.10): void {
   }
   // Normalise with a little headroom so we don’t clip downstream.
   if (peak > 0) for (let i = 0; i < bufSize; i++) data[i] /= peak * 1.2;
+  return buf;
+}
+
+/**
+ * Blue-noise click: bandpass-filtered blue noise for a focused, crisp "tick".
+ * Used by the standalone click sound.
+ */
+function blueNoiseClick(ctx: AudioContext, start = 0, gain = 0.10): void {
+  const t0 = ctx.currentTime + LOOKAHEAD + start;
+  const ATTACK   = 0.003;
+  const DURATION = 0.030;
 
   const src = ctx.createBufferSource();
-  src.buffer = buf;
+  src.buffer = makeBlueNoiseBuf(ctx, DURATION);
 
   const gainNode = ctx.createGain();
   gainNode.gain.setValueAtTime(0, t0);
   gainNode.gain.linearRampToValueAtTime(gain, t0 + ATTACK);
   gainNode.gain.exponentialRampToValueAtTime(0.0001, t0 + DURATION);
 
-  // Bandpass centred at 1 kHz shapes the blue noise into a crisp, defined
-  // “tick” — bright enough to be a click, narrow enough not to be harsh.
+  // Bandpass centred at 1 kHz: bright enough to be a click, narrow enough not to be harsh.
   const filter = ctx.createBiquadFilter();
   filter.type = "bandpass";
   filter.frequency.value = 1000;
@@ -176,39 +209,36 @@ function blueNoiseClick(ctx: AudioContext, start = 0, gain = 0.10): void {
 
   src.connect(filter);
   filter.connect(gainNode);
-  gainNode.connect(ctx.destination);
+  gainNode.connect(_analyser ?? ctx.destination);
   src.start(t0);
   src.stop(t0 + DURATION + 0.01);
 }
 
-/** Tiny burst of noise shaped like a click. */
+/**
+ * Short burst of blue noise used as a secondary accent in send / menuClose etc.
+ * Uses a highpass filter (open, airy) rather than the bandpass used by the
+ * standalone click sound.
+ */
 function noiseClick(ctx: AudioContext, start = 0, gain = 0.06): void {
-  // Always schedule in the future (see LOOKAHEAD note above).
   const t0 = ctx.currentTime + LOOKAHEAD + start;
-  const ATTACK = 0.003;   // 3 ms ramp — avoids the instantaneous gain jump that causes onset pops
-  const DURATION = 0.030; // 30 ms total — long enough to be audible even with some timing jitter
-
-  const bufSize = Math.floor(ctx.sampleRate * DURATION);
-  const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+  const ATTACK   = 0.003;
+  const DURATION = 0.030;
 
   const src = ctx.createBufferSource();
-  src.buffer = buf;
+  src.buffer = makeBlueNoiseBuf(ctx, DURATION);
 
   const gainNode = ctx.createGain();
-  // Ramp up from 0 instead of jumping instantly — eliminates the onset pop.
   gainNode.gain.setValueAtTime(0, t0);
   gainNode.gain.linearRampToValueAtTime(gain, t0 + ATTACK);
   gainNode.gain.exponentialRampToValueAtTime(0.0001, t0 + DURATION);
 
   const filter = ctx.createBiquadFilter();
   filter.type = "highpass";
-  filter.frequency.value = 400; // lowered from 800 Hz — more body, more audible
+  filter.frequency.value = 400;
 
   src.connect(filter);
   filter.connect(gainNode);
-  gainNode.connect(ctx.destination);
+  gainNode.connect(_analyser ?? ctx.destination);
 
   src.start(t0);
   src.stop(t0 + DURATION + 0.01);
@@ -287,7 +317,7 @@ async function playSparkle(): Promise<void> {
 async function playAccept(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
-  // Cheerful ascending arpeggio: C–E–G–C (major)
+  // Cheerful ascending arpeggio: C-E-G-C (major)
   const freqs = [523.25, 659.25, 784, 1046.5];
   freqs.forEach((f, i) => {
     tone(ctx, { type: "sine", freq: f, gain: 0.15, attack: 0.01, decay: 0.22, start: i * 0.08 });
@@ -297,10 +327,10 @@ async function playAccept(): Promise<void> {
 async function playAgentDone(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
-  // A major arpeggio: A4–C♯5–E5–A5 — the same progression as the /sound-test
+  // A major arpeggio: A4-C♯5-E5-A5 - the same progression as the /sound-test
   // oscilloscope test tone, which the user approved for this slot.
   // Longer decay (0.35 s) and wider note spacing (0.1 s) than the accept
-  // arpeggio, giving it a more open, “work complete” character.
+  // arpeggio, giving it a more open, "work complete" character.
   const freqs = [440, 554.37, 659.25, 880];
   freqs.forEach((f, i) => {
     tone(ctx, { type: "sine", freq: f, gain: 0.18, attack: 0.01, decay: 0.35, start: i * 0.1 });
@@ -310,15 +340,15 @@ async function playAgentDone(): Promise<void> {
 async function playDeploy(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
-  // Heroic fanfare: quick ascending run (C5–E5–G5) then a triumphant full
-  // C major chord landing on C6, with a noise “cymbal” accent at the climax.
+  // Heroic fanfare: quick ascending run (C5-E5-G5) then a triumphant full
+  // C major chord landing on C6, with a noise "cymbal" accent at the climax.
   // Triangle wave gives a warm, brass-like timbre without being piercing.
   //
-  // Run — three short notes:
+  // Run - three short notes:
   tone(ctx, { type: "triangle", freq: 523.25, gain: 0.17, attack: 0.005, decay: 0.12, start: 0.00 }); // C5
   tone(ctx, { type: "triangle", freq: 659.25, gain: 0.17, attack: 0.005, decay: 0.12, start: 0.07 }); // E5
   tone(ctx, { type: "triangle", freq: 784,    gain: 0.17, attack: 0.005, decay: 0.12, start: 0.14 }); // G5
-  // Climax — C6 lead + full C major chord together:
+  // Climax - C6 lead + full C major chord together:
   tone(ctx, { type: "triangle", freq: 1046.5, gain: 0.20, attack: 0.008, decay: 0.55, start: 0.22 }); // C6 lead
   tone(ctx, { type: "triangle", freq: 784,    gain: 0.10, attack: 0.008, decay: 0.50, start: 0.22 }); // G5
   tone(ctx, { type: "triangle", freq: 659.25, gain: 0.09, attack: 0.008, decay: 0.48, start: 0.22 }); // E5
@@ -329,8 +359,8 @@ async function playDeploy(): Promise<void> {
 async function playMerge(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
-  // Two voices sweeping toward C5 from opposite sides — evocative of two
-  // branches converging — then a clean C major chord settles in place.
+  // Two voices sweeping toward C5 from opposite sides - evocative of two
+  // branches converging - then a clean C major chord settles in place.
   tone(ctx, { type: "sine", freq: 659.25, endFreq: 523.25, gain: 0.12, attack: 0.01, decay: 0.20, start: 0.00 }); // E5→C5
   tone(ctx, { type: "sine", freq: 392,    endFreq: 523.25, gain: 0.12, attack: 0.01, decay: 0.20, start: 0.00 }); // G4→C5
   // Resolution chord:
@@ -364,7 +394,7 @@ async function playPop(): Promise<void> {
 
 // ─── Sound maps ───────────────────────────────────────────────────────────────
 
-/** @internal Async raw play functions — used by the sound-test diagnostic page. */
+/** @internal Async raw play functions - used by the sound-test diagnostic page. */
 export const RAW_SOUND_MAP: Record<SoundName, () => Promise<void>> = {
   send: playSend,
   receive: playReceive,

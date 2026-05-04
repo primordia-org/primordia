@@ -20,9 +20,9 @@ Added synthesised sound effects to key UI interactions throughout the app. All s
 | `menuClose` | Hamburger menu closes | Downward sine tick + noise click |
 | `sparkle` | Evolve session submitted / dialog opened | Three ascending sine sparkle tones |
 | `accept` | Evolve session accepted ✅ | Cheerful C-E-G-C major arpeggio |
-| `agentDone` | Agent finished, session ready | A–C♯–E–A (A major) arpeggio, 350 ms decay |
-| `deploy` | Branch deployed to production | Heroic fanfare: C5–E5–G5 run + full C major chord with cymbal accent |
-| `merge` | Dev branch merged | Two converging tones (E5→C5, G4→C5) + C major resolution chord |
+| `agentDone` | Agent finished, session ready | A-C♯-E-A (A major) arpeggio, 350 ms decay |
+| `deploy` | Branch deployed to production | Heroic fanfare: C5-E5-G5 run + full C major chord with cymbal accent |
+| `merge` | Dev branch merged | Two converging tones (E5→C5, G4→C5) + C major resolution chord |
 | `reject` | Evolve session rejected 🗑️ | Descending minor-third triangle tones |
 | `click` | Generic button click | Blue-noise bandpass at 1 kHz - crisp "tick" |
 | `pop` | Generic notification pop | Brief sine blip |
@@ -31,31 +31,41 @@ Added synthesised sound effects to key UI interactions throughout the app. All s
 
 - **`app/chat/ChatInterface.tsx`** - `send` on form submit, `receive` when the SSE stream finishes with `[DONE]`, `error` on fetch error.
 - **`components/HamburgerMenu.tsx`** - `menuOpen` / `menuClose` on toggle.
-- **`app/evolve/session/[id]/EvolveSessionView.tsx`** — `sparkle` when accept pipeline starts; `deploy` (production) or `merge` (dev) when `status` transitions to `accepted`; `agentDone` when `status` transitions from a running state to `ready`; `reject` on reject; `error` on accept/reject API errors. All status-change sounds are centralised in a single `useEffect` with a `prevStatusRef` guard to prevent duplicates.
+- **`app/evolve/session/[id]/EvolveSessionView.tsx`** - `sparkle` when accept pipeline starts; `deploy` (production) or `merge` (dev) when `status` transitions to `accepted`; `agentDone` when `status` transitions from a running state to `ready`; `reject` on reject; `error` on accept/reject API errors. All status-change sounds are centralised in a single `useEffect` with a `prevStatusRef` guard to prevent duplicates.
 - **`components/EvolveRequestForm.tsx`** - `sparkle` when a new session is created, `error` on submission failure.
 
 ### New page: `app/sound-test/page.tsx`
 
-Interactive soundboard at `/sound-test` with full audio diagnostics:
+Interactive soundboard at `/sound-test` — oscilloscope now taps the `lib/sounds.ts` singleton (`setSharedAnalyser` / `initAndGetSharedCtx`), so every sound button animates the waveform. The separate test-tone context was removed. Diagnostics include:
+
+- **Full audio diagnostics:**
 
 - **Diagnostics panel** - shows `AudioContext` browser support, the state it starts in (`running` vs `suspended`), simplified browser/OS string, and any initialisation error.
 - **Live oscilloscope** - canvas-based waveform visualiser fed by a persistent shared `AudioContext` with an `AnalyserNode`. Turns green/cyan as audio level rises.
 - **Test Tone button** - plays an A-major arpeggio routed through the oscilloscope context, proving the audio pipeline end-to-end independent of the sound buttons. If the waveform moves but no sound is heard, the issue is system/tab volume, not the Web Audio API.
 - **Sound buttons** - each button calls the raw (unwrapped) play function so errors are shown inline rather than silently swallowed, making it easy to see exactly what failed and why.
 
-### Bug fix: `lib/sounds.ts` - silent audio on Firefox Android / Safari
+### `noiseClick` upgraded to blue noise
+
+`noiseClick()` (used as a secondary accent in `send`, `menuOpen`, `menuClose`) previously used white noise. It now uses the same first-order-difference blue-noise generation as `blueNoiseClick()`, via a shared `makeBlueNoiseBuf()` helper. This gives the noise accents a brighter, crisper character consistent with the standalone `click` sound.
+
+### Oscilloscope taps the sounds singleton
+
+`lib/sounds.ts` now exports `setSharedAnalyser(an)` and `initAndGetSharedCtx()`. When the `/sound-test` page calls `setSharedAnalyser`, every subsequent `tone()` and `noiseClick()` call routes its `GainNode` through the `AnalyserNode` instead of directly to `ctx.destination`. The analyser is connected to `ctx.destination`, so the signal still reaches the hardware output. This means every sound button on the test page animates the oscilloscope — not just a dedicated test tone.
+
+### Bug fix: `lib/sounds.ts` — silent audio on Firefox Android / Safari
 
 **Root cause:** the original design created a fresh `AudioContext` per sound and immediately called `ctx.close()`. On Firefox for Android (and some Safari versions) new `AudioContext` instances start in the `'suspended'` state even inside a user-gesture handler. The previous `void ctx.resume()` attempt was cancelled by the synchronous `ctx.close()` call that followed - so every sound was silently discarded with no error thrown.
 
 ### New sounds: `deploy` (fanfare) and `merge`
 
-**`deploy`** — Heroic fanfare triggered when a branch is deployed to production. Three quick ascending triangle-wave tones (C5–E5–G5) in a classic "ta-ta-ta" run, followed by a triumphant full C major chord (C5–E5–G5–C6 simultaneously) with a noise-burst cymbal accent on the beat. Total duration ~0.8 s.
+**`deploy`** - Heroic fanfare triggered when a branch is deployed to production. Three quick ascending triangle-wave tones (C5-E5-G5) in a classic "ta-ta-ta" run, followed by a triumphant full C major chord (C5-E5-G5-C6 simultaneously) with a noise-burst cymbal accent on the beat. Total duration ~0.8 s.
 
-**`merge`** — Subtle resolution triggered when a development branch is merged. Two sine voices sweep from opposite directions and converge on C5 (E5→C5 and G4→C5), then a C major chord settles. The convergence metaphor directly mirrors two branches meeting. Total duration ~0.5 s.
+**`merge`** - Subtle resolution triggered when a development branch is merged. Two sine voices sweep from opposite directions and converge on C5 (E5→C5 and G4→C5), then a C major chord settles. The convergence metaphor directly mirrors two branches meeting. Total duration ~0.5 s.
 
 Both are wired in `EvolveSessionView` via the centralised `prevStatusRef` `useEffect`: when `status` becomes `accepted`, `isProduction` determines which plays.
 
-### Redesign: `click` sound — blue-noise bandpass
+### Redesign: `click` sound - blue-noise bandpass
 
 The sine pluck was too similar to `pop`. Replaced with blue noise (first-order differentiated white noise, which naturally emphasises high frequencies) filtered through a bandpass at 1 kHz (Q = 1.8). The result is a crisp, defined "tick" that is brighter than pink noise and less harsh than white-noise highpass.
 

@@ -3,13 +3,17 @@
 // app/sound-test/page.tsx
 // Soundboard with full audio diagnostics:
 //   • Browser / AudioContext support check
-//   • Live AudioContext state display
-//   • Real-time oscilloscope fed by a persistent shared AudioContext
-//   • "Test Tone" button to prove the audio pipeline end-to-end
+//   • Live oscilloscope — taps the lib/sounds.ts singleton so EVERY sound
+//     button animates the waveform, not just the dedicated test tone
 //   • Per-sound buttons that surface errors instead of swallowing them
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { RAW_SOUND_MAP, type SoundName } from "@/lib/sounds";
+import { useState, useEffect, useRef } from "react";
+import {
+  RAW_SOUND_MAP,
+  setSharedAnalyser,
+  initAndGetSharedCtx,
+  type SoundName,
+} from "@/lib/sounds";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,19 +39,19 @@ interface SoundEntry {
 }
 
 const SOUNDS: SoundEntry[] = [
-  { name: "send",      emoji: "📤", label: "Send",       description: "Upward triangle sweep + noise click. Sent message." },
+  { name: "send",      emoji: "📤", label: "Send",       description: "Upward triangle sweep + blue-noise accent. Sent message." },
   { name: "receive",   emoji: "📥", label: "Receive",    description: "Two-note chime (C5 → E5). AI response finished." },
   { name: "error",     emoji: "❌", label: "Error",      description: "Descending sawtooth buzz. API / network error." },
   { name: "menuOpen",  emoji: "☰",  label: "Menu Open",  description: "Soft pop + upward sine tick. Hamburger opened." },
-  { name: "menuClose", emoji: "✕",  label: "Menu Close", description: "Downward sine tick + noise click. Hamburger closed." },
+  { name: "menuClose", emoji: "✕",  label: "Menu Close", description: "Downward sine tick + blue-noise accent. Hamburger closed." },
   { name: "sparkle",   emoji: "✨", label: "Sparkle",    description: "Three ascending tones. Evolve session submitted." },
-  { name: "accept",    emoji: "✅", label: "Accept",     description: "C–E–G–C major arpeggio. Session accepted." },
-  { name: "agentDone", emoji: "🧠", label: "Agent Done", description: "A–C♯–E–A (A major) arpeggio, 350 ms decay. Agent finished, session ready." },
-  { name: "deploy",    emoji: "🚀", label: "Deploy",     description: "Fanfare: C–E–G run then triumphant C major chord. Branch deployed to production." },
+  { name: "accept",    emoji: "✅", label: "Accept",     description: "C–E–G–C major arpeggio." },
+  { name: "agentDone", emoji: "🧠", label: "Agent Done", description: "A–C♯–E–A (A major) arpeggio, 350 ms decay. Agent finished." },
+  { name: "deploy",    emoji: "🚀", label: "Deploy",     description: "Fanfare: C–E–G run then triumphant C major chord. Branch deployed to production." },
   { name: "merge",     emoji: "🔀", label: "Merge",      description: "Two converging tones meeting at C5, then a resolution chord. Dev branch merged." },
   { name: "reject",    emoji: "🗑️", label: "Reject",     description: "Descending minor-third tones. Session rejected." },
-  { name: "click",     emoji: "👆", label: "Click",      description: "Short noise burst. Generic button click." },
-  { name: "pop",       emoji: "🔔", label: "Pop",        description: "Brief sine blip. Generic notification." },
+  { name: "click",     emoji: "👆", label: "Click",      description: "Blue-noise bandpass at 1 kHz — crisp tick." },
+  { name: "pop",       emoji: "🔔", label: "Pop",        description: "Brief sine blip (660 → 440 Hz). Generic notification." },
 ];
 
 // ─── Oscilloscope canvas ──────────────────────────────────────────────────────
@@ -65,10 +69,8 @@ function Oscilloscope({ analyser }: { analyser: AnalyserNode | null }) {
     function drawIdle() {
       animRef.current = requestAnimationFrame(drawIdle);
       if (!canvas) return;
-      ctx2d!.clearRect(0, 0, canvas.width, canvas.height);
       ctx2d!.fillStyle = "#111827";
       ctx2d!.fillRect(0, 0, canvas.width, canvas.height);
-      // flat line
       ctx2d!.strokeStyle = "#374151";
       ctx2d!.lineWidth = 1.5;
       ctx2d!.beginPath();
@@ -90,19 +92,15 @@ function Oscilloscope({ analyser }: { analyser: AnalyserNode | null }) {
       if (!canvas || !analyser) return;
       analyser.getFloatTimeDomainData(dataArray);
 
-      // Compute RMS for colour tinting
       let sum = 0;
       for (let i = 0; i < bufLen; i++) sum += dataArray[i] ** 2;
-      const rms = Math.sqrt(sum / bufLen);
-      const level = Math.min(1, rms * 8); // 0–1
+      const level = Math.min(1, Math.sqrt(sum / bufLen) * 8);
 
       const W = canvas.width;
       const H = canvas.height;
-      ctx2d!.clearRect(0, 0, W, H);
       ctx2d!.fillStyle = "#111827";
       ctx2d!.fillRect(0, 0, W, H);
 
-      // Colour: green when quiet → yellow → cyan when loud
       const r = Math.round(level * 100);
       const g = Math.round(200 + level * 55);
       const b = Math.round(level * 200);
@@ -113,8 +111,7 @@ function Oscilloscope({ analyser }: { analyser: AnalyserNode | null }) {
       const sliceWidth = W / bufLen;
       let x = 0;
       for (let i = 0; i < bufLen; i++) {
-        const v = dataArray[i]; // –1 to +1
-        const y = (v * (H / 2) * 0.9) + H / 2;
+        const y = (dataArray[i] * (H / 2) * 0.9) + H / 2;
         if (i === 0) ctx2d!.moveTo(x, y);
         else ctx2d!.lineTo(x, y);
         x += sliceWidth;
@@ -161,7 +158,7 @@ function DiagCard({ diag }: { diag: DiagInfo | null }) {
       label: "AudioContext",
       value: diag.supported
         ? <span className="text-green-400">✅ Supported</span>
-        : <span className="text-red-400">❌ Not supported — your browser cannot play synthesised audio</span>,
+        : <span className="text-red-400">❌ Not supported</span>,
     },
     {
       label: "State on create",
@@ -175,17 +172,11 @@ function DiagCard({ diag }: { diag: DiagInfo | null }) {
         </span>
       ),
     },
-    {
-      label: "Browser",
-      value: <span className="text-gray-300 break-all">{diag.userAgent}</span>,
-    },
+    { label: "Browser", value: <span className="text-gray-300 break-all">{diag.userAgent}</span> },
   ];
 
   if (diag.error) {
-    rows.push({
-      label: "Init error",
-      value: <span className="text-red-400 font-mono break-all">{diag.error}</span>,
-    });
+    rows.push({ label: "Init error", value: <span className="text-red-400 font-mono break-all">{diag.error}</span> });
   }
 
   return (
@@ -206,24 +197,18 @@ export default function SoundTestPage() {
   const [diag, setDiag] = useState<DiagInfo | null>(null);
   const [statuses, setStatuses] = useState<Partial<Record<SoundName, SoundStatus>>>({});
   const [ctxLiveState, setCtxLiveState] = useState<CtxState>("unknown");
-
-  // Shared persistent AudioContext for the oscilloscope
-  const sharedCtxRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
 
-  // ── Run diagnostics on mount ──────────────────────────────────────────────
+  // ── Diagnostics on mount ───────────────────────────────────────────────────
   useEffect(() => {
     const ua = navigator.userAgent;
-    // Simplify UA to browser + OS
     const simplified = (() => {
-      const m =
-        ua.match(/\(([^)]+)\)/) ?? [];
-      const os = m[1]?.split(";")[0] ?? "";
-      if (ua.includes("Chrome/"))   return `Chrome ${ua.match(/Chrome\/(\S+)/)?.[1] ?? ""} (${os})`;
-      if (ua.includes("Firefox/"))  return `Firefox ${ua.match(/Firefox\/(\S+)/)?.[1] ?? ""} (${os})`;
+      const os = (ua.match(/\(([^)]+)\)/) ?? [])[1]?.split(";")[0] ?? "";
+      if (ua.includes("Chrome/"))  return `Chrome ${ua.match(/Chrome\/(\S+)/)?.[1] ?? ""} (${os})`;
+      if (ua.includes("Firefox/")) return `Firefox ${ua.match(/Firefox\/(\S+)/)?.[1] ?? ""} (${os})`;
       if (ua.includes("Safari/") && !ua.includes("Chrome")) return `Safari ${ua.match(/Version\/(\S+)/)?.[1] ?? ""} (${os})`;
-      if (ua.includes("Edg/"))      return `Edge ${ua.match(/Edg\/(\S+)/)?.[1] ?? ""} (${os})`;
+      if (ua.includes("Edg/"))     return `Edge ${ua.match(/Edg\/(\S+)/)?.[1] ?? ""} (${os})`;
       return ua.slice(0, 80);
     })();
 
@@ -231,10 +216,7 @@ export default function SoundTestPage() {
       const AC =
         window.AudioContext ??
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AC) {
-        setDiag({ supported: false, stateOnCreate: "unavailable", userAgent: simplified });
-        return;
-      }
+      if (!AC) { setDiag({ supported: false, stateOnCreate: "unavailable", userAgent: simplified }); return; }
       const ctx = new AC();
       const state = ctx.state as CtxState;
       void ctx.close();
@@ -244,71 +226,50 @@ export default function SoundTestPage() {
     }
   }, []);
 
-  // ── Create / destroy shared context ──────────────────────────────────────
-  const initSharedCtx = useCallback(() => {
-    if (sharedCtxRef.current && sharedCtxRef.current.state !== "closed") return;
+  // ── Set up analyser on the sounds.ts singleton ─────────────────────────────
+  // The analyser is attached to the same AudioContext all sounds use, so every
+  // tone() and noiseClick() call routes through it → oscilloscope reacts.
+  const setupAnalyser = async () => {
+    if (analyserRef.current) return; // already done
     try {
-      const AC =
-        window.AudioContext ??
-        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AC) return;
-      const ctx = new AC();
-      if (ctx.state === "suspended") void ctx.resume();
+      const ctx = await initAndGetSharedCtx();
+      if (!ctx || analyserRef.current) return;
 
       const an = ctx.createAnalyser();
       an.fftSize = 2048;
       an.smoothingTimeConstant = 0.8;
+      // Analyser sits between all sounds and the hardware output:
+      // tone/noiseClick → gainNode → analyser → destination
       an.connect(ctx.destination);
 
-      sharedCtxRef.current = ctx;
+      setSharedAnalyser(an);   // tell sounds.ts to route all output through it
       analyserRef.current = an;
-      setCtxLiveState(ctx.state as CtxState);
       setAnalyser(an);
+      setCtxLiveState(ctx.state as CtxState);
 
       ctx.addEventListener("statechange", () => {
         setCtxLiveState(ctx.state as CtxState);
       });
     } catch { /* silently ignore */ }
-  }, []);
+  };
 
+  // Try on mount (works on desktop; may be a no-op on mobile until first click)
   useEffect(() => {
+    void setupAnalyser();
     return () => {
-      analyserRef.current?.disconnect();
-      void sharedCtxRef.current?.close();
+      // Detach on unmount so the sounds routing goes back to ctx.destination
+      if (analyserRef.current) {
+        setSharedAnalyser(null);
+        analyserRef.current.disconnect();
+        analyserRef.current = null;
+      }
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Play test tone through shared context (proves pipeline works) ─────────
-  function playTestTone() {
-    initSharedCtx();
-    const ctx = sharedCtxRef.current;
-    const an = analyserRef.current;
-    if (!ctx || !an) return;
-    if (ctx.state === "suspended") void ctx.resume();
-
-    const t0 = ctx.currentTime;
-    const freqs = [440, 554.37, 659.25, 880]; // A4-C#5-E5-A5
-
-    freqs.forEach((f, i) => {
-      const osc = ctx.createOscillator();
-      osc.type = "sine";
-      osc.frequency.value = f;
-
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0, t0 + i * 0.1);
-      gain.gain.linearRampToValueAtTime(0.18, t0 + i * 0.1 + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.1 + 0.35);
-
-      osc.connect(gain);
-      gain.connect(an); // → analyser → destination
-      osc.start(t0 + i * 0.1);
-      osc.stop(t0 + i * 0.1 + 0.36);
-    });
-  }
-
-  // ── Play a named sound and capture errors ─────────────────────────────────
+  // ── Play a named sound and capture errors ──────────────────────────────────
   async function playSound(name: SoundName) {
-    initSharedCtx(); // ensure oscilloscope shared ctx is live
+    await setupAnalyser(); // ensure analyser exists before sound plays
     setStatuses((prev) => ({ ...prev, [name]: { status: "idle" } }));
     try {
       await RAW_SOUND_MAP[name]();
@@ -329,12 +290,11 @@ export default function SoundTestPage() {
     <main className="min-h-dvh bg-gray-950 text-gray-100 px-4 py-10">
       <div className="max-w-2xl mx-auto space-y-8">
 
-        {/* Title */}
         <div>
           <h1 className="text-2xl font-bold text-white mb-1">🔊 Sound Effects</h1>
           <p className="text-gray-400 text-sm">
             All sounds are synthesised via the Web Audio API — no audio files.
-            Diagnostics below help debug why you might not hear anything.
+            The oscilloscope monitors the shared AudioContext, so every button animates the waveform.
           </p>
         </div>
 
@@ -348,34 +308,23 @@ export default function SoundTestPage() {
               <span className={ctxLiveState === "running" ? "text-green-400" : "text-yellow-400"}>
                 {ctxLiveState}
               </span>
+              <span className="text-gray-700">· oscilloscope connected</span>
             </div>
           )}
         </section>
 
-        {/* ── Oscilloscope + test tone ── */}
+        {/* ── Oscilloscope ── */}
         <section>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">
             Oscilloscope
           </h2>
           <Oscilloscope analyser={analyser} />
-          <div className="mt-2 flex items-center gap-3">
-            <button
-              type="button"
-              onClick={playTestTone}
-              className="px-4 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 active:scale-95 text-white text-sm font-medium transition-all"
-            >
-              ▶ Play Test Tone
-            </button>
-            <span className="text-xs text-gray-500">
-              Routes through the oscilloscope — if you see the waveform move but hear nothing,
-              check your system / tab volume.
-            </span>
-          </div>
-          {!analyser && (
-            <p className="mt-2 text-xs text-yellow-500">
-              ⚠ Oscilloscope inactive — click any button to initialise the shared AudioContext.
-            </p>
-          )}
+          <p className="mt-2 text-xs text-gray-500">
+            Taps the shared AudioContext singleton — every sound button below animates this waveform.
+            {!analyser && (
+              <span className="text-yellow-500"> Click any button to initialise the context.</span>
+            )}
+          </p>
         </section>
 
         {/* ── Sound buttons ── */}
@@ -383,11 +332,6 @@ export default function SoundTestPage() {
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">
             Sounds
           </h2>
-          <p className="text-xs text-gray-500 mb-3">
-            Each button calls the raw async play function so errors surface inline rather than
-            being silently swallowed. All sounds share one persistent AudioContext that is
-            resumed before scheduling, fixing silent playback on Firefox Android and Safari.
-          </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {SOUNDS.map(({ name, emoji, label, description }) => {
               const s = statuses[name];
@@ -395,7 +339,7 @@ export default function SoundTestPage() {
                 <div key={name} className="flex flex-col gap-1">
                   <button
                     type="button"
-                    onClick={() => playSound(name)}
+                    onClick={() => void playSound(name)}
                     className="text-left flex items-start gap-3 px-4 py-3 rounded-xl bg-gray-900 border border-gray-700 hover:border-gray-500 hover:bg-gray-800 active:scale-[0.97] transition-all duration-100 group"
                   >
                     <span className="text-2xl leading-none mt-0.5 flex-shrink-0">{emoji}</span>
@@ -409,12 +353,9 @@ export default function SoundTestPage() {
                       <span className="text-xs text-gray-500 leading-snug">{description}</span>
                     </span>
                   </button>
-                  {/* Status line */}
                   {s && s.status !== "idle" && (
                     <p className={`text-xs px-1 ${statusColor[s.status]}`}>
-                      {s.status === "ok"
-                        ? "✓ played without error"
-                        : `✗ error: ${s.error}`}
+                      {s.status === "ok" ? "✓ played without error" : `✗ error: ${s.error}`}
                     </p>
                   )}
                 </div>
