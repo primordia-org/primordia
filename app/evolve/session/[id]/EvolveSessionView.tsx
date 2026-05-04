@@ -233,23 +233,17 @@ function mergeConsecutiveTextEvents(events: RenderableEvent[]): RenderableEvent[
 function ThinkingBlock({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
   return (
     <details className="group my-1">
-      <summary className="flex items-center gap-1.5 text-xs text-purple-400/80 hover:text-purple-300 cursor-pointer select-none list-none">
-        <span className="group-open:rotate-90 transition-transform text-purple-500/60">▶</span>
-        <span className="font-medium">🧠 Extended reasoning</span>
-        {isStreaming && !content && (
-          <span className="text-purple-500/60 animate-pulse ml-1">thinking...</span>
-        )}
-        {content && (
-          <span className="text-purple-500/50 ml-1">({Math.ceil(content.length / 4).toLocaleString()} est. tokens)</span>
-        )}
+      <summary className="flex items-center gap-1.5 text-xs cursor-pointer select-none list-none">
+        <span className="inline-block group-open:rotate-90 transition-transform text-gray-600">▶</span>
+        <span className="text-gray-500">🧠 Thinking</span>
       </summary>
       {content ? (
-        <div className="mt-1 ml-4 pl-3 border-l border-purple-800/40 text-xs text-purple-200/60 font-mono whitespace-pre-wrap break-words leading-relaxed max-h-96 overflow-y-auto">
+        <div className="mt-1 ml-4 pl-3 border-l border-gray-800 text-xs text-gray-500 font-mono whitespace-pre-wrap break-words leading-relaxed max-h-96 overflow-y-auto">
           {content}
         </div>
       ) : (
-        <div className="mt-1 ml-4 pl-3 border-l border-purple-800/40 text-xs text-purple-400/40 italic">
-          Awaiting reasoning tokens...
+        <div className="mt-1 ml-4 pl-3 border-l border-gray-800 text-xs text-gray-600 italic">
+          {isStreaming ? 'Thinking...' : 'No content'}
         </div>
       )}
     </details>
