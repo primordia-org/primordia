@@ -42,7 +42,7 @@ const SOUNDS: SoundEntry[] = [
   { name: "menuClose", emoji: "✕",  label: "Menu Close", description: "Downward sine tick + noise click. Hamburger closed." },
   { name: "sparkle",   emoji: "✨", label: "Sparkle",    description: "Three ascending tones. Evolve session submitted." },
   { name: "accept",    emoji: "✅", label: "Accept",     description: "C–E–G–C major arpeggio. Session accepted." },
-  { name: "agentDone", emoji: "🧠", label: "Agent Done", description: "Softer C–E–G–C arpeggio. Agent finished, session ready." },
+  { name: "agentDone", emoji: "🧠", label: "Agent Done", description: "A–C♯–E–A (A major) arpeggio, 350 ms decay. Agent finished, session ready." },
   { name: "reject",    emoji: "🗑️", label: "Reject",     description: "Descending minor-third tones. Session rejected." },
   { name: "click",     emoji: "👆", label: "Click",      description: "Short noise burst. Generic button click." },
   { name: "pop",       emoji: "🔔", label: "Pop",        description: "Brief sine blip. Generic notification." },

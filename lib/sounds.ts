@@ -295,11 +295,13 @@ async function playAccept(): Promise<void> {
 async function playAgentDone(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
-  // Same C–E–G–C arpeggio as accept but softer and a touch faster —
-  // "work finished" rather than "deployed to production".
-  const freqs = [523.25, 659.25, 784, 1046.5];
+  // A major arpeggio: A4–C♯5–E5–A5 — the same progression as the /sound-test
+  // oscilloscope test tone, which the user approved for this slot.
+  // Longer decay (0.35 s) and wider note spacing (0.1 s) than the accept
+  // arpeggio, giving it a more open, “work complete” character.
+  const freqs = [440, 554.37, 659.25, 880];
   freqs.forEach((f, i) => {
-    tone(ctx, { type: "sine", freq: f, gain: 0.11, attack: 0.01, decay: 0.18, start: i * 0.07 });
+    tone(ctx, { type: "sine", freq: f, gain: 0.18, attack: 0.01, decay: 0.35, start: i * 0.1 });
   });
 }
 
