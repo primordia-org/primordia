@@ -59,6 +59,7 @@ primordia/
 │   ├── install.sh                ← Primordia setup script; supports two invocation methods; idempotent
 │   ├── claude-worker.ts          ← Standalone Claude Code worker process that handles LLM calls via exe.dev gateway
 │   ├── pi-worker.ts              ← Standalone pi coding agent worker process; spawned as detached child surviving restarts
+│   ├── regenerate-model-registry.ts ← Reads the pi ModelRegistry and rewrites lib/models.generated.json; run with `bun run regenerate:model-registry` after updating @mariozechner/pi-coding-agent
 │   └── test-hmr-proxy.ts         ← Integration tests for reverse proxy WebSocket/HMR tunnel
 │
 ├── public/
@@ -74,11 +75,12 @@ primordia/
 │   ├── llm-client.ts              ← Creates Anthropic client: gateway (default) or direct API with user-supplied key
 │   ├── llm-encryption.ts          ← Server-side RSA-OAEP keypair (ephemeral, per process); getPublicKeyJwk() + decryptApiKey()
 │   ├── api-key-client.ts          ← Client-side helpers: getStoredApiKey/setStoredApiKey (localStorage) + encryptStoredApiKey() (RSA-OAEP)
-│   ├── agent-config.ts            ← Definitions for supported coding agent harnesses and model options
+│   ├── agent-config.ts            ← Definitions for supported coding agent harnesses and model options; imports MODEL_OPTIONS from lib/models.generated.json
+│   ├── models.generated.json      ← Hard-coded model list (id, label, pricing) for all harnesses; regenerate with `bun run regenerate:model-registry`
 │   ├── auto-canonical.ts          ← On first request, derives and persists canonical URL from request origin if not already set
 │   ├── credentials-client.ts      ← Client-side AES-256-GCM encryption helpers for storing Claude Code credentials.json
 │   ├── cross-device-creds.ts      ← ECDH P-256 helpers for credential transfer in pull and push cross-device sign-in flows
-│   ├── pi-model-registry.server.ts ← Builds model option list at runtime from pi ModelRegistry for both claude-code and pi harnesses
+│   ├── pi-model-registry.server.ts ← Builds model option list at runtime from pi ModelRegistry; no longer imported by app code (kept as reference / used by regenerate script logic)
 │   ├── public-origin.ts           ← Utility for deriving public-facing origin from request, respecting x-forwarded-* headers
 │   ├── register-with-parent.ts    ← Posts instance identity to parent's registration endpoint and returns status string
 │   ├── session-events.ts          ← Structured event types for session progress logs stored as NDJSON in worktree
