@@ -21,7 +21,7 @@ Added synthesised sound effects to key UI interactions throughout the app. All s
 | `sparkle` | Evolve session submitted / dialog opened | Three ascending sine sparkle tones |
 | `accept` | Evolve session accepted ✅ | Cheerful C–E–G–C major arpeggio |
 | `reject` | Evolve session rejected 🗑️ | Descending minor-third triangle tones |
-| `click` | Generic button click | Short noise burst |
+| `click` | Generic button click | Short sine pluck at 300 Hz — soft "tock" |
 | `pop` | Generic notification pop | Brief sine blip |
 
 ### Wired into existing components

@@ -256,7 +256,10 @@ async function playReject(): Promise<void> {
 async function playClick(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
-  noiseClick(ctx, 0, 0.12); // gain raised — click must be clearly audible on its own
+  // Soft "tock": a short sine pluck rather than filtered noise.
+  // Noise clicks are inherently harsh (broadband energy); a low-frequency sine
+  // with a fast attack and short decay reads as a clean, gentle click.
+  tone(ctx, { type: "sine", freq: 300, gain: 0.13, attack: 0.003, decay: 0.055 });
 }
 
 async function playPop(): Promise<void> {
