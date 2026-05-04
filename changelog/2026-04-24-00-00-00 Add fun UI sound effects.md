@@ -21,7 +21,7 @@ Added synthesised sound effects to key UI interactions throughout the app. All s
 | `sparkle` | Evolve session submitted / dialog opened | Three ascending sine sparkle tones |
 | `accept` | Evolve session accepted ✅ | Cheerful C-E-G-C major arpeggio |
 | `agentDone` | Agent finished, session ready | A-C♯-E-A (A major) arpeggio, 350 ms decay |
-| `deploy` | Branch deployed to production | Heroic fanfare: C5-E5-G5 run + full C major chord with cymbal accent |
+| `deploy` | Branch deployed to production | "Ta Daaaa!": punchy C5+G5 accent then blooming 4-octave C major chord |
 | `merge` | Dev branch merged | Two converging tones (E5→C5, G4→C5) + C major resolution chord |
 | `reject` | Evolve session rejected 🗑️ | Descending minor-third triangle tones |
 | `click` | Generic button click | Blue-noise bandpass at 1 kHz - crisp "tick" |
@@ -59,7 +59,7 @@ Interactive soundboard at `/sound-test` — oscilloscope now taps the `lib/sound
 
 ### New sounds: `deploy` (fanfare) and `merge`
 
-**`deploy`** - Heroic fanfare triggered when a branch is deployed to production. Three quick ascending triangle-wave tones (C5-E5-G5) in a classic "ta-ta-ta" run, followed by a triumphant full C major chord (C5-E5-G5-C6 simultaneously) with a noise-burst cymbal accent on the beat. Total duration ~0.8 s.
+**`deploy`** — "Ta Daaaa!" fanfare triggered when a branch is deployed to production. A short, punchy C5+G5 open-fifth accent ("Ta!") at 0 ms with a snare-style noise burst, followed 220 ms later by a full four-octave C major chord (C4–G4–C5–E5–G5–C6) with a cymbal crash ("Daaaa!"). The six chord voices enter with a 0–50 ms stagger — like real brass players — so the chord blooms open rather than hitting as a flat wall of sound. Total duration ~1.0 s.
 
 **`merge`** - Subtle resolution triggered when a development branch is merged. Two sine voices sweep from opposite directions and converge on C5 (E5→C5 and G4→C5), then a C major chord settles. The convergence metaphor directly mirrors two branches meeting. Total duration ~0.5 s.
 

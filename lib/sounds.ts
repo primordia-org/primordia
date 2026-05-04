@@ -38,7 +38,7 @@ let _sharedCtx: AudioContext | null = null;
 /**
  * Optional AnalyserNode attached by the /sound-test page.
  * When set, all tone() and noiseClick() outputs route through it so the
- * oscilloscope visualises every sound — not just the test tone.
+ * oscilloscope visualises every sound - not just the test tone.
  * Must be on the same AudioContext as _sharedCtx.
  */
 let _analyser: AnalyserNode | null = null;
@@ -179,7 +179,7 @@ function makeBlueNoiseBuf(ctx: AudioContext, durationSec: number): AudioBuffer {
     prev = w;
     if (Math.abs(data[i]) > peak) peak = Math.abs(data[i]);
   }
-  // Normalise with a little headroom so we don’t clip downstream.
+  // Normalise with a little headroom so we don't clip downstream.
   if (peak > 0) for (let i = 0; i < bufSize; i++) data[i] /= peak * 1.2;
   return buf;
 }
@@ -201,7 +201,7 @@ function blueNoiseClick(ctx: AudioContext, start = 0, gain = 0.10): void {
   gainNode.gain.linearRampToValueAtTime(gain, t0 + ATTACK);
   gainNode.gain.exponentialRampToValueAtTime(0.0001, t0 + DURATION);
 
-  // Bandpass centred at 1 kHz: bright enough to be a click, narrow enough not to be harsh.
+  // Bandpass centred at 1 kHz: bright enough to be a click, narrow enough not to be harsh.
   const filter = ctx.createBiquadFilter();
   filter.type = "bandpass";
   filter.frequency.value = 1000;
@@ -340,20 +340,27 @@ async function playAgentDone(): Promise<void> {
 async function playDeploy(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
-  // Heroic fanfare: quick ascending run (C5-E5-G5) then a triumphant full
-  // C major chord landing on C6, with a noise "cymbal" accent at the climax.
-  // Triangle wave gives a warm, brass-like timbre without being piercing.
   //
-  // Run - three short notes:
-  tone(ctx, { type: "triangle", freq: 523.25, gain: 0.17, attack: 0.005, decay: 0.12, start: 0.00 }); // C5
-  tone(ctx, { type: "triangle", freq: 659.25, gain: 0.17, attack: 0.005, decay: 0.12, start: 0.07 }); // E5
-  tone(ctx, { type: "triangle", freq: 784,    gain: 0.17, attack: 0.005, decay: 0.12, start: 0.14 }); // G5
-  // Climax - C6 lead + full C major chord together:
-  tone(ctx, { type: "triangle", freq: 1046.5, gain: 0.20, attack: 0.008, decay: 0.55, start: 0.22 }); // C6 lead
-  tone(ctx, { type: "triangle", freq: 784,    gain: 0.10, attack: 0.008, decay: 0.50, start: 0.22 }); // G5
-  tone(ctx, { type: "triangle", freq: 659.25, gain: 0.09, attack: 0.008, decay: 0.48, start: 0.22 }); // E5
-  tone(ctx, { type: "triangle", freq: 523.25, gain: 0.10, attack: 0.008, decay: 0.48, start: 0.22 }); // C5
-  noiseClick(ctx, 0.22, 0.04); // cymbal accent on the beat
+  // "Ta  Daaaa!"
+  //
+  // ── "Ta!" (0 ms) ────────────────────────────────────
+  // Short, punchy open-fifth accent (C5 + G5 = power with no thirds).
+  tone(ctx, { type: "triangle", freq: 523.25, gain: 0.22, attack: 0.005, decay: 0.18, start: 0.00 }); // C5
+  tone(ctx, { type: "triangle", freq: 784,    gain: 0.17, attack: 0.005, decay: 0.16, start: 0.00 }); // G5
+  noiseClick(ctx, 0.01, 0.07); // snare-style accent
+  //
+  // ── "Daaaa!" (220 ms) ─────────────────────────────
+  // Full C major chord across four octaves. Notes enter with a 0–50 ms stagger
+  // (like real brass players), which creates a swelling “bloom” rather than
+  // all voices hitting as a flat wall of sound.
+  const B = 0.22;
+  tone(ctx, { type: "triangle", freq: 261.63, gain: 0.10, attack: 0.030, decay: 0.90, start: B + 0.00 }); // C4 bass
+  tone(ctx, { type: "sine",     freq: 392,    gain: 0.09, attack: 0.025, decay: 0.85, start: B + 0.01 }); // G4
+  tone(ctx, { type: "triangle", freq: 523.25, gain: 0.14, attack: 0.020, decay: 0.80, start: B + 0.00 }); // C5
+  tone(ctx, { type: "sine",     freq: 659.25, gain: 0.11, attack: 0.020, decay: 0.78, start: B + 0.03 }); // E5
+  tone(ctx, { type: "triangle", freq: 784,    gain: 0.12, attack: 0.015, decay: 0.75, start: B + 0.01 }); // G5
+  tone(ctx, { type: "sine",     freq: 1046.5, gain: 0.11, attack: 0.015, decay: 0.70, start: B + 0.05 }); // C6 shimmer
+  noiseClick(ctx, B, 0.08); // cymbal crash on the bloom
 }
 
 async function playMerge(): Promise<void> {
