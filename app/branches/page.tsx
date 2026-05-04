@@ -187,7 +187,10 @@ function buildSections(
   const productionChain: string[] = [];
   const productionChainSet = new Set<string>([productionBranchName]);
   {
-    const walkVisited = new Set<string>();
+    // Seed walkVisited with productionBranchName so the walk terminates if
+    // the parent chain contains a cycle back to the production branch (which
+    // can happen when sibling-reparenting creates long circular parent links).
+    const walkVisited = new Set<string>([productionBranchName]);
     let cursor = byName.get(productionBranchName);
     while (
       cursor?.parent &&

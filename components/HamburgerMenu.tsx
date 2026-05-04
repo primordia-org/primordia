@@ -7,6 +7,7 @@ import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import type { SessionUser } from "../lib/hooks";
 import { Edit, Shield, X, Menu, LogOut, LogIn, Key, GitBranch, FileKey, QrCode } from "lucide-react";
+import { AdminUpdatesBell } from "./AdminUpdatesBell";
 import { ApiKeyDialog } from "./ApiKeyDialog";
 import { CredentialsDialog } from "./CredentialsDialog";
 import { QrSignInOtherDeviceDialog } from "./QrSignInOtherDeviceDialog";
@@ -128,6 +129,8 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
   }, [menuOpen, handleClickOutside]);
 
   return (
+    <div className="flex items-center gap-1">
+    <AdminUpdatesBell isAdmin={sessionUser?.isAdmin ?? false} />
     <div className="relative" ref={menuRef}>
       <button
         data-id="nav/menu-toggle"
@@ -218,6 +221,7 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
       {qrSignInDialogOpen && (
         <QrSignInOtherDeviceDialog onClose={() => setQrSignInDialogOpen(false)} />
       )}
+    </div>
     </div>
   );
 }
