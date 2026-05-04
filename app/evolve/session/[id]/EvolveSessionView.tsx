@@ -230,7 +230,7 @@ function mergeConsecutiveTextEvents(events: RenderableEvent[]): MergedRenderable
 
 /** Format a thinking duration into "Xs" or "Xm Ys". */
 function formatThinkDuration(startTs: number, endTs: number): string {
-  const secs = Math.max(0, Math.round((endTs - startTs) / 1000));
+  const secs = Math.max(1, Math.ceil((endTs - startTs) / 1000));
   if (secs < 60) return `${secs}s`;
   const m = Math.floor(secs / 60);
   const s = secs % 60;
