@@ -333,14 +333,14 @@ async function playAccept(): Promise<void> {
 async function playAgentError(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
-  // Failure motif: descend A4–F♯4–D♯4 (two minor thirds down) then leap up
-  // a major sixth to C5.  The descent creates dread; the upward jump lands
+  // Failure motif: descend A5–F♯5–D♯5 (two minor thirds down) then leap up
+  // a major sixth to C6.  The descent creates dread; the upward jump lands
   // on an unresolved, ambiguous note — dramatic and suspenseful rather than
   // simply sad.  Spacing slightly wider than agentDone for more gravitas.
-  tone(ctx, { type: "sine", freq: 440,    gain: 0.16, attack: 0.01, decay: 0.28, start: 0.00 }); // A4
-  tone(ctx, { type: "sine", freq: 369.99, gain: 0.15, attack: 0.01, decay: 0.28, start: 0.13 }); // F♯4
-  tone(ctx, { type: "sine", freq: 311.13, gain: 0.15, attack: 0.01, decay: 0.28, start: 0.26 }); // D♯4
-  tone(ctx, { type: "sine", freq: 523.25, gain: 0.18, attack: 0.01, decay: 0.50, start: 0.41 }); // C5 — dramatic upward leap, left hanging
+  tone(ctx, { type: "sine", freq: 880,    gain: 0.16, attack: 0.01, decay: 0.28, start: 0.00 }); // A5
+  tone(ctx, { type: "sine", freq: 739.99, gain: 0.15, attack: 0.01, decay: 0.28, start: 0.13 }); // F♯5
+  tone(ctx, { type: "sine", freq: 622.25, gain: 0.15, attack: 0.01, decay: 0.28, start: 0.26 }); // D♯5
+  tone(ctx, { type: "sine", freq: 1046.5, gain: 0.18, attack: 0.01, decay: 0.50, start: 0.41 }); // C6 — dramatic upward leap, left hanging
 }
 
 async function playAgentDone(): Promise<void> {
@@ -413,10 +413,12 @@ async function playMerge(): Promise<void> {
 async function playReject(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
-  // Descending minor third: A3 → F#3
-  tone(ctx, { type: "triangle", freq: 220, gain: 0.12, attack: 0.01, decay: 0.2, start: 0 });
-  tone(ctx, { type: "triangle", freq: 185, gain: 0.1, attack: 0.01, decay: 0.25, start: 0.15 });
-  tone(ctx, { type: "triangle", freq: 156, gain: 0.08, attack: 0.01, decay: 0.3, start: 0.32 });
+  // "GOOD bye": E5 and G4 land close together for the stressed "GOOD"
+  // syllable, then C4 rings out as the long, final "bye".
+  // Descending C-major triad (E5→G4→C4) — cheerful dismissal, not despair.
+  tone(ctx, { type: "sine", freq: 659.25, gain: 0.14, attack: 0.01, decay: 0.18, start: 0.00 }); // E5 — "GOO"
+  tone(ctx, { type: "sine", freq: 392,    gain: 0.13, attack: 0.01, decay: 0.14, start: 0.10 }); // G4 — "D"
+  tone(ctx, { type: "sine", freq: 261.63, gain: 0.16, attack: 0.01, decay: 0.45, start: 0.26 }); // C4 — "bye" (rings out)
 }
 
 async function playClick(): Promise<void> {

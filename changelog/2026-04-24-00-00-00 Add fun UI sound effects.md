@@ -21,10 +21,10 @@ Added synthesised sound effects to key UI interactions throughout the app. All s
 | `sparkle` | Evolve session submitted / dialog opened | Three ascending sine sparkle tones |
 | `accept` | Evolve session accepted ✅ | Cheerful C-E-G-C major arpeggio |
 | `agentDone`  | Agent finished successfully | A-C♯-E-A (A major) arpeggio, 350 ms decay |
-| `agentError` | Agent finished with error | A-F♯-D♯ descend then leap up to C5 |
+| `agentError` | Agent finished with error | A5-F♯5-D♯5 descend then leap up to C6 |
 | `deploy` | Branch deployed to production | "Ta Daaaa!": punchy C5+G5 accent then blooming 4-octave C major chord |
 | `merge` | Dev branch merged | Two converging tones (E5→C5, G4→C5) + C major resolution chord |
-| `reject` | Evolve session rejected 🗑️ | Descending minor-third triangle tones |
+| `reject` | Evolve session rejected 🗑️ | "GOOD bye": E5+G4 then C4 (descending C major triad) |
 | `click` | Generic button click | Blue-noise bandpass at 1 kHz - crisp "tick" |
 | `pop` | Generic notification pop | Brief sine blip |
 
@@ -82,7 +82,9 @@ The sine pluck was too similar to `pop`. Replaced with blue noise (first-order d
 
 `agentDone` — A major arpeggio: A4–C♯5–E5–A5, gain 0.18, 350 ms decay per note, 100 ms spacing. Plays when the agent finishes successfully.
 
-`agentError` — Dramatic failure motif: A4–F♯4–D♯4 (two descending minor thirds, 130 ms spacing) then a major-sixth leap up to C5 (500 ms decay). The descent creates dread; the unexpected upward jump leaves the phrase unresolved — suspenseful rather than simply sad.
+`agentError` — Dramatic failure motif: A5–F♯5–D♯5 (two descending minor thirds, 130 ms spacing) then a major-sixth leap up to C6 (500 ms decay). Bumped up one octave for more urgency and to avoid muddiness in the lower register.
+
+`reject` redesigned — "GOOD bye" motif: E5 and G4 land close together (0 ms and 100 ms) forming the stressed "GOOD" syllable, then C4 rings out as the long final "bye" (260 ms, 450 ms decay). Descending C-major triad — a cheerful dismissal rather than a sad ending.
 
 Both are wired in `EvolveSessionView`’s status-change `useEffect`. On `running → ready`, the effect reads `eventsRef.current` (a ref kept in sync with `events` state) to find the most-recent `result` event. If its `subtype` is `error`, `timeout`, or `aborted`, `agentError` plays; otherwise `agentDone` plays. Using a ref avoids adding `events` to the effect’s dep array, which would make it fire on every SSE event.
 

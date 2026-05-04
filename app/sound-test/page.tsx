@@ -47,10 +47,10 @@ const SOUNDS: SoundEntry[] = [
   { name: "sparkle",   emoji: "✨", label: "Sparkle",    description: "Three ascending tones. Evolve session submitted." },
   { name: "accept",    emoji: "✅", label: "Accept",     description: "C–E–G–C major arpeggio." },
   { name: "agentDone",  emoji: "🧠", label: "Agent Done",  description: "A–C♯–E–A (A major) arpeggio, 350 ms decay. Agent finished successfully." },
-  { name: "agentError", emoji: "😨", label: "Agent Error", description: "A–F♯–D♯ descending (two minor thirds) then leap up to C5. Drama and suspense." },
+  { name: "agentError", emoji: "😨", label: "Agent Error", description: "A5–F♯5–D♯5 descending (two minor thirds) then dramatic leap up to C6." },
   { name: "deploy",    emoji: "🚀", label: "Deploy",     description: "Fanfare: C–E–G run then triumphant C major chord. Branch deployed to production." },
   { name: "merge",     emoji: "🔀", label: "Merge",      description: "Two converging tones meeting at C5, then a resolution chord. Dev branch merged." },
-  { name: "reject",    emoji: "🗑️", label: "Reject",     description: "Descending minor-third tones. Session rejected." },
+  { name: "reject",    emoji: "🗑️", label: "Reject",     description: "\"GOOD bye\": E5+G4 close together then C4 rings out. Cheerful dismissal." },
   { name: "click",     emoji: "👆", label: "Click",      description: "Blue-noise bandpass at 1 kHz — crisp tick." },
   { name: "pop",       emoji: "🔔", label: "Pop",        description: "Brief sine blip (660 → 440 Hz). Generic notification." },
 ];
