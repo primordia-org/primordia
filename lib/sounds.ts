@@ -260,6 +260,7 @@ export type SoundName =
   | "sparkle"
   | "accept"
   | "agentDone"
+  | "agentError"
   | "deploy"
   | "merge"
   | "reject"
@@ -327,6 +328,19 @@ async function playAccept(): Promise<void> {
   freqs.forEach((f, i) => {
     tone(ctx, { type: "sine", freq: f, gain: 0.15, attack: 0.01, decay: 0.22, start: i * 0.08 });
   });
+}
+
+async function playAgentError(): Promise<void> {
+  const ctx = await getCtx();
+  if (!ctx) return;
+  // Failure motif: descend A4–F♯4–D♯4 (two minor thirds down) then leap up
+  // a major sixth to C5.  The descent creates dread; the upward jump lands
+  // on an unresolved, ambiguous note — dramatic and suspenseful rather than
+  // simply sad.  Spacing slightly wider than agentDone for more gravitas.
+  tone(ctx, { type: "sine", freq: 440,    gain: 0.16, attack: 0.01, decay: 0.28, start: 0.00 }); // A4
+  tone(ctx, { type: "sine", freq: 369.99, gain: 0.15, attack: 0.01, decay: 0.28, start: 0.13 }); // F♯4
+  tone(ctx, { type: "sine", freq: 311.13, gain: 0.15, attack: 0.01, decay: 0.28, start: 0.26 }); // D♯4
+  tone(ctx, { type: "sine", freq: 523.25, gain: 0.18, attack: 0.01, decay: 0.50, start: 0.41 }); // C5 — dramatic upward leap, left hanging
 }
 
 async function playAgentDone(): Promise<void> {
@@ -431,6 +445,7 @@ export const RAW_SOUND_MAP: Record<SoundName, () => Promise<void>> = {
   sparkle: playSparkle,
   accept: playAccept,
   agentDone: playAgentDone,
+  agentError: playAgentError,
   deploy: playDeploy,
   merge: playMerge,
   reject: playReject,

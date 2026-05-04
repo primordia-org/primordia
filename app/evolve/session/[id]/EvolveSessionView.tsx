@@ -862,6 +862,9 @@ export default function EvolveSessionView({
   const lineCountRef = useRef(initialLineCount);
   /** Mirrors current status so the visibilitychange handler can read it without a stale closure. */
   const statusRef = useRef(initialStatus);
+  /** Mirrors current events so the status-change sound effect can inspect the last result
+   *  event without adding `events` to that effect’s dependency array. */
+  const eventsRef = useRef(initialEvents);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   /**
    * True when the user is scrolled to (or near) the bottom.
@@ -900,8 +903,9 @@ export default function EvolveSessionView({
     };
   }, []);
 
-  // Keep refs in sync so the visibilitychange handler always has the latest values.
+  // Keep refs in sync so event handlers and effects always see the latest values.
   useEffect(() => { statusRef.current = status; }, [status]);
+  useEffect(() => { eventsRef.current = events; }, [events]);
 
   // Central sound-on-status-change effect.
   // Using a single effect with prevStatusRef avoids duplicate sounds when
@@ -914,7 +918,15 @@ export default function EvolveSessionView({
     // Agent finished — running → ready
     const wasRunning = prev === "running-claude" || prev === "starting" || prev === "fixing-types";
     if (status === "ready" && wasRunning) {
-      sounds.agentDone();
+      // Check the most-recent result event to distinguish success from failure.
+      // eventsRef.current is up-to-date (synced via its own useEffect) without
+      // needing to add `events` as a dep here.
+      const lastResult = [...eventsRef.current].reverse()
+        .find((e): e is Extract<import("@/lib/session-events").SessionEvent, { type: "result" }> => e.type === "result");
+      const isError = lastResult != null &&
+        (lastResult.subtype === "error" || lastResult.subtype === "timeout" || lastResult.subtype === "aborted");
+      if (isError) sounds.agentError();
+      else sounds.agentDone();
     }
 
     // Accepted — fanfare for production deploy, merge chime for dev merge

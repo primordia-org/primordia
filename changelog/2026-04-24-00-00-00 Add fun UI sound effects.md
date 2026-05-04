@@ -20,7 +20,8 @@ Added synthesised sound effects to key UI interactions throughout the app. All s
 | `menuClose` | Hamburger menu closes | Downward sine tick + noise click |
 | `sparkle` | Evolve session submitted / dialog opened | Three ascending sine sparkle tones |
 | `accept` | Evolve session accepted ✅ | Cheerful C-E-G-C major arpeggio |
-| `agentDone` | Agent finished, session ready | A-C♯-E-A (A major) arpeggio, 350 ms decay |
+| `agentDone`  | Agent finished successfully | A-C♯-E-A (A major) arpeggio, 350 ms decay |
+| `agentError` | Agent finished with error | A-F♯-D♯ descend then leap up to C5 |
 | `deploy` | Branch deployed to production | "Ta Daaaa!": punchy C5+G5 accent then blooming 4-octave C major chord |
 | `merge` | Dev branch merged | Two converging tones (E5→C5, G4→C5) + C major resolution chord |
 | `reject` | Evolve session rejected 🗑️ | Descending minor-third triangle tones |
@@ -77,9 +78,13 @@ Both are wired in `EvolveSessionView` via the centralised `prevStatusRef` `useEf
 
 The sine pluck was too similar to `pop`. Replaced with blue noise (first-order differentiated white noise, which naturally emphasises high frequencies) filtered through a bandpass at 1 kHz (Q = 1.8). The result is a crisp, defined "tick" that is brighter than pink noise and less harsh than white-noise highpass.
 
-### New sound: `agentDone`
+### New sounds: `agentDone` and `agentError`
 
-A major arpeggio: A4-C♯5-E5-A5, gain 0.18, 350 ms decay per note, 100 ms note spacing - the same progression as the `/sound-test` oscilloscope test tone. Wired into `EvolveSessionView` via a `useEffect` that watches `status` and fires whenever the session transitions from `running-claude`, `starting`, or `fixing-types` into `ready`.
+`agentDone` — A major arpeggio: A4–C♯5–E5–A5, gain 0.18, 350 ms decay per note, 100 ms spacing. Plays when the agent finishes successfully.
+
+`agentError` — Dramatic failure motif: A4–F♯4–D♯4 (two descending minor thirds, 130 ms spacing) then a major-sixth leap up to C5 (500 ms decay). The descent creates dread; the unexpected upward jump leaves the phrase unresolved — suspenseful rather than simply sad.
+
+Both are wired in `EvolveSessionView`’s status-change `useEffect`. On `running → ready`, the effect reads `eventsRef.current` (a ref kept in sync with `events` state) to find the most-recent `result` event. If its `subtype` is `error`, `timeout`, or `aborted`, `agentError` plays; otherwise `agentDone` plays. Using a ref avoids adding `events` to the effect’s dep array, which would make it fire on every SSE event.
 
 **Fix:** `lib/sounds.ts` now uses a single **persistent module-level `AudioContext`** that is created on first use and never closed. All play functions are now `async` and `await ctx.resume()` before scheduling any nodes, ensuring the context is actually running before any audio is queued. The `useSounds()` public API is unchanged - each method still returns `() => void`; the async play functions are fired with `void fn().catch(...)` internally.
 
