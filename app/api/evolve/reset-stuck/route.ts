@@ -17,7 +17,9 @@ import {
   getSessionNdjsonPath,
   getSessionFromFilesystem,
 } from '../../../../lib/session-events';
+import { INSTALL_SH_PID_FILE } from '../manage/route';
 import * as fs from 'fs';
+import * as path from 'path';
 
 export async function POST(request: Request) {
   const user = await getSessionUser();
@@ -53,6 +55,33 @@ export async function POST(request: Request) {
   const ndjsonPath = getSessionNdjsonPath(record.worktreePath);
   if (!fs.existsSync(ndjsonPath)) {
     return Response.json({ error: 'Session log not found on disk' }, { status: 404 });
+  }
+
+  // Kill any running install.sh process before resetting so a subsequent
+  // re-accept doesn't race a zombie install.sh that is still hanging.
+  const installPidFile = path.join(record.worktreePath, INSTALL_SH_PID_FILE);
+  if (fs.existsSync(installPidFile)) {
+    try {
+      const installPid = parseInt(fs.readFileSync(installPidFile, 'utf8').trim(), 10);
+      if (!isNaN(installPid)) {
+        try { process.kill(-installPid, 'SIGTERM'); } catch { /* already gone */ }
+        try { process.kill(installPid, 'SIGTERM'); } catch { /* already gone */ }
+        console.log(`[reset-stuck] sent SIGTERM to install.sh PID ${installPid} for session ${body.sessionId}`);
+      }
+    } catch { /* non-fatal */ }
+    try { fs.unlinkSync(installPidFile); } catch { /* non-fatal */ }
+  }
+
+  // Also kill any running preview dev server — it was killed at the start of the
+  // accept pipeline, but if the pipeline got stuck before that kill (e.g. an
+  // earlier server-restart scenario), the proxy endpoint is idempotent so this
+  // is always safe.
+  if (process.env.REVERSE_PROXY_PORT) {
+    try {
+      await fetch(`http://127.0.0.1:${process.env.REVERSE_PROXY_PORT}/_proxy/preview/${body.sessionId}`, {
+        method: 'DELETE',
+      });
+    } catch { /* proxy not running — dev server may already be gone */ }
   }
 
   // Write a result:error event — this makes inferStatusFromEvents return 'ready',

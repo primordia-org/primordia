@@ -7,8 +7,9 @@
 - **`lib/evolve-sessions.ts`** — `spawnCacheWarmBuild` now writes the warmup process PID to `.primordia-warmup-build.pid` in the worktree so `runAcceptAsync` can kill it reliably.
 
 ### Fix the stuck-forever / no-STUCK?-button problem (follow-up fix)
-- **`app/api/evolve/manage/route.ts`** — `runInstallSh` now resolves on the `'exit'` event (when the main bash process exits) instead of `'close'` (when all stdio streams close). After resolving, it immediately destroys the stdout/stderr streams.
+- **`app/api/evolve/manage/route.ts`** — `runInstallSh` now resolves on the `'exit'` event (when the main bash process exits) instead of `'close'` (when all stdio streams close). After resolving, it immediately destroys the stdout/stderr streams. `runInstallSh` also writes the install.sh PID to `.primordia-installsh.pid` so it can be killed on force-reset.
 - **`scripts/install.sh`** — Added `_spin_kill` before `exit 1` in the typecheck and build failure paths.
+- **`app/api/evolve/reset-stuck/route.ts`** — Before writing the `result:error` event, the force-reset route now kills the install.sh process (via `.primordia-installsh.pid`) and asks the proxy to stop the dev server. This makes re-accept after [Stuck?] safe — without it, a hung install.sh would still be running when the user re-accepts, and the second install.sh run would immediately fail with the same build-lock conflict.
 
 ## Why
 

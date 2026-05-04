@@ -83,6 +83,9 @@ const INSTALL_EXIT_TYPECHECK = 2;
  * and destroying the streams closes the read-ends of the pipes, which causes
  * the spinner sub-process to get SIGPIPE and die on its next write.
  */
+/** Well-known filename used to track the PID of a running install.sh process. */
+export const INSTALL_SH_PID_FILE = '.primordia-installsh.pid';
+
 function runInstallSh(
   sessionId: string,
   worktreePath: string,
@@ -95,6 +98,13 @@ function runInstallSh(
       env: { ...process.env, REPORT_STYLE: 'ansi' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    // Write the PID to a well-known file so reset-stuck can kill install.sh
+    // (and all its child processes) before allowing a re-accept attempt.
+    // Without this, a stuck install.sh keeps running while the user re-accepts,
+    // causing a second concurrent install.sh to race the first one.
+    if (proc.pid !== undefined) {
+      try { fs.writeFileSync(path.join(worktreePath, INSTALL_SH_PID_FILE), String(proc.pid)); } catch { /* non-fatal */ }
+    }
     const forward = (data: Buffer) => { void appendLogLine(sessionId, data.toString()); };
     proc.stdout.on('data', forward);
     proc.stderr.on('data', forward);
@@ -104,6 +114,8 @@ function runInstallSh(
       // stay open and keep delivering spinner noise to the session log.
       proc.stdout.destroy();
       proc.stderr.destroy();
+      // Clean up PID file now that the process has exited normally.
+      try { fs.unlinkSync(path.join(worktreePath, INSTALL_SH_PID_FILE)); } catch { /* already gone */ }
       resolve(code ?? 1);
     });
     proc.on('error', (err) => reject(new Error(`install.sh spawn failed: ${err.message}`)));
