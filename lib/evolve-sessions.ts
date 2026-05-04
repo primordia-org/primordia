@@ -14,7 +14,12 @@ import {
   type AgentAuthInfo,
 } from './session-events';
 import { HARNESS_OPTIONS, DEFAULT_HARNESS, DEFAULT_MODEL } from './agent-config';
-import { getModelLabel } from './pi-model-registry.server';
+import { MODEL_OPTIONS } from './agent-config';
+
+/** Look up the human-readable label for a model ID within a given harness. Falls back to the raw ID. */
+function getModelLabel(harnessId: string, modelId: string): string {
+  return MODEL_OPTIONS[harnessId]?.find((m) => m.id === modelId)?.label ?? modelId;
+}
 
 export type LocalSessionStatus =
   | 'starting'
