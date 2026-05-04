@@ -413,12 +413,11 @@ async function playMerge(): Promise<void> {
 async function playReject(): Promise<void> {
   const ctx = await getCtx();
   if (!ctx) return;
-  // "GOOD bye": E5 and G4 land close together for the stressed "GOOD"
-  // syllable, then C4 rings out as the long, final "bye".
-  // Descending C-major triad (E5→G4→C4) — cheerful dismissal, not despair.
-  tone(ctx, { type: "sine", freq: 659.25, gain: 0.14, attack: 0.01, decay: 0.18, start: 0.00 }); // E5 — "GOO"
-  tone(ctx, { type: "sine", freq: 392,    gain: 0.13, attack: 0.01, decay: 0.14, start: 0.10 }); // G4 — "D"
-  tone(ctx, { type: "sine", freq: 261.63, gain: 0.16, attack: 0.01, decay: 0.45, start: 0.26 }); // C4 — "bye" (rings out)
+  // "GOOD bye": E5+G4 struck together as a chord for "GOOD",
+  // then C4 rings out alone as "bye".
+  tone(ctx, { type: "sine", freq: 659.25, gain: 0.14, attack: 0.01, decay: 0.18, start: 0.00 }); // E5 — "GOOD" (chord)
+  tone(ctx, { type: "sine", freq: 392,    gain: 0.13, attack: 0.01, decay: 0.18, start: 0.00 }); // G4 — "GOOD" (chord)
+  tone(ctx, { type: "sine", freq: 261.63, gain: 0.16, attack: 0.01, decay: 0.45, start: 0.22 }); // C4 — "bye" (rings out)
 }
 
 async function playClick(): Promise<void> {
