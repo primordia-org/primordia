@@ -7,6 +7,7 @@
 
 import { useState, useRef } from "react";
 import { withBasePath } from "@/lib/base-path";
+import { trackEvent } from "@/lib/events-client";
 
 interface Props {
   sessionId: string;
@@ -59,6 +60,7 @@ export function DiffFileExpander({ sessionId, file, additions, deletions, isLast
 
   function handleToggle() {
     const nextOpen = !open;
+    trackEvent("session/diff-file-toggled/v1", { sessionId, file, open: nextOpen });
     setOpen(nextOpen);
     if (nextOpen && !fetchedRef.current) {
       fetchedRef.current = true;
