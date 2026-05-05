@@ -28,6 +28,8 @@ import {
 } from '@mariozechner/pi-coding-agent';
 import * as fs from 'fs';
 import * as path from 'path';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const minimatch = require('minimatch') as (path: string, pattern: string) => boolean;
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
@@ -61,6 +63,102 @@ interface WorkerConfig {
   model?: string;
   /** When true, continue the most recent pi session in the worktree directory. */
   useContinue?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Nested CLAUDE.md / .claude/rules context discovery
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse YAML frontmatter `paths:` from a .claude/rules/*.md file.
+ * Returns the list of glob patterns, or null if no frontmatter is present.
+ * Only handles the simple `paths:\n  - "glob"` format used in this project.
+ */
+function parseRulesPaths(content: string): string[] | null {
+  if (!content.startsWith('---')) return null;
+  const end = content.indexOf('\n---', 3);
+  if (end === -1) return null;
+  const front = content.slice(3, end);
+  const patterns: string[] = [];
+  for (const line of front.split('\n')) {
+    const m = line.match(/^\s*-\s+"?([^"]+)"?\s*$/);
+    if (m) patterns.push(m[1]);
+  }
+  return patterns.length > 0 ? patterns : null;
+}
+
+/**
+ * Collect extra context files to inject into the pi agent session:
+ *
+ * 1. Nested CLAUDE.md / AGENTS.md files in subdirectories of the worktree
+ *    (the root one is already discovered by DefaultResourceLoader via the
+ *    AGENTS.md → CLAUDE.md symlink).
+ *
+ * 2. .claude/rules/*.md files whose `paths:` frontmatter glob patterns match
+ *    at least one file that exists in the worktree — "RAG-ified" file map
+ *    entries that only load when relevant.
+ */
+function collectExtraContextFiles(worktreePath: string): Array<{ path: string; content: string }> {
+  const extra: Array<{ path: string; content: string }> = [];
+
+  // 1. Nested CLAUDE.md / AGENTS.md — walk the worktree directory tree.
+  //    Skip root (SDK handles it), node_modules, .git, and worktrees/.
+  function walkForClaudeMd(dir: string, isRoot: boolean): void {
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'worktrees') continue;
+      if (entry.isDirectory()) {
+        walkForClaudeMd(path.join(dir, entry.name), false);
+      } else if (!isRoot && (entry.name === 'CLAUDE.md' || entry.name === 'AGENTS.md')) {
+        const fullPath = path.join(dir, entry.name);
+        try {
+          extra.push({ path: fullPath, content: fs.readFileSync(fullPath, 'utf8') });
+        } catch { /* skip unreadable files */ }
+      }
+    }
+  }
+  walkForClaudeMd(worktreePath, true);
+
+  // 2. .claude/rules/*.md with path-scoped frontmatter.
+  const rulesDir = path.join(worktreePath, '.claude', 'rules');
+  let ruleFiles: string[];
+  try { ruleFiles = fs.readdirSync(rulesDir).filter((f) => f.endsWith('.md')); } catch { ruleFiles = []; }
+
+  for (const ruleFile of ruleFiles) {
+    const fullPath = path.join(rulesDir, ruleFile);
+    let content: string;
+    try { content = fs.readFileSync(fullPath, 'utf8'); } catch { continue; }
+    const patterns = parseRulesPaths(content);
+    if (!patterns) {
+      // No frontmatter — always include (unconditional rule).
+      extra.push({ path: fullPath, content });
+      continue;
+    }
+    // Include if any glob pattern matches at least one existing file in the worktree.
+    const matched = patterns.some((pattern) => {
+      // Walk worktree and test each file path (relative to worktree) against the pattern.
+      function testDir(dir: string): boolean {
+        let entries: fs.Dirent[];
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return false; }
+        for (const entry of entries) {
+          if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'worktrees') continue;
+          const abs = path.join(dir, entry.name);
+          const rel = path.relative(worktreePath, abs);
+          if (entry.isDirectory()) {
+            if (testDir(abs)) return true;
+          } else if (minimatch(rel, pattern)) {
+            return true;
+          }
+        }
+        return false;
+      }
+      return testDir(worktreePath);
+    });
+    if (matched) extra.push({ path: fullPath, content });
+  }
+
+  return extra;
 }
 
 async function main(): Promise<void> {
@@ -196,6 +294,10 @@ async function main(): Promise<void> {
     // (symlinked to CLAUDE.md) and other project context, and append the
     // working-directory line. Skills are discovered from .pi/skills/ which
     // is symlinked to .claude/skills/ — no code changes needed for either.
+    //
+    // agentsFilesOverride injects nested CLAUDE.md files and path-scoped
+    // .claude/rules/*.md files, mirroring Claude Code's own behaviour.
+    const extraContextFiles = collectExtraContextFiles(worktreePath);
     const loader = new DefaultResourceLoader({
       cwd: worktreePath,
       agentDir: getAgentDir(),
@@ -204,6 +306,9 @@ async function main(): Promise<void> {
       // and may require interactive input or write to unexpected locations.
       noExtensions: true,
       extensionFactories,
+      agentsFilesOverride: (current) => ({
+        agentsFiles: [...current.agentsFiles, ...extraContextFiles],
+      }),
     });
     await loader.reload();
 
