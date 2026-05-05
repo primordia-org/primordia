@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { withBasePath } from "@/lib/base-path";
+import { trackEvent } from "@/lib/events-client";
 
 export interface AdminUser {
   id: string;
@@ -26,9 +27,10 @@ export default function AdminPermissionsClient({ users: initial, adminRoleName, 
   const [error, setError] = useState<string | null>(null);
 
   async function toggleEvolve(user: AdminUser) {
+    const action = user.canEvolve ? "revoke" : "grant";
+    trackEvent("admin/evolve-permission-toggled/v1", { targetUserId: user.id, action });
     setBusy(user.id);
     setError(null);
-    const action = user.canEvolve ? "revoke" : "grant";
     try {
       const res = await fetch(withBasePath("/api/admin/permissions"), {
         method: "POST",

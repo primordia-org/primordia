@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { trackEvent } from "@/lib/events-client";
 import {
   RefreshCw,
   Download,
@@ -535,6 +536,7 @@ export default function UpdatesClient({ initialSources }: UpdatesClientProps) {
   }
 
   async function handleFetchAll() {
+    trackEvent("admin/updates-fetch-all/v1", {});
     setBusy(true); clearFeedback();
     const { data, error } = await post<UpdatesResponse>({ action: "fetch-all" });
     if (error) setGlobalError(error);
@@ -554,6 +556,7 @@ export default function UpdatesClient({ initialSources }: UpdatesClientProps) {
   }
 
   async function handleFetchSource(sourceId: string) {
+    trackEvent("admin/update-source-fetched/v1", { sourceId });
     setBusy(true); clearFeedback();
     const { data, error } = await post<{ source: SourceStatus }>({ action: "fetch-source", sourceId });
     if (error) setGlobalError(error);
@@ -584,6 +587,7 @@ export default function UpdatesClient({ initialSources }: UpdatesClientProps) {
   }
 
   async function handleToggle(sourceId: string, enabled: boolean) {
+    trackEvent("admin/update-source-toggled/v1", { sourceId, enabled });
     setBusy(true); clearFeedback();
     const { data, error } = await post<UpdatesResponse>({ action: "toggle-source", sourceId, enabled });
     if (error) setGlobalError(error);
@@ -594,6 +598,7 @@ export default function UpdatesClient({ initialSources }: UpdatesClientProps) {
   async function handleRemove(sourceId: string) {
     const source = sources.find((s) => s.id === sourceId);
     if (!confirm(`Remove source "${source?.name ?? sourceId}"? This will also delete its git remote and tracking branch.`)) return;
+    trackEvent("admin/update-source-removed/v1", { sourceId, name: source?.name });
     setBusy(true); clearFeedback();
     const { data, error } = await post<UpdatesResponse>({ action: "remove-source", sourceId });
     if (error) setGlobalError(error);
@@ -602,6 +607,7 @@ export default function UpdatesClient({ initialSources }: UpdatesClientProps) {
   }
 
   async function handleCreateSession(sourceId: string) {
+    trackEvent("admin/update-session-created/v1", { sourceId });
     setBusy(true); clearFeedback();
     const { data, error } = await post<{ sessionId: string }>({ action: "create-session", sourceId });
     if (error) { setGlobalError(error); setBusy(false); return; }
@@ -612,6 +618,7 @@ export default function UpdatesClient({ initialSources }: UpdatesClientProps) {
   }
 
   async function handleAddSource(name: string, url: string) {
+    trackEvent("admin/update-source-added/v1", { name, url });
     setBusy(true); clearFeedback();
     const { data, error } = await post<{ source: SourceStatus }>({ action: "add-source", name, url });
     if (error) { setGlobalError(error); setBusy(false); return; }

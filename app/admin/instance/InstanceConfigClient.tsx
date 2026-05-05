@@ -4,6 +4,7 @@
 // and view graph nodes/edges.
 
 import { useState } from "react";
+import { trackEvent } from "@/lib/events-client";
 import { withBasePath } from "@/lib/base-path";
 import { validateCanonicalUrl } from "@/lib/validate-canonical-url";
 import type { InstanceConfig, GraphNode, GraphEdge } from "@/lib/db/types";
@@ -28,6 +29,7 @@ export default function InstanceConfigClient({ config: initial, nodes, edges }: 
     const urlErr = validateCanonicalUrl(canonicalUrl);
     setCanonicalUrlError(urlErr);
     if (urlErr) return;
+    trackEvent("admin/instance-config-saved/v1", { name, hasCanonicalUrl: !!canonicalUrl, hasParentUrl: !!parentUrl });
     setSaving(true);
     setSaveMsg(null);
     try {

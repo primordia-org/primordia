@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { withBasePath } from "@/lib/base-path";
+import { trackEvent } from "@/lib/events-client";
 
 interface Props {
   branchName: string;
@@ -21,6 +22,7 @@ export function CreateSessionFromBranchButton({ branchName }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   async function handleClick() {
+    trackEvent("branches/create-session-from-branch/v1", { branchName });
     setLoading(true);
     setError(null);
     try {

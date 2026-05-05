@@ -15,6 +15,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { withBasePath } from "@/lib/base-path";
 import type { AuthTabProps } from "@/lib/auth-providers/types";
+import { trackEvent } from "@/lib/events-client";
 import {
   generateEcdhKeypair,
   exportEcdhPubKeyB64u,
@@ -78,6 +79,7 @@ export default function CrossDeviceTab({ onSuccess }: AuthTabProps) {
       }
       setTokenId(data.tokenId);
       setPhase("polling");
+      trackEvent("auth/cross-device-qr-started/v1", {});
 
       pollRef.current = setInterval(async () => {
         try {
@@ -107,6 +109,7 @@ export default function CrossDeviceTab({ onSuccess }: AuthTabProps) {
               }
             }
 
+            trackEvent("auth/cross-device-approved/v1", {});
             setPhase("approved");
             onSuccess(pollData.username ?? "");
           } else if (pollData.status === "expired" || pollData.status === "not_found") {

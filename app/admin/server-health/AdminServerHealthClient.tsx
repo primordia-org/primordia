@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { withBasePath } from "@/lib/base-path";
+import { trackEvent } from "@/lib/events-client";
 
 interface DiskInfo {
   totalBytes: number;
@@ -131,6 +132,7 @@ export default function AdminServerHealthClient() {
     )
       return;
 
+    trackEvent("admin/oldest-worktree-deleted/v1", { branch, path });
     setDeleting(true);
     setDeleteMessage(null);
     setDeleteError(null);

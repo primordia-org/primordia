@@ -27,6 +27,7 @@ import { QrCode, X, RefreshCw } from "lucide-react";
 import { withBasePath, basePath } from "@/lib/base-path";
 import QRCode from "qrcode";
 import { encryptCredentialsForPush } from "@/lib/cross-device-creds";
+import { trackEvent } from "@/lib/events-client";
 
 interface QrSignInOtherDeviceDialogProps {
   onClose: () => void;
@@ -105,6 +106,7 @@ export function QrSignInOtherDeviceDialog({ onClose }: QrSignInOtherDeviceDialog
       const imgSrc = `data:image/svg+xml;base64,${btoa(svg)}`;
       setQrImgSrc(imgSrc);
       setPhase("ready");
+      trackEvent("auth/push-qr-started/v1", {});
     } catch {
       setPhase("error");
       setError("Network error. Please try again.");

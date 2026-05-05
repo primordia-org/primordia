@@ -12,6 +12,7 @@ import { AdminUpdatesBell } from "./AdminUpdatesBell";
 import { ApiKeyDialog } from "./ApiKeyDialog";
 import { CredentialsDialog } from "./CredentialsDialog";
 import { QrSignInOtherDeviceDialog } from "./QrSignInOtherDeviceDialog";
+import { trackEvent } from "@/lib/events-client";
 
 const cn = (...inputs: Parameters<typeof clsx>) => twMerge(clsx(inputs));
 const ROW = "flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-800 transition-colors";
@@ -140,6 +141,7 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
         onClick={() => {
           const next = !menuOpen;
           if (next) sounds.menuOpen(); else sounds.menuClose();
+          trackEvent("nav/menu-toggled/v1", { open: next });
           setMenuOpen(next);
         }}
         aria-label={menuOpen ? "Close menu" : "Open menu"}
@@ -162,11 +164,11 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
                 <p className="text-xs text-gray-500">Signed in as</p>
                 <p className="text-sm text-gray-200 font-medium truncate">@{sessionUser.username}</p>
               </div>
-              <MenuBtn dataId="nav-menu/sign-in-other-device" className="hover:text-blue-400" onClick={() => { setMenuOpen(false); setQrSignInDialogOpen(true); }}>
+              <MenuBtn dataId="nav-menu/sign-in-other-device" className="hover:text-blue-400" onClick={() => { setMenuOpen(false); trackEvent("nav/menu-item-clicked/v1", { dataId: "nav-menu/sign-in-other-device", label: "Sign in on another device" }); setQrSignInDialogOpen(true); }}>
                 <QrCode size={16} strokeWidth={2} aria-hidden="true" />
                 Sign in on another device
               </MenuBtn>
-              <MenuBtn dataId="nav-menu/sign-out" className="hover:text-red-400" onClick={() => { setMenuOpen(false); onLogout(); }}>
+              <MenuBtn dataId="nav-menu/sign-out" className="hover:text-red-400" onClick={() => { setMenuOpen(false); trackEvent("nav/menu-item-clicked/v1", { dataId: "nav-menu/sign-out", label: "Sign out" }); onLogout(); }}>
                 <LogOut size={16} strokeWidth={2} aria-hidden="true" />
                 Sign out
               </MenuBtn>
@@ -181,7 +183,7 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
           {/* API Key and credentials settings — available to any logged-in user */}
           {sessionUser && (
             <>
-              <MenuBtn dataId="nav-menu/api-key" className="hover:text-amber-400" onClick={() => { setMenuOpen(false); setApiKeyDialogOpen(true); }}>
+              <MenuBtn dataId="nav-menu/api-key" className="hover:text-amber-400" onClick={() => { setMenuOpen(false); trackEvent("nav/menu-item-clicked/v1", { dataId: "nav-menu/api-key", label: "API Key" }); setApiKeyDialogOpen(true); }}>
                 <Key size={16} strokeWidth={2} aria-hidden="true" />
                 API Key
               </MenuBtn>
@@ -199,12 +201,12 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
           {/* Page-specific items */}
           {items.map((item, i) =>
             item.href ? (
-              <MenuLink key={i} href={item.href} dataId={item.dataId} className={item.className} onClick={() => { setMenuOpen(false); item.onClick?.(); }}>
+              <MenuLink key={i} href={item.href} dataId={item.dataId} className={item.className} onClick={() => { setMenuOpen(false); trackEvent("nav/menu-item-clicked/v1", { dataId: item.dataId, label: item.label }); item.onClick?.(); }}>
                 {item.icon}
                 {item.label}
               </MenuLink>
             ) : (
-              <MenuBtn key={i} dataId={item.dataId} className={item.className} onClick={() => { setMenuOpen(false); item.onClick?.(); }}>
+              <MenuBtn key={i} dataId={item.dataId} className={item.className} onClick={() => { setMenuOpen(false); trackEvent("nav/menu-item-clicked/v1", { dataId: item.dataId, label: item.label }); item.onClick?.(); }}>
                 {item.icon}
                 {item.label}
               </MenuBtn>

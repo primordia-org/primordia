@@ -26,6 +26,7 @@ import HorizontalResizeHandle from "./HorizontalResizeHandle";
 import type { SessionEvent, AgentAuthInfo } from "@/lib/session-events";
 import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
 import { deriveSmartPreviewUrl } from "@/lib/smart-preview-url";
+import { trackEvent } from "@/lib/events-client";
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────
 
@@ -832,6 +833,7 @@ function CopyBranchName({ branch }: { branch: string }) {
 
   function handleCopy() {
     navigator.clipboard.writeText(branch).then(() => {
+      trackEvent("session/branch-name-copied/v1", { branch });
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -1192,6 +1194,7 @@ export default function EvolveSessionView({
   }, [sessionId, status]);
 
   async function handleRestartServer() {
+    trackEvent("session/restart-server-clicked/v1", { sessionId });
     setIsRestartingServer(true);
     setRestartError(null);
 
@@ -1213,6 +1216,7 @@ export default function EvolveSessionView({
   }
 
   async function handleAbort() {
+    trackEvent("session/abort-clicked/v1", { sessionId });
     setIsAborting(true);
     setAbortError(null);
 
@@ -1237,6 +1241,7 @@ export default function EvolveSessionView({
   }
 
   async function handleUpstreamSync() {
+    trackEvent("session/upstream-sync-clicked/v1", { sessionId });
     setUpstreamSyncLoading("merge");
     setUpstreamSyncError(null);
     try {
@@ -1260,6 +1265,7 @@ export default function EvolveSessionView({
 
   async function handleAccept() {
     if (acceptRejectLoading) return;
+    trackEvent("session/accept-clicked/v1", { sessionId });
     setAcceptRejectLoading(true);
     setAcceptRejectError(null);
     try {
@@ -1306,6 +1312,7 @@ export default function EvolveSessionView({
 
   async function handleReject() {
     if (acceptRejectLoading) return;
+    trackEvent("session/reject-clicked/v1", { sessionId });
     setAcceptRejectLoading(true);
     setAcceptRejectError(null);
     try {
@@ -1333,6 +1340,7 @@ export default function EvolveSessionView({
    */
   async function handleForceReset(targetSessionId: string) {
     if (isResettingStuck) return;
+    trackEvent("session/force-reset-clicked/v1", { sessionId: targetSessionId, currentSessionId: sessionId });
     setIsResettingStuck(true);
     setForceResetError(null);
     try {
@@ -1359,9 +1367,13 @@ export default function EvolveSessionView({
 
   // Toggle an action panel open/closed. Clicking the active button collapses the panel.
   const toggleAction = useCallback((action: "accept" | "reject" | "followup") => {
-    setActiveAction(prev => (prev === action ? null : action));
+    setActiveAction(prev => {
+      const next = prev === action ? null : action;
+      trackEvent("session/action-panel-toggled/v1", { action, open: next === action, sessionId });
+      return next;
+    });
     setAcceptRejectError(null);
-  }, []);
+  }, [sessionId]);
 
   // Called by WebPreviewPanel when the user picks an element with the inspector tool.
   const handleElementSelected = useCallback((info: ElementSelection) => {

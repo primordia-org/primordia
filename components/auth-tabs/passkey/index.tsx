@@ -9,6 +9,7 @@ import { startRegistration, startAuthentication } from "@simplewebauthn/browser"
 import { withBasePath } from "@/lib/base-path";
 import { Key } from "lucide-react";
 import type { AuthTabProps } from "@/lib/auth-providers/types";
+import { trackEvent } from "@/lib/events-client";
 
 export default function PasskeyTab({ onSuccess }: AuthTabProps) {
   const [username, setUsername] = useState("");
@@ -23,6 +24,7 @@ export default function PasskeyTab({ onSuccess }: AuthTabProps) {
       setError("Please enter a username.");
       return;
     }
+    trackEvent("auth/passkey-register-started/v1", {});
     setError(null);
     setSuccess(null);
     setLoading("register");
@@ -57,16 +59,20 @@ export default function PasskeyTab({ onSuccess }: AuthTabProps) {
         return;
       }
 
+      trackEvent("auth/passkey-register-succeeded/v1", {});
       setSuccess(`Welcome, ${finishData.username}! Redirecting\u2026`);
       onSuccess(finishData.username ?? username);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      trackEvent("auth/passkey-register-failed/v1", { error: msg });
+      setError(msg);
     } finally {
       setLoading(null);
     }
   }
 
   async function handleLogin() {
+    trackEvent("auth/passkey-login-started/v1", {});
     setError(null);
     setSuccess(null);
     setLoading("login");
@@ -101,10 +107,13 @@ export default function PasskeyTab({ onSuccess }: AuthTabProps) {
         return;
       }
 
+      trackEvent("auth/passkey-login-succeeded/v1", {});
       setSuccess(`Welcome back, ${finishData.username}! Redirecting\u2026`);
       onSuccess(finishData.username ?? username);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      trackEvent("auth/passkey-login-failed/v1", { error: msg });
+      setError(msg);
     } finally {
       setLoading(null);
     }

@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { startRegistration } from "@simplewebauthn/browser";
 import { withBasePath } from "@/lib/base-path";
 import { Key } from "lucide-react";
+import { trackEvent } from "@/lib/events-client";
 
 interface Props {
   username: string;
@@ -21,6 +22,7 @@ export default function RegisterPasskeyClient({ username, nextUrl }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   async function handleRegister() {
+    trackEvent("auth/passkey-post-register-started/v1", {});
     setError(null);
     setLoading(true);
     try {
@@ -52,6 +54,7 @@ export default function RegisterPasskeyClient({ username, nextUrl }: Props) {
         return;
       }
 
+      trackEvent("auth/passkey-post-register-succeeded/v1", {});
       router.push(nextUrl);
       router.refresh();
     } catch (err) {
@@ -62,6 +65,7 @@ export default function RegisterPasskeyClient({ username, nextUrl }: Props) {
   }
 
   function handleSkip() {
+    trackEvent("auth/passkey-post-register-skipped/v1", {});
     router.push(nextUrl);
   }
 

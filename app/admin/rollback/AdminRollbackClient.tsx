@@ -4,6 +4,7 @@
 
 import { useState, useEffect } from "react";
 import { withBasePath } from "@/lib/base-path";
+import { trackEvent } from "@/lib/events-client";
 
 interface RollbackTarget {
   branch: string;
@@ -48,6 +49,7 @@ export default function AdminRollbackClient() {
 
   async function applyRollback(target: RollbackTarget) {
     if (!confirm(`Roll back production to "${target.branch}"?\n\nThis will start the server in that worktree and switch traffic to it.`)) return;
+    trackEvent("admin/rollback-applied/v1", { targetBranch: target.branch, worktreePath: target.worktreePath });
     setRolling(true);
     setMessage(null);
     setActionError(null);

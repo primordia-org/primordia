@@ -27,6 +27,7 @@ import {
 } from "../lib/agent-config";
 import { PageElementInspector, PageElementInfo, captureElementFiles } from "./PageElementInspector";
 import { useSounds } from "@/lib/sounds";
+import { trackEvent } from "@/lib/events-client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -185,6 +186,7 @@ export function EvolveRequestForm({
     setInspectorActive(false);
     const id = `elem-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const label = `<${info.component}>`;
+    trackEvent("evolve-form/element-picked/v1", { component: info.component, selector: info.selector });
 
     // Show "generating" chip immediately so the user gets instant feedback.
     setElementAttachments((prev) => [
@@ -233,6 +235,15 @@ export function EvolveRequestForm({
         .filter((a) => a.status === "ready")
         .flatMap((a) => a.files),
     ];
+
+    trackEvent("evolve-form/submit/v1", {
+      harness: selectedHarness,
+      model: selectedModel,
+      fileCount: allFiles.length,
+      elementCount: elementAttachments.filter((a) => a.status === "ready").length,
+      cavemanMode,
+      isFollowup: !!onSubmit,
+    });
 
     try {
       if (onSubmit) {
@@ -286,7 +297,9 @@ export function EvolveRequestForm({
       }
     } catch (err) {
       sounds.error();
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      const msg = err instanceof Error ? err.message : "Something went wrong.";
+      setError(msg);
+      trackEvent("evolve-form/submit-error/v1", { error: msg });
     } finally {
       setIsLoading(false);
     }
@@ -294,11 +307,13 @@ export function EvolveRequestForm({
 
   // ── File handling ─────────────────────────────────────────────────────────
 
-  const handleFilesAdded = useCallback((newFiles: FileList | File[]) => {
+  const handleFilesAdded = useCallback((newFiles: FileList | File[], trigger: "button" | "drag" | "paste" = "button") => {
     const arr = Array.from(newFiles);
     setAttachedFiles((prev) => {
       const existing = new Set(prev.map((f) => `${f.name}:${f.size}`));
-      return [...prev, ...arr.filter((f) => !existing.has(`${f.name}:${f.size}`))];
+      const added = arr.filter((f) => !existing.has(`${f.name}:${f.size}`));
+      if (added.length > 0) trackEvent("evolve-form/files-attached/v1", { count: added.length, trigger });
+      return [...prev, ...added];
     });
   }, []);
 
@@ -314,7 +329,7 @@ export function EvolveRequestForm({
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files.length > 0) handleFilesAdded(e.dataTransfer.files);
+    if (e.dataTransfer.files.length > 0) handleFilesAdded(e.dataTransfer.files, "drag");
   }
 
   function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
@@ -323,6 +338,7 @@ export function EvolveRequestForm({
     );
     if (imageFiles.length === 0) return;
     const usedNames = new Set(attachedFiles.map((f) => f.name));
+    // trackEvent fires inside handleFilesAdded with trigger="paste"
     const renamed = imageFiles.map((file) => {
       const ext =
         file.type === "image/jpeg"
@@ -341,7 +357,7 @@ export function EvolveRequestForm({
       usedNames.add(name);
       return new File([file], name, { type: file.type });
     });
-    handleFilesAdded(renamed);
+    handleFilesAdded(renamed, "paste");
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -416,7 +432,7 @@ export function EvolveRequestForm({
                 <button
                   type="button"
                   data-id="evolve/remove-file-attachment"
-                  onClick={() => setAttachedFiles((prev) => prev.filter((_, j) => j !== i))}
+                  onClick={() => { trackEvent("evolve-form/file-removed/v1", { name: file.name, trigger: "mouse" }); setAttachedFiles((prev) => prev.filter((_, j) => j !== i)); }}
                   className="text-gray-500 hover:text-gray-200 ml-0.5 flex-shrink-0"
                   aria-label={`Remove ${file.name}`}
                 >
@@ -456,9 +472,7 @@ export function EvolveRequestForm({
                 <button
                   type="button"
                   data-id="evolve/remove-element-attachment"
-                  onClick={() =>
-                    setElementAttachments((prev) => prev.filter((a) => a.id !== attachment.id))
-                  }
+                  onClick={() => { trackEvent("evolve-form/element-removed/v1", { label: attachment.label, trigger: "mouse" }); setElementAttachments((prev) => prev.filter((a) => a.id !== attachment.id)); }}
                   className="text-blue-500 hover:text-blue-200 ml-0.5 flex-shrink-0"
                   aria-label={`Remove element ${attachment.label}`}
                 >
@@ -487,7 +501,7 @@ export function EvolveRequestForm({
           <button
             type="button"
             data-id="evolve/attach-files"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => { trackEvent("evolve-form/attach-files-clicked/v1", {}); fileInputRef.current?.click(); }}
             disabled={isLoading}
             className={`flex items-center gap-1.5 ${compact ? "px-2.5" : "px-3"} py-1.5 rounded-lg text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 border border-gray-700 transition-colors disabled:opacity-50`}
           >
@@ -499,7 +513,7 @@ export function EvolveRequestForm({
           <button
             type="button"
             data-id="evolve/pick-element"
-            onClick={() => setInspectorActive(true)}
+            onClick={() => { trackEvent("evolve-form/element-inspector-opened/v1", {}); setInspectorActive(true); }}
             disabled={isLoading || inspectorActive}
             title="Pick an element on the page to attach its details to this request"
             className={`flex items-center gap-1.5 ${compact ? "px-2.5" : "px-3"} py-1.5 rounded-lg text-xs transition-colors border disabled:opacity-50 ${
@@ -536,7 +550,7 @@ export function EvolveRequestForm({
           <button
             type="button"
             data-id="evolve/advanced-toggle"
-            onClick={() => setShowAdvanced((v) => !v)}
+            onClick={() => { const next = !showAdvanced; trackEvent("evolve-form/advanced-toggled/v1", { open: next }); setShowAdvanced(next); }}
             className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors select-none"
           >
             <Settings size={14} strokeWidth={2} aria-hidden="true" />
@@ -562,6 +576,7 @@ export function EvolveRequestForm({
                     const newModel = models?.[0]?.id ?? DEFAULT_MODEL;
                     setSelectedHarness(harness);
                     setSelectedModel(newModel);
+                    trackEvent("evolve-form/harness-changed/v1", { harness, model: newModel });
                   }}
                   disabled={isLoading}
                   className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
@@ -579,7 +594,7 @@ export function EvolveRequestForm({
                   <select
                     data-id="evolve/model-select"
                     value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
+                    onChange={(e) => { const model = e.target.value; setSelectedModel(model); trackEvent("evolve-form/model-changed/v1", { model, harness: selectedHarness }); }}
                     disabled={isLoading}
                     className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
                   >
@@ -609,7 +624,7 @@ export function EvolveRequestForm({
                       data-id="evolve/caveman-mode"
                       type="checkbox"
                       checked={cavemanMode}
-                      onChange={(e) => setCavemanMode(e.target.checked)}
+                      onChange={(e) => { const enabled = e.target.checked; setCavemanMode(enabled); trackEvent("evolve-form/caveman-toggled/v1", { enabled }); }}
                       disabled={isLoading}
                       className="accent-amber-500 disabled:opacity-50"
                     />
@@ -618,7 +633,7 @@ export function EvolveRequestForm({
                   <select
                     data-id="evolve/caveman-intensity"
                     value={cavemanIntensity}
-                    onChange={(e) => setCavemanIntensity(e.target.value as CavemanIntensity)}
+                    onChange={(e) => { const intensity = e.target.value as CavemanIntensity; setCavemanIntensity(intensity); trackEvent("evolve-form/caveman-intensity-changed/v1", { intensity }); }}
                     disabled={isLoading || !cavemanMode}
                     className="text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1 focus:outline-none focus:border-gray-500 disabled:opacity-50"
                   >

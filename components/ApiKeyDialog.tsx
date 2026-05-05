@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Key, X, Eye, EyeOff, ExternalLink } from "lucide-react";
 import { hasStoredApiKey, setStoredApiKey } from "../lib/api-key-client";
+import { trackEvent } from "../lib/events-client";
 
 interface ApiKeyDialogProps {
   onClose: () => void;
@@ -53,6 +54,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
     setLoading(true);
     try {
       await setStoredApiKey(trimmed);
+      trackEvent("settings/api-key-saved/v1", {});
       setIsKeySet(true);
       setInputValue("");
       setSaved(true);
@@ -68,6 +70,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
     setLoading(true);
     try {
       await setStoredApiKey(null);
+      trackEvent("settings/api-key-cleared/v1", {});
       setIsKeySet(false);
       setInputValue("");
       setError(null);

@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { EvolveRequestForm } from "./EvolveRequestForm";
 import { withBasePath } from "../lib/base-path";
 import { X, ExternalLink, PanelTop, PanelBottom } from "lucide-react";
+import { trackEvent } from "../lib/events-client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -57,6 +58,9 @@ export function FloatingEvolveDialog({
   const [isDragging, setIsDragging] = useState(false);
   const [isSmallScreen, setIsSmallScreen] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Track dialog open
+  useEffect(() => { trackEvent("evolve-dialog/opened/v1", {}); }, []);
 
   // null = docked; {x,y} = free-floating (px from viewport top-left)
   const [freePos, setFreePos] = useState<{ x: number; y: number } | null>(null);

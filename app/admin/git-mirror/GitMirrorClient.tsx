@@ -12,6 +12,7 @@
 import { useState } from "react";
 import { CheckCircle, Circle, GitBranch, ExternalLink, Loader, Trash2 } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
+import { trackEvent } from "@/lib/events-client";
 
 interface GitMirrorClientProps {
   /** The current URL of the "mirror" remote, or null if none is configured. */
@@ -31,6 +32,7 @@ export default function GitMirrorClient({ mirrorUrl: initialMirrorUrl }: GitMirr
     e.preventDefault();
     const url = urlInput.trim();
     if (!url) return;
+    trackEvent("admin/git-mirror-set/v1", { url });
     setLoading(true);
     setError(null);
     setSuccessMsg(null);
@@ -57,6 +59,7 @@ export default function GitMirrorClient({ mirrorUrl: initialMirrorUrl }: GitMirr
 
   async function handleRemoveMirror() {
     if (!confirm("Remove the mirror remote? Future deploys will no longer push to it.")) return;
+    trackEvent("admin/git-mirror-removed/v1", {});
     setLoading(true);
     setError(null);
     setSuccessMsg(null);

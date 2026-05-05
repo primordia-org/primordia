@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { trackEvent } from "@/lib/events-client";
 
 export default function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -9,6 +10,7 @@ export default function CopyButton({ text }: { text: string }) {
   async function handleCopy() {
     try {
       await navigator.clipboard.writeText(text);
+      trackEvent("content/copy-to-clipboard/v1", { length: text.length });
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

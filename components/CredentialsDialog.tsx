@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { FileKey, X, ExternalLink } from "lucide-react";
 import { hasStoredCredentials, setStoredCredentials } from "../lib/credentials-client";
+import { trackEvent } from "../lib/events-client";
 
 interface CredentialsDialogProps {
   onClose: () => void;
@@ -63,6 +64,7 @@ export function CredentialsDialog({ onClose }: CredentialsDialogProps) {
     setLoading(true);
     try {
       await setStoredCredentials(result.value);
+      trackEvent("settings/credentials-saved/v1", {});
       setIsSet(true);
       setInputValue("");
       setSaved(true);
@@ -78,6 +80,7 @@ export function CredentialsDialog({ onClose }: CredentialsDialogProps) {
     setLoading(true);
     try {
       await setStoredCredentials(null);
+      trackEvent("settings/credentials-cleared/v1", {});
       setIsSet(false);
       setInputValue("");
       setError(null);
