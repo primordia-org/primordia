@@ -702,6 +702,7 @@ function StructuredSection({
 function WebPreviewCard({
   fullHeight,
   previewUrl,
+  sessionId: cardSessionId,
   proxyServerStatus,
   serverLogs,
   canEvolve,
@@ -712,6 +713,7 @@ function WebPreviewCard({
 }: {
   fullHeight: boolean;
   previewUrl: string | null;
+  sessionId: string;
   proxyServerStatus: 'starting' | 'running' | 'stopped' | 'unknown';
   serverLogs: string;
   canEvolve: boolean;
@@ -731,6 +733,7 @@ function WebPreviewCard({
         {proxyServerStatus === 'running' && previewUrl ? (
           <WebPreviewPanel
             src={previewUrl}
+            sessionId={cardSessionId}
             fullHeight={fullHeight}
             onElementSelected={onElementSelected}
           />
@@ -982,6 +985,11 @@ export default function EvolveSessionView({
     const prev = prevStatusRef.current;
     prevStatusRef.current = status;
 
+    // Track status transitions for analytics / demo video reconstruction.
+    if (prev !== status) {
+      trackEvent("session/status-changed/v1", { sessionId, from: prev, to: status });
+    }
+
     // Agent finished — running → ready
     const wasRunning = prev === "running-claude" || prev === "starting" || prev === "fixing-types";
     if (status === "ready" && wasRunning) {
@@ -1101,7 +1109,13 @@ export default function EvolveSessionView({
             if (parsed.status != null) {
               setStatus(parsed.status);
             }
-            if ("previewUrl" in parsed) setPreviewUrl(parsed.previewUrl ?? null);
+            if ("previewUrl" in parsed) {
+              const newUrl = parsed.previewUrl ?? null;
+              setPreviewUrl((prev) => {
+                if (!prev && newUrl) trackEvent("session/preview-loaded/v1", { sessionId, previewUrl: newUrl });
+                return newUrl;
+              });
+            }
           } catch {
             // Ignore malformed SSE lines
           }
@@ -1112,6 +1126,12 @@ export default function EvolveSessionView({
       // Network error — leave the UI in its last known state
     }
   }
+
+  // Track session page view on mount.
+  useEffect(() => {
+    trackEvent("session/page-viewed/v1", { sessionId, status: initialStatus });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   // Start streaming if the session isn't already in a terminal state.
   useEffect(() => {
@@ -1377,9 +1397,10 @@ export default function EvolveSessionView({
 
   // Called by WebPreviewPanel when the user picks an element with the inspector tool.
   const handleElementSelected = useCallback((info: ElementSelection) => {
+    trackEvent("session/preview-element-selected/v1", { sessionId, component: info.component, selector: info.selector });
     setActiveAction('followup');
     setElementContext(info);
-  }, []);
+  }, [sessionId]);
 
   const isTerminal =
     status === "accepted" ||
@@ -1573,6 +1594,7 @@ export default function EvolveSessionView({
             <WebPreviewCard
               fullHeight={false}
               previewUrl={smartPreviewUrl}
+              sessionId={sessionId}
               proxyServerStatus={proxyServerStatus}
               serverLogs={serverLogs}
               canEvolve={canEvolve}
@@ -1593,7 +1615,10 @@ export default function EvolveSessionView({
         const totalDeletions = liveDiffSummary.reduce((s, f) => s + f.deletions, 0);
         return (
           <details className="group mb-6 rounded-lg border border-gray-700 bg-gray-900 text-sm overflow-hidden">
-            <summary className="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none">
+            <summary
+              onClick={() => trackEvent("session/diff-summary-toggled/v1", { sessionId, fileCount: liveDiffSummary.length })}
+              className="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none"
+            >
               <span className="text-gray-600 group-open:rotate-90 transition-transform flex-shrink-0 text-xs">▶</span>
               <span className="font-semibold text-xs text-gray-300 flex-shrink-0">📄 Files changed</span>
               <span className="ml-auto text-xs text-gray-500 flex-shrink-0">
@@ -1826,6 +1851,7 @@ export default function EvolveSessionView({
                     const data = (await res.json()) as { error?: string };
                     throw new Error(data.error ?? `Server error: ${res.status}`);
                   }
+                  trackEvent("session/followup-submitted/v1", { sessionId, harness, model, hasFiles: files.length > 0, hasElementContext: !!elementContext });
                   setElementContext(null);
                   setStatus('running-claude');
                   void startStreaming();
@@ -1977,6 +2003,7 @@ export default function EvolveSessionView({
         <WebPreviewCard
           fullHeight
           previewUrl={smartPreviewUrl}
+          sessionId={sessionId}
           proxyServerStatus={proxyServerStatus}
           serverLogs={serverLogs}
           canEvolve={canEvolve}

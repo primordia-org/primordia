@@ -8,6 +8,7 @@
 
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Crosshair } from "lucide-react";
+import { trackEvent } from "@/lib/events-client";
 
 // ─── Element Inspector script ─────────────────────────────────────────────────
 // Injected into the iframe's document when inspector mode is activated.
@@ -387,6 +388,8 @@ export interface ElementSelection {
 interface WebPreviewPanelProps {
   /** Initial URL to load in the iframe. */
   src: string;
+  /** Session ID for event tracking. */
+  sessionId?: string;
   /**
    * When true the panel fills its container vertically (flex-1 on the iframe
    * container) instead of using a fixed 600 px height. Use this when the panel
@@ -404,7 +407,7 @@ interface WebPreviewPanelProps {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function WebPreviewPanel({ src, fullHeight = false, className, onElementSelected }: WebPreviewPanelProps) {
+export function WebPreviewPanel({ src, sessionId, fullHeight = false, className, onElementSelected }: WebPreviewPanelProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // The URL shown in the address bar — starts as the initial src.
   const [urlBarValue, setUrlBarValue] = useState(src);
@@ -465,22 +468,26 @@ export function WebPreviewPanel({ src, fullHeight = false, className, onElementS
 
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    trackEvent("preview/url-navigated/v1", { sessionId, url: urlBarValue });
     navigate(urlBarValue);
   };
 
   const handleBack = () => {
+    trackEvent("preview/back-clicked/v1", { sessionId });
     try {
       iframeRef.current?.contentWindow?.history.back();
     } catch { /* cross-origin */ }
   };
 
   const handleForward = () => {
+    trackEvent("preview/forward-clicked/v1", { sessionId });
     try {
       iframeRef.current?.contentWindow?.history.forward();
     } catch { /* cross-origin */ }
   };
 
   const handleRefresh = () => {
+    trackEvent("preview/refresh-clicked/v1", { sessionId });
     try {
       iframeRef.current?.contentWindow?.location.reload();
     } catch {
@@ -494,14 +501,16 @@ export function WebPreviewPanel({ src, fullHeight = false, className, onElementS
 
   const toggleInspector = useCallback(() => {
     setInspectorActive((prev) => {
-      if (!prev) {
+      const next = !prev;
+      trackEvent("preview/inspector-toggled/v1", { sessionId, active: next });
+      if (next) {
         injectInspector();
       } else {
         cancelInspector();
       }
-      return !prev;
+      return next;
     });
-  }, [injectInspector, cancelInspector]);
+  }, [injectInspector, cancelInspector, sessionId]);
 
   // Listen for element selections and inspector-done messages from the iframe.
   useEffect(() => {
@@ -604,6 +613,7 @@ export function WebPreviewPanel({ src, fullHeight = false, className, onElementS
           href={src}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={() => trackEvent("preview/open-in-new-tab/v1", { sessionId })}
           className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors flex-shrink-0"
           title="Open in new tab"
         >
