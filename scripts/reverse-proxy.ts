@@ -294,6 +294,7 @@ function readAllPorts(): void {
     }
   }
   if (prodBranch) {
+    const prevProdBranch = currentProdBranch;
     currentProdBranch = prodBranch;
     let port = branchPort[prodBranch];
     if (!port) {
@@ -313,9 +314,17 @@ function readAllPorts(): void {
         console.warn(`[proxy] could not persist port for '${prodBranch}': ${(err as Error).message}`);
       }
     }
-    if (port !== upstreamPort) {
+    const portChanged = port !== upstreamPort;
+    if (portChanged) {
       console.log(`[proxy] upstream port: ${upstreamPort} → ${port} (PROD branch: ${prodBranch})`);
       upstreamPort = port;
+    }
+    // If the prod branch or port changed and there is no running prod server,
+    // start one now. This handles the local (non-production) accept flow where
+    // no /_proxy/prod/spawn call is made — the proxy just sees the git config
+    // change via fs.watch and must boot the new server automatically.
+    if ((portChanged || prodBranch !== prevProdBranch) && !prodServerEntry) {
+      setTimeout(() => void startProdServerIfNeeded(), 0);
     }
   }
 
