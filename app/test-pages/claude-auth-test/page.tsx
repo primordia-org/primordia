@@ -14,13 +14,19 @@
 //   5. Copy the credentials JSON and paste it into Primordia's credentials
 //      dialog (☰ → Credentials).
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Copy, Check, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type Step = "idle" | "waiting-for-code" | "submitting" | "done" | "error";
+
+interface LogLine {
+  source: "stdout" | "stderr" | "system";
+  text: string;
+  ts: number;
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -38,7 +44,62 @@ function useCopy(text: string) {
   return { copied, copy };
 }
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
+// ─── Log panel ───────────────────────────────────────────────────────────────
+
+const SOURCE_STYLE: Record<LogLine["source"], string> = {
+  stdout: "text-gray-300",
+  stderr: "text-yellow-300",
+  system: "text-blue-400",
+};
+
+const SOURCE_PREFIX: Record<LogLine["source"], string> = {
+  stdout: "out",
+  stderr: "err",
+  system: "sys",
+};
+
+function LogPanel({ lines }: { lines: LogLine[] }) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [lines.length]);
+
+  return (
+    <div className="rounded-lg border border-gray-700 bg-gray-900 overflow-hidden">
+      <div className="px-3 py-1.5 border-b border-gray-800 flex items-center justify-between">
+        <span className="text-xs font-semibold text-gray-400">
+          Process output
+          <span className="ml-2 font-normal text-gray-600">
+            (
+            <span className="text-gray-300">stdout</span>
+            {" · "}
+            <span className="text-yellow-500">stderr</span>
+            {" · "}
+            <span className="text-blue-400">system</span>
+            )
+          </span>
+        </span>
+        <span className="text-xs text-gray-600">{lines.length} lines</span>
+      </div>
+      <div className="font-mono text-xs leading-relaxed overflow-y-auto max-h-72 px-3 py-2 space-y-0.5">
+        {lines.length === 0 ? (
+          <p className="text-gray-600 italic">No output yet…</p>
+        ) : (
+          lines.map((l, i) => (
+            <div key={i} className="flex gap-2 items-start">
+              <span className="shrink-0 text-gray-600 w-7 text-right">{SOURCE_PREFIX[l.source]}</span>
+              <span className={SOURCE_STYLE[l.source] + " break-all whitespace-pre-wrap"}>{l.text}</span>
+            </div>
+          ))
+        )}
+        <div ref={bottomRef} />
+      </div>
+    </div>
+  );
+}
+
+// ─── CopyButton ──────────────────────────────────────────────────────────────
 
 function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
   const { copied, copy } = useCopy(text);
@@ -62,6 +123,30 @@ export default function ClaudeAuthTestPage() {
   const [code, setCode] = useState("");
   const [credentials, setCredentials] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [logs, setLogs] = useState<LogLine[]>([]);
+
+  const esRef = useRef<EventSource | null>(null);
+
+  // ── Log SSE subscription ───────────────────────────────────────────────────
+
+  function startLogStream(sid: string) {
+    esRef.current?.close();
+    const es = new EventSource(withBasePath(`/api/claude-auth/logs?sessionId=${sid}`));
+    es.onmessage = (e) => {
+      try {
+        const line = JSON.parse(e.data) as LogLine;
+        setLogs((prev) => [...prev, line]);
+      } catch { /* ignore */ }
+    };
+    esRef.current = es;
+  }
+
+  function stopLogStream() {
+    esRef.current?.close();
+    esRef.current = null;
+  }
+
+  useEffect(() => () => stopLogStream(), []);
 
   // ── Step 1: start ──────────────────────────────────────────────────────────
 
@@ -72,6 +157,7 @@ export default function ClaudeAuthTestPage() {
     setCredentials(null);
     setErrorMsg(null);
     setCode("");
+    setLogs([]);
 
     try {
       const res = await fetch(withBasePath("/api/claude-auth/start"), { method: "POST" });
@@ -79,6 +165,7 @@ export default function ClaudeAuthTestPage() {
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
       setSessionId(data.sessionId);
       setAuthUrl(data.url);
+      startLogStream(data.sessionId);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err));
       setStep("error");
@@ -99,18 +186,21 @@ export default function ClaudeAuthTestPage() {
         body: JSON.stringify({ sessionId, code: code.trim() }),
       });
       const data = await res.json();
+      stopLogStream();
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
       setCredentials(data.credentials);
       setStep("done");
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err));
       setStep("error");
+      stopLogStream();
     }
   }
 
   // ── Cancel ─────────────────────────────────────────────────────────────────
 
   async function handleCancel() {
+    stopLogStream();
     if (sessionId) {
       fetch(withBasePath("/api/claude-auth/cancel"), {
         method: "POST",
@@ -122,15 +212,19 @@ export default function ClaudeAuthTestPage() {
   }
 
   function reset() {
+    stopLogStream();
     setStep("idle");
     setSessionId(null);
     setAuthUrl(null);
     setCode("");
     setCredentials(null);
     setErrorMsg(null);
+    setLogs([]);
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
+
+  const showLogs = step !== "idle" && logs.length > 0;
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
@@ -155,7 +249,7 @@ export default function ClaudeAuthTestPage() {
         )}
       </header>
 
-      <main className="flex-1 px-6 py-8 max-w-2xl mx-auto w-full space-y-6">
+      <main className="flex-1 px-6 py-8 max-w-2xl mx-auto w-full space-y-5">
 
         {/* ── Step indicator ──────────────────────────────────────────── */}
         <ol className="flex items-center gap-0 text-xs">
@@ -332,6 +426,10 @@ export default function ClaudeAuthTestPage() {
             </p>
           </div>
         )}
+
+        {/* ── Live process log (always visible once streaming starts) ─── */}
+        {showLogs && <LogPanel lines={logs} />}
+
       </main>
     </div>
   );

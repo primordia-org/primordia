@@ -14,6 +14,9 @@
 //   3. cancelClaudeAuth(sessionId)
 //                        — kills the process and cleans up without returning
 //                           credentials.
+//   4. subscribeToLogs(sessionId, callback)
+//                        — subscribe to real-time stdout/stderr lines from the
+//                           child process; used by the SSE log endpoint.
 //
 // Sessions are kept in a module-level Map so they survive across HTTP requests
 // within the same server process.  The session is removed from the map once it
@@ -34,12 +37,26 @@ export interface ClaudeAuthSession {
   tempDir: string;
 }
 
+export interface LogLine {
+  source: 'stdout' | 'stderr' | 'system';
+  text: string;
+  ts: number; // Date.now()
+}
+
 interface ActiveSession extends ClaudeAuthSession {
   child: ChildProcessWithoutNullStreams;
+  pid: number | undefined;
   /** Write the user's authorization code here to trigger completion. */
   submitCode: (code: string) => void;
   /** Resolves with the credentials JSON when the process finishes successfully. */
   credentialsPromise: Promise<string>;
+  /** Buffered log lines (stdout + stderr + system messages). */
+  logBuffer: LogLine[];
+  /** Registered SSE subscribers; each receives new lines as they arrive. */
+  logListeners: Set<(line: LogLine) => void>;
+  /** True once the child has exited. */
+  exited: boolean;
+  exitCode: number | null;
 }
 
 // ─── In-memory session store ─────────────────────────────────────────────────
@@ -49,7 +66,7 @@ const sessions = new Map<string, ActiveSession>();
 // Auto-expire sessions after 10 minutes to avoid leaking processes/temp dirs.
 const SESSION_TTL_MS = 10 * 60 * 1000;
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Internal helpers ─────────────────────────────────────────────────────────
 
 function cleanup(session: ActiveSession) {
   sessions.delete(session.sessionId);
@@ -58,6 +75,36 @@ function cleanup(session: ActiveSession) {
   } catch {
     // best-effort
   }
+}
+
+function emit(session: ActiveSession, source: LogLine['source'], text: string) {
+  const line: LogLine = { source, text, ts: Date.now() };
+  session.logBuffer.push(line);
+  for (const listener of session.logListeners) {
+    try { listener(line); } catch { /* ignore */ }
+  }
+}
+
+function bufferStream(
+  stream: NodeJS.ReadableStream,
+  source: 'stdout' | 'stderr',
+  session: ActiveSession,
+) {
+  let buf = '';
+  stream.on('data', (chunk: Buffer) => {
+    buf += chunk.toString();
+    const lines = buf.split('\n');
+    buf = lines.pop()!;
+    for (const line of lines) {
+      emit(session, source, line);
+    }
+  });
+  stream.on('end', () => {
+    if (buf) {
+      emit(session, source, buf);
+      buf = '';
+    }
+  });
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -79,17 +126,8 @@ export function startClaudeAuth(): Promise<ClaudeAuthSession> {
 
     const child = spawn('claude', ['auth', 'login', '--claudeai'], {
       env: { ...process.env, CLAUDE_CONFIG_DIR: tempDir },
-      // pipe stdin so we can send the code later; pipe stdout to capture URL;
-      // stderr must be consumed (not just piped) — if we pipe but never read,
-      // the write buffer fills up and the child process blocks indefinitely.
       stdio: ['pipe', 'pipe', 'pipe'],
     }) as ChildProcessWithoutNullStreams;
-
-    // Drain stderr so it never blocks the child.
-    child.stderr.resume();
-
-    let urlFound = false;
-    let stdoutBuf = '';
 
     // Resolve credentialsPromise via these when submitCode() is called.
     let resolveCredentials!: (creds: string) => void;
@@ -100,61 +138,86 @@ export function startClaudeAuth(): Promise<ClaudeAuthSession> {
       rejectCredentials = rej;
     });
 
-    function submitCode(code: string) {
-      try {
-        child.stdin.write(code + '\n');
-        child.stdin.end();
-      } catch {
-        rejectCredentials(new Error('Failed to write code to claude stdin'));
-      }
-    }
-
-    // Watch stdout for the URL line.
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdoutBuf += chunk.toString();
-      const lines = stdoutBuf.split('\n');
-      stdoutBuf = lines.pop()!;
-
-      for (const line of lines) {
-        const match = line.match(/https?:\/\/\S+/);
-        if (match && !urlFound) {
-          urlFound = true;
-          const url = match[0];
-
-          const session: ActiveSession = {
-            sessionId,
-            url,
-            tempDir,
-            child,
-            submitCode,
-            credentialsPromise,
-          };
-          sessions.set(sessionId, session);
-
-          // Auto-expire.
-          setTimeout(() => {
-            if (sessions.has(sessionId)) {
-              child.kill();
-              cleanup(session);
-            }
-          }, SESSION_TTL_MS);
-
-          resolveStart({ sessionId, url, tempDir });
+    // Build session object early so bufferStream can emit into it.
+    const session: ActiveSession = {
+      sessionId,
+      url: '', // filled in below when URL is found
+      tempDir,
+      child,
+      pid: child.pid,
+      submitCode: (code: string) => {
+        emit(session, 'system', `→ sending code to stdin (${code.length} chars)`);
+        try {
+          child.stdin.write(code + '\n');
+          child.stdin.end();
+          emit(session, 'system', '→ stdin closed');
+        } catch (err) {
+          const msg = `Failed to write code to claude stdin: ${err}`;
+          emit(session, 'system', `✗ ${msg}`);
+          rejectCredentials(new Error(msg));
         }
+      },
+      credentialsPromise,
+      logBuffer: [],
+      logListeners: new Set(),
+      exited: false,
+      exitCode: null,
+    };
+
+    emit(session, 'system', `spawned claude auth login (pid ${child.pid}), tempDir=${tempDir}`);
+
+    // Buffer both stdout and stderr into the log so subscribers see everything.
+    bufferStream(child.stdout, 'stdout', session);
+    bufferStream(child.stderr, 'stderr', session);
+
+    let urlFound = false;
+
+    // Intercept stdout lines to detect the OAuth URL.
+    session.logListeners.add((line) => {
+      if (line.source !== 'stdout') return;
+      const match = line.text.match(/https?:\/\/\S+/);
+      if (match && !urlFound) {
+        urlFound = true;
+        session.url = match[0];
+        sessions.set(sessionId, session);
+
+        // Auto-expire.
+        setTimeout(() => {
+          if (sessions.has(sessionId)) {
+            emit(session, 'system', 'session expired (10 min TTL) — killing process');
+            child.kill();
+            cleanup(session);
+          }
+        }, SESSION_TTL_MS);
+
+        resolveStart({ sessionId, url: session.url, tempDir });
       }
     });
 
     // When the process exits, try to read .credentials.json.
-    child.on('close', () => {
+    child.on('close', (code) => {
+      session.exited = true;
+      session.exitCode = code;
+      emit(session, 'system', `process exited with code ${code}`);
+
       const credPath = path.join(tempDir, '.credentials.json');
-      if (fs.existsSync(credPath)) {
+      const credExists = fs.existsSync(credPath);
+      emit(session, 'system', `.credentials.json exists: ${credExists}`);
+
+      if (credExists) {
         try {
           const creds = fs.readFileSync(credPath, 'utf8');
+          emit(session, 'system', `credentials file read (${creds.length} bytes)`);
           resolveCredentials(creds);
         } catch (err) {
           rejectCredentials(new Error(`Failed to read .credentials.json: ${err}`));
         }
       } else {
+        // List temp dir contents to aid debugging.
+        try {
+          const files = fs.readdirSync(tempDir);
+          emit(session, 'system', `tempDir contents: [${files.join(', ')}]`);
+        } catch { /* ignore */ }
         rejectCredentials(
           new Error(
             'Authentication failed: .credentials.json was not created. ' +
@@ -165,6 +228,7 @@ export function startClaudeAuth(): Promise<ClaudeAuthSession> {
     });
 
     child.on('error', (err) => {
+      emit(session, 'system', `process error: ${err.message}`);
       if (!urlFound) {
         rejectStart(new Error(`Failed to spawn claude: ${err.message}`));
       } else {
@@ -199,7 +263,6 @@ export async function completeClaudeAuth(sessionId: string, code: string): Promi
     throw new Error(`Unknown or expired session: ${sessionId}`);
   }
 
-  // Send code and wait.  Race against a 60 s timeout.
   session.submitCode(code);
 
   const credentials = await Promise.race([
@@ -223,6 +286,50 @@ export async function completeClaudeAuth(sessionId: string, code: string): Promi
 export function cancelClaudeAuth(sessionId: string): void {
   const session = sessions.get(sessionId);
   if (!session) return;
+  emit(session, 'system', 'session cancelled by user');
   try { session.child.kill(); } catch { /* ignore */ }
   cleanup(session);
+}
+
+/**
+ * Subscribe to real-time log lines from a session.
+ * Returns an unsubscribe function.
+ * Immediately replays buffered lines to the callback, then streams new ones.
+ */
+export function subscribeToLogs(
+  sessionId: string,
+  onLine: (line: LogLine) => void,
+): { unsubscribe: () => void; found: boolean } {
+  const session = sessions.get(sessionId);
+  if (!session) return { unsubscribe: () => {}, found: false };
+
+  // Replay buffer first.
+  for (const line of session.logBuffer) {
+    try { onLine(line); } catch { /* ignore */ }
+  }
+
+  if (session.exited) {
+    return { unsubscribe: () => {}, found: true };
+  }
+
+  session.logListeners.add(onLine);
+  return {
+    unsubscribe: () => session.logListeners.delete(onLine),
+    found: true,
+  };
+}
+
+/**
+ * Return a snapshot of current session state (for the test page status panel).
+ */
+export function getSessionDiagnostics(sessionId: string) {
+  const session = sessions.get(sessionId);
+  if (!session) return null;
+  return {
+    pid: session.pid,
+    exited: session.exited,
+    exitCode: session.exitCode,
+    tempDir: session.tempDir,
+    logLineCount: session.logBuffer.length,
+  };
 }

@@ -39,6 +39,13 @@
   never written.  Fixed by calling `child.stderr.resume()` to drain stderr.
 - **Lucide spinner** — replaced `⟳` text spinners in the test page with
   `<Loader2 className="animate-spin">` from `lucide-react`.
+- **Live diagnostics** — `lib/claude-temp-auth.ts` now captures every stdout,
+  stderr, and internal system event into a per-session `logBuffer` and fans
+  them out to SSE subscribers via a `logListeners` Set. Added
+  `app/api/claude-auth/logs/route.ts` (SSE, replays buffer then streams live).
+  The test page subscribes as soon as a session starts and shows a live
+  colour-coded log panel (stdout / stderr / system) so hangs are immediately
+  visible.
 
 ## Why
 
