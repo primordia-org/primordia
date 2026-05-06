@@ -549,8 +549,8 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     async appendEvent(event) {
       const result = db.prepare(
         `INSERT INTO events (user_id, event, props) VALUES (?, ?, ?)`
-      ).run(event.userId ?? null, event.event, event.props != null ? JSON.stringify(event.props) : null);
-      return result.lastInsertRowid as number;
+      ).run(event.userId ?? null, event.event, event.props != null ? JSON.stringify(event.props) : null) as unknown as { lastInsertRowid: number };
+      return result.lastInsertRowid;
     },
 
     async queryEvents({ limit = 100, offset = 0, event: eventFilter, userId } = {}) {
