@@ -16,7 +16,7 @@ import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
 import { encryptStoredApiKey } from "@/lib/api-key-client";
 import { useSounds } from "@/lib/sounds";
-import { encryptStoredCredentials } from "@/lib/credentials-client";
+import { encryptStoredCredentials, updateStoredCredentials } from "@/lib/credentials-client";
 import { EvolveRequestForm } from "@/components/EvolveRequestForm";
 import Link from "next/link";
 import type { DiffFileSummary } from "./page";
@@ -1095,6 +1095,7 @@ export default function EvolveSessionView({
               status?: string;
               previewUrl?: string | null;
               done?: boolean;
+              updatedCredentials?: string;
             };
 
             if (parsed.events && parsed.events.length > 0) {
@@ -1114,6 +1115,13 @@ export default function EvolveSessionView({
               setPreviewUrl((prev) => {
                 if (!prev && newUrl) trackEvent("session/preview-loaded/v1", { sessionId, previewUrl: newUrl });
                 return newUrl;
+              });
+            }
+            // If the agent refreshed the OAuth tokens while running, re-encrypt
+            // the updated credentials and save them back to the database.
+            if (parsed.updatedCredentials) {
+              updateStoredCredentials(parsed.updatedCredentials).catch(() => {
+                // Best-effort: failure leaves old credentials in DB unchanged
               });
             }
           } catch {
