@@ -148,9 +148,12 @@ export function startClaudeAuth(): Promise<ClaudeAuthSession> {
       submitCode: (code: string) => {
         emit(session, 'system', `→ sending code to stdin (${code.length} chars)`);
         try {
+          // Write the code + newline, but do NOT close stdin.
+          // Claude keeps running after receiving the code (spinner, API calls, etc.)
+          // and will exit on its own when done. Closing stdin early causes it to
+          // see EOF and abort before writing .credentials.json.
           child.stdin.write(code + '\n');
-          child.stdin.end();
-          emit(session, 'system', '→ stdin closed');
+          emit(session, 'system', '→ code written to stdin (stdin left open)');
         } catch (err) {
           const msg = `Failed to write code to claude stdin: ${err}`;
           emit(session, 'system', `✗ ${msg}`);
