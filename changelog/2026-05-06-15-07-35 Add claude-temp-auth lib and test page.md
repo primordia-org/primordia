@@ -32,6 +32,23 @@
 
 - **`app/test-pages/page.tsx`** — added the new test page to the index.
 
+- **`components/CredentialsDialog.tsx`** — rewritten to replace the old
+  manual-paste-only modal with a full OAuth flow.  The dialog is now titled
+  "Claude.ai Subscription" and has two sections:
+  - **Primary**: "Sign in with Claude.ai" button → spawns the PTY auth session
+    via `POST /api/claude-auth/start`, shows an "Open authorization page" link,
+    accepts the pasted authorization code, submits via `POST /api/claude-auth/complete`,
+    and saves the resulting credentials encrypted on device.  Clean state machine
+    (`idle → starting → awaiting-code → submitting → done / error`) with no
+    diagnostic log output.  Active sessions are cancelled automatically if the
+    dialog is closed mid-flow.
+  - **Backup**: collapsible "Paste credentials file manually" section with a note
+    that on macOS credentials live in the system keychain and can't be copied
+    directly — the paste path only works on Linux.
+
+- **`components/HamburgerMenu.tsx`** — renamed menu item from "Claude Credentials"
+  to "Claude.ai Subscription"; swapped `FileKey` icon for `KeyRound`.
+
 ## Bug fixes
 
 - **Blocked child process** — `stderr` was piped but never consumed; once the

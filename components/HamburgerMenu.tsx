@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import type { SessionUser } from "../lib/hooks";
-import { Edit, Shield, X, Menu, LogOut, LogIn, Key, GitBranch, FileKey, QrCode } from "lucide-react";
+import { Edit, Shield, X, Menu, LogOut, LogIn, Key, GitBranch, KeyRound, QrCode } from "lucide-react";
 import { AdminUpdatesBell } from "./AdminUpdatesBell";
 import { ApiKeyDialog } from "./ApiKeyDialog";
 import { CredentialsDialog } from "./CredentialsDialog";
@@ -187,9 +187,9 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
                 <Key size={16} strokeWidth={2} aria-hidden="true" />
                 API Key
               </MenuBtn>
-              <MenuBtn dataId="nav-menu/credentials" className="hover:text-sky-400" onClick={() => { setMenuOpen(false); trackEvent("nav/menu-item-clicked/v1", { dataId: "nav-menu/credentials", label: "Claude Credentials" }); setCredentialsDialogOpen(true); }}>
-                <FileKey size={16} strokeWidth={2} aria-hidden="true" />
-                Claude Credentials
+              <MenuBtn dataId="nav-menu/credentials" className="hover:text-sky-400" onClick={() => { setMenuOpen(false); trackEvent("nav/menu-item-clicked/v1", { dataId: "nav-menu/credentials", label: "Claude.ai Subscription" }); setCredentialsDialogOpen(true); }}>
+                <KeyRound size={16} strokeWidth={2} aria-hidden="true" />
+                Claude.ai Subscription
               </MenuBtn>
             </>
           )}
@@ -216,7 +216,7 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
         <ApiKeyDialog onClose={() => setApiKeyDialogOpen(false)} />
       )}
 
-      {/* Claude Credentials dialog */}
+      {/* Claude.ai Subscription dialog */}
       {credentialsDialogOpen && (
         <CredentialsDialog onClose={() => setCredentialsDialogOpen(false)} />
       )}
