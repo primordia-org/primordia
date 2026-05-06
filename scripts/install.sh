@@ -238,13 +238,21 @@ else
 fi
 
 # ── Install sfw shim ──────────────────────────────────────────────────────────
-# /bin/bun is a shim that routes every bun invocation through sfw (Socket
+# A bun shim is installed that routes every bun invocation through sfw (Socket
 # Firewall Free) for network traffic filtering during package installs.
-# /bin/bun-real symlinks to the actual bun binary at ~/.bun/bin/bun.
-# Pointing /bin/bun to the shim intercepts all callers universally — interactive
-# shells, non-interactive shells, ssh one-liners, systemd services, and agents.
+# A bun-real symlink points to the actual bun binary at ~/.bun/bin/bun.
+# On Linux the shim lives in /bin (universally on PATH for all callers including
+# systemd services). On macOS /bin is read-only even with sudo due to SIP, so
+# /usr/local/bin is used instead.
 
 _CURRENT_STEP="install sfw shim"
+
+# Choose shim directory based on OS
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  SHIM_DIR="/usr/local/bin"
+else
+  SHIM_DIR="/bin"
+fi
 
 # Install sfw globally so the shim can call it
 if [[ ! -f "$HOME/.bun/bin/sfw" ]]; then
@@ -255,24 +263,27 @@ else
   success "Using sfw"
 fi
 
-# Create /bin/bun-real symlink → actual bun binary
-if [[ "$(readlink /bin/bun-real 2>/dev/null)" != "$HOME/.bun/bin/bun" ]]; then
-  sudo ln -sf "$HOME/.bun/bin/bun" /bin/bun-real
-  success "Created /bin/bun-real symlink"
+# Ensure the shim directory exists (it always should, but be safe)
+sudo mkdir -p "${SHIM_DIR}"
+
+# Create bun-real symlink → actual bun binary
+if [[ "$(readlink "${SHIM_DIR}/bun-real" 2>/dev/null)" != "$HOME/.bun/bin/bun" ]]; then
+  sudo ln -sf "$HOME/.bun/bin/bun" "${SHIM_DIR}/bun-real"
+  success "Created ${SHIM_DIR}/bun-real symlink"
 else
-  success "Using /bin/bun-real"
+  success "Using ${SHIM_DIR}/bun-real"
 fi
 
-# Write the /bin/bun shim (idempotent)
-SHIM_CONTENT='#!/usr/bin/env bash
-exec bun-real --bun ~/.bun/bin/sfw bun-real "$@"
-'
-if [[ ! -f /bin/bun ]] || ! diff -q <(echo "$SHIM_CONTENT") /bin/bun >/dev/null 2>&1; then
-  echo "$SHIM_CONTENT" | sudo tee /bin/bun >/dev/null
-  sudo chmod +x /bin/bun
-  success "Installed /bin/bun→sfw shim"
+# Write the bun shim (idempotent)
+SHIM_CONTENT="#!/usr/bin/env bash
+exec ${SHIM_DIR}/bun-real --bun ~/.bun/bin/sfw ${SHIM_DIR}/bun-real \"\$@\"
+"
+if [[ ! -f "${SHIM_DIR}/bun" ]] || ! diff -q <(printf '%s' "$SHIM_CONTENT") "${SHIM_DIR}/bun" >/dev/null 2>&1; then
+  printf '%s' "$SHIM_CONTENT" | sudo tee "${SHIM_DIR}/bun" >/dev/null
+  sudo chmod +x "${SHIM_DIR}/bun"
+  success "Installed ${SHIM_DIR}/bun→sfw shim"
 else
-  success "Using /bin/bun→sfw shim"
+  success "Using ${SHIM_DIR}/bun→sfw shim"
 fi
 
 # ── Install dependencies ──────────────────────────────────────────────────────
@@ -405,7 +416,7 @@ Environment=REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}
 Environment=PRIMORDIA_WORKTREES_DIR=${WORKTREES_DIR}
 Environment=HOME=${HOME}
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=/bin/bun-real ${PRIMORDIA_DIR}/reverse-proxy.ts
+ExecStart=${SHIM_DIR}/bun-real ${PRIMORDIA_DIR}/reverse-proxy.ts
 Restart=always
 RestartSec=5
 StandardOutput=journal
