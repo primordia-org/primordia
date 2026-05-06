@@ -180,6 +180,16 @@ async function main(): Promise<void> {
         const dir = path.dirname(_credentialsFilePath);
         const lockFiles = fs.readdirSync(dir).filter((f) => /^\.credentials\.\d+\.lock$/.test(f));
         if (lockFiles.length === 0) {
+          // Check whether Claude Code refreshed the OAuth tokens while running.
+          // If the file changed, save the updated credentials to the worktree so
+          // the SSE stream can deliver them to the browser for re-encryption.
+          try {
+            const currentContent = fs.readFileSync(_credentialsFilePath, 'utf8');
+            if (currentContent !== _userCredentialsJson) {
+              const updatedPath = path.join(worktreePath, '.credentials.updated');
+              fs.writeFileSync(updatedPath, currentContent, { mode: 0o600 });
+            }
+          } catch { /* best-effort */ }
           fs.rmSync(_credentialsFilePath, { force: true });
         }
       } catch { /* best-effort */ }

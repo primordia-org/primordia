@@ -15,6 +15,7 @@ import { getSessionUser } from '../../../../lib/auth';
 import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem } from '../../../../lib/session-events';
 import type { SessionEvent } from '../../../../lib/session-events';
 import * as fs from 'fs';
+import * as path from 'path';
 
 const POLL_INTERVAL_MS = 500;
 
@@ -85,10 +86,23 @@ export async function GET(request: Request) {
             totalLines = result.totalLines;
           }
 
+          // Check for OAuth token refresh: if the worker updated .credentials.json
+          // while running, cleanup() writes the new content here for the browser to
+          // re-encrypt and save. Read-and-delete atomically so it's delivered once.
+          let updatedCredentials: string | null = null;
+          const updatedCredPath = path.join(session.worktreePath, '.credentials.updated');
+          try {
+            if (fs.existsSync(updatedCredPath)) {
+              updatedCredentials = fs.readFileSync(updatedCredPath, 'utf8');
+              fs.unlinkSync(updatedCredPath);
+            }
+          } catch { /* best-effort */ }
+
           const hasChange =
             events.length > 0 ||
             session.status !== lastSentStatus ||
-            session.previewUrl !== lastSentPreviewUrl;
+            session.previewUrl !== lastSentPreviewUrl ||
+            updatedCredentials !== null;
 
           if (hasChange || terminal) {
             sendEvent({
@@ -96,6 +110,7 @@ export async function GET(request: Request) {
               lineCount: totalLines,
               status: session.status,
               previewUrl: session.previewUrl,
+              ...(updatedCredentials ? { updatedCredentials } : {}),
               ...(terminal ? { done: true } : {}),
             });
             lastSentLineCount = totalLines;
