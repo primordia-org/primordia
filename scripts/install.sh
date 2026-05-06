@@ -262,7 +262,11 @@ else
 fi
 
 # Ensure the shim directory exists (it always should, but be safe)
-sudo mkdir -p "${SHIM_DIR}"
+# Only use sudo if the directory doesn't exist — avoids prompting for a sudo
+# password on machines where the shim is already fully installed.
+if [[ ! -d "${SHIM_DIR}" ]]; then
+  sudo mkdir -p "${SHIM_DIR}"
+fi
 
 # Create bun-real symlink → actual bun binary
 if [[ "$(readlink "${SHIM_DIR}/bun-real" 2>/dev/null)" != "$HOME/.bun/bin/bun" ]]; then
