@@ -148,13 +148,32 @@ try:
     log(f"got code ({len(code)} chars), sending to claude via PTY")
     child.sendline(code)
 
-    # ── Step 5: Poll for .credentials.json ─────────────────────────────────
-    # After a valid code, claude exchanges it for tokens, writes
-    # .credentials.json, then shows the REPL.  We poll the file directly —
-    # more reliable than TTY pattern matching.
+    # ── Step 5a: Wait for "Login successful. Press Enter to continue…" ───────
+    # After a valid code claude verifies it with the server, shows a success
+    # screen, and waits for Enter before writing credentials and entering the
+    # REPL.  We must press Enter here or credentials are never written.
+    log("waiting for login-success screen…")
+    idx = child.expect(
+        [r"successful", r"ress Enter", pexpect.EOF, pexpect.TIMEOUT],
+        timeout=60,
+    )
+    if idx in (0, 1):
+        log("login-success / 'Press Enter to continue' seen — sending Enter")
+        child.send("\r")
+    elif idx == 2:
+        log("claude exited (EOF) after code — will check for credentials")
+    elif idx == 3:
+        # Didn't see the expected prompt — credentials might already be there
+        # (different claude version) or the code was wrong; we'll find out
+        # in the polling step.
+        log("timeout waiting for success screen — continuing to poll anyway")
+
+    # ── Step 5b: Poll for .credentials.json ────────────────────────────────
+    # After pressing Enter on the success screen, claude writes
+    # .credentials.json and enters the REPL.
     log("polling for .credentials.json…")
     POLL_INTERVAL = 1.0
-    POLL_TIMEOUT  = 120
+    POLL_TIMEOUT  = 60
 
     deadline = time.time() + POLL_TIMEOUT
     cred_found = False
