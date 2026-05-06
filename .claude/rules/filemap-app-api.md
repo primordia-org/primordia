@@ -54,7 +54,8 @@ app/api/
 │   ├── server-health/route.ts ← GET disk/memory usage; POST delete oldest worktree; admin only
 │   ├── git-mirror/route.ts    ← GET/POST/DELETE manage "mirror" git remote for push mirroring; admin only
 │   ├── proxy-settings/route.ts ← GET/PATCH reverse proxy configuration from git config; admin only
-│   └── updates/route.ts       ← POST manage upstream update sources and create merge sessions; admin only
+│   ├── updates/route.ts       ← POST manage upstream update sources and create merge sessions; admin only
+│   └── updates/has-updates/route.ts ← GET lightweight check: does any update source have new commits? Returns { hasUpdates: boolean }; admin only
 └── instance/
     ├── config/route.ts        ← GET/PATCH instance metadata (uuid7, name, description, URLs)
     ├── primordia-json/route.ts ← GET instance identity + social graph at /.well-known/primordia.json

@@ -20,9 +20,10 @@ components/
 ├── EvolveRequestForm.tsx      ← Shared evolve request form with harness/model selection, attachments, and element inspector
 ├── FloatingEvolveDialog.tsx   ← Draggable, dockable floating popup with the evolve form; opened from hamburger "Propose a change" on any page
 ├── ForbiddenPage.tsx          ← Server component: 403 access-denied page with page description, required/met/unmet conditions, and how-to-fix
-├── HamburgerMenu.tsx          ← Reusable hamburger button + dropdown; used by ChatInterface, EvolveForm, EvolveSessionView, PageNavBar
+├── AdminUpdatesBell.tsx       ← Bell notification icon shown to admins when upstream update sources have new commits available
+├── HamburgerMenu.tsx          ← Reusable hamburger button + dropdown; used by LandingNav, EvolveForm, EvolveSessionView, PageNavBar
 ├── MarkdownContent.tsx        ← Block-prose markdown renderer with dark styling used on session pages and changelogs
-├── NavHeader.tsx              ← Shared nav header (title, branch name, nav links)
+├── NavHeader.tsx              ← Shared nav header (title, branch name, nav links); used by /evolve/session, /changelog, /branches pages
 ├── PageElementInspector.tsx   ← Full-screen portal overlay for picking DOM elements on current page with screenshot capture
 ├── PageNavBar.tsx             ← Shared nav header + hamburger for /changelog and /branches pages
 ├── QrSignInOtherDeviceDialog.tsx ← Dialog for authenticated users to initiate push cross-device sign-in with QR code
@@ -60,8 +61,12 @@ app/                           ← Next.js App Router
 │   ├── rollback/{page.tsx,AdminRollbackClient.tsx} ← Deep rollback from productionHistory; admin only
 │   ├── server-health/{page.tsx,AdminServerHealthClient.tsx} ← Disk/memory usage + worktree cleanup; admin only
 │   └── updates/{page.tsx,UpdatesClient.tsx} ← Upstream update sources fetch/merge; admin only
+├── api-docs/
+│   ├── layout.tsx             ← Thin server layout for /api-docs; exports page metadata (client page can't export metadata directly)
+│   └── page.tsx               ← Interactive API reference UI powered by @scalar/api-reference-react; loads spec from /api/openapi
 ├── evolve/
 │   ├── page.tsx               ← Dedicated "propose a change" page; renders <EvolveRequestForm>; requires evolve permission
+│   ├── EvolveForm.tsx         ← Client component: the submit-a-request form body rendered at /evolve
 │   └── session/[id]/
 │       ├── page.tsx               ← Session-tracking page; publicly viewable; passes canEvolve to hide actions for non-evolvers
 │       ├── EvolveSessionView.tsx  ← Client component: streams live session progress via SSE; shows preview, diffs, actions

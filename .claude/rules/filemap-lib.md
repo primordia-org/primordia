@@ -12,7 +12,8 @@ lib/
 ├── base-path.ts               ← basePath constant + withBasePath() helper; used by all client-side fetch() calls to prefix API routes when NEXT_BASE_PATH is set
 ├── hooks.ts                   ← Shared React hooks: useSessionUser (fetches session on mount, provides logout)
 ├── evolve-sessions.ts         ← Shared session state + business logic for local evolve; persists to SQLite
-├── page-title.ts              ← Utility: buildPageTitle() — formats <title> with port/branch suffix in development mode; clean title in production
+├── page-title.ts              ← Utility: buildPageTitle() — formats <title> with branch suffix in development mode; clean title in production
+├── sounds.ts                  ← Synthesised UI sound effects via Web Audio API (no audio files — all procedural); useSounds() hook with send/receive/error/accept/reject/click/etc.
 ├── llm-client.ts              ← Creates Anthropic client: gateway (default) or direct API with user-supplied key
 ├── llm-encryption.ts          ← Server-side RSA-OAEP keypair (ephemeral, per process); getPublicKeyJwk() + decryptApiKey()
 ├── api-key-client.ts          ← Client-side helpers: getStoredApiKey/setStoredApiKey (localStorage) + encryptStoredApiKey() (RSA-OAEP)
