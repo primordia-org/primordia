@@ -247,12 +247,10 @@ fi
 
 _CURRENT_STEP="install sfw shim"
 
-# Choose shim directory based on OS
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  SHIM_DIR="/usr/local/bin"
-else
-  SHIM_DIR="/bin"
-fi
+# /usr/local/bin works on both macOS and Linux:
+# - macOS: /bin is SIP-protected and read-only even with sudo; /usr/local/bin is writable
+# - Linux: /usr/local/bin is on PATH for all callers including systemd services
+SHIM_DIR="/usr/local/bin"
 
 # Install sfw globally so the shim can call it
 if [[ ! -f "$HOME/.bun/bin/sfw" ]]; then
