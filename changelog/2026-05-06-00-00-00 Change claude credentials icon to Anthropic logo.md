@@ -3,7 +3,7 @@
 Changed the icon shown next to the session auth indicator when claude.ai OAuth credentials were used.
 
 **What changed:**
-- Replaced the `FileKey` (lucide-react) icon with an inline Anthropic "A" mark SVG (`AnthropicClaudeIcon`)
+- Replaced the `FileKey` (lucide-react) icon with an inline SVG of the Claude mark (sourced from `platform.claude.com/favicon.svg`), background and clip-path removed, fill set to `currentColor` so it inherits surrounding text color
 - Updated tooltip from "Used Claude Credentials" to "Used claude.ai login"
 - Updated aria-label to match
 
