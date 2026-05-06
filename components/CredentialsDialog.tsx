@@ -8,7 +8,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { FileKey, X, ExternalLink } from "lucide-react";
-import { hasStoredCredentials, setStoredCredentials } from "../lib/credentials-client";
+import { hasStoredCredentials, setStoredCredentials, clearOrphanedCredentialsKey } from "../lib/credentials-client";
+import { withBasePath } from "../lib/base-path";
 import { trackEvent } from "../lib/events-client";
 
 interface CredentialsDialogProps {
@@ -23,7 +24,32 @@ export function CredentialsDialog({ onClose }: CredentialsDialogProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setIsSet(hasStoredCredentials());
+    // hasStoredCredentials() only checks localStorage for the AES key.
+    // We must also verify the server actually has the encrypted ciphertext —
+    // they can get out of sync (e.g. DB reset, different device, cleared server prefs).
+    // If the server has no ciphertext, clear the stale local key so the UI is accurate.
+    async function checkStatus() {
+      if (!hasStoredCredentials()) {
+        setIsSet(false);
+        return;
+      }
+      try {
+        const res = await fetch(withBasePath('/api/llm-key/encrypted-credentials'));
+        if (res.ok) {
+          const data = (await res.json()) as { ciphertext: string | null };
+          if (!data.ciphertext) {
+            // Server has no ciphertext — local AES key is orphaned. Clear it.
+            clearOrphanedCredentialsKey();
+            setIsSet(false);
+            return;
+          }
+        }
+      } catch {
+        // Network error — assume set to avoid losing state on transient failures
+      }
+      setIsSet(true);
+    }
+    void checkStatus();
   }, []);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {

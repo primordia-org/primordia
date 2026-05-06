@@ -123,6 +123,21 @@ export async function setStoredCredentials(credentials: string | null): Promise<
 
 // ── RSA-OAEP public key cache ──────────────────────────────────────────────
 
+/**
+ * Clears the local AES key from localStorage without touching the server.
+ * Use this when the server has no ciphertext (orphaned local key) to keep
+ * the two sides in sync without making a DELETE request.
+ */
+export function clearOrphanedCredentialsKey(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(AES_KEY_STORAGE);
+    cachedAesKey = null;
+  } catch {
+    // ignore
+  }
+}
+
 /** Invalidates the cached RSA public key so it is re-fetched on next use. */
 export function bustCredentialsPublicKeyCache(): void {
   cachedPublicKey = null;
