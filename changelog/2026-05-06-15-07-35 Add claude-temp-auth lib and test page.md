@@ -58,15 +58,19 @@
   menu → `\r` (selects Claude subscription), URL capture, code forwarded via
   PTY `sendline`, wait for REPL `>` → `/exit`.  Also handles post-auth yes/no or menu prompts and checks `.credentials.json`
   on unexpected EOF.
-- **URL truncation** — OAuth URL (~500 chars) wrapped across 3 terminal lines
-  at the 220-col terminal width; only the first line was captured.  Fixed by
-  setting PTY dimensions to `(50, 10000)` so the URL always fits on one line.
-- **False REPL match** — `"Paste code here if prompted >"` was already in
-  pexpect’s buffer when we started waiting for the REPL prompt, so `/exit`
-  was sent before claude processed the code.  Fixed by explicitly consuming
-  the `"Paste code"` prompt from the buffer, then polling
-  `.credentials.json` every 1 s (up to 120 s) instead of pattern-matching
-  TTY output — file existence is unambiguous.
+- **URL extraction & PTY width** — OAuth URL (~480 chars) wrapped across 3
+  terminal lines at col 220; only the first fragment was captured.  Attempt
+  to fix via `dimensions=(50, 10000)` broke the theme/login menus (claude
+  omits the `❯` cursor at extreme widths).  Final fix: keep `(50, 220)`,
+  wait for the `"Paste code here if prompted >"` prompt that always follows
+  the URL, then reconstruct the full URL from `child.before` using
+  `extract_url()` (strips ANSI, joins consecutive no-space lines starting
+  from `https://`).
+- **False REPL match** — `"Paste code here if prompted >"` was in pexpect’s
+  buffer when we started waiting for the REPL `>` prompt, so `/exit` was
+  sent before claude processed the code.  Fixed by polling
+  `.credentials.json` (1 s interval, 120 s timeout) instead of any TTY
+  pattern-matching — file existence is unambiguous.
 
 ## Why
 
