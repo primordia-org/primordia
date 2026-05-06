@@ -5,7 +5,15 @@
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Key, FileKey } from "lucide-react";
+import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Key } from "lucide-react";
+
+function AnthropicClaudeIcon({ size = 11 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M13.827 3.52h3.603L24 20.502h-3.603l-1.813-4.701H9.415l-1.813 4.7H4L10.173 3.52h3.654zm-.312 9.236l-2.305-5.673-2.306 5.673h4.61z" />
+    </svg>
+  );
+}
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { NavHeader } from "@/components/NavHeader";
@@ -313,8 +321,8 @@ function AgentAuthBadge({ auth }: { auth?: AgentAuthInfo }) {
   }
   if (auth.source === 'claude-credentials') {
     return (
-      <span title="Used Claude Credentials" className="inline-flex items-center text-sky-400/70 hover:text-sky-400 transition-colors cursor-default">
-        <FileKey size={11} strokeWidth={2.5} aria-label="Used Claude Credentials" />
+      <span title="Used claude.ai login" className="inline-flex items-center text-sky-400/70 hover:text-sky-400 transition-colors cursor-default">
+        <AnthropicClaudeIcon size={11} aria-label="Used claude.ai login" />
       </span>
     );
   }
