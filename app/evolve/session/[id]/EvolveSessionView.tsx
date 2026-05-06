@@ -16,7 +16,7 @@ import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
 import { encryptStoredApiKey } from "@/lib/api-key-client";
 import { useSounds } from "@/lib/sounds";
-import { encryptStoredCredentials, setStoredCredentials } from "@/lib/credentials-client";
+import { encryptStoredCredentials, updateStoredCredentials } from "@/lib/credentials-client";
 import { EvolveRequestForm } from "@/components/EvolveRequestForm";
 import Link from "next/link";
 import type { DiffFileSummary } from "./page";
@@ -1120,7 +1120,7 @@ export default function EvolveSessionView({
             // If the agent refreshed the OAuth tokens while running, re-encrypt
             // the updated credentials and save them back to the database.
             if (parsed.updatedCredentials) {
-              setStoredCredentials(parsed.updatedCredentials).catch(() => {
+              updateStoredCredentials(parsed.updatedCredentials).catch(() => {
                 // Best-effort: failure leaves old credentials in DB unchanged
               });
             }

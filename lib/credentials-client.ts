@@ -121,6 +121,43 @@ export async function setStoredCredentials(credentials: string | null): Promise<
   }
 }
 
+/**
+ * Re-saves credentials using the EXISTING AES key already in localStorage.
+ * Use this for server-side token refreshes (e.g. OAuth access-token rotation)
+ * where the key must remain stable so other browser contexts that cached the
+ * same key can still decrypt the updated ciphertext.
+ *
+ * Falls back to setStoredCredentials() (which generates a new key) if no key
+ * is present yet — that case shouldn't occur in practice for a refresh.
+ */
+export async function updateStoredCredentials(credentials: string): Promise<void> {
+  if (typeof window === 'undefined') return;
+
+  const aesKey = await loadAesKey();
+  if (!aesKey) {
+    return setStoredCredentials(credentials);
+  }
+
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    aesKey,
+    new TextEncoder().encode(credentials),
+  );
+
+  const ivB64 = btoa(String.fromCharCode(...iv));
+  const ctB64 = btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
+
+  const res = await fetch(withBasePath('/api/llm-key/encrypted-credentials'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ iv: ivB64, ciphertext: ctB64 }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to update encrypted credentials on server: ${res.statusText}`);
+  }
+}
+
 // ── RSA-OAEP public key cache ──────────────────────────────────────────────
 
 /**
