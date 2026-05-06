@@ -13,7 +13,9 @@
     "rollback": "bun scripts/rollback.ts",
     "proxy": "bun scripts/reverse-proxy.ts",
     "generate-api-docs": "next-openapi-gen generate --config openapi-gen.config.json",
-    "regenerate:model-registry": "bun run scripts/regenerate-model-registry.ts"
+    "regenerate:model-registry": "bun run scripts/regenerate-model-registry.ts",
+    "test:e2e": "bunx playwright test",
+    "test:e2e:headed": "bunx playwright test --headed"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.76",
@@ -48,6 +50,7 @@
     "eslint-config-next": "16.2.2",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5"
+    "typescript": "^5",
+    "@playwright/test": "^1.52.0"
   }
 }

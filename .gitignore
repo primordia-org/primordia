@@ -49,3 +49,10 @@ next-env.d.ts
 
 # Structured session event log written to each worktree during Claude sessions
 .primordia-session.ndjson
+
+# Playwright
+tests/.auth/
+tests/.tmp-attachments/
+test-results/
+playwright-report/
+.playwright/
