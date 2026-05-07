@@ -6,18 +6,18 @@
 
 > A self-modifying web application. Describe changes in plain English — Primordia builds them for you.
 
-Primordia is a chat interface powered by Claude. Users can open the **hamburger (☰) menu** in the header and choose **"Propose a change"** to open the evolve dialog and describe changes they want made to the app itself. Those requests are automatically built as local git worktree previews via the Claude Agent SDK — no coding or git knowledge required.
+Primordia is a chat interface powered by an AI agent. Users can open the **hamburger (☰) menu** in the header and choose **"Propose a change"** to open the evolve dialog and describe changes they want made to the app itself. Those requests are automatically built as local git worktree previews via the AI coding agent SDK — no coding or git knowledge required.
 
 ## How It Works
 
 ### Normal Chat
-Talk to Claude directly. Primordia streams responses from `claude-sonnet-4-6`.
+Talk to an AI agent directly. Primordia streams responses from the Anthropic SDK via SSE.
 
 ### Evolve Mode
-Describe a change you want (e.g. *"add a dark mode toggle"* or *"make the header sticky"*). Primordia will:
+Describe a change you want (e.g. *"add a dark mode toggle"* or *"make the header sticky"*"). Primordia will:
 
 1. Create a git branch + worktree for your request
-2. Run Claude Code (via `@anthropic-ai/claude-agent-sdk`) inside the worktree
+2. Run an AI coding agent inside the worktree
 3. Spin up a local preview dev server on a free port
 4. Show you a live preview link and a progress log
 5. Click **Accept** to merge the branch into main, or **Reject** to discard it
@@ -31,8 +31,8 @@ You can attach images or files to any request. Follow-up requests on the same br
 | Framework | Next.js 16 (App Router) |
 | Styling | Tailwind CSS |
 | Language | TypeScript |
-| AI (chat) | Anthropic SDK — `claude-sonnet-4-6` via SSE |
-| AI (code gen) | `@anthropic-ai/claude-agent-sdk` — `query()` in git worktrees |
+| AI (chat) | Anthropic SDK via SSE |
+| AI (code gen) | Anthropic Agent SDK — `query()` in git worktrees |
 | Database | bun:sqlite — passkey auth + evolve session persistence |
 | Hosting | exe.dev (remote dev server) or local `bun run dev` |
 
@@ -78,7 +78,7 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 1. **Fork** this repo to your GitHub account.
 2. **Create a server** on [exe.dev](https://exe.dev). Note the server name (e.g. `myapp` → `myapp.exe.xyz`).
 3. **Configure `.env.local`** — copy `.env.example` and fill in `REVERSE_PROXY_PORT`.
-4. **Deploy:**
+4. **Deploy**:
    ```bash
    bun run deploy-to-exe.dev <server-name>
    ```
@@ -90,7 +90,7 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 5. **Open** `http://<server-name>.exe.xyz:3000`.
 6. **Sign in** — click *Login with exe.dev* on the login page. The first user to sign in is automatically granted the `admin` role.
 
-> Both the chat interface and the evolve pipeline (Claude Code) use the exe.dev LLM gateway — no API key is needed.
+> Both the chat interface and the evolve pipeline use the exe.dev LLM gateway — no API key is needed.
 
 ## Environment Variables
 

@@ -22,7 +22,7 @@ const FEATURES = [
     bg: "bg-violet-500/5",
     title: "Self-Evolving",
     description:
-      "Don't like something? Describe the change you want in plain English. Claude Code rewrites the app and spins up a live preview — no coding required.",
+      "Don't like something? Describe the change you want in plain English. An AI agent rewrites the app and spins up a live preview — no coding required.",
   },
   {
     icon: <GitBranch size={28} strokeWidth={1.5} aria-hidden="true" />,
@@ -39,7 +39,7 @@ const FEATURES = [
 
 const STEPS = [
   { n: "01", label: "Propose", detail: "See something you'd like to change? Open the menu and propose it." },
-  { n: "02", label: "Review", detail: "Claude Code writes the code and spins up a live preview — inspect it in your browser." },
+  { n: "02", label: "Review", detail: "An AI agent writes the code and spins up a live preview — inspect it in your browser." },
   { n: "03", label: "Accept", detail: "Accept the change, and your app updates itself — instantly." },
 ];
 
