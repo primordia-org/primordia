@@ -7,10 +7,8 @@ import { usePathname } from "next/navigation";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import type { SessionUser } from "../lib/hooks";
-import { Edit, Shield, X, Menu, LogOut, LogIn, Key, GitBranch, KeyRound, QrCode } from "lucide-react";
+import { Edit, Shield, Settings, X, Menu, LogOut, LogIn, GitBranch, QrCode } from "lucide-react";
 import { AdminUpdatesBell } from "./AdminUpdatesBell";
-import { ApiKeyDialog } from "./ApiKeyDialog";
-import { CredentialsDialog } from "./CredentialsDialog";
 import { QrSignInOtherDeviceDialog } from "./QrSignInOtherDeviceDialog";
 import { trackEvent } from "@/lib/events-client";
 
@@ -97,6 +95,13 @@ export function buildStandardMenuItems({
       icon: <GitBranch size={16} strokeWidth={2} aria-hidden="true" />,
     },
   ];
+  items.push({
+    label: "Account Settings",
+    className: "hover:text-indigo-400",
+    href: "/settings",
+    dataId: "nav-menu/settings",
+    icon: <Settings size={16} strokeWidth={2} aria-hidden="true" />,
+  });
   if (isAdmin) {
     items.push({
       label: "Admin",
@@ -112,8 +117,6 @@ export function buildStandardMenuItems({
 export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: HamburgerMenuProps) {
   const sounds = useSounds();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
-  const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false);
   const [qrSignInDialogOpen, setQrSignInDialogOpen] = useState(false);
   const localRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
@@ -133,7 +136,7 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
 
   return (
     <div className="flex items-center gap-1">
-    <AdminUpdatesBell isAdmin={sessionUser?.isAdmin ?? false} />
+    <AdminUpdatesBell sessionUser={sessionUser} />
     <div className="relative" ref={menuRef}>
       <button
         data-id="nav/menu-toggle"
@@ -180,20 +183,6 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
             </MenuLink>
           )}
 
-          {/* API Key and credentials settings — available to any logged-in user */}
-          {sessionUser && (
-            <>
-              <MenuBtn dataId="nav-menu/api-key" className="hover:text-amber-400" onClick={() => { setMenuOpen(false); trackEvent("nav/menu-item-clicked/v1", { dataId: "nav-menu/api-key", label: "API Key" }); setApiKeyDialogOpen(true); }}>
-                <Key size={16} strokeWidth={2} aria-hidden="true" />
-                API Key
-              </MenuBtn>
-              <MenuBtn dataId="nav-menu/credentials" className="hover:text-sky-400" onClick={() => { setMenuOpen(false); trackEvent("nav/menu-item-clicked/v1", { dataId: "nav-menu/credentials", label: "Claude.ai Subscription" }); setCredentialsDialogOpen(true); }}>
-                <KeyRound size={16} strokeWidth={2} aria-hidden="true" />
-                Claude.ai Subscription
-              </MenuBtn>
-            </>
-          )}
-
           {/* Page-specific items */}
           {items.map((item, i) =>
             item.href ? (
@@ -209,16 +198,6 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
             )
           )}
         </div>
-      )}
-
-      {/* API Key dialog — rendered outside the dropdown so it is not clipped */}
-      {apiKeyDialogOpen && (
-        <ApiKeyDialog onClose={() => setApiKeyDialogOpen(false)} />
-      )}
-
-      {/* Claude.ai Subscription dialog */}
-      {credentialsDialogOpen && (
-        <CredentialsDialog onClose={() => setCredentialsDialogOpen(false)} />
       )}
 
       {/* Sign in on another device dialog */}

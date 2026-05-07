@@ -226,7 +226,7 @@ export function EvolveRequestForm({
     setIsLoading(true);
     setError(null);
 
-    const effectiveRequest = cavemanMode ? `/caveman ${cavemanIntensity}\n\n${trimmed}` : trimmed;
+    const effectiveRequest = cavemanMode ? `${trimmed}\n\n/caveman ${cavemanIntensity}` : trimmed;
 
     // Merge regular files + all ready element attachment files.
     const allFiles: File[] = [

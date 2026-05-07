@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { KeyRound, X, ExternalLink, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
-import { hasStoredCredentials, setStoredCredentials, clearOrphanedCredentialsKey } from "../lib/credentials-client";
-import { withBasePath } from "../lib/base-path";
-import { trackEvent } from "../lib/events-client";
+import { useState, useEffect, useRef } from "react";
+import { ExternalLink, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { ClaudeIcon } from "@/components/brand-icons/ClaudeIcon";
+import { hasStoredCredentials, setStoredCredentials, clearOrphanedCredentialsKey } from "@/lib/credentials-client";
+import { withBasePath } from "@/lib/base-path";
+import { trackEvent } from "@/lib/events-client";
 
 type Step =
   | { kind: "idle" }
@@ -14,11 +15,7 @@ type Step =
   | { kind: "done" }
   | { kind: "error"; message: string };
 
-interface CredentialsDialogProps {
-  onClose: () => void;
-}
-
-export function CredentialsDialog({ onClose }: CredentialsDialogProps) {
+export default function CredentialsSettingsClient() {
   const [isSet, setIsSet] = useState(false);
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [code, setCode] = useState("");
@@ -56,14 +53,6 @@ export function CredentialsDialog({ onClose }: CredentialsDialogProps) {
       }
     };
   }, []);
-
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape") onClose();
-  }, [onClose]);
-  useEffect(() => {
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [handleKeyDown]);
 
   async function startAuth() {
     setStep({ kind: "starting" });
@@ -120,6 +109,7 @@ export function CredentialsDialog({ onClose }: CredentialsDialogProps) {
       await setStoredCredentials(null);
       trackEvent("settings/credentials-cleared/v1", {});
       setIsSet(false);
+      setStep({ kind: "idle" });
     } catch {}
   }
 
@@ -154,64 +144,66 @@ export function CredentialsDialog({ onClose }: CredentialsDialogProps) {
     }
   }
 
-  const isLoading = step.kind === "starting" || step.kind === "submitting" || pasteLoading;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={(e) => { if (e.target === e.currentTarget && !isLoading) onClose(); }}
-    >
-      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 flex flex-col gap-5">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sky-400">
-            <KeyRound size={18} strokeWidth={2} aria-hidden="true" />
-            <h2 className="text-base font-semibold">Claude.ai Subscription</h2>
-          </div>
-          <button
-            data-id="credentials/close"
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-200 transition-colors"
-            aria-label="Close"
-          >
-            <X size={18} strokeWidth={2} />
-          </button>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-3">
+        <div>
+          <h2 className="text-base font-medium text-gray-200 mb-1">Claude.ai Subscription</h2>
+          <p className="text-sm text-gray-400 leading-relaxed">
+            Sign in with your Claude.ai account to use your subscription for evolve requests.
+            Credentials are encrypted in your browser — the encryption key never leaves your device(s).
+          </p>
         </div>
+        <div className="flex items-center gap-1.5 flex-wrap text-xs">
+          <span className="px-1.5 py-0.5 rounded bg-sky-900/30 text-sky-400 border border-sky-800/40 font-medium">Claude.ai</span>
+          <span className="text-gray-600">›</span>
+          <span className="px-1.5 py-0.5 rounded bg-amber-900/20 text-amber-500/80 border border-amber-800/30">Anthropic API key</span>
+          <span className="text-gray-600">›</span>
+          <span className="px-1.5 py-0.5 rounded bg-gray-800 text-gray-600 border border-gray-700">exe.dev gateway</span>
+          <span className="text-gray-600 ml-0.5">— highest priority first</span>
+        </div>
+      </div>
 
-        {/* Status */}
-        <div className={`px-3 py-2 rounded-lg text-sm border ${
-          isSet
-            ? "bg-green-900/30 border-green-700/50 text-green-300"
-            : "bg-gray-800 border-gray-700 text-gray-400"
-        }`}>
-          {isSet ? (
-            <span>
-              <span className="font-medium">Active</span>
-              <span className="text-green-400/70 text-xs"> — credentials encrypted on this device</span>
+      {/* Main card */}
+      <div className="rounded-xl border border-gray-700 bg-gray-900 p-5 flex flex-col gap-5">
+        {/* Card header with status */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-[#d97706]/10 flex items-center justify-center text-[#d97706] shrink-0">
+              <ClaudeIcon size={18} />
+            </div>
+            <p className="text-sm font-medium text-gray-200">Claude.ai</p>
+          </div>
+          {isSet && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-green-900/40 text-green-400 border border-green-800/50">
+              Active
             </span>
-          ) : (
-            <span>No credentials set</span>
           )}
         </div>
 
         {/* OAuth flow */}
-        {step.kind === "idle" && (
+        {(step.kind === "idle" || step.kind === "done") && (
           <div className="flex flex-col gap-2">
-            <button
-              data-id="credentials/start-auth"
-              onClick={() => void startAuth()}
-              className="w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-sky-600 hover:bg-sky-500 text-white transition-colors"
-            >
-              {isSet ? "Sign in again" : "Sign in with Claude.ai"}
-            </button>
-            {isSet && (
+            <div className="flex items-center gap-2">
+              {isSet && (
+                <button
+                  data-id="credentials/clear"
+                  onClick={() => void clearCredentials()}
+                  className="px-3 py-1.5 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 border border-red-800/50 transition-colors"
+                >
+                  Clear
+                </button>
+              )}
               <button
-                data-id="credentials/clear"
-                onClick={() => void clearCredentials()}
-                className="w-full px-3 py-1.5 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 border border-red-800/50 transition-colors"
+                data-id="credentials/start-auth"
+                onClick={() => void startAuth()}
+                className={`${isSet ? "flex-1" : "w-full"} px-4 py-2 rounded-lg text-sm font-medium bg-sky-600 hover:bg-sky-500 text-white transition-colors`}
               >
-                Clear credentials
+                {isSet ? "Sign in again" : "Sign in with Claude.ai"}
               </button>
+            </div>
+            {step.kind === "done" && (
+              <p className="text-xs text-center text-gray-500">Credentials saved successfully.</p>
             )}
           </div>
         )}
@@ -273,19 +265,6 @@ export function CredentialsDialog({ onClose }: CredentialsDialogProps) {
           </div>
         )}
 
-        {step.kind === "done" && (
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-sm text-gray-400">Credentials saved.</span>
-            <button
-              data-id="credentials/close-done"
-              onClick={onClose}
-              className="px-4 py-1.5 rounded-lg text-sm font-medium bg-sky-600 hover:bg-sky-500 text-white transition-colors"
-            >
-              Close
-            </button>
-          </div>
-        )}
-
         {step.kind === "error" && (
           <div className="flex flex-col gap-3">
             <p className="text-sm text-red-400">{step.message}</p>
@@ -300,7 +279,7 @@ export function CredentialsDialog({ onClose }: CredentialsDialogProps) {
         )}
 
         {/* Manual paste fallback */}
-        <div className="border-t border-gray-800 pt-1 flex flex-col gap-3">
+        <div className="border-t border-gray-800 pt-3 flex flex-col gap-3">
           <button
             data-id="credentials/toggle-paste"
             onClick={() => setShowPaste(!showPaste)}

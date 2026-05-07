@@ -1298,10 +1298,21 @@ export default function EvolveSessionView({
     setAcceptRejectLoading(true);
     setAcceptRejectError(null);
     try {
+      // Attach credentials so the server can forward them to any agent sessions
+      // spawned during accept (type-fix, auto-commit). Try credentials first
+      // (claude-code harness); fall back to API key for other harnesses.
+      const acceptBody: Record<string, string> = { action: 'accept', sessionId };
+      const encCreds = await encryptStoredCredentials();
+      if (encCreds) {
+        acceptBody.encryptedCredentials = JSON.stringify(encCreds);
+      } else {
+        const encKey = await encryptStoredApiKey();
+        if (encKey) acceptBody.encryptedApiKey = encKey;
+      }
       const res = await fetch(withBasePath('/api/evolve/manage'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'accept', sessionId }),
+        body: JSON.stringify(acceptBody),
       });
       const data = (await res.json()) as { outcome?: string; error?: string; stashWarning?: string; stuckSessionId?: string; stuckSessionBranch?: string };
       if (!res.ok) {
