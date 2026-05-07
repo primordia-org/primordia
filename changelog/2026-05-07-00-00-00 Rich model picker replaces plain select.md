@@ -17,7 +17,7 @@ Replaced the plain `<select>` for model selection in the Advanced panel of `Evol
 - **Model count** — 44 total (10 native, 25 paid OpenRouter, 9 free OpenRouter including CoBuddy).
 - **Sidebar responsive** — provider sidebar shows icon-only on small screens (`w-10`) and icon+label on `sm+` (`w-[120px]`), with a `title` tooltip on each tab.
 - **Model row indent** — removed the spacer placeholder `<span>` that was adding unwanted left margin when browsing by provider (no icon shown per row in that mode).
-- **Keyboard / UX** — Escape clears search first, then closes the dropdown. Outside-click closes the dropdown. The selected model scrolls into view on open.
+- **Keyboard / UX** — Escape clears search first, then closes the dropdown. Outside-click closes the dropdown. The selected model scrolls into view on open. The dialog is anchored near the top of the viewport (`top: 15vh`) so the search input stays in place as results filter in/out — no more jumping when results shrink.
 - **Responsive** — a centered dialog on all screen sizes (fixed overlay with backdrop). Provider tabs always appear in the left vertical sidebar. The dialog is portal-rendered into `document.body` to avoid z-index stacking issues.
 
 ## Why

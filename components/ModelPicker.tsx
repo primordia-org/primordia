@@ -523,9 +523,9 @@ export function ModelPicker({
             role="dialog"
             aria-modal="true"
             aria-label="Pick a model"
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
+            className="fixed inset-x-0 top-0 z-50 flex justify-center pt-[15vh] px-4 pointer-events-none"
           >
-            <div className="pointer-events-auto flex flex-col w-full max-w-lg rounded-xl border border-gray-700 bg-gray-900 shadow-2xl shadow-black/60 overflow-hidden max-h-[min(520px,85dvh)]">
+            <div className="pointer-events-auto flex flex-col w-full max-w-lg rounded-xl border border-gray-700 bg-gray-900 shadow-2xl shadow-black/60 overflow-hidden max-h-[min(520px,70dvh)]">
               <DropdownContent
                 search={search}
                 setSearch={setSearch}
