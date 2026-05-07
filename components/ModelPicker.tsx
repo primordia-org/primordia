@@ -290,11 +290,6 @@ function ModelRow({
           >
             {model.label}
           </span>
-          {model.inputPriceLabel && (
-            <span className="text-[10px] text-gray-500 flex-shrink-0">
-              {model.inputPriceLabel}
-            </span>
-          )}
           {isSelected && (
             <Check
               size={13}
