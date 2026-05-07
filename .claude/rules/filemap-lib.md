@@ -16,11 +16,12 @@ lib/
 ├── sounds.ts                  ← Synthesised UI sound effects via Web Audio API (no audio files — all procedural); useSounds() hook with send/receive/error/accept/reject/click/etc.
 ├── llm-client.ts              ← Creates Anthropic client: gateway (default) or direct API with user-supplied key
 ├── llm-encryption.ts          ← Server-side RSA-OAEP keypair (ephemeral, per process); getPublicKeyJwk() + decryptApiKey()
-├── api-key-client.ts          ← Client-side helpers: getStoredApiKey/setStoredApiKey (localStorage) + encryptStoredApiKey() (RSA-OAEP)
+├── secrets-client.ts          ← Unified client-side secret storage: one AES-256-GCM key ('primordia_aes_key'), secrets presence index ('primordia_secrets'), setSecret/clearSecret/hasSecret/encryptSecretForTransmission/encryptCredentialsForTransmission for all SecretType values
+├── api-key-client.ts          ← Compatibility shim: re-exports hasStoredApiKey, setStoredApiKey, encryptStoredApiKey, and OpenRouter equivalents from secrets-client
 ├── agent-config.ts            ← Definitions for supported coding agent harnesses and model options; imports MODEL_OPTIONS from lib/models.generated.json
 ├── models.generated.json      ← Hard-coded model list (id, label, pricing) for all harnesses; regenerate with `bun run regenerate:model-registry`
 ├── auto-canonical.ts          ← On first request, derives and persists canonical URL from request origin if not already set
-├── credentials-client.ts      ← Client-side AES-256-GCM encryption helpers for storing Claude Code credentials.json
+├── credentials-client.ts      ← Compatibility shim: re-exports hasStoredCredentials, setStoredCredentials, updateStoredCredentials, encryptStoredCredentials, clearOrphanedCredentialsKey from secrets-client
 ├── cross-device-creds.ts      ← ECDH P-256 helpers for credential transfer in pull and push cross-device sign-in flows
 ├── pi-model-registry.server.ts ← Builds model option list at runtime from pi ModelRegistry; no longer imported by app code (kept as reference / used by regenerate script logic)
 ├── public-origin.ts           ← Utility for deriving public-facing origin from request, respecting x-forwarded-* headers

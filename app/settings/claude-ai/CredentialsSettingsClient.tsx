@@ -30,7 +30,7 @@ export default function CredentialsSettingsClient() {
     async function checkStatus() {
       if (!hasStoredCredentials()) { setIsSet(false); return; }
       try {
-        const res = await fetch(withBasePath('/api/llm-key/encrypted-credentials'));
+        const res = await fetch(withBasePath('/api/secrets/CLAUDE_CODE_CREDENTIALS_JSON'));
         if (res.ok) {
           const data = (await res.json()) as { ciphertext: string | null };
           if (!data.ciphertext) { clearOrphanedCredentialsKey(); setIsSet(false); return; }

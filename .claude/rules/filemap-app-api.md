@@ -42,10 +42,12 @@ app/api/
 │   ├── models/route.ts        ← GET available model options grouped by agent harness from the pi ModelRegistry
 │   ├── reset-stuck/route.ts   ← POST force-reset sessions stuck in 'accepting'/'fixing-types' back to 'ready'
 │   └── attachment/[sessionId]/route.ts ← GET serve user-uploaded attachment files from a session's worktree
+├── secrets/[type]/route.ts        ← Unified GET/POST/DELETE for all user secrets (ANTHROPIC_API_KEY, OPENROUTER_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, CLAUDE_CODE_CREDENTIALS_JSON); type-to-pref-key mapping in route
 ├── llm-key/
 │   ├── public-key/route.ts        ← GET server's ephemeral RSA-OAEP public key as JWK
-│   ├── encrypted-key/route.ts     ← Store/retrieve AES-GCM encrypted API key ciphertext
-│   └── encrypted-credentials/route.ts ← Store/retrieve AES-GCM encrypted Claude Code credentials.json
+│   ├── encrypted-key/route.ts     ← Legacy: store/retrieve AES-GCM encrypted Anthropic API key ciphertext (superseded by /api/secrets/ANTHROPIC_API_KEY)
+│   ├── encrypted-openrouter-key/route.ts ← Legacy: store/retrieve OpenRouter API key ciphertext (superseded by /api/secrets/OPENROUTER_API_KEY)
+│   └── encrypted-credentials/route.ts ← Legacy: store/retrieve AES-GCM encrypted credentials.json (superseded by /api/secrets/CLAUDE_CODE_CREDENTIALS_JSON)
 ├── admin/
 │   ├── permissions/route.ts   ← POST grant/revoke grantable roles (can_evolve); admin only
 │   ├── logs/route.ts          ← GET SSE stream of production server logs; admin only

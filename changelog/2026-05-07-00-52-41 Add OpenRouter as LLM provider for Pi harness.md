@@ -26,6 +26,16 @@ The Pi coding agent harness now supports OpenRouter as a third LLM provider, alo
 
 - **`components/SettingsSubNav.tsx`** — The "API Keys" tab shows the active indicator when either the Anthropic or OpenRouter key is set.
 
+- **`lib/secrets-client.ts`** *(new)* — Unified client-side secret storage. Replaces the per-secret-type AES key design with a single shared `primordia_aes_key` in localStorage, making cross-device key sync trivial. Defines `SecretType = 'ANTHROPIC_API_KEY' | 'OPENROUTER_API_KEY' | 'OPENAI_API_KEY' | 'GEMINI_API_KEY' | 'CLAUDE_CODE_CREDENTIALS_JSON'` and exports `hasSecret`, `setSecret`, `clearSecret`, `updateSecret`, `encryptSecretForTransmission` (RSA-OAEP for API keys), and `encryptCredentialsForTransmission` (hybrid encryption for large credentials). A `primordia_secrets` index in localStorage enables synchronous `hasSecret()` checks without a round-trip.
+
+- **`app/api/secrets/[type]/route.ts`** *(new)* — Unified GET/POST/DELETE route replacing the per-type `llm-key/encrypted-*` routes. The `[type]` segment is validated against the known `SecretType` values and mapped to backward-compatible `user_preferences` keys.
+
+- **`lib/api-key-client.ts`** — Converted to a compatibility shim; all functions now delegate to `secrets-client.ts`.
+
+- **`lib/credentials-client.ts`** — Converted to a compatibility shim; all functions now delegate to `secrets-client.ts`.
+
+- **`app/settings/claude-ai/CredentialsSettingsClient.tsx`** — Updated orphaned-key check to fetch from `/api/secrets/CLAUDE_CODE_CREDENTIALS_JSON` instead of the legacy route.
+
 ## How to use
 
 1. Go to **Account Settings → API Keys** (hamburger menu → Account Settings).
