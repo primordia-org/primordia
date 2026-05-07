@@ -8,6 +8,8 @@
 - Created `/settings/claude-ai` — **Claude.ai Subscription** tab: card-based OAuth sign-in flow and manual credentials.json paste; uses the ClaudeIcon brand icon instead of a generic key icon.
 - Page is called **Account Settings** (in nav subtitle, page title, and hamburger menu) so users understand these are per-user settings, not app-wide config.
 - `SettingsSubNav` sidebar shows live green status dots next to tabs where a key/credential is already set, so users can see active status without navigating into each tab.
+- Both pages display a precedence chain (`Claude.ai › Anthropic API key › exe.dev gateway`) so users understand which credential takes priority.
+- Claude.ai tab: "Sign in again" and "Clear" buttons are side by side instead of stacked full-width.
 - Both pages follow the same layout as the Admin page: `PageNavBar` header, sidebar subnav, and content area.
 
 ## Why

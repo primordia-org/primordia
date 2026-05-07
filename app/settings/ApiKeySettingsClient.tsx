@@ -81,12 +81,22 @@ export default function ApiKeySettingsClient() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h2 className="text-base font-medium text-gray-200 mb-1">API Keys</h2>
-        <p className="text-sm text-gray-400 leading-relaxed">
-          Connect your own AI provider keys to use them for evolve requests.
-          Keys are encrypted in your browser and never stored in plaintext.
-        </p>
+      <div className="flex flex-col gap-3">
+        <div>
+          <h2 className="text-base font-medium text-gray-200 mb-1">API Keys</h2>
+          <p className="text-sm text-gray-400 leading-relaxed">
+            Connect your own AI provider keys to use them for evolve requests.
+            Keys are encrypted in your browser and never stored in plaintext.
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap text-xs">
+          <span className="px-1.5 py-0.5 rounded bg-sky-900/30 text-sky-400 border border-sky-800/40">Claude.ai</span>
+          <span className="text-gray-600">›</span>
+          <span className="px-1.5 py-0.5 rounded bg-amber-900/20 text-amber-500/80 border border-amber-800/30 font-medium">Anthropic API key</span>
+          <span className="text-gray-600">›</span>
+          <span className="px-1.5 py-0.5 rounded bg-gray-800 text-gray-600 border border-gray-700">exe.dev gateway</span>
+          <span className="text-gray-600 ml-0.5">— highest priority first</span>
+        </div>
       </div>
 
       {/* Anthropic — fully functional */}

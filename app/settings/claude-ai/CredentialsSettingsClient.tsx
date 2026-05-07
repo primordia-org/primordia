@@ -146,12 +146,22 @@ export default function CredentialsSettingsClient() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h2 className="text-base font-medium text-gray-200 mb-1">Claude.ai Subscription</h2>
-        <p className="text-sm text-gray-400 leading-relaxed">
-          Sign in with your Claude.ai account to use your subscription for evolve requests.
-          Credentials are encrypted in your browser — the encryption key never leaves this device.
-        </p>
+      <div className="flex flex-col gap-3">
+        <div>
+          <h2 className="text-base font-medium text-gray-200 mb-1">Claude.ai Subscription</h2>
+          <p className="text-sm text-gray-400 leading-relaxed">
+            Sign in with your Claude.ai account to use your subscription for evolve requests.
+            Credentials are encrypted in your browser — the encryption key never leaves this device.
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap text-xs">
+          <span className="px-1.5 py-0.5 rounded bg-sky-900/30 text-sky-400 border border-sky-800/40 font-medium">Claude.ai</span>
+          <span className="text-gray-600">›</span>
+          <span className="px-1.5 py-0.5 rounded bg-amber-900/20 text-amber-500/80 border border-amber-800/30">Anthropic API key</span>
+          <span className="text-gray-600">›</span>
+          <span className="px-1.5 py-0.5 rounded bg-gray-800 text-gray-600 border border-gray-700">exe.dev gateway</span>
+          <span className="text-gray-600 ml-0.5">— highest priority first</span>
+        </div>
       </div>
 
       {/* Main card */}
@@ -174,22 +184,24 @@ export default function CredentialsSettingsClient() {
         {/* OAuth flow */}
         {(step.kind === "idle" || step.kind === "done") && (
           <div className="flex flex-col gap-2">
-            <button
-              data-id="credentials/start-auth"
-              onClick={() => void startAuth()}
-              className="w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-sky-600 hover:bg-sky-500 text-white transition-colors"
-            >
-              {isSet ? "Sign in again" : "Sign in with Claude.ai"}
-            </button>
-            {isSet && (
+            <div className="flex items-center gap-2">
+              {isSet && (
+                <button
+                  data-id="credentials/clear"
+                  onClick={() => void clearCredentials()}
+                  className="px-3 py-1.5 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 border border-red-800/50 transition-colors"
+                >
+                  Clear
+                </button>
+              )}
               <button
-                data-id="credentials/clear"
-                onClick={() => void clearCredentials()}
-                className="w-full px-3 py-1.5 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 border border-red-800/50 transition-colors"
+                data-id="credentials/start-auth"
+                onClick={() => void startAuth()}
+                className={`${isSet ? "flex-1" : "w-full"} px-4 py-2 rounded-lg text-sm font-medium bg-sky-600 hover:bg-sky-500 text-white transition-colors`}
               >
-                Clear credentials
+                {isSet ? "Sign in again" : "Sign in with Claude.ai"}
               </button>
-            )}
+            </div>
             {step.kind === "done" && (
               <p className="text-xs text-center text-gray-500">Credentials saved successfully.</p>
             )}
