@@ -14,7 +14,7 @@ import { useState, useRef, useEffect, useCallback, FormEvent, memo } from "react
 import { Paperclip, Settings, ChevronDown, Crosshair, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { withBasePath } from "../lib/base-path";
-import { encryptStoredApiKey } from "../lib/api-key-client";
+import { encryptStoredApiKey, encryptStoredOpenRouterApiKey } from "../lib/api-key-client";
 import { encryptStoredCredentials } from "../lib/credentials-client";
 import {
   HARNESS_OPTIONS,
@@ -269,10 +269,14 @@ export function EvolveRequestForm({
           formData.append("attachments", file);
         }
         // Only one auth token is ever sent. Credentials are only meaningful
-        // for the claude-code harness; all other harnesses use the API key.
+        // for the claude-code harness; OpenRouter models (id contains '/') use
+        // the OpenRouter key; everything else uses the Anthropic key.
         if (selectedHarness === 'claude-code') {
           const encryptedCredentials = await encryptStoredCredentials();
           if (encryptedCredentials) formData.append("encryptedCredentials", JSON.stringify(encryptedCredentials));
+        } else if (selectedModel.includes('/')) {
+          const encryptedApiKey = await encryptStoredOpenRouterApiKey();
+          if (encryptedApiKey) formData.append("encryptedApiKey", encryptedApiKey);
         } else {
           const encryptedApiKey = await encryptStoredApiKey();
           if (encryptedApiKey) formData.append("encryptedApiKey", encryptedApiKey);

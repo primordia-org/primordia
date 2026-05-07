@@ -19,9 +19,11 @@
 import { withBasePath } from './base-path';
 
 const AES_KEY_STORAGE = 'primordia_aes_key'; // localStorage: AES-GCM key as JWK
+const OPENROUTER_AES_KEY_STORAGE = 'primordia_openrouter_aes_key';
 
 // Module-level caches — reset on page load / module re-import.
 let cachedAesKey: CryptoKey | null = null;
+let cachedOpenRouterAesKey: CryptoKey | null = null;
 let cachedPublicKey: CryptoKey | null = null;
 
 // ── AES-GCM key management ─────────────────────────────────────────────────
@@ -187,6 +189,109 @@ export async function encryptStoredApiKey(): Promise<string | null> {
     return btoa(String.fromCharCode(...new Uint8Array(rsaEncrypted)));
   } catch (err) {
     console.error('[api-key-client] Failed to encrypt API key:', err);
+    return null;
+  }
+}
+
+// ── OpenRouter API key ─────────────────────────────────────────────────────
+// Parallel helpers for storing an OpenRouter API key, using a separate
+// localStorage slot and a separate server-side preference key so the two keys
+// never interfere with each other.
+
+export function hasStoredOpenRouterApiKey(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem(OPENROUTER_AES_KEY_STORAGE) !== null;
+  } catch {
+    return false;
+  }
+}
+
+async function loadOpenRouterAesKey(): Promise<CryptoKey | null> {
+  if (cachedOpenRouterAesKey) return cachedOpenRouterAesKey;
+  if (typeof window === 'undefined') return null;
+  try {
+    const jwkStr = localStorage.getItem(OPENROUTER_AES_KEY_STORAGE);
+    if (!jwkStr) return null;
+    const jwk = JSON.parse(jwkStr) as JsonWebKey;
+    cachedOpenRouterAesKey = await crypto.subtle.importKey(
+      'jwk', jwk, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'],
+    );
+    return cachedOpenRouterAesKey;
+  } catch {
+    return null;
+  }
+}
+
+async function generateAndStoreOpenRouterAesKey(): Promise<CryptoKey> {
+  const key = await crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'],
+  );
+  const jwk = await crypto.subtle.exportKey('jwk', key);
+  localStorage.setItem(OPENROUTER_AES_KEY_STORAGE, JSON.stringify(jwk));
+  cachedOpenRouterAesKey = key;
+  return key;
+}
+
+export async function setStoredOpenRouterApiKey(key: string | null): Promise<void> {
+  if (typeof window === 'undefined') return;
+
+  if (key === null || key === '') {
+    cachedOpenRouterAesKey = null;
+    localStorage.removeItem(OPENROUTER_AES_KEY_STORAGE);
+    try {
+      await fetch(withBasePath('/api/llm-key/encrypted-openrouter-key'), { method: 'DELETE' });
+    } catch {
+      // Best-effort — local key is already cleared
+    }
+    return;
+  }
+
+  const aesKey = await generateAndStoreOpenRouterAesKey();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv }, aesKey, new TextEncoder().encode(key),
+  );
+
+  const ivB64 = btoa(String.fromCharCode(...iv));
+  const ctB64 = btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
+
+  const res = await fetch(withBasePath('/api/llm-key/encrypted-openrouter-key'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ iv: ivB64, ciphertext: ctB64 }),
+  });
+  if (!res.ok) {
+    cachedOpenRouterAesKey = null;
+    localStorage.removeItem(OPENROUTER_AES_KEY_STORAGE);
+    throw new Error(`Failed to store encrypted OpenRouter key on server: ${res.statusText}`);
+  }
+}
+
+export async function encryptStoredOpenRouterApiKey(): Promise<string | null> {
+  try {
+    const aesKey = await loadOpenRouterAesKey();
+    if (!aesKey) return null;
+
+    const res = await fetch(withBasePath('/api/llm-key/encrypted-openrouter-key'));
+    if (!res.ok) return null;
+
+    const data = (await res.json()) as { ciphertext: string | null };
+    if (!data.ciphertext) return null;
+
+    const { iv: ivB64, ciphertext: ctB64 } = JSON.parse(data.ciphertext) as {
+      iv: string; ciphertext: string;
+    };
+
+    const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
+    const ct = Uint8Array.from(atob(ctB64), (c) => c.charCodeAt(0));
+    const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
+
+    const publicKey = await fetchPublicKey();
+    const rsaEncrypted = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, publicKey, plaintext);
+    return btoa(String.fromCharCode(...new Uint8Array(rsaEncrypted)));
+  } catch (err) {
+    console.error('[api-key-client] Failed to encrypt OpenRouter API key:', err);
     return null;
   }
 }

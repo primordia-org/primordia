@@ -14,12 +14,24 @@ The Pi coding agent harness now supports OpenRouter as a third LLM provider, alo
 
 - **`lib/models.generated.json`** — Regenerated. The Pi harness now lists 157 models: 3 Anthropic, 7 OpenAI (direct), and 147 OpenRouter.
 
+- **`app/settings/ApiKeySettingsClient.tsx`** — Added a fully functional OpenRouter API key card (violet theme, `sk-or-` prefix validation, save/clear/active-badge). Sits between the Anthropic card and the "Coming soon" providers. Updated the priority breadcrumb to note it applies to Claude models.
+
+- **`lib/api-key-client.ts`** — Added `hasStoredOpenRouterApiKey`, `setStoredOpenRouterApiKey`, and `encryptStoredOpenRouterApiKey` — parallel helpers that use a separate localStorage slot (`primordia_openrouter_aes_key`) and a separate server endpoint (`/api/llm-key/encrypted-openrouter-key`).
+
+- **`app/api/llm-key/encrypted-openrouter-key/route.ts`** — New route (GET/POST/DELETE) mirroring `encrypted-key/route.ts` with preference key `encrypted_openrouter_api_key`.
+
+- **`components/EvolveRequestForm.tsx`** — When submitting with a Pi harness and an OpenRouter model (ID contains `/`), the encrypted OpenRouter key is sent instead of the Anthropic key.
+
+- **`app/evolve/session/[id]/EvolveSessionView.tsx`** — Same key-routing logic for follow-up submissions and the accept flow.
+
+- **`components/SettingsSubNav.tsx`** — The "API Keys" tab shows the active indicator when either the Anthropic or OpenRouter key is set.
+
 ## How to use
 
-1. Open the evolve form and expand **Advanced**.
-2. Select the **Pi** harness.
-3. Pick any model whose ID contains `/` (e.g. `google/gemini-2.5-flash`, `deepseek/deepseek-r1`, `meta-llama/llama-4-maverick`).
-4. Set your **OpenRouter API key** via the hamburger menu → "API key". OpenRouter models are not available through the exe.dev LLM gateway; a key is required.
+1. Go to **Account Settings → API Keys** (hamburger menu → Account Settings).
+2. Enter your OpenRouter API key (`sk-or-…`) in the **OpenRouter** card and click **Save key**. Get a key at [openrouter.ai/keys](https://openrouter.ai/keys).
+3. Open the evolve form, expand **Advanced**, select the **Pi** harness, and pick any model whose ID contains `/` (e.g. `google/gemini-2.5-flash`, `deepseek/deepseek-r1`, `meta-llama/llama-4-maverick`).
+4. The OpenRouter key is automatically used for OpenRouter models; the Anthropic key continues to be used for direct Anthropic/OpenAI models.
 
 ## Why
 

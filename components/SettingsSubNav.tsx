@@ -8,7 +8,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { hasStoredApiKey } from "@/lib/api-key-client";
+import { hasStoredApiKey, hasStoredOpenRouterApiKey } from "@/lib/api-key-client";
 import { hasStoredCredentials } from "@/lib/credentials-client";
 
 type TabId = "api-key" | "claude-ai";
@@ -25,7 +25,7 @@ export default function SettingsSubNav({ currentTab }: { currentTab: TabId }) {
   const [credentialsActive, setCredentialsActive] = useState(false);
 
   useEffect(() => {
-    setApiKeyActive(hasStoredApiKey());
+    setApiKeyActive(hasStoredApiKey() || hasStoredOpenRouterApiKey());
     setCredentialsActive(hasStoredCredentials());
   }, []);
 
