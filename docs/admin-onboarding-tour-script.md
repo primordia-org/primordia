@@ -94,56 +94,69 @@ The first user to register is automatically granted both `admin` and `can_evolve
 
 > This act walks the user through the three ways to power the AI agent. Each option gets its own
 > step. The user doesn't need to configure anything right now — the goal is awareness.
+>
+> **Navigation:** close the hamburger, then open ☰ → "Account Settings" (navigates to `/settings`).
+> The page has two tabs in the sidebar: **API Keys** (`/settings`) and **Claude.ai Subscription** (`/settings/claude-ai`).
+> Steps 6–8 live on the API Keys tab; Step 9 switches to the Claude.ai tab.
 
-### Step 6 — Credentials modal / panel opens
+### Step 6 — Account Settings / priority cascade
 
-- **Anchor:** `/` — credentials modal or settings panel open, no specific element highlighted yet
+- **Anchor:** `/settings` — highlight the priority badge near the top of the page: **Claude.ai › Anthropic API key › exe.dev gateway**
 - **[TOOLTIP]:**
-  > **AI credentials** tell Primordia which AI service to use when building your changes.
+  > This is **Account Settings** — where you tell Primordia which AI service to use.
   >
-  > There are three options — pick whichever fits you. You can change this any time.
+  > It works as a cascade (highest priority first):
+  > 1. **Claude.ai** subscription — if signed in
+  > 2. **Anthropic API key** — if entered
+  > 3. **exe.dev gateway** — the built-in fallback
+  >
+  > You only need to configure one. Pick whichever fits you best.
 - **[ADVANCE]:** "Next" button
 
-### Step 7 — Option 1: exe.dev (zero-config)
+### Step 7 — Option 1: exe.dev gateway (zero-config)
 
-- **Anchor:** credentials panel — highlight the exe.dev / default gateway section or indicator
+- **Anchor:** `/settings` — highlight the "exe.dev gateway" portion of the priority badge
   - `[SKIP IF: instance is not hosted on exe.dev]`
 - **[TOOLTIP]:**
-  > **You're on exe.dev — you're already set up.**
+  > **Already set up — nothing to do.**
   >
-  > This instance uses the exe.dev LLM gateway by default. Your exe.dev Shelley tokens are used automatically; no API key needed.
+  > Because you're on exe.dev, the gateway is your automatic fallback. Your Shelley tokens are used whenever no other credential is configured.
   >
-  > _(Mental note: display available Shelley token balance here once the API supports it.)_
+  > _(Future: show remaining Shelley token balance here once the exe.dev API exposes it.)_
 - **[ADVANCE]:** "Next" button
 
 ### Step 8 — Option 2: OpenRouter (free tier)
 
-- **Anchor:** credentials panel — highlight the OpenRouter API key field
+- **Anchor:** `/settings` — highlight the **OpenRouter** card (violet, monogram "OR")
 - **[TOOLTIP]:**
-  > **Free option: OpenRouter API key.**
+  > **Free option: OpenRouter.**
   >
-  > OpenRouter offers a free tier with access to capable open-source coding models. Sign up at openrouter.ai, copy your key, and paste it here — no credit card required to get started.
+  > OpenRouter has a free tier with capable open-source coding models — no credit card needed. Get a key at **openrouter.ai/keys** (the "Get a key" link is right on the card), paste it in, and hit **Save key**.
+  >
+  > Your key starts with `sk-or-v1-`. It overrides the exe.dev gateway when set.
 - **[ADVANCE]:** "Next" button
 
 ### Step 9 — Option 3: Claude.ai subscription
 
-- **Anchor:** credentials panel — highlight the Claude Code credentials (credentials.json) field
+- **Anchor:** `/settings/claude-ai` — switch to the Claude.ai tab; highlight the **"Sign in with Claude.ai"** button (sky blue, full-width)
 - **[TOOLTIP]:**
   > **Have a Claude.ai Pro or Max plan?**
   >
-  > Sign into Claude Code on your machine, then export your `credentials.json` and paste it here. Primordia will use your existing subscription — no extra API bill.
+  > Click **"Sign in with Claude.ai"** to go through a quick OAuth flow. Primordia will use your existing subscription — no separate API bill.
   >
-  > Credentials are encrypted (AES-256-GCM) in storage.
-- **[ADVANCE]:** "Next" button (do not require the user to paste anything)
+  > On Linux, you can also paste the contents of `~/.claude/.credentials.json` directly using the "Paste credentials file manually" section below the button.
+  >
+  > Credentials are encrypted in your browser before storage — the key never leaves your device.
+- **[ADVANCE]:** "Next" button (do not start the auth flow during the tour)
 
 ### Step 10 — Credentials wrap-up / segue
 
-- **Anchor:** credentials panel — no highlight
+- **Anchor:** `/settings/claude-ai` — no highlight
 - **[TOOLTIP]:**
-  > All set — you can update credentials any time from the ☰ menu.
+  > That's it for credentials. Come back to Account Settings any time from the ☰ menu to update or change your choice.
   >
-  > Now let's see what happens when you actually propose a change.
-- **[ADVANCE]:** "Next" button; close credentials panel
+  > Now let's see what you can actually do with it.
+- **[ADVANCE]:** "Next" button; navigate back to `/`
 
 ---
 
@@ -296,7 +309,7 @@ If the user clicks "Skip" at any step:
 | 1 | **Tooltip library?** | Shepherd.js, Intro.js, or custom? Custom keeps dependencies minimal. |
 | 2 | **Highlight style?** | Spotlight (darken surround) vs. outline ring vs. arrow pointer bubble? |
 | 3 | **Shelley token balance** — can we fetch remaining exe.dev Shelley tokens and display them in Step 7? | Check exe.dev API docs; add to Step 7 once supported. |
-| 4 | **Credentials panel vs. modal** — does the tour open the credentials modal inline, or navigate to a settings page? | Currently credentials are in a hamburger menu modal; tour should open it programmatically. |
+| 4 | **Credentials navigation** — tour navigates to `/settings` then `/settings/claude-ai`; confirm the sidebar tab switch can be triggered programmatically (or just navigate via URL). | |
 | 5 | **Step 16 branching** — admin vs. non-admin path needs a runtime role check at that point; simplest is to embed `isAdmin` in the tour config rendered server-side. | |
 | 6 | **exe.dev detection for Step 7** — detect via `NEXT_PUBLIC_BASE_PATH`, env var, or a runtime flag? | Prefer an env flag set by the installer. |
 | 7 | **Steps 11–15 (evolve flow)** — tour talks about the form without submitting; consider whether a short looping GIF or screenshot would make Step 15 (session page) clearer since the user hasn't seen it yet. | |
