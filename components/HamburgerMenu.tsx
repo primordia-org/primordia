@@ -136,7 +136,7 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
 
   return (
     <div className="flex items-center gap-1">
-    <AdminUpdatesBell isAdmin={sessionUser?.isAdmin ?? false} />
+    <AdminUpdatesBell sessionUser={sessionUser} />
     <div className="relative" ref={menuRef}>
       <button
         data-id="nav/menu-toggle"
