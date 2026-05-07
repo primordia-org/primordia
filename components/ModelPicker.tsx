@@ -403,6 +403,19 @@ function DropdownContent({
   );
 }
 
+/** Turn a raw model id into a human-readable label when no registry entry is found. */
+function humanizeModelId(id: string): string {
+  // Strip :free suffix
+  const base = id.replace(/:free$/, "");
+  // Take the part after the last slash (OpenRouter ids are "provider/name")
+  const name = base.includes("/") ? base.split("/").pop()! : base;
+  // Replace separators with spaces, title-case each word
+  return name
+    .replace(/[-_.]+/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
+
 // ─── ModelPicker props ─────────────────────────────────────────────────────────
 
 interface ModelPickerProps {
@@ -523,22 +536,25 @@ export function ModelPicker({
         data-id="evolve/model-picker-trigger"
         onClick={() => !disabled && setOpen((v) => !v)}
         disabled={disabled}
-        className={`flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-800 text-gray-200 hover:bg-gray-750 hover:border-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${compact ? "px-2.5 py-1.5 text-xs" : "px-3 py-2 text-sm"}`}
+        className={`flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-800 text-gray-200 hover:bg-gray-700 hover:border-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-0 ${compact ? "px-2.5 py-1.5" : "px-3 py-2"}`}
       >
-        {/* Provider icon for selected model */}
+        {/* Provider icon */}
         {selectedProvider && (
           <span className="flex-shrink-0">
-            <ProviderIcon providerId={selectedProvider} size={compact ? 18 : 20} />
+            <ProviderIcon providerId={selectedProvider} size={compact ? 18 : 22} />
           </span>
         )}
-        <span className="truncate max-w-[160px] sm:max-w-[240px]">
-          {selectedModelObj?.label ?? selectedModel}
+        {/* Model name + price */}
+        <span className="flex flex-col min-w-0 flex-1">
+          <span className={`truncate font-medium leading-tight ${compact ? "text-xs" : "text-sm"}`}>
+            {selectedModelObj?.label ?? humanizeModelId(selectedModel)}
+          </span>
+          {!compact && selectedModelObj?.inputPriceLabel && (
+            <span className="text-[10px] text-gray-500 leading-tight">
+              {selectedModelObj.inputPriceLabel}
+            </span>
+          )}
         </span>
-        {selectedModelObj?.inputPriceLabel && (
-          <span className="text-gray-500 text-[10px] flex-shrink-0 hidden sm:inline">
-            {selectedModelObj.inputPriceLabel}
-          </span>
-        )}
         <ChevronDown
           size={compact ? 12 : 14}
           strokeWidth={2}

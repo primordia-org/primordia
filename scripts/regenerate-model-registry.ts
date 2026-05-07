@@ -69,6 +69,15 @@ function filterToLatestVersions(models: RawModel[]): RawModel[] {
   out = out.filter(m => !m.id.includes(':') || m.id.endsWith(':free'));
   // R6 — drop meta-router / auto-router model IDs
   out = out.filter(m => m.id !== 'auto' && !m.id.startsWith('openrouter/'));
+  // R7 — drop non-coding / non-text-generation models by name/id patterns
+  const NON_CODING = /\b(audio|vision|\bvl\b|embed|rerank|guard|safeguard|whisper|tts|dall|moderat|ocr|transcri|image.gen|image-gen|\bsearch\b)\b/i;
+  out = out.filter(m => !NON_CODING.test(m.name) && !NON_CODING.test(m.id));
+  // R8 — drop alias / "latest" router IDs (contain ~ in provider or are routing aliases)
+  out = out.filter(m => !m.id.startsWith('~') && !m.provider.startsWith('~'));
+  // R9 — drop creative-writing fine-tunes and known non-coding niche models
+  const NICHE_NAMES = /euryale|unslopnemo|rocinante|ernie.*vl|cobuddy.*vl/i;
+  const NICHE_PROVIDERS = new Set(['sao10k', 'thedrummer', 'relace']);
+  out = out.filter(m => !NICHE_NAMES.test(m.name) && !NICHE_NAMES.test(m.id) && !NICHE_PROVIDERS.has(m.provider));
   // R4 — keep highest version per (provider, family)
   const groups = new Map<string, { model: RawModel; version: number }>();
   for (const model of out) {
@@ -94,6 +103,11 @@ for (const [harnessId, providers] of Object.entries(HARNESS_PROVIDERS)) {
   filtered.sort((a, b) => {
     const pi = providers.indexOf(a.provider), pj = providers.indexOf(b.provider);
     if (pi !== pj) return pi - pj;
+    // Within same provider-tier: free models last, then sort by input price ascending
+    const aFree = a.id.endsWith(':free'), bFree = b.id.endsWith(':free');
+    if (aFree !== bFree) return aFree ? 1 : -1;
+    const aPrice = a.cost?.input ?? 0, bPrice = b.cost?.input ?? 0;
+    if (aPrice !== bPrice) return aPrice - bPrice;
     return a.name.localeCompare(b.name);
   });
   result[harnessId] = filtered.map(m => {
