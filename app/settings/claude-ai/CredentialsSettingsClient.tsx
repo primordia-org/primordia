@@ -151,7 +151,7 @@ export default function CredentialsSettingsClient() {
           <h2 className="text-base font-medium text-gray-200 mb-1">Claude.ai Subscription</h2>
           <p className="text-sm text-gray-400 leading-relaxed">
             Sign in with your Claude.ai account to use your subscription for evolve requests.
-            Credentials are encrypted in your browser — the encryption key never leaves this device.
+            Credentials are encrypted in your browser — the encryption key never leaves your device(s).
           </p>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap text-xs">

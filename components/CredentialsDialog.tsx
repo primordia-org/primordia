@@ -187,7 +187,7 @@ export function CredentialsDialog({ onClose }: CredentialsDialogProps) {
           {isSet ? (
             <span>
               <span className="font-medium">Active</span>
-              <span className="text-green-400/70 text-xs"> — credentials encrypted on this device</span>
+              <span className="text-green-400/70 text-xs"> — credentials encrypted on your device(s)</span>
             </span>
           ) : (
             <span>No credentials set</span>

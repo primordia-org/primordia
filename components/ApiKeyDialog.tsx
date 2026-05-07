@@ -118,7 +118,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
             <ExternalLink size={11} strokeWidth={2} className="inline" aria-hidden="true" />
           </a>
           . The key is encrypted in your browser — the encryption key never leaves
-          this device, and the plaintext key is never stored or transmitted.
+          your device(s), and the plaintext key is never stored or transmitted.
         </p>
 
         {/* Current status */}
@@ -130,7 +130,7 @@ export function ApiKeyDialog({ onClose }: ApiKeyDialogProps) {
           {isKeySet ? (
             <span>
               <span className="font-medium">Active</span>{" "}
-              <span className="text-green-400/70 text-xs">— key encrypted on this device</span>
+              <span className="text-green-400/70 text-xs">— key encrypted on your device(s)</span>
             </span>
           ) : (
             <span>No API key set — using exe.dev gateway</span>
