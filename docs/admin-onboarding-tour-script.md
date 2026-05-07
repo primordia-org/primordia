@@ -1,7 +1,8 @@
-# Admin Onboarding Tour — Script for Product Tour
+# Onboarding Tour — Script for Product Tour
 
-> This script is the source of truth for building the in-app product tour shown to the first
-> user who signs up on a fresh Primordia instance (the user automatically granted the `admin` role).
+> This script is the source of truth for building the in-app product tour shown to users
+> the first time they land on the home page with the `can_evolve` role. Admin-specific steps
+> are included at the end and are gated on whether the current user has the `admin` role.
 >
 > **Format conventions:**
 > - Each step has an **anchor** — the page URL and element to highlight.
@@ -9,12 +10,15 @@
 > - `[ADVANCE: ...]` — the user action (or auto-trigger) that moves to the next step.
 > - `[EVENT: ...]` — analytics event that fires at this step (for future instrumentation).
 > - Steps marked `[SKIP IF: ...]` are conditional and may be omitted based on runtime state.
+> - Steps marked `[ADMIN ONLY]` are shown only to users with the `admin` role.
 
 ---
 
 ## Preface: When does this tour fire?
 
-The tour fires **once**, immediately after the first user completes passkey registration and lands on the home page for the first time. It is not shown to subsequent users (only the first-registered admin). A `tourCompleted` flag in the user's DB record suppresses it on future logins.
+The tour fires **once**, immediately after a user with the `can_evolve` role lands on the home page for the first time. A `tourCompleted` flag in the user's DB record suppresses it on future visits. Users who gain `can_evolve` after initial registration will see the tour on their next page load.
+
+The first user to register is automatically granted both `admin` and `can_evolve`, so they see the full tour including the admin-only steps at the end.
 
 ---
 
@@ -23,19 +27,29 @@ The tour fires **once**, immediately after the first user completes passkey regi
 ### Step 1 — Welcome overlay
 
 - **Anchor:** `/` — full-screen modal overlay (no element highlight)
-- **[TOOLTIP]:**
+- **[TOOLTIP]:** _(admin variant — shown if user has `admin` role)_
   > **Welcome to Primordia.**
   >
   > You're the first user on this instance, so you've been given the **admin** role automatically.
   >
-  > This quick tour shows you the three things that matter most:
-  > 1. How users propose changes to the app
-  > 2. How you manage who can do that
-  > 3. Where to find admin tools
+  > This quick tour covers:
+  > 1. How to set up your AI credentials
+  > 2. How to propose changes to the app using AI
+  > 3. Admin tools for managing users and the server
   >
   > Takes about 2 minutes. You can skip any time.
+- **[TOOLTIP]:** _(non-admin variant — shown if user only has `can_evolve`)_
+  > **Welcome to Primordia.**
+  >
+  > You have access to the **Evolve** feature — you can propose changes to this app in plain English, and an AI agent will build and preview them for you.
+  >
+  > This quick tour covers:
+  > 1. How to set up your AI credentials
+  > 2. How to propose a change and review the result
+  >
+  > Takes about 90 seconds. You can skip any time.
 - **[ADVANCE]:** "Start tour" button or "Skip" link
-- **[EVENT]:** `tour/started/v1 {userId: "..."}`
+- **[EVENT]:** `tour/started/v1 {userId: "...", isAdmin: true|false}`
 
 ---
 
@@ -45,133 +59,230 @@ The tour fires **once**, immediately after the first user completes passkey regi
 
 - **Anchor:** `/` — highlight the main hero/heading area
 - **[TOOLTIP]:**
-  > This is the **home page** your users see.
+  > This is the **home page** — a live, running web app.
   >
-  > It's a live preview of the app. Everything below the nav is editable — users can propose changes to any part of it.
+  > Everything you see is editable. Users with access can describe a change in plain English and an AI agent builds it, live, in a private preview.
 - **[ADVANCE]:** "Next" button
 
 ### Step 3 — The hamburger menu
 
 - **Anchor:** `/` — highlight the `☰` button in the top-right nav
 - **[TOOLTIP]:**
-  > This is the **main menu**. It's how users access Primordia's features.
+  > The **☰ menu** is how you access all of Primordia's features.
   >
-  > Click it to continue.
+  > Click it to see what's inside.
 - **[ADVANCE]:** User clicks the hamburger (or "Next" after a 3 s delay)
 - **[EVENT]:** `nav/menu-toggled/v1 {open: true}` (existing event — reuse)
 
-### Step 4 — "Propose a change" entry point
+### Step 4 — Menu overview
 
-- **Anchor:** `/` — hamburger menu open, highlight the "Propose a change" item
+- **Anchor:** `/` — hamburger menu open, highlight the menu panel as a whole
 - **[TOOLTIP]:**
-  > **"Propose a change"** is the core feature.
+  > From here you can propose changes, manage your credentials, and more.
   >
-  > Any user with the `can_evolve` role can click this to describe a change in plain English. Primordia runs an AI agent in the background, builds a live preview, and lets the user accept or reject it — no coding required.
-  >
-  > You'll grant that role to users in a moment.
-- **[ADVANCE]:** "Next" button (do not actually open evolve form during tour)
+  > First, let's set up your **AI credentials** — that's what powers the AI agent that builds your changes.
+- **[ADVANCE]:** "Next" button (do not navigate yet)
 
 ### Step 5 — Close the menu
 
-- **Anchor:** `/` — hamburger menu open
-- **[TOOLTIP]:** _(no bubble — close the menu programmatically and continue)_
-- **[ADVANCE]:** Auto-advance; close menu, navigate to `/admin`
+- **[TOOLTIP]:** _(no bubble)_
+- **[ADVANCE]:** Auto-advance; close menu, open the Credentials modal (or navigate to the credentials section)
 
 ---
 
-## Act 3: Admin Panel
+## Act 3: Credentials
 
-### Step 6 — Admin panel landing
+> This act walks the user through the three ways to power the AI agent. Each option gets its own
+> step. The user doesn't need to configure anything right now — the goal is awareness.
 
-- **Anchor:** `/admin` — highlight the page heading / role list area
+### Step 6 — Credentials modal / panel opens
+
+- **Anchor:** `/` — credentials modal or settings panel open, no specific element highlighted yet
 - **[TOOLTIP]:**
-  > This is the **Admin panel** — only you can see it.
+  > **AI credentials** tell Primordia which AI service to use when building your changes.
   >
-  > Right now it shows all registered users and their roles. You're the only user, so the list is short.
+  > There are three options — pick whichever fits you. You can change this any time.
 - **[ADVANCE]:** "Next" button
 
-### Step 7 — Granting the can_evolve role
+### Step 7 — Option 1: exe.dev (zero-config)
 
-- **Anchor:** `/admin` — highlight the role grant UI (the `can_evolve` row or grant button for the current user)
+- **Anchor:** credentials panel — highlight the exe.dev / default gateway section or indicator
+  - `[SKIP IF: instance is not hosted on exe.dev]`
 - **[TOOLTIP]:**
-  > To let a user propose changes, give them the **`can_evolve`** role.
+  > **You're on exe.dev — you're already set up.**
   >
-  > As admin, you already have it. When new users sign up, they start with no roles — you control who gets access.
+  > This instance uses the exe.dev LLM gateway by default. Your exe.dev Shelley tokens are used automatically; no API key needed.
   >
-  > You can also revoke roles here at any time.
+  > _(Mental note: display available Shelley token balance here once the API supports it.)_
 - **[ADVANCE]:** "Next" button
+
+### Step 8 — Option 2: OpenRouter (free tier)
+
+- **Anchor:** credentials panel — highlight the OpenRouter API key field
+- **[TOOLTIP]:**
+  > **Free option: OpenRouter API key.**
+  >
+  > OpenRouter offers a free tier with access to capable open-source coding models. Sign up at openrouter.ai, copy your key, and paste it here — no credit card required to get started.
+- **[ADVANCE]:** "Next" button
+
+### Step 9 — Option 3: Claude.ai subscription
+
+- **Anchor:** credentials panel — highlight the Claude Code credentials (credentials.json) field
+- **[TOOLTIP]:**
+  > **Have a Claude.ai Pro or Max plan?**
+  >
+  > Sign into Claude Code on your machine, then export your `credentials.json` and paste it here. Primordia will use your existing subscription — no extra API bill.
+  >
+  > Credentials are encrypted (AES-256-GCM) in storage.
+- **[ADVANCE]:** "Next" button (do not require the user to paste anything)
+
+### Step 10 — Credentials wrap-up / segue
+
+- **Anchor:** credentials panel — no highlight
+- **[TOOLTIP]:**
+  > All set — you can update credentials any time from the ☰ menu.
+  >
+  > Now let's see what happens when you actually propose a change.
+- **[ADVANCE]:** "Next" button; close credentials panel
 
 ---
 
-## Act 4: Key Admin Tools
+## Act 4: The Evolve Flow
 
-### Step 8 — Server health
+### Step 11 — Open evolve entry point
 
-- **Anchor:** `/admin` — highlight the "Server health" link in the admin sidebar/nav
+- **Anchor:** `/` — highlight the `☰` button
 - **[TOOLTIP]:**
-  > **Server health** shows disk and memory usage for this instance, and lets you clean up old preview worktrees when disk gets tight.
+  > Open the menu and click **"Propose a change"** to start.
+- **[ADVANCE]:** User opens menu and clicks "Propose a change" — or "Next" after 4 s delay
+- **[EVENT]:** `evolve-dialog/opened/v1 {}` (existing event — reuse, or detect it as advance trigger)
+
+### Step 12 — The evolve form
+
+- **Anchor:** evolve dialog (floating or `/evolve` page) — highlight the text area
+- **[TOOLTIP]:**
+  > **Describe what you want** in plain English — as specific or as vague as you like.
+  >
+  > _Example: "Add a dark mode toggle to the nav bar."_
+  >
+  > The AI agent reads your request, looks at the codebase, writes the code, and builds a live preview.
+- **[ADVANCE]:** "Next" button (do not submit)
+
+### Step 13 — Attachments & element inspector
+
+- **Anchor:** evolve dialog — highlight the "Attach files" button and the crosshair/inspector button
+- **[TOOLTIP]:**
+  > You can also **attach screenshots or files** as reference, or use the **element inspector** (crosshair) to click on any part of the page and add it as context.
+  >
+  > Both help the AI understand exactly what you mean.
 - **[ADVANCE]:** "Next" button
 
-### Step 9 — Server logs
+### Step 14 — Submit & wait
 
-- **Anchor:** `/admin` — highlight the "Logs" link
+- **Anchor:** evolve dialog — highlight the "Propose Change" submit button
 - **[TOOLTIP]:**
-  > **Server logs** streams live stdout/stderr from the production process — useful when something goes wrong and you need to see what the app is doing right now.
+  > When you hit **Propose Change**, Primordia:
+  > 1. Creates a private git branch
+  > 2. Runs the AI agent on it
+  > 3. Starts a dev server with the result
+  >
+  > You'll land on a session page where you can watch it work in real time.
+- **[ADVANCE]:** "Next" button (do not submit during tour)
+
+### Step 15 — Session page overview
+
+- **Anchor:** `/` — overlay illustration or screenshot placeholder (user hasn't submitted, so show a static callout)
+- **[TOOLTIP]:**
+  > On the **session page** you'll see:
+  > - Live agent output as it writes code
+  > - A side-by-side preview of the running change
+  > - A diff of every file touched
+  >
+  > When you're happy, click **Accept** to deploy it instantly. Not happy? Click **Reject** — the branch is discarded cleanly.
 - **[ADVANCE]:** "Next" button
 
-### Step 10 — Rollback
+### Step 16 — Close evolve dialog / segue to admin
 
-- **Anchor:** `/admin` — highlight the "Rollback" link
-- **[TOOLTIP]:**
-  > **Rollback** lists every previous production deployment. If a change breaks something, you can instantly revert to any prior version — zero downtime, no `git` commands needed.
-- **[ADVANCE]:** "Next" button
-
-### Step 11 — Upstream updates
-
-- **Anchor:** `/admin` — highlight the "Updates" link
-- **[TOOLTIP]:**
-  > **Updates** lets you pull in new Primordia features from the upstream project. Think of it as `git pull` for the platform itself — without touching the terminal.
-- **[ADVANCE]:** "Next" button
+- **[TOOLTIP]:** _(no bubble — close dialog programmatically)_
+- **[ADVANCE]:** Auto-advance
+  - If user is **not** admin → skip to Step 22 (wrap-up)
+  - If user **is** admin → continue to Act 5
 
 ---
 
-## Act 5: Credentials (Optional Setup)
+## Act 5: Admin Tools _(Admin only — skip entire act if user lacks `admin` role)_
 
-### Step 12 — Credentials management
+### Step 17 — Navigate to admin panel
 
-- **Anchor:** `/` — open hamburger menu (programmatically), highlight "Credentials" item
-  - `[SKIP IF: user already has credentials stored]`
+- **[TOOLTIP]:** _(no bubble — navigate to `/admin`)_
+- **[ADVANCE]:** Auto-advance
+
+### Step 18 — Admin panel landing
+
+- **Anchor:** `/admin` — highlight the page heading / user + role list
 - **[TOOLTIP]:**
-  > **Optional:** Paste your Claude Code `credentials.json` here to use your own Anthropic account for AI generation instead of the shared gateway.
+  > This is the **Admin panel** — only admins can see it.
   >
-  > Credentials are encrypted (AES-256-GCM) before storage. You can skip this and use the default gateway.
-- **[ADVANCE]:** "Next" button (do not open credentials modal)
+  > From here you manage users and roles. New users start with no roles; you decide who gets `can_evolve` access.
+- **[ADVANCE]:** "Next" button
+
+### Step 19 — Granting the can_evolve role
+
+- **Anchor:** `/admin` — highlight the `can_evolve` role grant controls
+- **[TOOLTIP]:**
+  > To let someone propose changes, give them **`can_evolve`**.
+  >
+  > You can revoke it the same way. Admins automatically have it.
+- **[ADVANCE]:** "Next" button
+
+### Step 20 — Key admin tools (overview)
+
+- **Anchor:** `/admin` — highlight the sidebar/nav links as a group
+- **[TOOLTIP]:**
+  > A few tools worth knowing:
+  >
+  > - **Server health** — disk & memory usage; clean up old preview worktrees
+  > - **Logs** — live stdout/stderr stream from the production process
+  > - **Rollback** — one-click revert to any previous deployment, zero downtime
+  > - **Updates** — pull upstream Primordia improvements without touching the terminal
+- **[ADVANCE]:** "Next" button
+
+### Step 21 — End of admin section
+
+- **[TOOLTIP]:** _(no bubble — navigate back to `/`)_
+- **[ADVANCE]:** Auto-advance → Step 22
 
 ---
 
 ## Act 6: Wrap-up
 
-### Step 13 — Tour complete
+### Step 22 — Tour complete
 
-- **Anchor:** `/` — full-screen modal overlay (no element highlight), menu closed
-- **[TOOLTIP]:**
+- **Anchor:** `/` — full-screen modal overlay (no element highlight)
+- **[TOOLTIP]:** _(admin variant)_
   > **You're all set.**
   >
-  > Quick recap:
-  > - Users propose changes via ☰ → "Propose a change"
-  > - Grant the `can_evolve` role at `/admin` to control who can do that
-  > - Admin tools (logs, rollback, updates, health) are all at `/admin`
+  > - Credentials live in ☰ → Credentials — update any time
+  > - Propose changes via ☰ → "Propose a change"
+  > - Manage users and the server at `/admin`
   >
-  > The tour won't show again. You can revisit these pages any time from the admin panel.
+  > The tour won't show again, but everything's always one menu click away.
+- **[TOOLTIP]:** _(non-admin variant)_
+  > **You're all set.**
+  >
+  > - Credentials live in ☰ → Credentials — update any time
+  > - Propose changes any time via ☰ → "Propose a change"
+  >
+  > The tour won't show again. Go break something — in a good way.
 - **[ADVANCE]:** "Done" button
-- **[EVENT]:** `tour/completed/v1 {userId: "...", skipped: false}`
+- **[EVENT]:** `tour/completed/v1 {userId: "...", isAdmin: true|false, skipped: false}`
 
 ---
 
 ## Skip / Dismiss Path
 
 If the user clicks "Skip" at any step:
-- **[EVENT]:** `tour/skipped/v1 {userId: "...", atStep: N}`
+- **[EVENT]:** `tour/skipped/v1 {userId: "...", atStep: N, isAdmin: true|false}`
 - Mark `tourCompleted = true` in DB immediately
 - Dismiss overlay/tooltip, return user to current page
 - No re-trigger on next login
@@ -184,8 +295,11 @@ If the user clicks "Skip" at any step:
 |---|---|---|
 | 1 | **Tooltip library?** | Shepherd.js, Intro.js, or custom? Custom keeps dependencies minimal. |
 | 2 | **Highlight style?** | Spotlight (darken surround) vs. outline ring vs. arrow pointer bubble? |
-| 3 | **Steps 8–11 navigation** — do we navigate to `/admin` and highlight sidebar links, or stay on landing page and use a modal list? | Navigating feels more real; modal list is less disorienting. |
-| 4 | **Step 12 skip condition** — check DB server-side on page load or fire a client-side API call? | Server-side in the tour config seems cleaner. |
-| 5 | **Mobile?** — hamburger tour steps work on desktop; mobile may need a simplified flow. | Defer mobile variant until desktop is validated. |
-| 6 | **Progress indicator** — numbered dots, "Step N of 13", or none? | Numbered dots feel lighter. |
-| 7 | **Auto-advance timeout** — should any step auto-advance after N seconds if the user doesn't interact? | Risk: user is reading. Prefer explicit "Next" for all steps. |
+| 3 | **Shelley token balance** — can we fetch remaining exe.dev Shelley tokens and display them in Step 7? | Check exe.dev API docs; add to Step 7 once supported. |
+| 4 | **Credentials panel vs. modal** — does the tour open the credentials modal inline, or navigate to a settings page? | Currently credentials are in a hamburger menu modal; tour should open it programmatically. |
+| 5 | **Step 16 branching** — admin vs. non-admin path needs a runtime role check at that point; simplest is to embed `isAdmin` in the tour config rendered server-side. | |
+| 6 | **exe.dev detection for Step 7** — detect via `NEXT_PUBLIC_BASE_PATH`, env var, or a runtime flag? | Prefer an env flag set by the installer. |
+| 7 | **Steps 11–15 (evolve flow)** — tour talks about the form without submitting; consider whether a short looping GIF or screenshot would make Step 15 (session page) clearer since the user hasn't seen it yet. | |
+| 8 | **Mobile?** — hamburger and floating dialog steps work on desktop; mobile may need a simplified flow. | Defer mobile variant until desktop is validated. |
+| 9 | **Progress indicator** — numbered dots, "Step N of 22", or none? | Numbered dots; total count should reflect actual steps shown (varies by admin/exe.dev). |
+| 10 | **Auto-advance timeout** — should any step auto-advance after N seconds? | Risk: user is reading. Prefer explicit "Next" for all steps except the silent transition steps. |
