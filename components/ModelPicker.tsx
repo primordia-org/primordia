@@ -28,6 +28,7 @@ interface ProviderGroup {
 
 // Well-known provider slug → display info
 const PROVIDER_META: Record<string, { label: string; shortLabel: string }> = {
+  free:            { label: "Free",            shortLabel: "Free" },
   anthropic:       { label: "Anthropic",       shortLabel: "Anthropic" },
   openai:          { label: "OpenAI",          shortLabel: "OpenAI" },
   "openai-native": { label: "OpenAI",          shortLabel: "OpenAI" },
@@ -53,6 +54,9 @@ const PROVIDER_META: Record<string, { label: string; shortLabel: string }> = {
 
 /** Maps provider id → public path for a favicon PNG. */
 const PROVIDER_FAVICON: Record<string, string> = {
+  "openai-native":  "/brand-icons/openai-icon.png",
+  openai:           "/brand-icons/openai-icon.png",
+  google:           "/brand-icons/google-gemini-icon.png",
   deepseek:         "/brand-icons/deepseek-icon.png",
   mistralai:        "/brand-icons/mistralai-icon.png",
   "meta-llama":     "/brand-icons/meta-llama-icon.png",
@@ -64,6 +68,7 @@ const PROVIDER_FAVICON: Record<string, string> = {
   kwaipilot:        "/brand-icons/kwaipilot-icon.png",
   "z-ai":           "/brand-icons/z-ai-icon.png",
   "x-ai":           "/brand-icons/x-ai-icon.png",
+  baidu:            "/brand-icons/baidu-icon.png",
 };
 
 /** Provider icon: inline SVG for Anthropic/OpenAI/Google, favicon PNG for others. */
@@ -91,40 +96,20 @@ function ProviderIcon({
     );
   }
 
-  // ── OpenAI (inline SVG) ─────────────────────────────────────────────────
-  if (providerId === "openai" || providerId === "openai-native") {
+  // ── Free tier badge
+  if (providerId === "free") {
     return (
       <span
-        className="flex items-center justify-center rounded-lg bg-gray-700/60 text-gray-200 flex-shrink-0"
-        style={style}
+        className="flex items-center justify-center rounded-lg bg-emerald-900/40 text-emerald-400 font-bold flex-shrink-0"
+        style={{ ...style, fontSize: size * 0.32 }}
         aria-hidden="true"
       >
-        <svg viewBox="0 0 32 32" width={size * 0.62} height={size * 0.62} fill="currentColor">
-          <path d="M29.2 13.0c.7-2.1.4-4.4-.9-6.2-1.8-2.7-5-4-8.2-3.3C18.8 1.9 17 .8 15 .8c-3.1 0-5.9 2-6.8 5-2.2.5-4 1.9-5.1 3.9-1.6 2.8-1.1 6.3.9 8.6-.7 2.1-.4 4.4.9 6.2 1.8 2.7 5 4 8.2 3.3C14.2 29.4 16 30.5 18 30.5c3.1 0 5.9-2 6.8-5 2.2-.5 4-1.9 5.1-3.9 1.6-2.8 1.1-6.2-.7-8.6zm-11.2 15c-1.5 0-2.9-.5-4-1.5l.2-.1 6.6-3.8c.3-.2.5-.5.5-.9V13l2.8 1.6v8.5c0 2.7-2.2 4.9-6.1 4.9zm-13-5c-.8-1.3-1-2.9-.5-4.4l.2.1 6.6 3.8c.3.2.7.2 1 0l8.1-4.7v3.2l-6.7 3.9c-2.4 1.4-5.5.5-6.7-1.9zm-1.7-11c.8-1.3 2-2.3 3.4-2.8v7.7c0 .4.2.7.5.9l8.1 4.7-2.8 1.6-6.7-3.9c-2.3-1.4-3.1-4.4-2.5-8.2zm15.1 3.4-3.3-1.9-3.3 1.9v3.8l3.3 1.9 3.3-1.9V15.4zm1.7-7.4-.2-.1-6.6-3.8c-.3-.2-.7-.2-1 0L4.2 8.8v3.2l8.1-4.7c.3-.2.7-.2 1 0l6.6 3.8 2.8-1.6-2.6-1.5zm1.3 10.4v-7.7c0-.4-.2-.7-.5-.9L12.8 5l2.8-1.6 6.7 3.9c2.4 1.4 3.2 4.4 2.3 8.2-.8 1.3-2 2.3-3.2 2.9z" />
-        </svg>
+        FREE
       </span>
     );
   }
 
-  // ── Google (inline SVG) ─────────────────────────────────────────────────
-  if (providerId === "google") {
-    return (
-      <span
-        className="flex items-center justify-center rounded-lg bg-blue-900/30 flex-shrink-0"
-        style={style}
-        aria-hidden="true"
-      >
-        <svg viewBox="0 0 24 24" width={size * 0.62} height={size * 0.62}>
-          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-        </svg>
-      </span>
-    );
-  }
-
-  // ── Favicon PNG for providers that have one ─────────────────────────────
+  // ── Favicon PNG for providers that have one (including OpenAI, Google/Gemini) ─────────────────────────────
   const faviconSrc = PROVIDER_FAVICON[providerId];
   if (faviconSrc) {
     return (
@@ -156,6 +141,8 @@ function ProviderIcon({
 
 /** Determine the provider slug for a model. */
 function getModelProvider(model: ModelOption): string {
+  // Free models (:free suffix) get their own virtual group
+  if (model.id.endsWith(":free")) return "free";
   // OpenRouter models have a slash in the id: "provider/model-name"
   if (model.id.includes("/")) {
     return model.id.split("/")[0];
@@ -182,8 +169,8 @@ function buildProviderGroups(models: ModelOption[]): ProviderGroup[] {
     byProvider[prov] = [...(byProvider[prov] ?? []), m];
   }
 
-  // Sort providers: anthropic first, openai-native second, then rest alphabetically
-  const priority: Record<string, number> = { anthropic: 0, "openai-native": 1 };
+  // Sort providers: free first, anthropic second, openai-native third, then rest alphabetically
+  const priority: Record<string, number> = { free: 0, anthropic: 1, "openai-native": 2 };
   const providerIds = Object.keys(byProvider).sort((a, b) => {
     const pa = priority[a] ?? 99;
     const pb = priority[b] ?? 99;
@@ -232,6 +219,10 @@ function ModelRow({
   onSelect: (id: string) => void;
 }) {
   const provId = getModelProvider(model);
+  // For free models, show the actual provider icon (not the green FREE badge)
+  const rowIconProvId = provId === "free" && model.id.includes("/")
+    ? model.id.split("/")[0]
+    : provId;
   return (
     <button
       type="button"
@@ -243,7 +234,7 @@ function ModelRow({
     >
       {showRowIcon && (
         <span className="flex-shrink-0 mt-0.5">
-          <ProviderIcon providerId={provId} size={22} />
+          <ProviderIcon providerId={rowIconProvId} size={22} />
         </span>
       )}
       <span className="flex-1 min-w-0">
@@ -285,7 +276,8 @@ function DropdownContent({
   handleSelect,
   onClose,
 }: DropdownContentProps) {
-  const showRowIcon = !!search || providerGroups.length <= 1;
+  // Show per-row provider icon when: searching (mixed results), single provider, or browsing the "free" group (mixed providers)
+  const showRowIcon = !!search || providerGroups.length <= 1 || effectiveProvider === "free";
 
   return (
     <>
@@ -437,7 +429,11 @@ export function ModelPicker({
   }, [search, models, effectiveProvider, providerGroups]);
 
   const selectedModelObj = models.find((m) => m.id === selectedModel);
-  const selectedProvider = selectedModelObj ? getModelProvider(selectedModelObj) : null;
+  const selectedProviderRaw = selectedModelObj ? getModelProvider(selectedModelObj) : null;
+  // For free models in the trigger, show the actual provider icon not the FREE badge
+  const selectedProvider = selectedProviderRaw === "free" && selectedModelObj?.id.includes("/")
+    ? selectedModelObj.id.split("/")[0]
+    : selectedProviderRaw;
 
   const searchRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);

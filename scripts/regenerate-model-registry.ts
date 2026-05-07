@@ -42,7 +42,8 @@ function fmt(n: number): string {
 }
 
 function formatPricing(cost: RawModel['cost']): { full: string; input: string } | null {
-  if (!cost || (cost.input === 0 && cost.output === 0)) return null;
+  if (!cost) return null;
+  if (cost.input === 0 && cost.output === 0) return { full: 'free', input: 'free' };
   return { full: `${fmt(cost.input)}→${fmt(cost.output)}/M`, input: `${fmt(cost.input)}/M` };
 }
 
@@ -64,8 +65,8 @@ function filterToLatestVersions(models: RawModel[]): RawModel[] {
   out = out.filter(m => !/\b(Chat|research|Turbo|Spark|Max)\b/i.test(m.name));
   // R3 — drop oversized tier qualifiers
   out = out.filter(m => !/(\bnano\b|\bpro\b|-pro)$/i.test(m.name));
-  // R5 — drop model IDs with variant suffix tags (:free, :extended, :thinking)
-  out = out.filter(m => !m.id.includes(':'));
+  // R5 — drop model IDs with variant suffix tags (:extended, :thinking) but keep :free
+  out = out.filter(m => !m.id.includes(':') || m.id.endsWith(':free'));
   // R6 — drop meta-router / auto-router model IDs
   out = out.filter(m => m.id !== 'auto' && !m.id.startsWith('openrouter/'));
   // R4 — keep highest version per (provider, family)

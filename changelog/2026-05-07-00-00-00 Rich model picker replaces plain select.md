@@ -10,7 +10,11 @@ Replaced the plain `<select>` for model selection in the Advanced panel of `Evol
 - **Search** — a search bar at the top filters models across all providers by name, id, or description.
 - **Provider sidebar** — on desktop, a left-column list of provider tabs (icon + name); on mobile, a horizontally-scrollable row of tabs above the model list. Clicking a tab filters the list to that provider.
 - **Model rows** — each row shows: provider icon (when searching or single-provider), model name, description (which includes pricing), and a checkmark on the selected model. Price is not duplicated — it appears once in the description line, and also in the trigger button.
-- **Provider icons** — inline SVGs for Anthropic, Google, and OpenAI; real favicon PNGs (via Google's favicon service, stored in `public/brand-icons/` and `components/brand-icons/`) for DeepSeek, Mistral, Meta, Qwen, NVIDIA, MoonshotAI, ByteDance Seed, Inception, Kwaipilot, xAI, and Z.ai; text-initial badge fallback for any unknown provider.
+- **Provider icons** — inline SVG for Anthropic; favicon PNGs (Google favicon service, stored in `public/brand-icons/` and `components/brand-icons/`) for OpenAI (correct knot logo), Google/Gemini (4-pointed star), DeepSeek, Mistral, Meta, Qwen, NVIDIA, MoonshotAI, ByteDance Seed, Inception, Kwaipilot, xAI, Z.ai, and Baidu (paw+du); text-initial badge fallback for unknowns.
+- **Free models category** — a "Free" group appears first in the provider sidebar, containing all `:free` suffix OpenRouter models. The `regenerate-model-registry` script was updated to pass through `:free` models (previously dropped). Free models show the individual provider's real icon in the row (not the green FREE badge). `inputPriceLabel` for zero-cost models is now set to `"free"` rather than omitted.
+- **Baidu CoBuddy** — manually added to the curated list as `baidu/cobuddy:free` (not yet in pi's model registry but available on OpenRouter).
+- **Models sorted by price** — within each group, models are sorted ascending by input price.
+- **Model count** — 44 total (10 native, 25 paid OpenRouter, 9 free OpenRouter including CoBuddy).
 - **Sidebar responsive** — provider sidebar shows icon-only on small screens (`w-10`) and icon+label on `sm+` (`w-[120px]`), with a `title` tooltip on each tab.
 - **Model row indent** — removed the spacer placeholder `<span>` that was adding unwanted left margin when browsing by provider (no icon shown per row in that mode).
 - **Keyboard / UX** — Escape clears search first, then closes the dropdown. Outside-click closes the dropdown. The selected model scrolls into view on open.
@@ -24,10 +28,12 @@ Follow-up fixes:
 - **Model rows only visible when searching** — caused by mobile provider tabs being placed as a flex sibling inside the horizontal body div, collapsing the model list. Fixed by rendering tabs in a column above the list.
 - **Mobile / responsive** — switched from bottom sheet (mobile) + absolute dropdown (desktop) to a single centered dialog on all screen sizes, portal-rendered into `document.body`.
 - **Price shown twice** — removed the redundant `inputPriceLabel` badge from model rows; pricing is already visible in the description line (e.g. "OpenRouter · reasoning · $3→$15/M").
-- **Model list curated from 157 → 35** — the original auto-generated list included 147 OpenRouter models, many of which are audio, image, creative writing, or general-purpose (not coding-focused), plus duplicates of native Anthropic/OpenAI models. Replaced with a hand-curated allowlist of 25 coding-appropriate OpenRouter models (Google Gemini, DeepSeek, Mistral Codestral/Devstral, xAI Grok Code, Meta Llama 4, Qwen3 Coder, Kimi K2, Mercury Coder, etc.) alongside the 10 native Anthropic/OpenAI models. Note: Baidu CoBuddy is not yet in the pi model registry and is not currently available.
+- **Model list curated from 157 → 35** — the original auto-generated list included 147 OpenRouter models, many of which are audio, image, creative writing, or general-purpose (not coding-focused), plus duplicates of native Anthropic/OpenAI models. Replaced with a hand-curated allowlist of 25 coding-appropriate OpenRouter models (Google Gemini, DeepSeek, Mistral Codestral/Devstral, xAI Grok Code, Meta Llama 4, Qwen3 Coder, Kimi K2, Mercury Coder, etc.) alongside the 10 native Anthropic/OpenAI models. CoBuddy is manually added to the curated list since pi's registry doesn't include it yet.
 
 ## Files changed
 
 - `components/ModelPicker.tsx` — new component (created)
 - `components/EvolveRequestForm.tsx` — import + use `ModelPicker` in place of the model `<select>`
-- `lib/models.generated.json` — curated from 157 to 35 coding-focused models
+- `lib/models.generated.json` — curated list: 44 models (10 native, 25 paid OR, 9 free OR), sorted by price
+- `scripts/regenerate-model-registry.ts` — allow `:free` models through; emit `"free"` pricing label for zero-cost
+- `public/brand-icons/` + `components/brand-icons/` — added openai-icon.png, google-gemini-icon.png, baidu-icon.png
