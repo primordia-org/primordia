@@ -8,15 +8,17 @@ import 'server-only';
 //
 // Supported providers per harness:
 //   claude-code  →  anthropic only (the Claude Code SDK is Anthropic-only)
-//   pi           →  anthropic + openai (both are routed via the LLM gateway)
+//   pi           →  anthropic + openai (gateway) + openrouter (user API key required)
 
 import { ModelRegistry, AuthStorage } from '@mariozechner/pi-coding-agent';
 import type { ModelOption } from './agent-config';
 
-// The providers that each harness can access through the exe.dev LLM gateway.
+// Providers surfaced in the model picker per harness.
+// anthropic + openai route through the exe.dev LLM gateway (no key needed).
+// openrouter requires the user to supply their own OpenRouter API key.
 const HARNESS_PROVIDERS: Record<string, string[]> = {
   'claude-code': ['anthropic'],
-  'pi': ['anthropic', 'openai'],
+  'pi': ['anthropic', 'openai', 'openrouter'],
 };
 
 /**
@@ -49,6 +51,7 @@ function formatPricing(
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
+  openrouter: 'OpenRouter',
 };
 
 type RawModel = {
@@ -83,6 +86,12 @@ type RawModel = {
  *       e.g. GPT-4 / GPT-4.1 / GPT-4o / GPT-5 / … / GPT-5.4 → keep GPT-5.4
  *            o1 / o3 → keep o3
  *            o3-mini / o4-mini → keep o4-mini
+ *
+ * R5 — Drop model IDs containing ":" (OpenRouter variant suffix tags like
+ *       ":free", ":extended", ":thinking").
+ *
+ * R6 — Drop OpenRouter meta-router/auto-router model IDs ("auto",
+ *       "openrouter/*").
  */
 function filterToLatestVersions(models: RawModel[]): RawModel[] {
   // R1
@@ -95,6 +104,12 @@ function filterToLatestVersions(models: RawModel[]): RawModel[] {
 
   // R3
   out = out.filter((m) => !/(\bnano\b|\bpro\b|-pro)$/i.test(m.name));
+
+  // R5
+  out = out.filter((m) => !m.id.includes(':'));
+
+  // R6
+  out = out.filter((m) => m.id !== 'auto' && !m.id.startsWith('openrouter/'));
 
   // R4 — build family key and keep highest version per group
   function familyOf(name: string): { key: string; version: number } {
@@ -131,10 +146,12 @@ function filterToLatestVersions(models: RawModel[]): RawModel[] {
  * current when the pi SDK is updated without any code changes.
  */
 export function getModelOptionsByHarness(): Record<string, ModelOption[]> {
-  // Set placeholder keys so the registry treats each provider as authenticated.
+  // Set placeholder keys so the registry treats each provider as authenticated
+  // and includes its models in getAll().
   const auth = AuthStorage.create();
   auth.setRuntimeApiKey('anthropic', 'gateway');
   auth.setRuntimeApiKey('openai', 'gateway');
+  auth.setRuntimeApiKey('openrouter', 'placeholder');
 
   const registry = ModelRegistry.create(auth);
   const allModels = (registry as unknown as { getAll(): RawModel[] }).getAll();

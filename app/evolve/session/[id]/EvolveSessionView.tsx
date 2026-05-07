@@ -15,7 +15,7 @@ import { FloatingEvolveDialog, EvolveSubmitToast } from "@/components/FloatingEv
 import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
 import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
-import { encryptStoredApiKey } from "@/lib/api-key-client";
+import { encryptStoredApiKey, encryptStoredOpenRouterApiKey } from "@/lib/api-key-client";
 import { useSounds } from "@/lib/sounds";
 import { encryptStoredCredentials, updateStoredCredentials } from "@/lib/credentials-client";
 import { EvolveRequestForm } from "@/components/EvolveRequestForm";
@@ -1300,13 +1300,17 @@ export default function EvolveSessionView({
     try {
       // Attach credentials so the server can forward them to any agent sessions
       // spawned during accept (type-fix, auto-commit). Try credentials first
-      // (claude-code harness); fall back to API key for other harnesses.
+      // (claude-code harness); OpenRouter models use the OpenRouter key;
+      // everything else uses the Anthropic key.
       const acceptBody: Record<string, string> = { action: 'accept', sessionId };
       const encCreds = await encryptStoredCredentials();
       if (encCreds) {
         acceptBody.encryptedCredentials = JSON.stringify(encCreds);
       } else {
-        const encKey = await encryptStoredApiKey();
+        const isOpenRouterModel = sessionModel?.includes('/') ?? false;
+        const encKey = isOpenRouterModel
+          ? await encryptStoredOpenRouterApiKey()
+          : await encryptStoredApiKey();
         if (encKey) acceptBody.encryptedApiKey = encKey;
       }
       const res = await fetch(withBasePath('/api/evolve/manage'), {
@@ -1860,10 +1864,14 @@ export default function EvolveSessionView({
                   formData.append('model', model);
                   for (const file of files) formData.append('attachments', file);
                   // Only one auth token is ever sent. Credentials are only
-                  // meaningful for the claude-code harness; all others use the API key.
+                  // meaningful for the claude-code harness; OpenRouter models
+                  // (id contains '/') use the OpenRouter key; others use Anthropic.
                   if (harness === 'claude-code') {
                     const encryptedCredentials = await encryptStoredCredentials();
                     if (encryptedCredentials) formData.append('encryptedCredentials', JSON.stringify(encryptedCredentials));
+                  } else if (model.includes('/')) {
+                    const encryptedApiKey = await encryptStoredOpenRouterApiKey();
+                    if (encryptedApiKey) formData.append('encryptedApiKey', encryptedApiKey);
                   } else {
                     const encryptedApiKey = await encryptStoredApiKey();
                     if (encryptedApiKey) formData.append('encryptedApiKey', encryptedApiKey);

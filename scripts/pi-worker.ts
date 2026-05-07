@@ -43,8 +43,11 @@ const ANTHROPIC_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai';
 
 /** Infer the pi provider name from a model ID. Defaults to 'anthropic'. */
-function inferProvider(modelId: string): 'anthropic' | 'openai' {
-  if (modelId.startsWith('gpt-') || /^o\d/.test(modelId)) return 'openai';
+function inferProvider(modelId: string): 'anthropic' | 'openai' | 'openrouter' {
+  // Direct OpenAI model IDs (no slash, well-known prefixes)
+  if (modelId.startsWith('gpt-') || /^o\d/.test(modelId) || modelId.startsWith('codex-')) return 'openai';
+  // OpenRouter model IDs always contain a slash (e.g. 'google/gemini-2.5-flash')
+  if (modelId.includes('/')) return 'openrouter';
   return 'anthropic';
 }
 
@@ -301,7 +304,7 @@ async function main(): Promise<void> {
     const loader = new DefaultResourceLoader({
       cwd: worktreePath,
       agentDir: getAgentDir(),
-      appendSystemPrompt: `The current working directory is: ${worktreePath}`,
+      appendSystemPrompt: [`The current working directory is: ${worktreePath}`],
       // Disable extension discovery — extensions are not needed for headless runs
       // and may require interactive input or write to unexpected locations.
       noExtensions: true,
@@ -319,7 +322,8 @@ async function main(): Promise<void> {
       modelRegistry,
       resourceLoader: loader,
       sessionManager: sessionMgr,
-      tools: createCodingTools(worktreePath),
+      // createCodingTools = read, bash, edit, write — pass as names for new API
+      tools: ["read", "bash", "edit", "write"],
     });
 
     activeSession = session;
