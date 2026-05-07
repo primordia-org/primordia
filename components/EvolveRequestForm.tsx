@@ -371,9 +371,10 @@ export function EvolveRequestForm({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Don't auto-submit on Enter to prevent accidental submissions on mobile.
+    // Only the submit button should trigger the request.
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit(e as unknown as FormEvent);
     }
   }
 

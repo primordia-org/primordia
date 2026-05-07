@@ -20,7 +20,7 @@ The Pi coding agent harness now supports OpenRouter as a third LLM provider, alo
 
 - **`app/api/llm-key/encrypted-openrouter-key/route.ts`** — New route (GET/POST/DELETE) mirroring `encrypted-key/route.ts` with preference key `encrypted_openrouter_api_key`.
 
-- **`components/EvolveRequestForm.tsx`** — When submitting with a Pi harness and an OpenRouter model (ID contains `/`), the encrypted OpenRouter key is sent instead of the Anthropic key.
+- **`components/EvolveRequestForm.tsx`** — When submitting with a Pi harness and an OpenRouter model (ID contains `/`), the encrypted OpenRouter key is sent instead of the Anthropic key. Also removed auto-submit on Enter key to prevent accidental submissions on mobile — only the submit button triggers the request.
 
 - **`app/evolve/session/[id]/EvolveSessionView.tsx`** — Same key-routing logic for follow-up submissions and the accept flow.
 
