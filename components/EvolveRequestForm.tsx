@@ -12,6 +12,7 @@
 
 import { useState, useRef, useEffect, useCallback, FormEvent, memo } from "react";
 import { Paperclip, Settings, ChevronDown, Crosshair, Loader2 } from "lucide-react";
+import { ModelPicker } from "./ModelPicker";
 import { useRouter } from "next/navigation";
 import { withBasePath } from "../lib/base-path";
 import { encryptStoredApiKey, encryptStoredOpenRouterApiKey } from "../lib/api-key-client";
@@ -600,30 +601,15 @@ export function EvolveRequestForm({
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-3">
                   <label className="text-xs text-gray-400 w-14 flex-shrink-0">Model</label>
-                  <select
-                    data-id="evolve/model-select"
-                    value={selectedModel}
-                    onChange={(e) => { const model = e.target.value; setSelectedModel(model); trackEvent("evolve-form/model-changed/v1", { model, harness: selectedHarness }); }}
+                  <ModelPicker
+                    modelOptionsByHarness={modelOptionsByHarness}
+                    selectedHarness={selectedHarness}
+                    selectedModel={selectedModel}
+                    onChange={(model) => { setSelectedModel(model); trackEvent("evolve-form/model-changed/v1", { model, harness: selectedHarness }); }}
                     disabled={isLoading}
-                    className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
-                  >
-                    {(modelOptionsByHarness[selectedHarness] ?? []).map((m) => (
-                      <option key={m.id} value={m.id} title={m.description}>
-                        {m.inputPriceLabel ? `${m.label} (${m.inputPriceLabel})` : m.label}
-                      </option>
-                    ))}
-                  </select>
+                    compact
+                  />
                 </div>
-                {(() => {
-                  const sel = (modelOptionsByHarness[selectedHarness] ?? []).find(
-                    (m) => m.id === selectedModel,
-                  );
-                  return sel?.description ? (
-                    <p className="ml-[4.25rem] text-[10px] text-gray-500 leading-tight">
-                      {sel.description}
-                    </p>
-                  ) : null;
-                })()}
               </div>
               <div className="border-t border-gray-800 pt-2">
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 mb-2">Skills</p>
