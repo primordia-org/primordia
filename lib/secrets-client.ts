@@ -215,6 +215,109 @@ export async function clearSecret(type: SecretType): Promise<void> {
 }
 
 /**
+ * Called after receiving a foreign AES key via cross-device QR sync.
+ *
+ * 1. Re-encrypts all locally-tracked secrets under the new key so they stay
+ *    accessible (handles the case where this device had its own prior key with
+ *    different credentials already stored in the DB).
+ * 2. Saves the new key to localStorage and resets the module cache.
+ *
+ * After this, call syncSecretsIndexFromServer() to pick up secrets the sender
+ * had stored that this device didn't previously know about.
+ */
+export async function adoptNewAesKey(newKeyJwkStr: string): Promise<void> {
+  if (typeof window === 'undefined') return;
+
+  const oldKeyJwkStr = localStorage.getItem(AES_KEY_STORAGE);
+
+  if (!oldKeyJwkStr || oldKeyJwkStr === newKeyJwkStr) {
+    localStorage.setItem(AES_KEY_STORAGE, newKeyJwkStr);
+    cachedAesKey = null;
+    return;
+  }
+
+  let oldKey: CryptoKey;
+  let newKey: CryptoKey;
+  try {
+    oldKey = await crypto.subtle.importKey(
+      'jwk',
+      JSON.parse(oldKeyJwkStr) as JsonWebKey,
+      { name: 'AES-GCM' },
+      false,
+      ['decrypt'],
+    );
+    newKey = await crypto.subtle.importKey(
+      'jwk',
+      JSON.parse(newKeyJwkStr) as JsonWebKey,
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt'],
+    );
+  } catch {
+    // Can't import keys — just adopt the new key without migrating.
+    localStorage.setItem(AES_KEY_STORAGE, newKeyJwkStr);
+    cachedAesKey = null;
+    return;
+  }
+
+  // Re-encrypt each locally-tracked secret under the new key so it remains
+  // readable after this device adopts the sender's AES key.
+  const index = readSecretsIndex();
+  const migrated: SecretType[] = [];
+  for (const type of index) {
+    try {
+      const res = await fetch(withBasePath(`/api/secrets/${type}`));
+      if (!res.ok) continue;
+      const data = (await res.json()) as { ciphertext: string | null };
+      if (!data.ciphertext) continue;
+
+      const { iv: ivB64, ciphertext: ctB64 } = JSON.parse(data.ciphertext) as {
+        iv: string;
+        ciphertext: string;
+      };
+      const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
+      const ct = Uint8Array.from(atob(ctB64), (c) => c.charCodeAt(0));
+      const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, oldKey, ct);
+
+      const newIv = crypto.getRandomValues(new Uint8Array(12));
+      const newCt = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: newIv }, newKey, plaintext);
+      const newIvB64 = btoa(String.fromCharCode(...newIv));
+      const newCtB64 = btoa(String.fromCharCode(...new Uint8Array(newCt)));
+
+      const storeRes = await fetch(withBasePath(`/api/secrets/${type}`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ iv: newIvB64, ciphertext: newCtB64 }),
+      });
+      if (storeRes.ok) migrated.push(type);
+    } catch {
+      // Skip this type — key mismatch or server error. Don't block adoption.
+    }
+  }
+
+  localStorage.setItem(AES_KEY_STORAGE, newKeyJwkStr);
+  cachedAesKey = null;
+  writeSecretsIndex(migrated);
+}
+
+/**
+ * Syncs the local secrets presence index with the server's authoritative list.
+ * Call after adoptNewAesKey() so the device knows about all secrets stored by
+ * the sender (not just the ones this device set itself).
+ */
+export async function syncSecretsIndexFromServer(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    const res = await fetch(withBasePath('/api/secrets'));
+    if (!res.ok) return;
+    const data = (await res.json()) as { types: SecretType[] };
+    if (Array.isArray(data.types)) writeSecretsIndex(data.types);
+  } catch {
+    // Best-effort — don't block sign-in
+  }
+}
+
+/**
  * Removes the local AES key and secrets index without touching the server.
  * Use when the server has no ciphertext (orphaned local state) to resync
  * the two sides without issuing a DELETE.
