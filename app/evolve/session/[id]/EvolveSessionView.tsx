@@ -25,6 +25,7 @@ import { DiffFileExpander } from "./DiffFileExpander";
 import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
 import type { SessionEvent, AgentAuthInfo } from "@/lib/session-events";
+import { convertUtcTimeToLocal } from "@/lib/utc-to-local-time";
 import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
 import { deriveSmartPreviewUrl } from "@/lib/smart-preview-url";
 import { trackEvent } from "@/lib/events-client";
@@ -425,6 +426,16 @@ function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection
   const metricsEvent = [...events].reverse().find((e): e is Extract<SessionEvent, { type: 'metrics' }> => e.type === 'metrics');
   const hasError = resultEvent?.subtype === 'error' || resultEvent?.subtype === 'timeout' || resultEvent?.subtype === 'aborted';
 
+  // Convert UTC time in error message to local timezone (client-side only to avoid SSR hydration mismatch)
+  const [convertedMessage, setConvertedMessage] = useState<string | null>(null);
+  useEffect(() => {
+    if (hasError && resultEvent?.message) {
+      setConvertedMessage(convertUtcTimeToLocal(resultEvent.message));
+    } else {
+      setConvertedMessage(null);
+    }
+  }, [hasError, resultEvent?.message]);
+
   const borderClass = isAutoCommitSection ? "border-green-700/50" : isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
   const headingClass = isAutoCommitSection ? "text-green-300" : isTypeFixSection ? "text-orange-300" : "text-blue-300";
   const doneBorderClass = hasError ? "border-red-700/50" : borderClass;
@@ -490,10 +501,10 @@ function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection
           })}
         </div>
       )}
-      {hasError && resultEvent?.message && (
+      {hasError && convertedMessage && (
         <div className="px-4 py-3 border-t border-gray-800">
           <p className="text-xs font-semibold text-red-400 mb-1">Error details</p>
-          <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{resultEvent.message}</pre>
+          <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{convertedMessage}</pre>
         </div>
       )}
       {metricsEvent && (
