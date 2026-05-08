@@ -68,6 +68,10 @@ to reveal the value and confirm it is correct. The Save button stays disabled
 until you actually edit the field, so viewing the key never triggers an
 accidental re-save.
 
+`CredentialsSettingsClient` similarly decrypts the stored Claude.ai credentials
+on mount. A "Show credentials" eye-toggle button reveals the pretty-printed JSON
+in a scrollable block so you can verify the value without re-authenticating.
+
 **Unit tests (`tests/secrets-client.test.ts`)**
 
 Added `bun:test` unit tests covering the new `getSecret()` function and the

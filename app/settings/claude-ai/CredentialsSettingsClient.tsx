@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ExternalLink, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronRight, Loader2, Eye, EyeOff } from "lucide-react";
 import { ClaudeIcon } from "@/components/brand-icons/ClaudeIcon";
 import { setStoredCredentials } from "@/lib/credentials-client";
+import { getSecret } from "@/lib/secrets-client";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
 
@@ -17,6 +18,8 @@ type Step =
 
 export default function CredentialsSettingsClient() {
   const [isSet, setIsSet] = useState(false);
+  const [storedValue, setStoredValue] = useState<string | null>(null);
+  const [showCredentials, setShowCredentials] = useState(false);
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [code, setCode] = useState("");
   const [showPaste, setShowPaste] = useState(false);
@@ -32,7 +35,11 @@ export default function CredentialsSettingsClient() {
         const res = await fetch(withBasePath('/api/secrets/CLAUDE_CODE_CREDENTIALS_JSON'));
         if (res.ok) {
           const data = (await res.json()) as { ciphertext: string | null };
-          setIsSet(!!data.ciphertext);
+          if (data.ciphertext) {
+            setIsSet(true);
+            const val = await getSecret('CLAUDE_CODE_CREDENTIALS_JSON');
+            setStoredValue(val);
+          }
         }
       } catch {}
     }
@@ -82,6 +89,7 @@ export default function CredentialsSettingsClient() {
       await setStoredCredentials(credentials);
       trackEvent("settings/claude-auth-completed/v1", {});
       setIsSet(true);
+      setStoredValue(credentials);
       setStep({ kind: "done" });
     } catch (e) {
       setStep({ kind: "error", message: e instanceof Error ? e.message : "Failed to complete authentication." });
@@ -107,6 +115,8 @@ export default function CredentialsSettingsClient() {
       await setStoredCredentials(null);
       trackEvent("settings/credentials-cleared/v1", {});
       setIsSet(false);
+      setStoredValue(null);
+      setShowCredentials(false);
       setStep({ kind: "idle" });
     } catch {}
   }
@@ -131,6 +141,7 @@ export default function CredentialsSettingsClient() {
       await setStoredCredentials(result.value);
       trackEvent("settings/credentials-saved/v1", {});
       setIsSet(true);
+      setStoredValue(result.value);
       setPasteValue("");
       setPasteSaved(true);
       setStep({ kind: "done" });
@@ -139,6 +150,16 @@ export default function CredentialsSettingsClient() {
       setPasteError("Failed to save credentials. Please try again.");
     } finally {
       setPasteLoading(false);
+    }
+  }
+
+  // Pretty-print stored JSON if possible; fall back to raw string.
+  function prettyCredentials(): string {
+    if (!storedValue) return "";
+    try {
+      return JSON.stringify(JSON.parse(storedValue), null, 2);
+    } catch {
+      return storedValue;
     }
   }
 
@@ -178,6 +199,29 @@ export default function CredentialsSettingsClient() {
             </span>
           )}
         </div>
+
+        {/* Stored credentials viewer — only shown when a value is set and decrypted */}
+        {isSet && storedValue && (
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              data-id="credentials/toggle-visibility"
+              onClick={() => setShowCredentials((v) => !v)}
+              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors self-start"
+              aria-label={showCredentials ? "Hide stored credentials" : "Show stored credentials"}
+            >
+              {showCredentials
+                ? <EyeOff size={13} strokeWidth={2} aria-hidden="true" />
+                : <Eye size={13} strokeWidth={2} aria-hidden="true" />}
+              {showCredentials ? "Hide credentials" : "Show credentials"}
+            </button>
+            {showCredentials && (
+              <pre className="text-xs font-mono text-gray-300 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
+                {prettyCredentials()}
+              </pre>
+            )}
+          </div>
+        )}
 
         {/* OAuth flow */}
         {(step.kind === "idle" || step.kind === "done") && (
