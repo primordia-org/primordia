@@ -6,6 +6,7 @@ import {
   setStoredApiKey,
   setStoredOpenRouterApiKey,
 } from "@/lib/api-key-client";
+import { getSecret } from "@/lib/secrets-client";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
 
@@ -37,6 +38,7 @@ export default function ApiKeySettingsClient() {
   // Anthropic key state
   const [isKeySet, setIsKeySet] = useState(false);
   const [inputValue, setInputValue] = useState("");
+  const [keyDirty, setKeyDirty] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -45,6 +47,7 @@ export default function ApiKeySettingsClient() {
   // OpenRouter key state
   const [isOrKeySet, setIsOrKeySet] = useState(false);
   const [orInputValue, setOrInputValue] = useState("");
+  const [orKeyDirty, setOrKeyDirty] = useState(false);
   const [orShowKey, setOrShowKey] = useState(false);
   const [orSaved, setOrSaved] = useState(false);
   const [orLoading, setOrLoading] = useState(false);
@@ -56,8 +59,16 @@ export default function ApiKeySettingsClient() {
         const res = await fetch(withBasePath('/api/secrets'));
         if (!res.ok) return;
         const { types } = (await res.json()) as { types: string[] };
-        setIsKeySet(types.includes('ANTHROPIC_API_KEY'));
-        setIsOrKeySet(types.includes('OPENROUTER_API_KEY'));
+        if (types.includes('ANTHROPIC_API_KEY')) {
+          setIsKeySet(true);
+          const val = await getSecret('ANTHROPIC_API_KEY');
+          if (val) { setInputValue(val); setKeyDirty(false); }
+        }
+        if (types.includes('OPENROUTER_API_KEY')) {
+          setIsOrKeySet(true);
+          const val = await getSecret('OPENROUTER_API_KEY');
+          if (val) { setOrInputValue(val); setOrKeyDirty(false); }
+        }
       } catch {}
     }
     void check();
@@ -76,7 +87,7 @@ export default function ApiKeySettingsClient() {
       await setStoredApiKey(trimmed);
       trackEvent("settings/api-key-saved/v1", {});
       setIsKeySet(true);
-      setInputValue("");
+      setKeyDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
@@ -93,6 +104,7 @@ export default function ApiKeySettingsClient() {
       trackEvent("settings/api-key-cleared/v1", {});
       setIsKeySet(false);
       setInputValue("");
+      setKeyDirty(false);
       setError(null);
     } catch {
       setError("Failed to clear key. Please try again.");
@@ -114,7 +126,7 @@ export default function ApiKeySettingsClient() {
       await setStoredOpenRouterApiKey(trimmed);
       trackEvent("settings/openrouter-key-saved/v1", {});
       setIsOrKeySet(true);
-      setOrInputValue("");
+      setOrKeyDirty(false);
       setOrSaved(true);
       setTimeout(() => setOrSaved(false), 2000);
     } catch {
@@ -131,6 +143,7 @@ export default function ApiKeySettingsClient() {
       trackEvent("settings/openrouter-key-cleared/v1", {});
       setIsOrKeySet(false);
       setOrInputValue("");
+      setOrKeyDirty(false);
       setOrError(null);
     } catch {
       setOrError("Failed to clear key. Please try again.");
@@ -199,7 +212,7 @@ export default function ApiKeySettingsClient() {
               data-id="api-key/key-input"
               type={showKey ? "text" : "password"}
               value={inputValue}
-              onChange={(e) => { setInputValue(e.target.value); setError(null); setSaved(false); }}
+              onChange={(e) => { setInputValue(e.target.value); setKeyDirty(true); setError(null); setSaved(false); }}
               onKeyDown={(e) => { if (e.key === "Enter") void handleSave(); }}
               placeholder="sk-ant-api03-…"
               className="w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 pr-9 outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 font-mono"
@@ -239,7 +252,7 @@ export default function ApiKeySettingsClient() {
           <button
             data-id="api-key/save-key"
             onClick={() => void handleSave()}
-            disabled={!inputValue.trim() || saved || loading}
+            disabled={!inputValue.trim() || !keyDirty || saved || loading}
             className="px-4 py-1.5 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white transition-colors disabled:cursor-not-allowed"
           >
             {loading ? "Saving…" : saved ? "Saved ✓" : "Save key"}
@@ -287,7 +300,7 @@ export default function ApiKeySettingsClient() {
               data-id="api-key/openrouter-key-input"
               type={orShowKey ? "text" : "password"}
               value={orInputValue}
-              onChange={(e) => { setOrInputValue(e.target.value); setOrError(null); setOrSaved(false); }}
+              onChange={(e) => { setOrInputValue(e.target.value); setOrKeyDirty(true); setOrError(null); setOrSaved(false); }}
               onKeyDown={(e) => { if (e.key === "Enter") void handleOrSave(); }}
               placeholder="sk-or-v1-…"
               className="w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 pr-9 outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 font-mono"
@@ -327,7 +340,7 @@ export default function ApiKeySettingsClient() {
           <button
             data-id="api-key/openrouter-save-key"
             onClick={() => void handleOrSave()}
-            disabled={!orInputValue.trim() || orSaved || orLoading}
+            disabled={!orInputValue.trim() || !orKeyDirty || orSaved || orLoading}
             className="px-4 py-1.5 rounded-lg text-sm font-medium bg-violet-700 hover:bg-violet-600 disabled:bg-violet-900 text-white transition-colors disabled:cursor-not-allowed"
           >
             {orLoading ? "Saving…" : orSaved ? "Saved ✓" : "Save key"}

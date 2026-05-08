@@ -59,3 +59,17 @@ Removed: `hasSecret()`, `readSecretsIndex()`, `writeSecretsIndex()`,
 All UI components (`SettingsSubNav`, `ApiKeySettingsClient`,
 `CredentialsSettingsClient`) now check credential status by fetching from the
 server on mount, which is both simpler and always accurate.
+
+**`/settings` now shows your current key values**
+
+`ApiKeySettingsClient` decrypts stored API keys on mount and pre-fills the
+input fields. The inputs stay masked (`type="password"`) — click the eye icon
+to reveal the value and confirm it is correct. The Save button stays disabled
+until you actually edit the field, so viewing the key never triggers an
+accidental re-save.
+
+**Unit tests (`tests/secrets-client.test.ts`)**
+
+Added `bun:test` unit tests covering the new `getSecret()` function and the
+full `setSecret` → `getSecret` round-trip using real `crypto.subtle` AES-GCM
+operations with mocked `localStorage` and `fetch`. Run with `bun run test:unit`.

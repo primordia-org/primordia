@@ -14,6 +14,7 @@
     "proxy": "bun scripts/reverse-proxy.ts",
     "generate-api-docs": "next-openapi-gen generate --config openapi-gen.config.json",
     "regenerate:model-registry": "bun run scripts/regenerate-model-registry.ts",
+    "test:unit": "bun test tests/secrets-client.test.ts",
     "test:e2e": "bunx playwright test",
     "test:e2e:headed": "bunx playwright test --headed"
   },

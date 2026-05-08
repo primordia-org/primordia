@@ -282,6 +282,37 @@ export async function adoptNewAesKey(newKeyJwkStr: string): Promise<void> {
 }
 
 /**
+ * Decrypts and returns the plaintext value of a stored secret.
+ * Returns null if no AES key is in localStorage, the type has no ciphertext
+ * on the server, or decryption fails for any reason.
+ */
+export async function getSecret(type: SecretType): Promise<string | null> {
+  try {
+    const aesKey = await loadAesKey();
+    if (!aesKey) return null;
+
+    const res = await fetch(withBasePath(`/api/secrets/${type}`));
+    if (!res.ok) return null;
+
+    const data = (await res.json()) as { ciphertext: string | null };
+    if (!data.ciphertext) return null;
+
+    const { iv: ivB64, ciphertext: ctB64 } = JSON.parse(data.ciphertext) as {
+      iv: string;
+      ciphertext: string;
+    };
+
+    const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
+    const ct = Uint8Array.from(atob(ctB64), (c) => c.charCodeAt(0));
+    const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
+
+    return new TextDecoder().decode(plaintext);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Returns an API key ready for secure transmission using RSA-OAEP:
  *   1. Load the shared AES key from localStorage.
  *   2. Fetch the AES-encrypted ciphertext from the server.
