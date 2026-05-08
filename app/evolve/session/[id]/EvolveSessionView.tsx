@@ -25,6 +25,7 @@ import { DiffFileExpander } from "./DiffFileExpander";
 import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
 import type { SessionEvent, AgentAuthInfo } from "@/lib/session-events";
+import { convertUtcTimeToLocal } from "@/lib/utc-to-local-time";
 import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
 import { deriveSmartPreviewUrl } from "@/lib/smart-preview-url";
 import { trackEvent } from "@/lib/events-client";
@@ -493,7 +494,7 @@ function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection
       {hasError && resultEvent?.message && (
         <div className="px-4 py-3 border-t border-gray-800">
           <p className="text-xs font-semibold text-red-400 mb-1">Error details</p>
-          <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{resultEvent.message}</pre>
+          <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{convertUtcTimeToLocal(resultEvent.message)}</pre>
         </div>
       )}
       {metricsEvent && (
