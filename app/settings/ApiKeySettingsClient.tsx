@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Eye, EyeOff, ExternalLink } from "lucide-react";
+import { Key, EyeOff, Eye, ExternalLink } from "lucide-react";
 import {
   setStoredApiKey,
   setStoredOpenRouterApiKey,
@@ -9,6 +9,7 @@ import {
 import { getSecret } from "@/lib/secrets-client";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
+import { useDecryptEffect, generateScramble } from "@/lib/use-decrypt-effect";
 
 function ComingSoonCard({ monogram, monogramClass, name, description }: {
   monogram: string;
@@ -40,6 +41,7 @@ export default function ApiKeySettingsClient() {
   const [inputValue, setInputValue] = useState("");
   const [keyDirty, setKeyDirty] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [scrambled, setScrambled] = useState("");
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,9 +51,17 @@ export default function ApiKeySettingsClient() {
   const [orInputValue, setOrInputValue] = useState("");
   const [orKeyDirty, setOrKeyDirty] = useState(false);
   const [orShowKey, setOrShowKey] = useState(false);
+  const [orScrambled, setOrScrambled] = useState("");
   const [orSaved, setOrSaved] = useState(false);
   const [orLoading, setOrLoading] = useState(false);
   const [orError, setOrError] = useState<string | null>(null);
+
+  const { displayValue: decryptDisplay, isDecrypting, decrypt } = useDecryptEffect({
+    onComplete: () => setShowKey(true),
+  });
+  const { displayValue: orDecryptDisplay, isDecrypting: orIsDecrypting, decrypt: orDecrypt } = useDecryptEffect({
+    onComplete: () => setOrShowKey(true),
+  });
 
   useEffect(() => {
     async function check() {
@@ -62,12 +72,12 @@ export default function ApiKeySettingsClient() {
         if (types.includes('ANTHROPIC_API_KEY')) {
           setIsKeySet(true);
           const val = await getSecret('ANTHROPIC_API_KEY');
-          if (val) { setInputValue(val); setKeyDirty(false); }
+          if (val) { setInputValue(val); setKeyDirty(false); setScrambled(generateScramble(val)); }
         }
         if (types.includes('OPENROUTER_API_KEY')) {
           setIsOrKeySet(true);
           const val = await getSecret('OPENROUTER_API_KEY');
-          if (val) { setOrInputValue(val); setOrKeyDirty(false); }
+          if (val) { setOrInputValue(val); setOrKeyDirty(false); setOrScrambled(generateScramble(val)); }
         }
       } catch {}
     }
@@ -88,6 +98,8 @@ export default function ApiKeySettingsClient() {
       trackEvent("settings/api-key-saved/v1", {});
       setIsKeySet(true);
       setKeyDirty(false);
+      setScrambled(generateScramble(trimmed));
+      setShowKey(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
@@ -105,6 +117,8 @@ export default function ApiKeySettingsClient() {
       setIsKeySet(false);
       setInputValue("");
       setKeyDirty(false);
+      setScrambled("");
+      setShowKey(false);
       setError(null);
     } catch {
       setError("Failed to clear key. Please try again.");
@@ -127,6 +141,8 @@ export default function ApiKeySettingsClient() {
       trackEvent("settings/openrouter-key-saved/v1", {});
       setIsOrKeySet(true);
       setOrKeyDirty(false);
+      setOrScrambled(generateScramble(trimmed));
+      setOrShowKey(false);
       setOrSaved(true);
       setTimeout(() => setOrSaved(false), 2000);
     } catch {
@@ -144,6 +160,8 @@ export default function ApiKeySettingsClient() {
       setIsOrKeySet(false);
       setOrInputValue("");
       setOrKeyDirty(false);
+      setOrScrambled("");
+      setOrShowKey(false);
       setOrError(null);
     } catch {
       setOrError("Failed to clear key. Please try again.");
@@ -151,6 +169,10 @@ export default function ApiKeySettingsClient() {
       setOrLoading(false);
     }
   }
+
+  // True when we should show the cipher display instead of the input
+  const showCipherDisplay = isKeySet && !showKey;
+  const orShowCipherDisplay = isOrKeySet && !orShowKey;
 
   return (
     <div className="flex flex-col gap-6">
@@ -208,29 +230,56 @@ export default function ApiKeySettingsClient() {
             </a>
           </div>
           <div className="relative">
-            <input
-              data-id="api-key/key-input"
-              type={showKey ? "text" : "password"}
-              value={inputValue}
-              onChange={(e) => { setInputValue(e.target.value); setKeyDirty(true); setError(null); setSaved(false); }}
-              onKeyDown={(e) => { if (e.key === "Enter") void handleSave(); }}
-              placeholder="sk-ant-api03-…"
-              className="w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 pr-9 outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 font-mono"
-              autoComplete="off"
-              spellCheck={false}
-              disabled={loading}
-            />
+            {showCipherDisplay ? (
+              <div
+                className="w-full bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 pr-9 font-mono text-amber-300/50 overflow-hidden whitespace-nowrap select-none h-[38px] flex items-center"
+                aria-hidden="true"
+              >
+                <span className="truncate">{isDecrypting ? decryptDisplay : scrambled}</span>
+              </div>
+            ) : (
+              <input
+                data-id="api-key/key-input"
+                type={showKey ? "text" : "password"}
+                value={inputValue}
+                onChange={(e) => { setInputValue(e.target.value); setKeyDirty(true); setError(null); setSaved(false); }}
+                onKeyDown={(e) => { if (e.key === "Enter") void handleSave(); }}
+                placeholder="sk-ant-api03-…"
+                className="w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 pr-9 outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 font-mono"
+                autoComplete="off"
+                spellCheck={false}
+                disabled={loading}
+              />
+            )}
             <button
               type="button"
               data-id="api-key/toggle-visibility"
-              onClick={() => setShowKey((v) => !v)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
-              aria-label={showKey ? "Hide key" : "Show key"}
+              onClick={() => {
+                if (!showKey && isKeySet && !isDecrypting) {
+                  decrypt(inputValue);
+                } else if (showKey) {
+                  setShowKey(false);
+                  if (inputValue) setScrambled(generateScramble(inputValue));
+                } else {
+                  setShowKey((v) => !v);
+                }
+              }}
+              disabled={isDecrypting}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label={showKey ? "Hide key" : "Reveal key"}
             >
-              {showKey
-                ? <EyeOff size={15} strokeWidth={2} aria-hidden="true" />
-                : <Eye size={15} strokeWidth={2} aria-hidden="true" />
-              }
+              {showCipherDisplay ? (
+                <Key
+                  size={15}
+                  strokeWidth={2}
+                  aria-hidden="true"
+                  className={isDecrypting ? "text-amber-400 animate-pulse" : "text-amber-500/70 hover:text-amber-400 transition-colors"}
+                />
+              ) : showKey ? (
+                <EyeOff size={15} strokeWidth={2} aria-hidden="true" className="text-gray-500 hover:text-gray-300 transition-colors" />
+              ) : (
+                <Eye size={15} strokeWidth={2} aria-hidden="true" className="text-gray-500 hover:text-gray-300 transition-colors" />
+              )}
             </button>
           </div>
           {error && <p className="text-xs text-red-400">{error}</p>}
@@ -296,29 +345,56 @@ export default function ApiKeySettingsClient() {
             </a>
           </div>
           <div className="relative">
-            <input
-              data-id="api-key/openrouter-key-input"
-              type={orShowKey ? "text" : "password"}
-              value={orInputValue}
-              onChange={(e) => { setOrInputValue(e.target.value); setOrKeyDirty(true); setOrError(null); setOrSaved(false); }}
-              onKeyDown={(e) => { if (e.key === "Enter") void handleOrSave(); }}
-              placeholder="sk-or-v1-…"
-              className="w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 pr-9 outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 font-mono"
-              autoComplete="off"
-              spellCheck={false}
-              disabled={orLoading}
-            />
+            {orShowCipherDisplay ? (
+              <div
+                className="w-full bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 pr-9 font-mono text-violet-300/50 overflow-hidden whitespace-nowrap select-none h-[38px] flex items-center"
+                aria-hidden="true"
+              >
+                <span className="truncate">{orIsDecrypting ? orDecryptDisplay : orScrambled}</span>
+              </div>
+            ) : (
+              <input
+                data-id="api-key/openrouter-key-input"
+                type={orShowKey ? "text" : "password"}
+                value={orInputValue}
+                onChange={(e) => { setOrInputValue(e.target.value); setOrKeyDirty(true); setOrError(null); setOrSaved(false); }}
+                onKeyDown={(e) => { if (e.key === "Enter") void handleOrSave(); }}
+                placeholder="sk-or-v1-…"
+                className="w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 pr-9 outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 font-mono"
+                autoComplete="off"
+                spellCheck={false}
+                disabled={orLoading}
+              />
+            )}
             <button
               type="button"
               data-id="api-key/openrouter-toggle-visibility"
-              onClick={() => setOrShowKey((v) => !v)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
-              aria-label={orShowKey ? "Hide key" : "Show key"}
+              onClick={() => {
+                if (!orShowKey && isOrKeySet && !orIsDecrypting) {
+                  orDecrypt(orInputValue);
+                } else if (orShowKey) {
+                  setOrShowKey(false);
+                  if (orInputValue) setOrScrambled(generateScramble(orInputValue));
+                } else {
+                  setOrShowKey((v) => !v);
+                }
+              }}
+              disabled={orIsDecrypting}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label={orShowKey ? "Hide key" : "Reveal key"}
             >
-              {orShowKey
-                ? <EyeOff size={15} strokeWidth={2} aria-hidden="true" />
-                : <Eye size={15} strokeWidth={2} aria-hidden="true" />
-              }
+              {orShowCipherDisplay ? (
+                <Key
+                  size={15}
+                  strokeWidth={2}
+                  aria-hidden="true"
+                  className={orIsDecrypting ? "text-violet-400 animate-pulse" : "text-violet-500/70 hover:text-violet-400 transition-colors"}
+                />
+              ) : orShowKey ? (
+                <EyeOff size={15} strokeWidth={2} aria-hidden="true" className="text-gray-500 hover:text-gray-300 transition-colors" />
+              ) : (
+                <Eye size={15} strokeWidth={2} aria-hidden="true" className="text-gray-500 hover:text-gray-300 transition-colors" />
+              )}
             </button>
           </div>
           {orError && <p className="text-xs text-red-400">{orError}</p>}
