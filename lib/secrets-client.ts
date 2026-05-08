@@ -8,9 +8,8 @@
 //   - ONE AES-256-GCM key per user stored in localStorage ('primordia_aes_key').
 //     All secret types share this key — simplifies cross-device AES key sync.
 //   - Each secret type is stored server-side under its own preference key
-//     (see SERVER_PREF_KEYS) using AES-GCM with a per-save random IV.
-//   - A secrets presence index ('primordia_secrets') tracks which types are
-//     configured on this device, enabling synchronous hasSecret() checks.
+//     (see /api/secrets/[type]) using AES-GCM with a per-save random IV.
+//   - No local presence index — always ask the server whether a secret is set.
 //   - For transmission, API keys use RSA-OAEP (small payload).
 //     Credentials use hybrid encryption (ephemeral AES + RSA-OAEP wrapped key)
 //     because credentials.json can exceed RSA-OAEP's ~190-byte plaintext limit.
@@ -28,35 +27,10 @@ export type SecretType =
   | 'CLAUDE_CODE_CREDENTIALS_JSON';
 
 const AES_KEY_STORAGE = 'primordia_aes_key';
-const SECRETS_INDEX_STORAGE = 'primordia_secrets';
 
 // Module-level caches — reset on page load / module re-import.
 let cachedAesKey: CryptoKey | null = null;
 let cachedPublicKey: CryptoKey | null = null;
-
-// ── Secrets presence index ──────────────────────────────────────────────────
-
-function readSecretsIndex(): SecretType[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(SECRETS_INDEX_STORAGE);
-    if (raw !== null) return JSON.parse(raw) as SecretType[];
-    // Backward compat: if the old Anthropic AES key is present but no index
-    // exists yet, seed the index — the original AES key was only ever used for
-    // the Anthropic API key before the unified secrets architecture was added.
-    if (localStorage.getItem(AES_KEY_STORAGE) !== null) return ['ANTHROPIC_API_KEY'];
-    return [];
-  } catch {
-    return [];
-  }
-}
-
-function writeSecretsIndex(types: SecretType[]): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(SECRETS_INDEX_STORAGE, JSON.stringify(types));
-  } catch {}
-}
 
 // ── AES-GCM key management ──────────────────────────────────────────────────
 
@@ -119,16 +93,6 @@ async function fetchPublicKey(): Promise<CryptoKey> {
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
-/** Returns true if this device has a stored value for the given secret type. Synchronous. */
-export function hasSecret(type: SecretType): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    return readSecretsIndex().includes(type);
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Encrypts and stores a secret server-side.
  * Generates the shared AES key if this is the first secret set on this device.
@@ -155,9 +119,6 @@ export async function setSecret(type: SecretType, value: string): Promise<void> 
   if (!res.ok) {
     throw new Error(`Failed to store ${type} on server: ${res.statusText}`);
   }
-
-  const current = readSecretsIndex();
-  if (!current.includes(type)) writeSecretsIndex([...current, type]);
 }
 
 /**
@@ -186,14 +147,11 @@ export async function updateSecret(type: SecretType, value: string): Promise<voi
     body: JSON.stringify({ iv: ivB64, ciphertext: ctB64 }),
   });
   if (!res.ok) throw new Error(`Failed to update ${type} on server: ${res.statusText}`);
-
-  const current = readSecretsIndex();
-  if (!current.includes(type)) writeSecretsIndex([...current, type]);
 }
 
 /**
- * Removes a secret from the server and updates the local presence index.
- * If this was the last secret, also removes the shared AES key from localStorage.
+ * Removes a secret from the server. If this was the last secret stored for
+ * this user, also removes the shared AES key from localStorage.
  */
 export async function clearSecret(type: SecretType): Promise<void> {
   if (typeof window === 'undefined') return;
@@ -201,29 +159,48 @@ export async function clearSecret(type: SecretType): Promise<void> {
   try {
     await fetch(withBasePath(`/api/secrets/${type}`), { method: 'DELETE' });
   } catch {
-    // Best-effort — continue to update local state
+    // Best-effort — continue to check remaining secrets
   }
 
-  const remaining = readSecretsIndex().filter((t) => t !== type);
-  if (remaining.length === 0) {
+  // If no secrets remain on the server, remove the local AES key.
+  try {
+    const res = await fetch(withBasePath('/api/secrets'));
+    if (res.ok) {
+      const data = (await res.json()) as { types: SecretType[] };
+      if (data.types.length === 0) {
+        cachedAesKey = null;
+        localStorage.removeItem(AES_KEY_STORAGE);
+      }
+    }
+  } catch {
+    // Best-effort
+  }
+}
+
+/**
+ * Removes the local AES key without touching the server.
+ * Use when the server has no ciphertext for this user (e.g. account reset)
+ * and the local key is orphaned.
+ */
+export function clearOrphanedSecretsKey(): void {
+  if (typeof window === 'undefined') return;
+  try {
     cachedAesKey = null;
     localStorage.removeItem(AES_KEY_STORAGE);
-    localStorage.removeItem(SECRETS_INDEX_STORAGE);
-  } else {
-    writeSecretsIndex(remaining);
-  }
+  } catch {}
 }
 
 /**
  * Called after receiving a foreign AES key via cross-device QR sync.
  *
- * 1. Re-encrypts all locally-tracked secrets under the new key so they stay
- *    accessible (handles the case where this device had its own prior key with
- *    different credentials already stored in the DB).
- * 2. Saves the new key to localStorage and resets the module cache.
+ * Fetches all secrets currently stored on the server for this user and
+ * tries to re-encrypt each one under the incoming key. Secrets that were
+ * already encrypted with the new key (the sender's own credentials) fail
+ * the decrypt step and are skipped — only this device's own secrets
+ * (encrypted with its old key) get migrated. Then saves the new key.
  *
- * After this, call syncSecretsIndexFromServer() to pick up secrets the sender
- * had stored that this device didn't previously know about.
+ * The result: all secrets in the DB end up under a single AES key that
+ * both devices now hold.
  */
 export async function adoptNewAesKey(newKeyJwkStr: string): Promise<void> {
   if (typeof window === 'undefined') return;
@@ -260,11 +237,17 @@ export async function adoptNewAesKey(newKeyJwkStr: string): Promise<void> {
     return;
   }
 
-  // Re-encrypt each locally-tracked secret under the new key so it remains
-  // readable after this device adopts the sender's AES key.
-  const index = readSecretsIndex();
-  const migrated: SecretType[] = [];
-  for (const type of index) {
+  // Ask the server which types have ciphertext so we know what to migrate.
+  let types: SecretType[] = [];
+  try {
+    const listRes = await fetch(withBasePath('/api/secrets'));
+    if (listRes.ok) {
+      const data = (await listRes.json()) as { types: SecretType[] };
+      types = data.types;
+    }
+  } catch {}
+
+  for (const type of types) {
     try {
       const res = await fetch(withBasePath(`/api/secrets/${type}`));
       if (!res.ok) continue;
@@ -284,51 +267,18 @@ export async function adoptNewAesKey(newKeyJwkStr: string): Promise<void> {
       const newIvB64 = btoa(String.fromCharCode(...newIv));
       const newCtB64 = btoa(String.fromCharCode(...new Uint8Array(newCt)));
 
-      const storeRes = await fetch(withBasePath(`/api/secrets/${type}`), {
+      await fetch(withBasePath(`/api/secrets/${type}`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ iv: newIvB64, ciphertext: newCtB64 }),
       });
-      if (storeRes.ok) migrated.push(type);
     } catch {
-      // Skip this type — key mismatch or server error. Don't block adoption.
+      // Decrypt failed (already uses new key) or network error — skip.
     }
   }
 
   localStorage.setItem(AES_KEY_STORAGE, newKeyJwkStr);
   cachedAesKey = null;
-  writeSecretsIndex(migrated);
-}
-
-/**
- * Syncs the local secrets presence index with the server's authoritative list.
- * Call after adoptNewAesKey() so the device knows about all secrets stored by
- * the sender (not just the ones this device set itself).
- */
-export async function syncSecretsIndexFromServer(): Promise<void> {
-  if (typeof window === 'undefined') return;
-  try {
-    const res = await fetch(withBasePath('/api/secrets'));
-    if (!res.ok) return;
-    const data = (await res.json()) as { types: SecretType[] };
-    if (Array.isArray(data.types)) writeSecretsIndex(data.types);
-  } catch {
-    // Best-effort — don't block sign-in
-  }
-}
-
-/**
- * Removes the local AES key and secrets index without touching the server.
- * Use when the server has no ciphertext (orphaned local state) to resync
- * the two sides without issuing a DELETE.
- */
-export function clearOrphanedSecretsKey(): void {
-  if (typeof window === 'undefined') return;
-  try {
-    cachedAesKey = null;
-    localStorage.removeItem(AES_KEY_STORAGE);
-    localStorage.removeItem(SECRETS_INDEX_STORAGE);
-  } catch {}
 }
 
 /**

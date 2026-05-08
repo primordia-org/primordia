@@ -8,8 +8,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { hasStoredApiKey, hasStoredOpenRouterApiKey } from "@/lib/api-key-client";
-import { hasStoredCredentials } from "@/lib/credentials-client";
+import { withBasePath } from "@/lib/base-path";
 
 type TabId = "api-key" | "claude-ai";
 
@@ -25,8 +24,16 @@ export default function SettingsSubNav({ currentTab }: { currentTab: TabId }) {
   const [credentialsActive, setCredentialsActive] = useState(false);
 
   useEffect(() => {
-    setApiKeyActive(hasStoredApiKey() || hasStoredOpenRouterApiKey());
-    setCredentialsActive(hasStoredCredentials());
+    async function check() {
+      try {
+        const res = await fetch(withBasePath('/api/secrets'));
+        if (!res.ok) return;
+        const { types } = (await res.json()) as { types: string[] };
+        setApiKeyActive(types.includes('ANTHROPIC_API_KEY') || types.includes('OPENROUTER_API_KEY'));
+        setCredentialsActive(types.includes('CLAUDE_CODE_CREDENTIALS_JSON'));
+      } catch {}
+    }
+    void check();
   }, []);
 
   function isActive(tabId: TabId) {

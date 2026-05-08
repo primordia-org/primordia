@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import { Eye, EyeOff, ExternalLink } from "lucide-react";
 import {
-  hasStoredApiKey, setStoredApiKey,
-  hasStoredOpenRouterApiKey, setStoredOpenRouterApiKey,
+  setStoredApiKey,
+  setStoredOpenRouterApiKey,
 } from "@/lib/api-key-client";
+import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
 
 function ComingSoonCard({ monogram, monogramClass, name, description }: {
@@ -50,8 +51,16 @@ export default function ApiKeySettingsClient() {
   const [orError, setOrError] = useState<string | null>(null);
 
   useEffect(() => {
-    setIsKeySet(hasStoredApiKey());
-    setIsOrKeySet(hasStoredOpenRouterApiKey());
+    async function check() {
+      try {
+        const res = await fetch(withBasePath('/api/secrets'));
+        if (!res.ok) return;
+        const { types } = (await res.json()) as { types: string[] };
+        setIsKeySet(types.includes('ANTHROPIC_API_KEY'));
+        setIsOrKeySet(types.includes('OPENROUTER_API_KEY'));
+      } catch {}
+    }
+    void check();
   }, []);
 
   async function handleSave() {

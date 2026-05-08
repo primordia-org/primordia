@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { ExternalLink, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { ClaudeIcon } from "@/components/brand-icons/ClaudeIcon";
-import { hasStoredCredentials, setStoredCredentials, clearOrphanedCredentialsKey } from "@/lib/credentials-client";
+import { setStoredCredentials } from "@/lib/credentials-client";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
 
@@ -28,15 +28,13 @@ export default function CredentialsSettingsClient() {
 
   useEffect(() => {
     async function checkStatus() {
-      if (!hasStoredCredentials()) { setIsSet(false); return; }
       try {
         const res = await fetch(withBasePath('/api/secrets/CLAUDE_CODE_CREDENTIALS_JSON'));
         if (res.ok) {
           const data = (await res.json()) as { ciphertext: string | null };
-          if (!data.ciphertext) { clearOrphanedCredentialsKey(); setIsSet(false); return; }
+          setIsSet(!!data.ciphertext);
         }
       } catch {}
-      setIsSet(true);
     }
     void checkStatus();
   }, []);

@@ -22,7 +22,7 @@ import {
   decryptReceivedCredentials,
   type EncryptedCredBundle,
 } from "@/lib/cross-device-creds";
-import { adoptNewAesKey, syncSecretsIndexFromServer } from "@/lib/secrets-client";
+import { adoptNewAesKey } from "@/lib/secrets-client";
 
 type QrPhase = "idle" | "loading" | "polling" | "approved" | "expired" | "error";
 
@@ -107,7 +107,6 @@ export default function CrossDeviceTab({ onSuccess }: AuthTabProps) {
                   // Migrate any credentials this device stored under its own key,
                   // then adopt the approver's key so both devices share one AES key.
                   await adoptNewAesKey(k1);
-                  await syncSecretsIndexFromServer();
                 }
                 if (k2) localStorage.setItem("primordia_credentials_aes_key", k2);
               } catch {

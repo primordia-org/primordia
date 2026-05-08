@@ -3,7 +3,9 @@
 ## What changed
 
 The QR sign-in flows (both push and pull) now correctly sync all credentials
-across devices, not just the AES key.
+across devices, not just the AES key. The `primordia_secrets` local presence
+index has also been removed — the server is now the sole source of truth for
+which secrets are configured.
 
 ### Two bugs fixed
 
@@ -11,9 +13,8 @@ across devices, not just the AES key.
 
 After receiving an AES key via QR, the receiving device saved the key to
 localStorage but never updated its `primordia_secrets` presence index. Because
-`hasSecret()` reads from that index, the UI and any code calling `hasSecret()`
-believed no credentials were configured — even though they were all on the
-server and decryptable.
+`hasSecret()` reads from that index, the UI believed no credentials were
+configured — even though they were all on the server and decryptable.
 
 **Bug 2 — AES key divergence across devices**
 
@@ -32,23 +33,29 @@ inaccessible to both devices.
 
 **New function `adoptNewAesKey(newKeyJwk)`** in `lib/secrets-client.ts`:
 
-Before discarding the old key, it re-encrypts every locally-tracked credential
-under the incoming key, stores the re-encrypted ciphertext back to the server,
-then saves the new key. This unifies all credentials under one AES key so any
-device holding that key can decrypt everything.
-
-**New function `syncSecretsIndexFromServer()`** in `lib/secrets-client.ts`:
-
-After adopting the key, fetches `GET /api/secrets` (new endpoint) and writes
-the server's authoritative list of configured secrets to the local
-`primordia_secrets` index. This makes the sender's credentials (which the
-receiver didn't know about locally) immediately visible to `hasSecret()`.
+Fetches `GET /api/secrets` to get the server's list of all stored secret types,
+then tries to decrypt each one with the old key and re-encrypt it with the
+incoming key. Secrets already encrypted with the new key (the sender's own
+credentials) fail the decrypt step and are safely skipped. The result: all
+credentials in the DB end up under one shared AES key. Both QR flows now call
+`adoptNewAesKey` instead of a bare `localStorage.setItem`.
 
 **New endpoint `GET /api/secrets`** in `app/api/secrets/route.ts`:
 
 Returns `{ types: SecretType[] }` — the list of secret types with non-empty
-ciphertext stored for the authenticated user.
+ciphertext stored for the authenticated user. Used by `adoptNewAesKey` to know
+what to migrate, and by UI components to check which credentials are active.
 
-Both QR flows (push: `cross-device-receive/page.tsx`, pull:
-`auth-tabs/cross-device/index.tsx`) now call `adoptNewAesKey` →
-`syncSecretsIndexFromServer` instead of the bare `localStorage.setItem`.
+**Removed the local secrets presence index (`primordia_secrets`)**
+
+The index was a `localStorage` list that tracked which secret types were
+configured on the current device. It was the root cause of Bug 1 (stale after
+QR sync) and added fragile state that could diverge from the server.
+
+Removed: `hasSecret()`, `readSecretsIndex()`, `writeSecretsIndex()`,
+`syncSecretsIndexFromServer()`, `hasStoredApiKey()`, `hasStoredOpenRouterApiKey()`,
+`hasStoredCredentials()`, `clearOrphanedCredentialsKey()`.
+
+All UI components (`SettingsSubNav`, `ApiKeySettingsClient`,
+`CredentialsSettingsClient`) now check credential status by fetching from the
+server on mount, which is both simpler and always accurate.
