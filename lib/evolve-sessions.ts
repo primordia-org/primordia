@@ -415,17 +415,54 @@ export async function reconnectRunningWorkers(repoRoot: string): Promise<void> {
  * Returns true if a live worker was found and signalled, false if the
  * session has no registered worker PID.
  */
-export function abortAgentRun(sessionId: string): boolean {
-  const pid = activeWorkerPids.get(sessionId);
+export function abortAgentRun(sessionId: string, worktreePath?: string): boolean {
+  let pid = activeWorkerPids.get(sessionId);
+
+  // If the app server restarted before reconnectRunningWorkers() registered the
+  // worker, fall back to the durable PID file written inside the worktree.
+  if (pid === undefined && worktreePath) {
+    const pidFile = path.join(worktreePath, '.primordia-worker.pid');
+    if (fs.existsSync(pidFile)) {
+      const parsed = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+      if (!isNaN(parsed) && isProcessAlive(parsed)) {
+        pid = parsed;
+        activeWorkerPids.set(sessionId, pid);
+      }
+    }
+  }
+
   if (pid === undefined) return false;
+
+  let signalled = false;
   try {
-    process.kill(pid, 'SIGTERM');
-    return true;
+    // Workers are spawned detached, so their PID is also their process-group ID.
+    // Signal the whole group first so any subprocesses/tools are asked to stop,
+    // then signal the worker PID directly as a fallback for platforms that do
+    // not support negative PIDs.
+    try { process.kill(-pid, 'SIGTERM'); signalled = true; } catch { /* fallback below */ }
+    try { process.kill(pid, 'SIGTERM'); signalled = true; } catch { /* may already be gone */ }
   } catch {
     // Worker may have already exited.
+  }
+
+  if (!signalled) {
     activeWorkerPids.delete(sessionId);
     return false;
   }
+
+  // Last-resort cleanup: if the worker ignores graceful abort, kill the group
+  // after a short grace period. Do not await this from the request handler.
+  setTimeout(() => {
+    if (!isProcessAlive(pid!)) {
+      activeWorkerPids.delete(sessionId);
+      return;
+    }
+    try { process.kill(-pid!, 'SIGKILL'); } catch { /* best-effort */ }
+    try { process.kill(pid!, 'SIGKILL'); } catch { /* best-effort */ }
+    activeWorkerPids.delete(sessionId);
+  }, 10_000).unref?.();
+
+  return true;
 }
 
 // ─── Git ──────────────────────────────────────────────────────────────────────
