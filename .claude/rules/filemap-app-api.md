@@ -44,10 +44,8 @@ app/api/
 │   └── attachment/[sessionId]/route.ts ← GET serve user-uploaded attachment files from a session's worktree
 ├── secrets/[type]/route.ts        ← Unified GET/POST/DELETE for all user secrets (ANTHROPIC_API_KEY, OPENROUTER_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, CLAUDE_CODE_CREDENTIALS_JSON, CHATGPT_SUBSCRIPTION_OAUTH); stored in encrypted_credentials by auth_source
 ├── llm-key/
-│   ├── public-key/route.ts        ← GET server's ephemeral RSA-OAEP public key as JWK
-│   ├── encrypted-key/route.ts     ← Legacy: store/retrieve AES-GCM encrypted Anthropic API key ciphertext (superseded by /api/secrets/ANTHROPIC_API_KEY)
-│   ├── encrypted-openrouter-key/route.ts ← Legacy: store/retrieve OpenRouter API key ciphertext (superseded by /api/secrets/OPENROUTER_API_KEY)
-│   └── encrypted-credentials/route.ts ← Legacy: store/retrieve AES-GCM encrypted credentials.json (superseded by /api/secrets/CLAUDE_CODE_CREDENTIALS_JSON)
+│   ├── public-key/route.ts        ← GET server's ephemeral RSA-OAEP public key as JWK for hybrid credential transmission
+│   └── chatgpt-subscription/route.ts ← POST starts/completes ChatGPT device-code OAuth flow for subscription credentials
 ├── admin/
 │   ├── permissions/route.ts   ← POST grant/revoke grantable roles (can_evolve); admin only
 │   ├── logs/route.ts          ← GET SSE stream of production server logs; admin only
