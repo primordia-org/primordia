@@ -245,6 +245,7 @@ else
   success "Using git hooks"
 fi
 git -C "${BARE_REPO}" config receive.denyCurrentBranch ignore
+git -C "${BARE_REPO}" config receive.denyDeleteCurrent refuse
 
 # ── Install bun ───────────────────────────────────────────────────────────────
 

@@ -16,11 +16,15 @@
 #   - `prepared` runs after Git has validated the incoming ref update but before
 #     refs are committed. That is the narrow window where detaching the worktree
 #     lets receive.denyCurrentBranch=ignore remain safe.
-#   - If the incoming update deletes a checked-out branch, `prepared` can reject
-#     it before Git removes the branch. That keeps Primordia from creating a
-#     "checked-out worktree now permanently detached" edge case.
 #   - `committed` lets us reattach after a successful push.
 #   - `aborted` lets us reattach if Git bails out after `prepared`.
+#
+# What about branch deletion?
+#   `scripts/install.sh` sets receive.denyDeleteCurrent=refuse on the bare repo.
+#   Git's receive-pack rejects deletion of a checked-out branch before this hook
+#   has to handle it. That keeps this hook focused on checked-out branch updates,
+#   and avoids creating a "checked-out worktree now permanently detached" edge
+#   case.
 #
 # Why the git-receive-pack guard?
 #   The reference-transaction hook fires for *every* ref transaction in this
@@ -33,7 +37,6 @@ set -euo pipefail
 state="${1:-}"
 git_dir="$(git rev-parse --git-dir)"
 state_dir="$git_dir/hooks/.checked-out-branch-push"
-zero_oid="0000000000000000000000000000000000000000"
 
 # This hook also fires for local operations like `git worktree add`. Only run
 # the detach/reattach dance for incoming pushes handled by git-receive-pack.
@@ -91,11 +94,6 @@ detach_worktrees_for_ref() {
       branch\ *)
         branch_ref="${line#branch }"
         if [[ "$branch_ref" == "$ref" && -n "$worktree_path" ]]; then
-          if [[ "$new_oid" == "$zero_oid" ]]; then
-            echo "reference-transaction: refusing to delete $ref because it is checked out at $worktree_path" >&2
-            echo "reference-transaction: remove that worktree first, then delete the branch" >&2
-            exit 1
-          fi
           printf '%s\t%s\t%s\n' "$worktree_path" "$ref" "$new_oid" >> "$state_file"
           echo "reference-transaction: detaching $worktree_path from $ref before ref update" >&2
           env -u GIT_DIR -u GIT_WORK_TREE git -C "$worktree_path" checkout --detach -q
