@@ -1,7 +1,7 @@
 // app/api/llm-key/encrypted-openrouter-key/route.ts
 // Stores and retrieves the AES-GCM encrypted OpenRouter API key ciphertext for
 // the authenticated user. Mirrors encrypted-key/route.ts with a separate
-// preference key so Anthropic and OpenRouter keys never share storage.
+// auth_source so Anthropic and OpenRouter keys never share storage.
 //
 // GET  → { ciphertext: string | null }
 // POST body: { iv: string, ciphertext: string }
@@ -12,7 +12,7 @@
 import { getSessionUser } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 
-const PREF_KEY = 'encrypted_openrouter_api_key';
+const AUTH_SOURCE = 'openrouter-api-key';
 
 /**
  * Get stored encrypted OpenRouter API key
@@ -24,8 +24,7 @@ export async function GET() {
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });
 
   const db = await getDb();
-  const prefs = await db.getUserPreferences(user.id, [PREF_KEY]);
-  const stored = prefs[PREF_KEY];
+  const stored = await db.getEncryptedCredential(user.id, AUTH_SOURCE);
   const ciphertext = stored && stored.length > 0 ? stored : null;
 
   return Response.json({ ciphertext });
@@ -66,9 +65,7 @@ export async function POST(req: Request) {
   const { iv, ciphertext } = body as { iv: string; ciphertext: string };
 
   const db = await getDb();
-  await db.setUserPreferences(user.id, {
-    [PREF_KEY]: JSON.stringify({ iv, ciphertext }),
-  });
+  await db.setEncryptedCredential(user.id, AUTH_SOURCE, JSON.stringify({ iv, ciphertext }));
 
   return Response.json({ ok: true });
 }
@@ -83,7 +80,7 @@ export async function DELETE() {
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });
 
   const db = await getDb();
-  await db.setUserPreferences(user.id, { [PREF_KEY]: '' });
+  await db.deleteEncryptedCredential(user.id, AUTH_SOURCE);
 
   return Response.json({ ok: true });
 }

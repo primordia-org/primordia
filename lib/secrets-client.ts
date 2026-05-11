@@ -7,8 +7,8 @@
 // Architecture:
 //   - ONE AES-256-GCM key per user stored in localStorage ('primordia_aes_key').
 //     All secret types share this key — simplifies cross-device AES key sync.
-//   - Each secret type is stored server-side under its own preference key
-//     (see /api/secrets/[type]) using AES-GCM with a per-save random IV.
+//   - Each secret type is stored server-side in encrypted_credentials by
+//     authSource (see /api/secrets/[type]) using AES-GCM with a per-save random IV.
 //   - No local presence index — always ask the server whether a secret is set.
 //   - For transmission, every secret uses the same hybrid envelope:
 //     ephemeral AES-256-GCM encrypts the secret, RSA-OAEP wraps that AES key.

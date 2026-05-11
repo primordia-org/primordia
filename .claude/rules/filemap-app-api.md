@@ -42,7 +42,7 @@ app/api/
 │   ├── models/route.ts        ← GET available model options grouped by agent harness from the pi ModelRegistry
 │   ├── reset-stuck/route.ts   ← POST force-reset sessions stuck in 'accepting'/'fixing-types' back to 'ready'
 │   └── attachment/[sessionId]/route.ts ← GET serve user-uploaded attachment files from a session's worktree
-├── secrets/[type]/route.ts        ← Unified GET/POST/DELETE for all user secrets (ANTHROPIC_API_KEY, OPENROUTER_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, CLAUDE_CODE_CREDENTIALS_JSON); type-to-pref-key mapping in route
+├── secrets/[type]/route.ts        ← Unified GET/POST/DELETE for all user secrets (ANTHROPIC_API_KEY, OPENROUTER_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, CLAUDE_CODE_CREDENTIALS_JSON, CHATGPT_SUBSCRIPTION_OAUTH); stored in encrypted_credentials by auth_source
 ├── llm-key/
 │   ├── public-key/route.ts        ← GET server's ephemeral RSA-OAEP public key as JWK
 │   ├── encrypted-key/route.ts     ← Legacy: store/retrieve AES-GCM encrypted Anthropic API key ciphertext (superseded by /api/secrets/ANTHROPIC_API_KEY)
