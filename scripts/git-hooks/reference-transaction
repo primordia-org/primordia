@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# Primordia-managed hook: allow pushes to branches checked out in linked worktrees.
+#
+# Git refuses to update a branch that is currently checked out in a non-bare
+# worktree. Primordia uses a bare repo plus linked worktrees, so pushes to active
+# session branches need a short detach/reattach around the ref transaction.
+
+set -euo pipefail
+
+state="${1:-}"
+git_dir="$(git rev-parse --git-dir)"
+state_dir="$git_dir/hooks/.checked-out-branch-push"
+zero_oid="0000000000000000000000000000000000000000"
+
+# This hook also fires for local operations like `git worktree add`. Only run
+# the detach/reattach dance for incoming pushes handled by git-receive-pack.
+is_receive_pack_context() {
+  local pid="$PPID"
+  local args
+  local parent
+
+  while [[ -n "$pid" && "$pid" != "0" && "$pid" != "1" ]]; do
+    args="$(ps -o args= -p "$pid" 2>/dev/null || true)"
+    if [[ "$args" == *git-receive-pack* ]]; then
+      return 0
+    fi
+    parent="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
+    [[ -n "$parent" && "$parent" != "$pid" ]] || break
+    pid="$parent"
+  done
+
+  return 1
+}
+
+if ! is_receive_pack_context; then
+  exit 0
+fi
+
+mkdir -p "$state_dir"
+
+state_file_for_ref() {
+  local ref="$1"
+  local safe
+  safe="$(printf '%s' "$ref" | tr '/:' '__')"
+  printf '%s/%s' "$state_dir" "$safe"
+}
+
+detach_worktrees_for_ref() {
+  local ref="$1"
+  local new_oid="$2"
+  local state_file
+  local worktree_path=""
+  local branch_ref=""
+  local found=0
+
+  state_file="$(state_file_for_ref "$ref")"
+  : > "$state_file"
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      worktree\ *)
+        worktree_path="${line#worktree }"
+        branch_ref=""
+        ;;
+      branch\ *)
+        branch_ref="${line#branch }"
+        if [[ "$branch_ref" == "$ref" && -n "$worktree_path" ]]; then
+          printf '%s\t%s\t%s\n' "$worktree_path" "$ref" "$new_oid" >> "$state_file"
+          echo "reference-transaction: detaching $worktree_path from $ref before ref update" >&2
+          env -u GIT_DIR -u GIT_WORK_TREE git -C "$worktree_path" checkout --detach -q
+          found=1
+        fi
+        ;;
+    esac
+  done < <(git --git-dir="$git_dir" worktree list --porcelain)
+
+  if [[ "$found" -eq 0 ]]; then
+    rm -f "$state_file"
+  elif [[ "$new_oid" == "$zero_oid" ]]; then
+    echo "reference-transaction: $ref is being deleted; detached worktree(s) will stay detached" >&2
+  fi
+}
+
+reattach_worktrees_for_ref() {
+  local ref="$1"
+  local new_oid="$2"
+  local state_file
+  local worktree_path
+  local branch_ref
+  local _recorded_new_oid
+  local branch_name
+
+  state_file="$(state_file_for_ref "$ref")"
+  [[ -f "$state_file" ]] || return 0
+
+  if [[ "$new_oid" != "$zero_oid" ]]; then
+    while IFS=$'\t' read -r worktree_path branch_ref _recorded_new_oid; do
+      [[ -n "${worktree_path:-}" && -d "$worktree_path" ]] || continue
+      branch_name="${branch_ref#refs/heads/}"
+      echo "reference-transaction: reattaching $worktree_path to $branch_ref after ref update" >&2
+      env -u GIT_DIR -u GIT_WORK_TREE git -C "$worktree_path" checkout -q "$branch_name"
+    done < "$state_file"
+  fi
+
+  rm -f "$state_file"
+}
+
+while read -r _old_oid new_oid ref; do
+  case "$ref" in
+    refs/heads/*)
+      case "$state" in
+        prepared)
+          detach_worktrees_for_ref "$ref" "$new_oid"
+          ;;
+        committed|aborted)
+          reattach_worktrees_for_ref "$ref" "$new_oid"
+          ;;
+      esac
+      ;;
+  esac
+done
