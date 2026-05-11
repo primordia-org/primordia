@@ -574,13 +574,6 @@ advance_main_and_push() {
 
 SERVICE_READY=false
 
-# ── Diagnostics ──────────────────────────────────────────────────────────────
-info "[diag] HOSTNAME_FQDN=${HOSTNAME_FQDN}"
-info "[diag] PROBABLY_A_SERVER=${PROBABLY_A_SERVER}"
-info "[diag] REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}"
-info "[diag] PROXY_RUNNING=${PROXY_RUNNING}"
-info "[diag] PROXY_CHANGED=${PROXY_CHANGED}"
-info "[diag] SERVICE_CHANGED=${SERVICE_CHANGED}"
 
 # Zero-downtime eligibility:
 # - Server install: proxy running + neither proxy script nor service unit changed

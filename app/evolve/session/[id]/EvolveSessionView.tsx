@@ -5,7 +5,8 @@
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Key, FileKey } from "lucide-react";
+import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Key } from "lucide-react";
+import { ClaudeIcon } from "@/components/brand-icons/ClaudeIcon";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { NavHeader } from "@/components/NavHeader";
@@ -14,9 +15,9 @@ import { FloatingEvolveDialog, EvolveSubmitToast } from "@/components/FloatingEv
 import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
 import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
-import { encryptStoredApiKey } from "@/lib/api-key-client";
+import { encryptStoredApiKey, encryptStoredOpenRouterApiKey } from "@/lib/api-key-client";
 import { useSounds } from "@/lib/sounds";
-import { encryptStoredCredentials } from "@/lib/credentials-client";
+import { encryptStoredCredentials, updateStoredCredentials } from "@/lib/credentials-client";
 import { EvolveRequestForm } from "@/components/EvolveRequestForm";
 import Link from "next/link";
 import type { DiffFileSummary } from "./page";
@@ -24,6 +25,7 @@ import { DiffFileExpander } from "./DiffFileExpander";
 import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
 import type { SessionEvent, AgentAuthInfo } from "@/lib/session-events";
+import { convertUtcTimeToLocal } from "@/lib/utc-to-local-time";
 import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
 import { deriveSmartPreviewUrl } from "@/lib/smart-preview-url";
 import { trackEvent } from "@/lib/events-client";
@@ -313,8 +315,8 @@ function AgentAuthBadge({ auth }: { auth?: AgentAuthInfo }) {
   }
   if (auth.source === 'claude-credentials') {
     return (
-      <span title="Used Claude Credentials" className="inline-flex items-center text-sky-400/70 hover:text-sky-400 transition-colors cursor-default">
-        <FileKey size={11} strokeWidth={2.5} aria-label="Used Claude Credentials" />
+      <span title="Used claude.ai login" className="inline-flex items-center text-sky-400/70 hover:text-sky-400 transition-colors cursor-default">
+        <ClaudeIcon size={16} />
       </span>
     );
   }
@@ -424,6 +426,16 @@ function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection
   const metricsEvent = [...events].reverse().find((e): e is Extract<SessionEvent, { type: 'metrics' }> => e.type === 'metrics');
   const hasError = resultEvent?.subtype === 'error' || resultEvent?.subtype === 'timeout' || resultEvent?.subtype === 'aborted';
 
+  // Convert UTC time in error message to local timezone (client-side only to avoid SSR hydration mismatch)
+  const [convertedMessage, setConvertedMessage] = useState<string | null>(null);
+  useEffect(() => {
+    if (hasError && resultEvent?.message) {
+      setConvertedMessage(convertUtcTimeToLocal(resultEvent.message));
+    } else {
+      setConvertedMessage(null);
+    }
+  }, [hasError, resultEvent?.message]);
+
   const borderClass = isAutoCommitSection ? "border-green-700/50" : isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
   const headingClass = isAutoCommitSection ? "text-green-300" : isTypeFixSection ? "text-orange-300" : "text-blue-300";
   const doneBorderClass = hasError ? "border-red-700/50" : borderClass;
@@ -489,10 +501,10 @@ function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection
           })}
         </div>
       )}
-      {hasError && resultEvent?.message && (
+      {hasError && convertedMessage && (
         <div className="px-4 py-3 border-t border-gray-800">
           <p className="text-xs font-semibold text-red-400 mb-1">Error details</p>
-          <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{resultEvent.message}</pre>
+          <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{convertedMessage}</pre>
         </div>
       )}
       {metricsEvent && (
@@ -1095,6 +1107,7 @@ export default function EvolveSessionView({
               status?: string;
               previewUrl?: string | null;
               done?: boolean;
+              updatedCredentials?: string;
             };
 
             if (parsed.events && parsed.events.length > 0) {
@@ -1114,6 +1127,13 @@ export default function EvolveSessionView({
               setPreviewUrl((prev) => {
                 if (!prev && newUrl) trackEvent("session/preview-loaded/v1", { sessionId, previewUrl: newUrl });
                 return newUrl;
+              });
+            }
+            // If the agent refreshed the OAuth tokens while running, re-encrypt
+            // the updated credentials and save them back to the database.
+            if (parsed.updatedCredentials) {
+              updateStoredCredentials(parsed.updatedCredentials).catch(() => {
+                // Best-effort: failure leaves old credentials in DB unchanged
               });
             }
           } catch {
@@ -1289,10 +1309,25 @@ export default function EvolveSessionView({
     setAcceptRejectLoading(true);
     setAcceptRejectError(null);
     try {
+      // Attach credentials so the server can forward them to any agent sessions
+      // spawned during accept (type-fix, auto-commit). Try credentials first
+      // (claude-code harness); OpenRouter models use the OpenRouter key;
+      // everything else uses the Anthropic key.
+      const acceptBody: Record<string, string> = { action: 'accept', sessionId };
+      const encCreds = await encryptStoredCredentials();
+      if (encCreds) {
+        acceptBody.encryptedCredentials = JSON.stringify(encCreds);
+      } else {
+        const isOpenRouterModel = sessionModel?.includes('/') ?? false;
+        const encKey = isOpenRouterModel
+          ? await encryptStoredOpenRouterApiKey()
+          : await encryptStoredApiKey();
+        if (encKey) acceptBody.encryptedApiKey = encKey;
+      }
       const res = await fetch(withBasePath('/api/evolve/manage'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'accept', sessionId }),
+        body: JSON.stringify(acceptBody),
       });
       const data = (await res.json()) as { outcome?: string; error?: string; stashWarning?: string; stuckSessionId?: string; stuckSessionBranch?: string };
       if (!res.ok) {
@@ -1839,10 +1874,19 @@ export default function EvolveSessionView({
                   formData.append('harness', harness);
                   formData.append('model', model);
                   for (const file of files) formData.append('attachments', file);
-                  const encryptedApiKey = await encryptStoredApiKey();
-                  if (encryptedApiKey) formData.append('encryptedApiKey', encryptedApiKey);
-                  const encryptedCredentials = await encryptStoredCredentials();
-                  if (encryptedCredentials) formData.append('encryptedCredentials', JSON.stringify(encryptedCredentials));
+                  // Only one auth token is ever sent. Credentials are only
+                  // meaningful for the claude-code harness; OpenRouter models
+                  // (id contains '/') use the OpenRouter key; others use Anthropic.
+                  if (harness === 'claude-code') {
+                    const encryptedCredentials = await encryptStoredCredentials();
+                    if (encryptedCredentials) formData.append('encryptedCredentials', JSON.stringify(encryptedCredentials));
+                  } else if (model.includes('/')) {
+                    const encryptedApiKey = await encryptStoredOpenRouterApiKey();
+                    if (encryptedApiKey) formData.append('encryptedApiKey', encryptedApiKey);
+                  } else {
+                    const encryptedApiKey = await encryptStoredApiKey();
+                    if (encryptedApiKey) formData.append('encryptedApiKey', encryptedApiKey);
+                  }
                   const res = await fetch(withBasePath('/api/evolve/followup'), {
                     method: 'POST',
                     body: formData,

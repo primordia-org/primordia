@@ -15,12 +15,13 @@ import type { ModelOption } from '../lib/agent-config';
 // ── Providers per harness (mirrors HARNESS_PROVIDERS in pi-model-registry.server.ts) ──
 const HARNESS_PROVIDERS: Record<string, string[]> = {
   'claude-code': ['anthropic'],
-  'pi': ['anthropic', 'openai'],
+  'pi': ['anthropic', 'openai', 'openrouter'],
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
+  openrouter: 'OpenRouter',
 };
 
 type RawModel = {
@@ -41,7 +42,8 @@ function fmt(n: number): string {
 }
 
 function formatPricing(cost: RawModel['cost']): { full: string; input: string } | null {
-  if (!cost || (cost.input === 0 && cost.output === 0)) return null;
+  if (!cost) return null;
+  if (cost.input === 0 && cost.output === 0) return { full: 'free', input: 'free' };
   return { full: `${fmt(cost.input)}→${fmt(cost.output)}/M`, input: `${fmt(cost.input)}/M` };
 }
 
@@ -63,6 +65,19 @@ function filterToLatestVersions(models: RawModel[]): RawModel[] {
   out = out.filter(m => !/\b(Chat|research|Turbo|Spark|Max)\b/i.test(m.name));
   // R3 — drop oversized tier qualifiers
   out = out.filter(m => !/(\bnano\b|\bpro\b|-pro)$/i.test(m.name));
+  // R5 — drop model IDs with variant suffix tags (:extended, :thinking) but keep :free
+  out = out.filter(m => !m.id.includes(':') || m.id.endsWith(':free'));
+  // R6 — drop meta-router / auto-router model IDs
+  out = out.filter(m => m.id !== 'auto' && !m.id.startsWith('openrouter/'));
+  // R7 — drop non-coding / non-text-generation models by name/id patterns
+  const NON_CODING = /\b(audio|vision|\bvl\b|embed|rerank|guard|safeguard|whisper|tts|dall|moderat|ocr|transcri|image.gen|image-gen|\bsearch\b)\b/i;
+  out = out.filter(m => !NON_CODING.test(m.name) && !NON_CODING.test(m.id));
+  // R8 — drop alias / "latest" router IDs (contain ~ in provider or are routing aliases)
+  out = out.filter(m => !m.id.startsWith('~') && !m.provider.startsWith('~'));
+  // R9 — drop creative-writing fine-tunes and known non-coding niche models
+  const NICHE_NAMES = /euryale|unslopnemo|rocinante|ernie.*vl|cobuddy.*vl/i;
+  const NICHE_PROVIDERS = new Set(['sao10k', 'thedrummer', 'relace']);
+  out = out.filter(m => !NICHE_NAMES.test(m.name) && !NICHE_NAMES.test(m.id) && !NICHE_PROVIDERS.has(m.provider));
   // R4 — keep highest version per (provider, family)
   const groups = new Map<string, { model: RawModel; version: number }>();
   for (const model of out) {
@@ -77,6 +92,7 @@ function filterToLatestVersions(models: RawModel[]): RawModel[] {
 const auth = AuthStorage.create();
 auth.setRuntimeApiKey('anthropic', 'gateway');
 auth.setRuntimeApiKey('openai', 'gateway');
+auth.setRuntimeApiKey('openrouter', 'placeholder');
 const registry = ModelRegistry.create(auth);
 const allModels = (registry as unknown as { getAll(): RawModel[] }).getAll();
 
@@ -87,6 +103,11 @@ for (const [harnessId, providers] of Object.entries(HARNESS_PROVIDERS)) {
   filtered.sort((a, b) => {
     const pi = providers.indexOf(a.provider), pj = providers.indexOf(b.provider);
     if (pi !== pj) return pi - pj;
+    // Within same provider-tier: free models last, then sort by input price ascending
+    const aFree = a.id.endsWith(':free'), bFree = b.id.endsWith(':free');
+    if (aFree !== bFree) return aFree ? 1 : -1;
+    const aPrice = a.cost?.input ?? 0, bPrice = b.cost?.input ?? 0;
+    if (aPrice !== bPrice) return aPrice - bPrice;
     return a.name.localeCompare(b.name);
   });
   result[harnessId] = filtered.map(m => {

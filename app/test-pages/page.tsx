@@ -5,6 +5,13 @@ import Link from "next/link";
 
 const TEST_PAGES = [
   {
+    href: "/test-pages/claude-auth-test",
+    emoji: "🔑",
+    title: "Claude Auth",
+    description:
+      "Obtain a .credentials.json for Claude Code via a temporary OAuth session. Spawns `claude auth login`, shows you the URL, accepts the code, and returns the credentials JSON.",
+  },
+  {
     href: "/test-pages/ansi-test",
     emoji: "🎨",
     title: "ANSI Renderer",

@@ -22,6 +22,7 @@ import Link from "next/link";
 import { CheckCircle, Loader2 } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import { decryptPushCredentials, type PushCredBundle } from "@/lib/cross-device-creds";
+import { adoptNewAesKey } from "@/lib/secrets-client";
 
 type Phase = "loading" | "approved" | "expired" | "error";
 
@@ -85,7 +86,11 @@ function ReceivePageInner() {
                 receiverPrivRef.current,
                 data.encryptedCredentials
               );
-              if (k1) localStorage.setItem("primordia_aes_key", k1);
+              if (k1) {
+                // Migrate any credentials this device stored under its own key,
+                // then adopt the sender's key so both devices share one AES key.
+                await adoptNewAesKey(k1);
+              }
               if (k2) localStorage.setItem("primordia_credentials_aes_key", k2);
             } catch {
               // Decryption failed — sign-in still succeeds; credentials just won't transfer

@@ -50,6 +50,9 @@ next-env.d.ts
 # Structured session event log written to each worktree during Claude sessions
 .primordia-session.ndjson
 
+# Typecheck error snapshot written by the evolve pipeline
+.primordia-typecheck-errors.txt
+
 # Playwright
 tests/.auth/
 tests/.tmp-attachments/

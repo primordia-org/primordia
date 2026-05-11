@@ -30,24 +30,6 @@ import {
 } from '../../../lib/session-events';
 import { DEFAULT_HARNESS, DEFAULT_MODEL } from '../../../lib/agent-config';
 
-/**
- * Known skill slash-command prefixes (e.g. "/caveman").
- * If the first line of a request starts with one of these, strip it before
- * generating a branch slug — otherwise the branch name would be something
- * useless like "caveman-full-add-dark-mode".
- */
-const SKILL_PREFIXES = ['/caveman', '/using-exe-dev'];
-
-function stripSkillDirective(text: string): string {
-  const firstNewline = text.indexOf('\n');
-  const firstLine = firstNewline === -1 ? text : text.slice(0, firstNewline);
-  const trimmed = firstLine.trim().toLowerCase();
-  if (SKILL_PREFIXES.some(p => trimmed === p || trimmed.startsWith(p + ' '))) {
-    const rest = firstNewline === -1 ? '' : text.slice(firstNewline + 1).trimStart();
-    return rest || text; // fall back to full text if nothing remains
-  }
-  return text;
-}
 
 /** Ask Claude to choose a short, descriptive kebab-case slug for the request.
  *  Falls back to the first-4-words approach if the API call fails. */
@@ -229,7 +211,7 @@ export async function POST(request: Request) {
   }
 
   const repoRoot = process.cwd();
-  const slug = await generateSlug(stripSkillDirective(requestText));
+  const slug = await generateSlug(requestText);
   const branch = await findUniqueBranch(slug, repoRoot);
   const sessionId = branch;
 

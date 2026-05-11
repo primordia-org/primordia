@@ -198,6 +198,9 @@ interface WorkerConfig {
  *    silently ignored for those harnesses.
  *  - If BOTH credentials and an API key are supplied and the harness supports
  *    credentials, credentials win and the API key is discarded.
+ *  - The client is expected to only send one at a time (credentials for
+ *    claude-code, API key for everything else), so this is a defensive
+ *    last-resort deduplication.
  */
 function resolveAgentAuth(
   credentials: string | undefined,

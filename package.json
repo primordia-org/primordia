@@ -4,9 +4,9 @@
   "private": true,
   "packageManager": "bun@1.2.0",
   "scripts": {
-    "dev": "bun run --bun next dev --turbopack",
-    "build": "bun run --bun next build",
-    "start": "bun run --bun next start",
+    "dev": "bun-real run --bun next dev --turbopack",
+    "build": "bun-real run --bun next build",
+    "start": "bun-real run --bun next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "deploy-to-exe.dev": "bash scripts/deploy-to-exe-dev.sh",
@@ -14,13 +14,14 @@
     "proxy": "bun scripts/reverse-proxy.ts",
     "generate-api-docs": "next-openapi-gen generate --config openapi-gen.config.json",
     "regenerate:model-registry": "bun run scripts/regenerate-model-registry.ts",
+    "test:unit": "bun test tests/secrets-client.test.ts",
     "test:e2e": "bunx playwright test",
     "test:e2e:headed": "bunx playwright test --headed"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.76",
     "@anthropic-ai/sdk": "^0.78.0",
-    "@mariozechner/pi-coding-agent": "^0.66.1",
+    "@mariozechner/pi-coding-agent": "0.73.1",
     "@scalar/api-reference-react": "^0.9.26",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.0",
