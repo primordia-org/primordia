@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, CheckCircle2, Copy, ExternalLink, Eye, EyeOff } from "lucide-react";
+import { Check, Copy, ExternalLink, Eye, EyeOff } from "lucide-react";
 import { getSecret, setSecret, clearSecret } from "@/lib/secrets-client";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
@@ -35,15 +35,6 @@ function parseCredentials(raw: string | null): StoredChatGptCredentials | null {
     return parsed;
   } catch {
     return null;
-  }
-}
-
-function formatDate(value: string | number | null | undefined): string {
-  if (!value) return "Unknown";
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return "Unknown";
   }
 }
 
@@ -172,28 +163,22 @@ export default function ChatGptSubscriptionSettingsClient() {
           <div className="w-8 h-8 rounded-lg bg-emerald-400/10 flex items-center justify-center text-sm font-bold text-emerald-400 shrink-0">
             G
           </div>
-          <div>
-            <p className="text-sm font-medium text-gray-200">ChatGPT</p>
-            <p className="text-xs text-gray-500 mt-0.5">Subscription OAuth via device-code sign-in</p>
-          </div>
+          <p className="text-sm font-medium text-gray-200">ChatGPT</p>
         </div>
         {credentials && (
-          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-900/40 text-green-400 border border-green-800/50">
-            <CheckCircle2 size={12} aria-hidden="true" /> Active
+          <span className="text-xs px-2 py-0.5 rounded-full bg-green-900/40 text-green-400 border border-green-800/50">
+            Active
           </span>
         )}
       </div>
 
       {credentials && (
-        <div className="flex flex-col gap-2 rounded-lg border border-gray-800 bg-gray-950/60 p-3 text-xs text-gray-400">
-          <p><span className="text-gray-500">Account:</span> {credentials.tokens.accountId ?? "Unknown"}</p>
-          <p><span className="text-gray-500">Last refreshed:</span> {formatDate(credentials.lastRefresh)}</p>
-          <p><span className="text-gray-500">Access token expires:</span> {formatDate(credentials.tokens.accessTokenExpiresAt)}</p>
+        <div className="flex flex-col gap-2">
           <button
             type="button"
             data-id="chatgpt-subscription/toggle-visibility"
             onClick={() => setShowCredentials((v) => !v)}
-            className="mt-1 flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors self-start"
+            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors self-start"
             aria-label={showCredentials ? "Hide stored ChatGPT credentials" : "Show stored ChatGPT credentials"}
           >
             {showCredentials ? <EyeOff size={13} aria-hidden="true" /> : <Eye size={13} aria-hidden="true" />}
@@ -255,7 +240,7 @@ export default function ChatGptSubscriptionSettingsClient() {
               disabled={busy}
               className="px-3 py-1.5 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 border border-red-800/50 transition-colors disabled:opacity-60"
             >
-              Disconnect
+              Clear
             </button>
           )}
           {!deviceFlow && (
@@ -263,7 +248,7 @@ export default function ChatGptSubscriptionSettingsClient() {
               data-id="chatgpt-subscription/start-auth"
               onClick={() => void startAuth()}
               disabled={busy}
-              className={`${credentials ? "flex-1" : "w-full"} px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-900 text-white transition-colors disabled:cursor-not-allowed`}
+              className={`${credentials ? "flex-1" : "w-full"} px-4 py-2 rounded-lg text-sm font-medium bg-sky-600 hover:bg-sky-500 disabled:bg-sky-900 text-white transition-colors disabled:cursor-not-allowed`}
             >
               {busy ? "Starting…" : credentials ? "Sign in again" : "Sign in with ChatGPT"}
             </button>
