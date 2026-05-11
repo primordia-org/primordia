@@ -16,6 +16,9 @@
 #   - `prepared` runs after Git has validated the incoming ref update but before
 #     refs are committed. That is the narrow window where detaching the worktree
 #     lets receive.denyCurrentBranch=ignore remain safe.
+#   - If the incoming update deletes a checked-out branch, `prepared` can reject
+#     it before Git removes the branch. That keeps Primordia from creating a
+#     "checked-out worktree now permanently detached" edge case.
 #   - `committed` lets us reattach after a successful push.
 #   - `aborted` lets us reattach if Git bails out after `prepared`.
 #
@@ -88,6 +91,11 @@ detach_worktrees_for_ref() {
       branch\ *)
         branch_ref="${line#branch }"
         if [[ "$branch_ref" == "$ref" && -n "$worktree_path" ]]; then
+          if [[ "$new_oid" == "$zero_oid" ]]; then
+            echo "reference-transaction: refusing to delete $ref because it is checked out at $worktree_path" >&2
+            echo "reference-transaction: remove that worktree first, then delete the branch" >&2
+            exit 1
+          fi
           printf '%s\t%s\t%s\n' "$worktree_path" "$ref" "$new_oid" >> "$state_file"
           echo "reference-transaction: detaching $worktree_path from $ref before ref update" >&2
           env -u GIT_DIR -u GIT_WORK_TREE git -C "$worktree_path" checkout --detach -q
@@ -99,8 +107,6 @@ detach_worktrees_for_ref() {
 
   if [[ "$found" -eq 0 ]]; then
     rm -f "$state_file"
-  elif [[ "$new_oid" == "$zero_oid" ]]; then
-    echo "reference-transaction: $ref is being deleted; detached worktree(s) will stay detached" >&2
   fi
 }
 
@@ -116,17 +122,12 @@ reattach_worktrees_for_ref() {
   state_file="$(state_file_for_ref "$ref")"
   [[ -f "$state_file" ]] || return 0
 
-  # Branch deletion is the one case where "reattach to the branch" is impossible:
-  # the branch no longer exists. Leave the worktree detached at its previous
-  # commit instead of failing the completed delete.
-  if [[ "$new_oid" != "$zero_oid" ]]; then
-    while IFS=$'\t' read -r worktree_path branch_ref _recorded_new_oid; do
-      [[ -n "${worktree_path:-}" && -d "$worktree_path" ]] || continue
-      branch_name="${branch_ref#refs/heads/}"
-      echo "reference-transaction: reattaching $worktree_path to $branch_ref after ref update" >&2
-      env -u GIT_DIR -u GIT_WORK_TREE git -C "$worktree_path" checkout -q "$branch_name"
-    done < "$state_file"
-  fi
+  while IFS=$'\t' read -r worktree_path branch_ref _recorded_new_oid; do
+    [[ -n "${worktree_path:-}" && -d "$worktree_path" ]] || continue
+    branch_name="${branch_ref#refs/heads/}"
+    echo "reference-transaction: reattaching $worktree_path to $branch_ref after ref update" >&2
+    env -u GIT_DIR -u GIT_WORK_TREE git -C "$worktree_path" checkout -q "$branch_name"
+  done < "$state_file"
 
   rm -f "$state_file"
 }
