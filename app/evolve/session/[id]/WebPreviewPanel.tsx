@@ -398,6 +398,10 @@ interface WebPreviewPanelProps {
   fullHeight?: boolean;
   /** Extra classes applied to the outer wrapper element. */
   className?: string;
+  /** Whether the preview iframe should be loaded. Toolbar stays visible either way. */
+  serverRunning?: boolean;
+  /** Content shown below the toolbar when the preview server is not running. */
+  offlineContent?: React.ReactNode;
   /**
    * Called when the user selects an element via the inspector tool.
    * Receives the nearest React component name and a CSS path selector.
@@ -407,7 +411,15 @@ interface WebPreviewPanelProps {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function WebPreviewPanel({ src, sessionId, fullHeight = false, className, onElementSelected }: WebPreviewPanelProps) {
+export function WebPreviewPanel({
+  src,
+  sessionId,
+  fullHeight = false,
+  className,
+  serverRunning = true,
+  offlineContent,
+  onElementSelected,
+}: WebPreviewPanelProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // The URL shown in the address bar — starts as the initial src.
   const [urlBarValue, setUrlBarValue] = useState(src);
@@ -610,7 +622,7 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
         {/* Open in new tab */}
         <a
           data-id="preview/open-in-new-tab"
-          href={src}
+          href={urlBarValue || src}
           target="_blank"
           rel="noopener noreferrer"
           onClick={() => trackEvent("preview/open-in-new-tab/v1", { sessionId })}
@@ -633,22 +645,26 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
 
       {/* ── iframe ── */}
       <div className={`relative ${fullHeight ? 'flex-1' : ''}`} style={fullHeight ? undefined : { height: "600px" }}>
-        {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10 pointer-events-none">
-            <span className="text-gray-500 text-xs animate-pulse">Loading preview…</span>
-          </div>
-        )}
-        {iframeSrc ? (
-          <iframe
-            ref={iframeRef}
-            src={iframeSrc}
-            onLoad={handleLoad}
-            onLoadStart={handleLoadStart as React.ReactEventHandler<HTMLIFrameElement>}
-            className="w-full h-full bg-white"
-            style={{ border: "none", display: "block" }}
-            title="Web preview"
-          />
-        ) : null}
+        {serverRunning ? (
+          <>
+            {isLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10 pointer-events-none">
+                <span className="text-gray-500 text-xs animate-pulse">Loading preview…</span>
+              </div>
+            )}
+            {iframeSrc ? (
+              <iframe
+                ref={iframeRef}
+                src={iframeSrc}
+                onLoad={handleLoad}
+                onLoadStart={handleLoadStart as React.ReactEventHandler<HTMLIFrameElement>}
+                className="w-full h-full bg-white"
+                style={{ border: "none", display: "block" }}
+                title="Web preview"
+              />
+            ) : null}
+          </>
+        ) : offlineContent}
       </div>
     </div>
   );
