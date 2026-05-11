@@ -15,6 +15,8 @@ import { createPortal } from "react-dom";
 import { ChevronDown, Search, Check, X } from "lucide-react";
 import type { ModelOption } from "../lib/agent-config";
 import { withBasePath } from "../lib/base-path";
+import { filterModelsForAuthSource } from "../lib/preset-options";
+import type { PresetAuthSource } from "../lib/presets";
 
 // ─── Provider detection ────────────────────────────────────────────────────────
 
@@ -425,6 +427,8 @@ function humanizeModelId(id: string): string {
 interface ModelPickerProps {
   /** All available models for the current harness, keyed by harness. */
   modelOptionsByHarness: Record<string, ModelOption[]>;
+  /** Optional auth source to limit visible models. */
+  authSource?: PresetAuthSource;
   /** The currently selected harness id. */
   selectedHarness: string;
   /** The currently selected model id. */
@@ -440,6 +444,7 @@ interface ModelPickerProps {
 
 export function ModelPicker({
   modelOptionsByHarness,
+  authSource,
   selectedHarness,
   selectedModel,
   onChange,
@@ -450,7 +455,7 @@ export function ModelPicker({
   const [search, setSearch] = useState("");
   const [activeProvider, setActiveProvider] = useState<string | null>(null);
 
-  const models = modelOptionsByHarness[selectedHarness] ?? [];
+  const models = filterModelsForAuthSource(modelOptionsByHarness[selectedHarness] ?? [], authSource, selectedHarness);
   const providerGroups = useMemo(() => buildProviderGroups(models), [models]);
 
   // Determine the active provider (default to first group or provider of selected model)
