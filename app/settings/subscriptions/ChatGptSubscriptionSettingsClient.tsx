@@ -212,37 +212,41 @@ export default function ChatGptSubscriptionSettingsClient() {
       )}
 
       {deviceFlow && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-300/80">Step 1</p>
-            <p className="mt-1 text-sm text-amber-50">Copy this one-time ChatGPT sign-in code.</p>
-            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="inline-flex rounded-xl border border-amber-300/25 bg-black/30 px-4 py-3 font-mono text-3xl font-bold tracking-[0.18em] text-white shadow-inner shadow-black/30">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs text-gray-400 font-medium" htmlFor="chatgpt-device-code">
+              One-time code
+            </label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div
+                id="chatgpt-device-code"
+                className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 font-mono text-lg font-semibold tracking-widest text-gray-100"
+              >
                 {deviceFlow.userCode}
               </div>
               <button
                 type="button"
                 data-id="chatgpt-subscription/copy-code"
                 onClick={() => void copyUserCode()}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-300/30 bg-amber-300/15 px-3 py-2 text-sm font-medium text-amber-50 transition-colors hover:bg-amber-300/25"
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 transition-colors hover:border-emerald-700 hover:text-emerald-300"
               >
-                {codeCopied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
-                {codeCopied ? "Copied" : "Copy code"}
+                {codeCopied ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
+                {codeCopied ? "Copied" : "Copy"}
               </button>
             </div>
           </div>
 
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-300/80">Step 2</p>
-              <p className="mt-1 text-sm text-amber-50">Open ChatGPT&apos;s verification page and paste the code.</p>
-            </div>
-            <a href={deviceFlow.verificationUrl} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-300 px-3 py-2 text-sm font-semibold text-gray-950 transition-colors hover:bg-amber-200">
-              Open link <ExternalLink size={15} aria-hidden="true" />
-            </a>
-          </div>
+          <a
+            href={deviceFlow.verificationUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-between gap-2 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2.5 text-sm text-emerald-400 transition-colors hover:border-emerald-700 hover:text-emerald-300"
+          >
+            <span>Open verification page</span>
+            <ExternalLink size={14} className="shrink-0" aria-hidden="true" />
+          </a>
 
-          <p className="mt-4 text-xs text-amber-200/80">Primordia will connect automatically after you authorize ChatGPT.</p>
+          <p className="text-xs text-gray-500">Paste the code on the verification page. Primordia will connect automatically after you authorize ChatGPT.</p>
         </div>
       )}
 
