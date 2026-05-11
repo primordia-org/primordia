@@ -8,10 +8,11 @@ import {
   setSecret,
   clearSecret,
   encryptSecretForTransmission,
+  encryptChatGptSubscriptionForTransmission,
   bustPublicKeyCache,
 } from './secrets-client';
 
-export { bustPublicKeyCache };
+export { bustPublicKeyCache, encryptChatGptSubscriptionForTransmission };
 
 export async function setStoredApiKey(key: string | null): Promise<void> {
   if (key === null || key === '') return clearSecret('ANTHROPIC_API_KEY');

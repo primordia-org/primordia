@@ -8,17 +8,18 @@ import 'server-only';
 //
 // Supported providers per harness:
 //   claude-code  →  anthropic only (the Claude Code SDK is Anthropic-only)
-//   pi           →  anthropic + openai (gateway) + openrouter (user API key required)
+//   pi           →  anthropic + openai (gateway) + openai-codex (ChatGPT OAuth) + openrouter (user API key required)
 
 import { ModelRegistry, AuthStorage } from '@mariozechner/pi-coding-agent';
 import type { ModelOption } from './agent-config';
 
 // Providers surfaced in the model picker per harness.
 // anthropic + openai route through the exe.dev LLM gateway (no key needed).
+// openai-codex uses the user's ChatGPT subscription OAuth credentials.
 // openrouter requires the user to supply their own OpenRouter API key.
 const HARNESS_PROVIDERS: Record<string, string[]> = {
   'claude-code': ['anthropic'],
-  'pi': ['anthropic', 'openai', 'openrouter'],
+  'pi': ['anthropic', 'openai-codex', 'openai', 'openrouter'],
 };
 
 /**
@@ -51,6 +52,7 @@ function formatPricing(
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
+  'openai-codex': 'ChatGPT',
   openrouter: 'OpenRouter',
 };
 
@@ -148,9 +150,10 @@ function filterToLatestVersions(models: RawModel[]): RawModel[] {
 export function getModelOptionsByHarness(): Record<string, ModelOption[]> {
   // Set placeholder keys so the registry treats each provider as authenticated
   // and includes its models in getAll().
-  const auth = AuthStorage.create();
+  const auth = AuthStorage.inMemory();
   auth.setRuntimeApiKey('anthropic', 'gateway');
   auth.setRuntimeApiKey('openai', 'gateway');
+  auth.set('openai-codex', { type: 'oauth', access: 'placeholder', refresh: 'placeholder', expires: Date.now() + 60_000 });
   auth.setRuntimeApiKey('openrouter', 'placeholder');
 
   const registry = ModelRegistry.create(auth);
@@ -178,7 +181,7 @@ export function getModelOptionsByHarness(): Record<string, ModelOption[]> {
         ? `${providerLabel}${reasoningLabel} · ${pricing.full}`
         : `${providerLabel}${reasoningLabel}`;
       return {
-        id: m.id,
+        id: m.provider === 'openai-codex' ? `openai-codex:${m.id}` : m.id,
         label: m.name,
         description,
         pricingLabel: pricing?.full,

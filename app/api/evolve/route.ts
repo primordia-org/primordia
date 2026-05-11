@@ -98,6 +98,7 @@ export interface EvolvePostFormData {
   cavemanIntensity?: string; // Caveman intensity: lite, full, ultra, wenyan-lite, wenyan-full, wenyan-ultra.
   encryptedApiKey?: string; // Optional RSA-OAEP encrypted Anthropic API key (from /api/llm-key/public-key).
   encryptedCredentials?: string; // Optional hybrid-encrypted Claude Code credentials.json (JSON: { wrappedKey, iv, ciphertext }).
+  encryptedChatGptOAuth?: string; // Optional hybrid-encrypted ChatGPT subscription OAuth credentials for Pi openai-codex models.
   attachments?: string; // Optional file attachments copied into the worktree's attachments/ directory.
 }
 
@@ -126,6 +127,7 @@ export async function POST(request: Request) {
   let cavemanIntensity: CavemanIntensity = DEFAULT_CAVEMAN_INTENSITY;
   let encryptedApiKey: string | null = null;
   let encryptedCredentials: string | null = null;
+  let encryptedChatGptOAuth: string | null = null;
   const savedAttachmentPaths: string[] = [];
 
   const contentType = request.headers.get('content-type') ?? '';
@@ -150,6 +152,8 @@ export async function POST(request: Request) {
     if (typeof encKeyField === 'string' && encKeyField) encryptedApiKey = encKeyField;
     const encCredsField = formData.get('encryptedCredentials');
     if (typeof encCredsField === 'string' && encCredsField) encryptedCredentials = encCredsField;
+    const encChatGptField = formData.get('encryptedChatGptOAuth');
+    if (typeof encChatGptField === 'string' && encChatGptField) encryptedChatGptOAuth = encChatGptField;
 
     const files = formData.getAll('attachments');
     if (files.length > 0) {
@@ -176,13 +180,14 @@ export async function POST(request: Request) {
       }
     }
   } else {
-    const body = (await request.json()) as { request?: string; encryptedApiKey?: string; encryptedCredentials?: string };
+    const body = (await request.json()) as { request?: string; encryptedApiKey?: string; encryptedCredentials?: string; encryptedChatGptOAuth?: string };
     if (!body.request || typeof body.request !== 'string') {
       return Response.json({ error: 'request string required' }, { status: 400 });
     }
     requestText = body.request;
     if (body.encryptedApiKey) encryptedApiKey = body.encryptedApiKey;
     if (body.encryptedCredentials) encryptedCredentials = body.encryptedCredentials;
+    if (body.encryptedChatGptOAuth) encryptedChatGptOAuth = body.encryptedChatGptOAuth;
   }
 
   // Decrypt the user's API key (if provided) right before use.
@@ -208,6 +213,18 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Could not decrypt credentials. Please try submitting again.' }, { status: 400 });
     }
     encryptedCredentials = null; // clear ciphertext from memory
+  }
+
+  // Decrypt the user's ChatGPT subscription OAuth credentials (if provided).
+  let decryptedChatGptOAuth: string | undefined;
+  if (encryptedChatGptOAuth) {
+    try {
+      const payload = JSON.parse(encryptedChatGptOAuth) as { wrappedKey: string; iv: string; ciphertext: string };
+      decryptedChatGptOAuth = await decryptHybridCredentials(payload);
+    } catch {
+      return Response.json({ error: 'Could not decrypt ChatGPT credentials. Please try submitting again.' }, { status: 400 });
+    }
+    encryptedChatGptOAuth = null;
   }
 
   const repoRoot = process.cwd();
@@ -254,12 +271,14 @@ export async function POST(request: Request) {
     model,
     apiKey: decryptedApiKey,
     credentials: decryptedCredentials,
+    chatGptOAuth: decryptedChatGptOAuth,
     userId: user.id,
   };
   // Clear decrypted secrets from this scope immediately after assigning them to
   // the session object (the worker consumes them via env vars then deletes them).
   decryptedApiKey = undefined;
   decryptedCredentials = undefined;
+  decryptedChatGptOAuth = undefined;
 
   // Fire-and-forget — run async so POST returns immediately with the session ID.
   // startLocalEvolve handles all error states internally and writes them to the filesystem.

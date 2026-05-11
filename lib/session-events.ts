@@ -24,7 +24,7 @@ import type { EvolveSession } from './db/types';
  */
 export interface AgentAuthInfo {
   /** Which credential/gateway the worker used to call the LLM. */
-  source: 'llm-gateway' | 'api-key' | 'claude-credentials';
+  source: 'llm-gateway' | 'api-key' | 'claude-credentials' | 'chatgpt-subscription';
   // Future fields (e.g. model provider, gateway region, etc.) go here.
 }
 

@@ -369,7 +369,7 @@ export async function encryptSecretForTransmission(
  * The server decrypts wrappedKey with its RSA private key to recover the
  * ephemeral AES key, then uses it to decrypt the ciphertext.
  */
-export async function encryptCredentialsForTransmission(): Promise<{
+async function encryptLargeSecretForTransmission(type: SecretType): Promise<{
   wrappedKey: string;
   iv: string;
   ciphertext: string;
@@ -378,7 +378,7 @@ export async function encryptCredentialsForTransmission(): Promise<{
     const aesKey = await loadAesKey();
     if (!aesKey) return null;
 
-    const res = await fetch(withBasePath('/api/secrets/CLAUDE_CODE_CREDENTIALS_JSON'));
+    const res = await fetch(withBasePath(`/api/secrets/${type}`));
     if (!res.ok) return null;
 
     const data = (await res.json()) as { ciphertext: string | null };
@@ -419,7 +419,23 @@ export async function encryptCredentialsForTransmission(): Promise<{
       ciphertext: btoa(String.fromCharCode(...new Uint8Array(encryptedPayload))),
     };
   } catch (err) {
-    console.error('[secrets-client] Failed to encrypt credentials for transmission:', err);
+    console.error(`[secrets-client] Failed to encrypt ${type} for transmission:`, err);
     return null;
   }
+}
+
+export async function encryptCredentialsForTransmission(): Promise<{
+  wrappedKey: string;
+  iv: string;
+  ciphertext: string;
+} | null> {
+  return encryptLargeSecretForTransmission('CLAUDE_CODE_CREDENTIALS_JSON');
+}
+
+export async function encryptChatGptSubscriptionForTransmission(): Promise<{
+  wrappedKey: string;
+  iv: string;
+  ciphertext: string;
+} | null> {
+  return encryptLargeSecretForTransmission('CHATGPT_SUBSCRIPTION_OAUTH');
 }

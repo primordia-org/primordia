@@ -34,6 +34,7 @@ const PROVIDER_META: Record<string, { label: string; shortLabel: string }> = {
   anthropic:       { label: "Anthropic",       shortLabel: "Anthropic" },
   openai:          { label: "OpenAI",          shortLabel: "OpenAI" },
   "openai-native": { label: "OpenAI",          shortLabel: "OpenAI" },
+  "openai-codex":  { label: "ChatGPT",         shortLabel: "ChatGPT" },
   google:          { label: "Google",          shortLabel: "Google" },
   "x-ai":          { label: "xAI",             shortLabel: "xAI" },
   mistralai:       { label: "Mistral AI",      shortLabel: "Mistral" },
@@ -57,6 +58,7 @@ const PROVIDER_META: Record<string, { label: string; shortLabel: string }> = {
 /** Maps provider id → public path for a favicon PNG (base-path-prefixed at use time). */
 const PROVIDER_FAVICON: Record<string, string> = {
   "openai-native":  "/brand-icons/openai-icon.png",
+  "openai-codex":   "/brand-icons/openai-icon.png",
   openai:           "/brand-icons/openai-icon.png",
   google:           "/brand-icons/google-gemini-icon.png",
   deepseek:         "/brand-icons/deepseek-icon.png",
@@ -158,6 +160,8 @@ function ProviderIcon({
 function getModelProvider(model: ModelOption): string {
   // Free models (:free suffix) get their own virtual group
   if (model.id.endsWith(":free")) return "free";
+  // ChatGPT subscription models are namespaced as "openai-codex:model".
+  if (model.id.startsWith("openai-codex:")) return "openai-codex";
   // OpenRouter models have a slash in the id: "provider/model-name"
   if (model.id.includes("/")) {
     return model.id.split("/")[0];
@@ -185,7 +189,7 @@ function buildProviderGroups(models: ModelOption[]): ProviderGroup[] {
   }
 
   // Providers that are exempt from singleton-merging (always get their own tab)
-  const NEVER_MISC = new Set(["free", "anthropic", "openai-native", "openai"]);
+  const NEVER_MISC = new Set(["free", "anthropic", "openai-native", "openai-codex", "openai"]);
 
   // Collect singleton paid providers into a virtual "misc" group
   const miscModels: ModelOption[] = [];
@@ -197,9 +201,9 @@ function buildProviderGroups(models: ModelOption[]): ProviderGroup[] {
     }
   }
 
-  // Sort providers: free first, anthropic second, openai-native third, named multi-model
-  // providers alphabetically, then misc last
-  const priority: Record<string, number> = { free: 0, anthropic: 1, "openai-native": 2, misc: 999 };
+  // Sort providers: free first, anthropic second, ChatGPT/OpenAI next, named
+  // multi-model providers alphabetically, then misc last
+  const priority: Record<string, number> = { free: 0, anthropic: 1, "openai-codex": 2, "openai-native": 3, misc: 999 };
   const providerIds = Object.keys(byProvider)
     .filter((id) => !singletonProviders.has(id))
     .sort((a, b) => {
