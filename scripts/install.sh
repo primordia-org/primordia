@@ -219,6 +219,34 @@ else
   _done "Worktree created"
 fi
 
+# ── Install git hooks ─────────────────────────────────────────────────────────
+
+_CURRENT_STEP="install git hooks"
+GIT_HOOKS_SRC="${INSTALL_DIR}/scripts/git-hooks"
+GIT_HOOKS_DST="${BARE_REPO}/hooks"
+
+install_git_hook() {
+  local hook_name="$1"
+  local src="${GIT_HOOKS_SRC}/${hook_name}"
+  local dst="${GIT_HOOKS_DST}/${hook_name}"
+  local tmp="${dst}.tmp.$$"
+
+  [[ -f "$src" ]] || die "Missing git hook source: ${src}"
+  install -m 0755 "$src" "$tmp"
+  mv "$tmp" "$dst"
+}
+
+mkdir -p "${GIT_HOOKS_DST}"
+if [[ ! -f "${GIT_HOOKS_DST}/reference-transaction" ]] || ! diff -q "${GIT_HOOKS_SRC}/reference-transaction" "${GIT_HOOKS_DST}/reference-transaction" >/dev/null 2>&1; then
+  _step "Installing git hooks..."
+  install_git_hook "reference-transaction"
+  _done "Git hooks installed"
+else
+  success "Using git hooks"
+fi
+git -C "${BARE_REPO}" config receive.denyCurrentBranch ignore
+git -C "${BARE_REPO}" config receive.denyDeleteCurrent refuse
+
 # ── Install bun ───────────────────────────────────────────────────────────────
 
 _CURRENT_STEP="install bun"
