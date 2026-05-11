@@ -28,8 +28,7 @@ import {
 } from '@mariozechner/pi-coding-agent';
 import * as fs from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const minimatch = require('minimatch') as (path: string, pattern: string) => boolean;
+import { minimatch } from 'minimatch';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
@@ -42,19 +41,25 @@ import {
 const ANTHROPIC_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai';
 
-/** Infer the pi provider name from a model ID. Defaults to 'anthropic'. */
-function inferProvider(modelId: string): 'anthropic' | 'openai' | 'openrouter' {
+/** Infer the pi provider and strip any Primordia-only model ID namespace. */
+function normalizeModelSelection(modelId: string | undefined): { provider: 'anthropic' | 'openai' | 'openai-codex' | 'openrouter'; modelId: string | undefined } {
+  if (!modelId) return { provider: 'anthropic', modelId };
+  if (modelId.startsWith('openai-codex:')) {
+    return { provider: 'openai-codex', modelId: modelId.slice('openai-codex:'.length) };
+  }
   // Direct OpenAI model IDs (no slash, well-known prefixes)
-  if (modelId.startsWith('gpt-') || /^o\d/.test(modelId) || modelId.startsWith('codex-')) return 'openai';
+  if (modelId.startsWith('gpt-') || /^o\d/.test(modelId) || modelId.startsWith('codex-')) return { provider: 'openai', modelId };
   // OpenRouter model IDs always contain a slash (e.g. 'google/gemini-2.5-flash')
-  if (modelId.includes('/')) return 'openrouter';
-  return 'anthropic';
+  if (modelId.includes('/')) return { provider: 'openrouter', modelId };
+  return { provider: 'anthropic', modelId };
 }
 
 // Capture and immediately clear the injected user API key so it does not
 // persist in process.env (and cannot leak to child processes).
 const _userApiKey = process.env.PRIMORDIA_USER_API_KEY;
 delete process.env.PRIMORDIA_USER_API_KEY;
+const _chatGptOAuth = process.env.PRIMORDIA_CHATGPT_OAUTH;
+delete process.env.PRIMORDIA_CHATGPT_OAUTH;
 
 interface WorkerConfig {
   sessionId: string;
@@ -181,7 +186,7 @@ async function main(): Promise<void> {
 
   const { sessionId, worktreePath, prompt, useContinue } = config;
   const timeoutMs = config.timeoutMs ?? 20 * 60 * 1000;
-  const modelId = config.model;
+  const { provider: modelProvider, modelId } = normalizeModelSelection(config.model);
 
   // sessionId is available in config but not used directly here.
   void sessionId;
@@ -249,14 +254,35 @@ async function main(): Promise<void> {
   try {
     // Auth — use the user-supplied API key when available, otherwise fall back
     // to the exe.dev LLM gateway (which handles auth with any non-empty key).
-    const authStorage = AuthStorage.create();
-    const modelProvider = modelId ? inferProvider(modelId) : 'anthropic';
-    if (_userApiKey) {
+    const authStorage = AuthStorage.inMemory();
+    if (_chatGptOAuth && modelProvider === 'openai-codex') {
+      const stored = JSON.parse(_chatGptOAuth) as {
+        tokens?: {
+          accessToken?: string;
+          refreshToken?: string;
+          accountId?: string | null;
+          accessTokenExpiresAt?: number | null;
+        };
+      };
+      const access = stored.tokens?.accessToken;
+      const refresh = stored.tokens?.refreshToken;
+      if (!access || !refresh) {
+        throw new Error('Stored ChatGPT subscription credentials are missing access or refresh tokens. Reconnect ChatGPT in Settings → Subscriptions.');
+      }
+      authStorage.set('openai-codex', {
+        type: 'oauth',
+        access,
+        refresh,
+        expires: stored.tokens?.accessTokenExpiresAt ?? 0,
+        accountId: stored.tokens?.accountId ?? undefined,
+      });
+      process.stderr.write('Using ChatGPT subscription OAuth for openai-codex\n');
+    } else if (_userApiKey) {
       authStorage.setRuntimeApiKey(modelProvider, _userApiKey);
       process.stderr.write(`Using user-supplied ${modelProvider} API key\n`);
     } else {
-      // Gateway handles auth for all providers — set a placeholder key for each
-      // supported provider so the SDK knows auth is configured.
+      // Gateway handles auth for Anthropic/OpenAI — set a placeholder key for each
+      // supported gateway provider so the SDK knows auth is configured.
       authStorage.setRuntimeApiKey('anthropic', 'gateway');
       authStorage.setRuntimeApiKey('openai', 'gateway');
       process.stderr.write('Using exe.dev LLM gateway\n');
@@ -322,7 +348,6 @@ async function main(): Promise<void> {
       modelRegistry,
       resourceLoader: loader,
       sessionManager: sessionMgr,
-      // createCodingTools = read, bash, edit, write — pass as names for new API
       tools: ["read", "bash", "edit", "write"],
     });
 

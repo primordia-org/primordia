@@ -121,7 +121,7 @@ When implementing changes, follow these principles:
 | Dark theme | ✅ Live | Default dark UI with Tailwind |
 | Passkey authentication | ✅ Live | WebAuthn passkeys via /login; sessions stored in SQLite |
 | Cross-device QR sign-in | ✅ Live | Laptop shows QR code; authenticated phone scans it and approves; laptop gets a session |
-| Credentials management | ✅ Live | Account Settings includes API Keys and `/settings/subscriptions`; users can connect Claude.ai credentials and ChatGPT subscription OAuth credentials, stored client-side encrypted in DB-backed user secrets |
+| Credentials management | ✅ Live | Account Settings includes API Keys and `/settings/subscriptions`; users can connect Claude.ai credentials and ChatGPT subscription OAuth credentials (usable by Pi `openai-codex:*` models), stored client-side encrypted in DB-backed user secrets |
 | RBAC (roles) | ✅ Live | Simple role system: `admin` (auto-granted to first user) and `can_evolve`; /admin page lets admin grant/revoke roles; protected pages show informative 403 instead of redirecting |
 | Server logs (/admin/logs) | ✅ Live | Admin-only; live tail of production server stdout/stderr via SSE; routes through `/_proxy/prod/logs` in production |
 | Proxy logs (/admin/proxy-logs) | ✅ Live | Admin-only; live tail of `journalctl -u primordia-proxy -f -n 100` via SSE |

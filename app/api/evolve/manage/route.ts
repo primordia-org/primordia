@@ -418,6 +418,8 @@ export interface EvolveManageBody {
   encryptedCredentials?: string;
   /** Optional RSA-OAEP encrypted Anthropic API key. Used if encryptedCredentials is absent. */
   encryptedApiKey?: string;
+  /** Optional hybrid-encrypted ChatGPT subscription OAuth credentials for Pi openai-codex models. */
+  encryptedChatGptOAuth?: string;
 }
 
 /**
@@ -432,7 +434,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
 
-  const body = (await request.json()) as { action?: string; sessionId?: string; encryptedCredentials?: string; encryptedApiKey?: string };
+  const body = (await request.json()) as { action?: string; sessionId?: string; encryptedCredentials?: string; encryptedApiKey?: string; encryptedChatGptOAuth?: string };
   if (body.action !== 'accept' && body.action !== 'reject') {
     return Response.json({ error: 'action must be "accept" or "reject"' }, { status: 400 });
   }
@@ -444,12 +446,20 @@ export async function POST(request: Request) {
   // agent sessions spawned during accept (type-fix, auto-commit).
   let decryptedCredentials: string | undefined;
   let decryptedApiKey: string | undefined;
+  let decryptedChatGptOAuth: string | undefined;
   if (body.encryptedCredentials) {
     try {
       const payload = JSON.parse(body.encryptedCredentials) as { wrappedKey: string; iv: string; ciphertext: string };
       decryptedCredentials = await decryptHybridCredentials(payload);
     } catch {
       return Response.json({ error: 'Could not decrypt credentials. Please try submitting again.' }, { status: 400 });
+    }
+  } else if (body.encryptedChatGptOAuth) {
+    try {
+      const payload = JSON.parse(body.encryptedChatGptOAuth) as { wrappedKey: string; iv: string; ciphertext: string };
+      decryptedChatGptOAuth = await decryptHybridCredentials(payload);
+    } catch {
+      return Response.json({ error: 'Could not decrypt ChatGPT credentials. Please try submitting again.' }, { status: 400 });
     }
   } else if (body.encryptedApiKey) {
     try {
@@ -550,6 +560,7 @@ export async function POST(request: Request) {
           userId: user.id,
           credentials: decryptedCredentials,
           apiKey: decryptedApiKey,
+          chatGptOAuth: decryptedChatGptOAuth,
         };
         // runFollowupInWorktree will emit the 'auto_commit' section_start itself.
         void runFollowupInWorktree(commitSession, commitPrompt, repoRoot, 'running-claude', /* onSuccess */ undefined, /* internalSectionType */ 'auto_commit');

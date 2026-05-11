@@ -15,7 +15,7 @@ import { Paperclip, Settings, ChevronDown, Crosshair, Loader2 } from "lucide-rea
 import { ModelPicker } from "./ModelPicker";
 import { useRouter } from "next/navigation";
 import { withBasePath } from "../lib/base-path";
-import { encryptStoredApiKey, encryptStoredOpenRouterApiKey } from "../lib/api-key-client";
+import { encryptChatGptSubscriptionForTransmission, encryptStoredApiKey, encryptStoredOpenRouterApiKey } from "../lib/api-key-client";
 import { encryptStoredCredentials } from "../lib/credentials-client";
 import {
   HARNESS_OPTIONS,
@@ -270,11 +270,15 @@ export function EvolveRequestForm({
           formData.append("attachments", file);
         }
         // Only one auth token is ever sent. Credentials are only meaningful
-        // for the claude-code harness; OpenRouter models (id contains '/') use
-        // the OpenRouter key; everything else uses the Anthropic key.
+        // for the claude-code harness; Pi openai-codex models use ChatGPT
+        // subscription OAuth; OpenRouter models (id contains '/') use the
+        // OpenRouter key; everything else uses the Anthropic key.
         if (selectedHarness === 'claude-code') {
           const encryptedCredentials = await encryptStoredCredentials();
           if (encryptedCredentials) formData.append("encryptedCredentials", JSON.stringify(encryptedCredentials));
+        } else if (selectedHarness === 'pi' && selectedModel.startsWith('openai-codex:')) {
+          const encryptedChatGptOAuth = await encryptChatGptSubscriptionForTransmission();
+          if (encryptedChatGptOAuth) formData.append("encryptedChatGptOAuth", JSON.stringify(encryptedChatGptOAuth));
         } else if (selectedModel.includes('/')) {
           const encryptedApiKey = await encryptStoredOpenRouterApiKey();
           if (encryptedApiKey) formData.append("encryptedApiKey", encryptedApiKey);

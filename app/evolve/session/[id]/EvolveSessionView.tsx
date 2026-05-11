@@ -15,7 +15,7 @@ import { FloatingEvolveDialog, EvolveSubmitToast } from "@/components/FloatingEv
 import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
 import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
-import { encryptStoredApiKey, encryptStoredOpenRouterApiKey } from "@/lib/api-key-client";
+import { encryptChatGptSubscriptionForTransmission, encryptStoredApiKey, encryptStoredOpenRouterApiKey } from "@/lib/api-key-client";
 import { useSounds } from "@/lib/sounds";
 import { encryptStoredCredentials, updateStoredCredentials } from "@/lib/credentials-client";
 import { EvolveRequestForm } from "@/components/EvolveRequestForm";
@@ -317,6 +317,13 @@ function AgentAuthBadge({ auth }: { auth?: AgentAuthInfo }) {
     return (
       <span title="Used claude.ai login" className="inline-flex items-center text-sky-400/70 hover:text-sky-400 transition-colors cursor-default">
         <ClaudeIcon size={16} />
+      </span>
+    );
+  }
+  if (auth.source === 'chatgpt-subscription') {
+    return (
+      <span title="Used ChatGPT subscription" className="inline-flex items-center text-emerald-400/70 hover:text-emerald-400 transition-colors cursor-default text-[11px] font-bold">
+        GPT
       </span>
     );
   }
@@ -1310,19 +1317,24 @@ export default function EvolveSessionView({
     setAcceptRejectError(null);
     try {
       // Attach credentials so the server can forward them to any agent sessions
-      // spawned during accept (type-fix, auto-commit). Try credentials first
-      // (claude-code harness); OpenRouter models use the OpenRouter key;
-      // everything else uses the Anthropic key.
+      // spawned during accept (type-fix, auto-commit). Pi openai-codex models
+      // use ChatGPT OAuth; otherwise Claude Code credentials win, OpenRouter
+      // models use the OpenRouter key, and everything else uses Anthropic.
       const acceptBody: Record<string, string> = { action: 'accept', sessionId };
-      const encCreds = await encryptStoredCredentials();
-      if (encCreds) {
-        acceptBody.encryptedCredentials = JSON.stringify(encCreds);
+      if (sessionModel?.startsWith('openai-codex:')) {
+        const encChatGptOAuth = await encryptChatGptSubscriptionForTransmission();
+        if (encChatGptOAuth) acceptBody.encryptedChatGptOAuth = JSON.stringify(encChatGptOAuth);
       } else {
-        const isOpenRouterModel = sessionModel?.includes('/') ?? false;
-        const encKey = isOpenRouterModel
-          ? await encryptStoredOpenRouterApiKey()
-          : await encryptStoredApiKey();
-        if (encKey) acceptBody.encryptedApiKey = encKey;
+        const encCreds = await encryptStoredCredentials();
+        if (encCreds) {
+          acceptBody.encryptedCredentials = JSON.stringify(encCreds);
+        } else {
+          const isOpenRouterModel = sessionModel?.includes('/') ?? false;
+          const encKey = isOpenRouterModel
+            ? await encryptStoredOpenRouterApiKey()
+            : await encryptStoredApiKey();
+          if (encKey) acceptBody.encryptedApiKey = encKey;
+        }
       }
       const res = await fetch(withBasePath('/api/evolve/manage'), {
         method: 'POST',
@@ -1875,11 +1887,15 @@ export default function EvolveSessionView({
                   formData.append('model', model);
                   for (const file of files) formData.append('attachments', file);
                   // Only one auth token is ever sent. Credentials are only
-                  // meaningful for the claude-code harness; OpenRouter models
-                  // (id contains '/') use the OpenRouter key; others use Anthropic.
+                  // meaningful for the claude-code harness; Pi openai-codex
+                  // models use ChatGPT OAuth; OpenRouter models (id contains
+                  // '/') use the OpenRouter key; others use Anthropic.
                   if (harness === 'claude-code') {
                     const encryptedCredentials = await encryptStoredCredentials();
                     if (encryptedCredentials) formData.append('encryptedCredentials', JSON.stringify(encryptedCredentials));
+                  } else if (harness === 'pi' && model.startsWith('openai-codex:')) {
+                    const encryptedChatGptOAuth = await encryptChatGptSubscriptionForTransmission();
+                    if (encryptedChatGptOAuth) formData.append('encryptedChatGptOAuth', JSON.stringify(encryptedChatGptOAuth));
                   } else if (model.includes('/')) {
                     const encryptedApiKey = await encryptStoredOpenRouterApiKey();
                     if (encryptedApiKey) formData.append('encryptedApiKey', encryptedApiKey);

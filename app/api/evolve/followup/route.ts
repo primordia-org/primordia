@@ -24,6 +24,7 @@ export interface EvolveFollowupFormData {
   model?: string; // AI model override for this follow-up run.
   encryptedApiKey?: string; // Optional RSA-OAEP encrypted Anthropic API key.
   encryptedCredentials?: string; // Optional hybrid-encrypted Claude Code credentials.json (JSON: { wrappedKey, iv, ciphertext }).
+  encryptedChatGptOAuth?: string; // Optional hybrid-encrypted ChatGPT subscription OAuth credentials for Pi openai-codex models.
   attachments?: string; // Optional additional file attachments to include in this follow-up run.
 }
 
@@ -47,6 +48,7 @@ export async function POST(request: Request) {
   let model: string | undefined;
   let encryptedApiKey: string | null = null;
   let encryptedCredentials: string | null = null;
+  let encryptedChatGptOAuth: string | null = null;
   const savedAttachmentPaths: string[] = [];
 
   const contentType = request.headers.get('content-type') ?? '';
@@ -70,6 +72,8 @@ export async function POST(request: Request) {
     if (typeof encKeyField === 'string' && encKeyField) encryptedApiKey = encKeyField;
     const encCredsField = formData.get('encryptedCredentials');
     if (typeof encCredsField === 'string' && encCredsField) encryptedCredentials = encCredsField;
+    const encChatGptField = formData.get('encryptedChatGptOAuth');
+    if (typeof encChatGptField === 'string' && encChatGptField) encryptedChatGptOAuth = encChatGptField;
 
     const files = formData.getAll('attachments');
     if (files.length > 0) {
@@ -95,7 +99,7 @@ export async function POST(request: Request) {
       }
     }
   } else {
-    const body = (await request.json()) as { sessionId?: string; request?: string; encryptedApiKey?: string; encryptedCredentials?: string };
+    const body = (await request.json()) as { sessionId?: string; request?: string; encryptedApiKey?: string; encryptedCredentials?: string; encryptedChatGptOAuth?: string };
     if (!body.sessionId || typeof body.sessionId !== 'string') {
       return Response.json({ error: 'sessionId string required' }, { status: 400 });
     }
@@ -106,6 +110,7 @@ export async function POST(request: Request) {
     requestText = body.request;
     if (body.encryptedApiKey) encryptedApiKey = body.encryptedApiKey;
     if (body.encryptedCredentials) encryptedCredentials = body.encryptedCredentials;
+    if (body.encryptedChatGptOAuth) encryptedChatGptOAuth = body.encryptedChatGptOAuth;
   }
 
   // Decrypt the user's API key right before use.
@@ -129,6 +134,18 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Could not decrypt credentials. Please try submitting again.' }, { status: 400 });
     }
     encryptedCredentials = null;
+  }
+
+  // Decrypt the user's ChatGPT subscription OAuth credentials (if provided).
+  let decryptedChatGptOAuth: string | undefined;
+  if (encryptedChatGptOAuth) {
+    try {
+      const payload = JSON.parse(encryptedChatGptOAuth) as { wrappedKey: string; iv: string; ciphertext: string };
+      decryptedChatGptOAuth = await decryptHybridCredentials(payload);
+    } catch {
+      return Response.json({ error: 'Could not decrypt ChatGPT credentials. Please try submitting again.' }, { status: 400 });
+    }
+    encryptedChatGptOAuth = null;
   }
 
   const repoRoot = process.cwd();
@@ -159,10 +176,12 @@ export async function POST(request: Request) {
     model,
     apiKey: decryptedApiKey,
     credentials: decryptedCredentials,
+    chatGptOAuth: decryptedChatGptOAuth,
     userId: user.id,
   };
   decryptedApiKey = undefined;
   decryptedCredentials = undefined;
+  decryptedChatGptOAuth = undefined;
 
   // Fire-and-forget — runFollowupInWorktree handles all state transitions and
   // error cases internally, writing events to the NDJSON log.
