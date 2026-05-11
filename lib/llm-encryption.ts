@@ -1,5 +1,5 @@
 // lib/llm-encryption.ts
-// Server-side RSA-OAEP keypair for encrypting API keys in transit.
+// Server-side RSA-OAEP keypair for hybrid-encrypted secrets in transit.
 //
 // An ephemeral 2048-bit RSA-OAEP keypair is generated once per server process
 // lifetime (lazy, on first call). The private key never leaves the server
@@ -39,36 +39,53 @@ export async function getPublicKeyJwk(): Promise<JsonWebKey> {
   return subtle.exportKey('jwk', publicKey);
 }
 
-/**
- * Decrypts a base64-encoded RSA-OAEP ciphertext produced by the client.
- * Throws if the ciphertext was encrypted with a different (e.g. old) keypair.
- */
-export async function decryptApiKey(ciphertextBase64: string): Promise<string> {
-  const { privateKey } = await getKeyPair();
-  const ciphertext = Buffer.from(ciphertextBase64, 'base64');
-  const plaintext = await subtle.decrypt(
-    { name: 'RSA-OAEP' },
-    privateKey,
-    ciphertext,
+export type HybridEncryptedPayload = { wrappedKey: string; iv: string; ciphertext: string };
+
+function isHybridEncryptedPayload(value: unknown): value is HybridEncryptedPayload {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      typeof (value as Partial<HybridEncryptedPayload>).wrappedKey === 'string' &&
+      typeof (value as Partial<HybridEncryptedPayload>).iv === 'string' &&
+      typeof (value as Partial<HybridEncryptedPayload>).ciphertext === 'string'
   );
+}
+
+/**
+ * Decrypts an encrypted API key. New clients send the same hybrid envelope used
+ * for all secrets. Legacy direct RSA-OAEP base64 payloads are still accepted so
+ * older open tabs do not fail during deploy.
+ */
+export async function decryptApiKey(payloadOrCiphertext: string | HybridEncryptedPayload): Promise<string> {
+  if (isHybridEncryptedPayload(payloadOrCiphertext)) {
+    return decryptHybridCredentials(payloadOrCiphertext);
+  }
+
+  try {
+    const parsed = JSON.parse(payloadOrCiphertext) as unknown;
+    if (isHybridEncryptedPayload(parsed)) return decryptHybridCredentials(parsed);
+  } catch {
+    // Legacy plain base64 RSA-OAEP ciphertext.
+  }
+
+  const { privateKey } = await getKeyPair();
+  const ciphertext = Buffer.from(payloadOrCiphertext, 'base64');
+  const plaintext = await subtle.decrypt({ name: 'RSA-OAEP' }, privateKey, ciphertext);
   return new TextDecoder().decode(plaintext);
 }
 
 /**
- * Decrypts a hybrid-encrypted credentials payload produced by the client's
- * `encryptStoredCredentials()`. The payload format:
+ * Decrypts a hybrid-encrypted secret payload produced by the client's
+ * `encryptSecretForTransmission()`. The payload format:
  *   { wrappedKey: string, iv: string, ciphertext: string } (all base64)
  *
- * Because credentials.json can exceed RSA-OAEP's plaintext size limit, the
- * client uses a hybrid scheme: an ephemeral AES-256-GCM key encrypts the
+ * The client uses a hybrid scheme: an ephemeral AES-256-GCM key encrypts the
  * payload, and RSA-OAEP encrypts only the 32-byte AES key.
  *
  * Throws if the wrapped key was encrypted with a different keypair or if the
  * ciphertext is corrupt.
  */
-export async function decryptHybridCredentials(
-  payload: { wrappedKey: string; iv: string; ciphertext: string },
-): Promise<string> {
+export async function decryptHybridCredentials(payload: HybridEncryptedPayload): Promise<string> {
   const { privateKey } = await getKeyPair();
 
   // 1. Unwrap the ephemeral AES key using RSA-OAEP

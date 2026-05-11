@@ -416,7 +416,7 @@ export interface EvolveManageBody {
   sessionId: string; // The session ID (git branch name) to accept or reject.
   /** Optional hybrid-encrypted Claude Code credentials.json (JSON: { wrappedKey, iv, ciphertext }). Passed to type-fix and auto-commit agent sessions. */
   encryptedCredentials?: string;
-  /** Optional RSA-OAEP encrypted Anthropic API key. Used if encryptedCredentials is absent. */
+  /** Optional hybrid-encrypted API key (JSON: { wrappedKey, iv, ciphertext }). Used if encryptedCredentials is absent. */
   encryptedApiKey?: string;
   /** Optional hybrid-encrypted ChatGPT subscription OAuth credentials for Pi openai-codex models. */
   encryptedChatGptOAuth?: string;

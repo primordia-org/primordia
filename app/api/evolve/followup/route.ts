@@ -22,7 +22,7 @@ export interface EvolveFollowupFormData {
   request: string; // The follow-up change request text for Claude Code.
   harness?: string; // Agent harness override for this follow-up run.
   model?: string; // AI model override for this follow-up run.
-  encryptedApiKey?: string; // Optional RSA-OAEP encrypted Anthropic API key.
+  encryptedApiKey?: string; // Optional hybrid-encrypted API key (JSON: { wrappedKey, iv, ciphertext }).
   encryptedCredentials?: string; // Optional hybrid-encrypted Claude Code credentials.json (JSON: { wrappedKey, iv, ciphertext }).
   encryptedChatGptOAuth?: string; // Optional hybrid-encrypted ChatGPT subscription OAuth credentials for Pi openai-codex models.
   attachments?: string; // Optional additional file attachments to include in this follow-up run.

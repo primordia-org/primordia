@@ -96,7 +96,7 @@ export interface EvolvePostFormData {
   model?: string; // AI model identifier to pass to the agent harness.
   cavemanMode?: string; // Enable caveman communication mode. Pass the string 'true' to enable.
   cavemanIntensity?: string; // Caveman intensity: lite, full, ultra, wenyan-lite, wenyan-full, wenyan-ultra.
-  encryptedApiKey?: string; // Optional RSA-OAEP encrypted Anthropic API key (from /api/llm-key/public-key).
+  encryptedApiKey?: string; // Optional hybrid-encrypted API key (JSON: { wrappedKey, iv, ciphertext }).
   encryptedCredentials?: string; // Optional hybrid-encrypted Claude Code credentials.json (JSON: { wrappedKey, iv, ciphertext }).
   encryptedChatGptOAuth?: string; // Optional hybrid-encrypted ChatGPT subscription OAuth credentials for Pi openai-codex models.
   attachments?: string; // Optional file attachments copied into the worktree's attachments/ directory.

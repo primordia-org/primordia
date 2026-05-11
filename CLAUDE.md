@@ -25,7 +25,7 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 | Frontend framework | Next.js 16 (App Router) | AI models write Next.js well |
 | Styling | Tailwind CSS | AI models write Tailwind well; no CSS files to manage |
 | Language | TypeScript | Catches mistakes; Claude Code understands it well |
-| AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Routes through exe.dev LLM gateway by default; users may override with their own Anthropic API key or Claude Code credentials.json (stored in localStorage/DB, encrypted in transit via RSA-OAEP) |
+| AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Routes through exe.dev LLM gateway by default; users may override with their own Anthropic API key or Claude Code credentials.json (stored in localStorage/DB, encrypted in transit via one hybrid AES-GCM + RSA-OAEP envelope for all credential types) |
 | Hosting | exe.dev | Production builds via `bun run build && bun run start`; single systemd service (`primordia-proxy`) manages both proxy and production app; blue/green slot swap on accept |
 | AI code gen | `@anthropic-ai/claude-agent-sdk` | `query()` runs Claude Code in git worktrees for evolve requests |
 | Database | bun:sqlite | Local SQLite for passkey auth **and evolve session persistence**; same adapter on exe.dev and local dev |
