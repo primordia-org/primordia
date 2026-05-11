@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Edit3, Plus, Trash2 } from "lucide-react";
+import { Edit3, Loader, Plus, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import { PRESET_AUTH_SOURCE_LABELS, type EvolvePreset, type PresetAuthSource } from "@/lib/presets";
 import { firstModelForAuthSource, getHarnessesForAuthSource, filterModelsForAuthSource } from "@/lib/preset-options";
@@ -31,14 +31,31 @@ function PresetCard({
   right?: ReactNode;
 }) {
   return (
-    <div className={`rounded-lg border px-3 py-2 flex items-center justify-between gap-3 ${disabled ? "border-gray-800 bg-gray-950/20 opacity-55" : "border-gray-800 bg-gray-950/40"}`}>
-      <div className="min-w-0">
-        <div className="text-sm text-gray-100 truncate">{preset.name}</div>
-        <div className="text-xs text-gray-500 mt-0.5 truncate">
-          {PRESET_AUTH_SOURCE_LABELS[preset.authSource]} · {preset.harness} · {preset.model}
+    <div
+      className={`border rounded-xl overflow-hidden transition-colors ${
+        disabled ? "border-gray-700/50 opacity-60" : "border-gray-700"
+      }`}
+    >
+      <div className="flex items-start gap-3 px-4 py-3 bg-gray-800/50">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium text-gray-100">{preset.name}</span>
+            {preset.builtIn && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">built-in</span>
+            )}
+            {!preset.builtIn && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">custom</span>
+            )}
+            {disabled && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-500">disabled</span>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5 truncate">
+            {PRESET_AUTH_SOURCE_LABELS[preset.authSource]} · {preset.harness} · {preset.model}
+          </p>
         </div>
+        {right && <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">{right}</div>}
       </div>
-      {right && <div className="shrink-0">{right}</div>}
     </div>
   );
 }
@@ -157,8 +174,9 @@ export default function PresetsSettingsClient() {
         <p className="text-sm text-gray-400 mt-1">Pick billing source + harness + model once, then switch by name in Evolve.</p>
       </div>
 
-      <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4">
-        <h2 className="text-sm font-semibold text-gray-200 mb-3">Built-in presets</h2>
+      <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4 space-y-3">
+        <h2 className="text-sm font-semibold text-gray-200">Presets</h2>
+
         <div className="grid gap-2">
           {builtIn.map((p) => {
             const disabled = disabledBuiltInIds.includes(p.id);
@@ -168,107 +186,113 @@ export default function PresetsSettingsClient() {
                 preset={p}
                 disabled={disabled}
                 right={
-                  <label className="inline-flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={!disabled}
-                      onChange={() => toggleBuiltIn(p.id)}
-                      disabled={savingTarget === `builtin:${p.id}`}
-                      className="accent-amber-500 disabled:opacity-50"
-                    />
-                    {disabled ? 'Disabled' : 'Enabled'}
-                  </label>
+                  <button
+                    type="button"
+                    title={disabled ? "Enable preset" : "Disable preset"}
+                    onClick={() => toggleBuiltIn(p.id)}
+                    disabled={savingTarget === `builtin:${p.id}`}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                  >
+                    {disabled ? (
+                      <ToggleLeft size={16} strokeWidth={2} />
+                    ) : (
+                      <ToggleRight size={16} strokeWidth={2} className="text-blue-400" />
+                    )}
+                  </button>
                 }
               />
             );
           })}
-        </div>
-      </div>
 
-      <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-gray-200">Custom presets</h2>
-          <button type="button" onClick={addPreset} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-800">
-            <Plus size={14} /> Add preset
-          </button>
-        </div>
+          {custom.map((p) => {
+            const isEditing = editingIds.has(p.id);
+            const harnesses = getHarnessesForAuthSource(p.authSource);
+            const selectedHarness = harnesses.some((h) => h.id === p.harness) ? p.harness : (harnesses[0]?.id ?? p.harness);
+            const selectableModels = filterModelsForAuthSource(modelOptionsByHarness[selectedHarness] ?? [], p.authSource, selectedHarness);
+            const selectedModel = selectableModels.some((m) => m.id === p.model) ? p.model : (selectableModels[0]?.id ?? p.model);
 
-        {custom.length === 0 ? (
-          <p className="text-sm text-gray-500 border border-dashed border-gray-800 rounded-lg p-4">No custom presets yet.</p>
-        ) : custom.map((p) => {
-          const isEditing = editingIds.has(p.id);
-          const harnesses = getHarnessesForAuthSource(p.authSource);
-          const selectedHarness = harnesses.some((h) => h.id === p.harness) ? p.harness : (harnesses[0]?.id ?? p.harness);
-          const selectableModels = filterModelsForAuthSource(modelOptionsByHarness[selectedHarness] ?? [], p.authSource, selectedHarness);
-          const selectedModel = selectableModels.some((m) => m.id === p.model) ? p.model : (selectableModels[0]?.id ?? p.model);
+            if (!isEditing) {
+              return (
+                <PresetCard
+                  key={p.id}
+                  preset={{ ...p, harness: selectedHarness, model: selectedModel }}
+                  right={
+                    <>
+                      <button type="button" title="Edit preset" onClick={() => editPreset(p.id, true)} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-colors">
+                        <Edit3 size={14} strokeWidth={2} />
+                      </button>
+                      <button type="button" title="Delete preset" onClick={() => deletePreset(p.id)} disabled={savingTarget === `delete:${p.id}`} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-gray-700 disabled:opacity-40 transition-colors">
+                        <Trash2 size={14} strokeWidth={2} />
+                      </button>
+                    </>
+                  }
+                />
+              );
+            }
 
-          if (!isEditing) {
             return (
-              <PresetCard
-                key={p.id}
-                preset={{ ...p, harness: selectedHarness, model: selectedModel }}
-                right={
-                  <div className="flex items-center gap-1">
-                    <button type="button" onClick={() => editPreset(p.id, true)} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-300 hover:bg-gray-800">
-                      <Edit3 size={13} /> Edit
-                    </button>
-                    <button type="button" onClick={() => deletePreset(p.id)} disabled={savingTarget === `delete:${p.id}`} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-red-300 hover:bg-red-950/30 disabled:opacity-50">
-                      <Trash2 size={13} /> Delete
-                    </button>
+              <div key={p.id} className="border border-blue-700/40 rounded-xl p-4 space-y-3 bg-gray-800/30">
+                <p className="text-sm font-medium text-gray-200">Edit custom preset</p>
+                <label className="flex flex-col gap-1 text-xs text-gray-400">
+                  Display name
+                  <input value={p.name} onChange={(e) => updatePreset(p.id, { name: e.target.value })} className="rounded-lg bg-gray-900 border border-gray-700 px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500 transition-colors" />
+                </label>
+
+                <div className="grid gap-3 md:grid-cols-3">
+                  <label className="flex flex-col gap-1 text-xs text-gray-400">
+                    1. Billing source
+                    <select value={p.authSource} onChange={(e) => changeAuthSource(p, e.target.value as PresetAuthSource)} className="rounded-lg bg-gray-900 border border-gray-700 px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500 transition-colors">
+                      {AUTH_SOURCES.map((source) => <option key={source} value={source}>{PRESET_AUTH_SOURCE_LABELS[source]}</option>)}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-gray-400">
+                    2. Harness
+                    <select value={selectedHarness} onChange={(e) => changeHarness(p, e.target.value)} className="rounded-lg bg-gray-900 border border-gray-700 px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500 transition-colors">
+                      {harnesses.map((h) => <option key={h.id} value={h.id}>{h.label}</option>)}
+                    </select>
+                  </label>
+                  <div className="flex flex-col gap-1 text-xs text-gray-400">
+                    3. Model
+                    <ModelPicker
+                      modelOptionsByHarness={modelOptionsByHarness}
+                      authSource={p.authSource}
+                      selectedHarness={selectedHarness}
+                      selectedModel={selectedModel}
+                      onChange={(model) => updatePreset(p.id, { harness: selectedHarness, model })}
+                      disabled={selectableModels.length === 0}
+                      compact
+                    />
                   </div>
-                }
-              />
-            );
-          }
+                </div>
 
-          return (
-            <div key={p.id} className="rounded-lg border border-amber-700/40 bg-gray-950/40 p-3 space-y-3">
-              <label className="flex flex-col gap-1 text-xs text-gray-400">
-                Display name
-                <input value={p.name} onChange={(e) => updatePreset(p.id, { name: e.target.value })} className="rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm text-gray-100 outline-none focus:border-amber-500" />
-              </label>
-
-              <div className="grid gap-3 md:grid-cols-3">
-                <label className="flex flex-col gap-1 text-xs text-gray-400">
-                  1. Billing source
-                  <select value={p.authSource} onChange={(e) => changeAuthSource(p, e.target.value as PresetAuthSource)} className="rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm text-gray-100 outline-none focus:border-amber-500">
-                    {AUTH_SOURCES.map((source) => <option key={source} value={source}>{PRESET_AUTH_SOURCE_LABELS[source]}</option>)}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-gray-400">
-                  2. Harness
-                  <select value={selectedHarness} onChange={(e) => changeHarness(p, e.target.value)} className="rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm text-gray-100 outline-none focus:border-amber-500">
-                    {harnesses.map((h) => <option key={h.id} value={h.id}>{h.label}</option>)}
-                  </select>
-                </label>
-                <div className="flex flex-col gap-1 text-xs text-gray-400">
-                  3. Model
-                  <ModelPicker
-                    modelOptionsByHarness={modelOptionsByHarness}
-                    authSource={p.authSource}
-                    selectedHarness={selectedHarness}
-                    selectedModel={selectedModel}
-                    onChange={(model) => updatePreset(p.id, { harness: selectedHarness, model })}
-                    disabled={selectableModels.length === 0}
-                    compact
-                  />
+                {selectableModels.length === 0 && (
+                  <p className="text-xs text-amber-300">No models match this billing source + harness yet.</p>
+                )}
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => persistPresets(custom, disabledBuiltInIds, p.id)} disabled={savingTarget === p.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white transition-colors">
+                    {savingTarget === p.id ? <Loader size={13} strokeWidth={2} className="animate-spin" /> : null}
+                    Save preset
+                  </button>
+                  <button type="button" onClick={() => editPreset(p.id, false)} className="px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-colors">
+                    Cancel
+                  </button>
+                  <button type="button" title="Delete preset" onClick={() => deletePreset(p.id)} disabled={savingTarget === `delete:${p.id}`} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-gray-700 disabled:opacity-40 transition-colors">
+                    <Trash2 size={14} strokeWidth={2} />
+                  </button>
                 </div>
               </div>
+            );
+          })}
 
-              {selectableModels.length === 0 && (
-                <p className="text-xs text-amber-300">No models match this billing source + harness yet.</p>
-              )}
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => persistPresets(custom, disabledBuiltInIds, p.id)} disabled={savingTarget === p.id} className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500 disabled:opacity-50">
-                  {savingTarget === p.id ? 'Saving…' : 'Save preset'}
-                </button>
-                <button type="button" onClick={() => deletePreset(p.id)} disabled={savingTarget === `delete:${p.id}`} className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-red-300 hover:bg-red-950/30 disabled:opacity-50">
-                  <Trash2 size={14} /> Delete
-                </button>
-              </div>
-            </div>
-          );
-        })}
+          <button
+            type="button"
+            onClick={addPreset}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-gray-200 hover:bg-gray-800 border border-dashed border-gray-700 hover:border-gray-500 transition-colors w-full"
+          >
+            <Plus size={14} strokeWidth={2} />
+            Add custom preset
+          </button>
+        </div>
 
         {message && <div className="pt-2 text-sm text-gray-400">{message}</div>}
       </div>
