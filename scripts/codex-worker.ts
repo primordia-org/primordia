@@ -13,6 +13,8 @@ const _userApiKey = process.env.PRIMORDIA_USER_API_KEY;
 delete process.env.PRIMORDIA_USER_API_KEY;
 const _chatGptOAuth = process.env.PRIMORDIA_CHATGPT_OAUTH;
 delete process.env.PRIMORDIA_CHATGPT_OAUTH;
+const _requiredAuthSource = process.env.PRIMORDIA_REQUIRED_AUTH_SOURCE;
+delete process.env.PRIMORDIA_REQUIRED_AUTH_SOURCE;
 
 interface WorkerConfig {
   sessionId: string;
@@ -300,6 +302,9 @@ async function main(): Promise<void> {
   const timeoutId = setTimeout(() => { timedOut = true; child?.kill('SIGTERM'); }, timeoutMs);
 
   try {
+    if (_requiredAuthSource === 'chatgpt-subscription' && !_chatGptOAuth) {
+      throw new Error('ChatGPT subscription was selected, but ChatGPT credentials were not provided. Refusing to fall back to the exe.dev LLM gateway.');
+    }
     const authMode = _chatGptOAuth ? 'chatgpt' : (_userApiKey ? 'api-key' : 'gateway');
     writeCodexConfig(codexHome, authMode);
     process.stderr.write(`Using Codex with ${authMode === 'gateway' ? 'exe.dev LLM gateway' : authMode === 'api-key' ? 'user-supplied OpenAI API key' : 'ChatGPT subscription OAuth'}\n`);

@@ -60,6 +60,8 @@ const _userApiKey = process.env.PRIMORDIA_USER_API_KEY;
 delete process.env.PRIMORDIA_USER_API_KEY;
 const _chatGptOAuth = process.env.PRIMORDIA_CHATGPT_OAUTH;
 delete process.env.PRIMORDIA_CHATGPT_OAUTH;
+const _requiredAuthSource = process.env.PRIMORDIA_REQUIRED_AUTH_SOURCE;
+delete process.env.PRIMORDIA_REQUIRED_AUTH_SOURCE;
 
 interface WorkerConfig {
   sessionId: string;
@@ -267,6 +269,13 @@ async function main(): Promise<void> {
   }, timeoutMs);
 
   try {
+    if (_requiredAuthSource === 'chatgpt-subscription' && !_chatGptOAuth) {
+      throw new Error('ChatGPT subscription was selected, but ChatGPT credentials were not provided. Refusing to fall back to the exe.dev LLM gateway.');
+    }
+    if (_requiredAuthSource === 'chatgpt-subscription' && modelProvider !== 'openai-codex') {
+      throw new Error('ChatGPT subscription was selected, but the Pi model is not an openai-codex model. Refusing to fall back to the exe.dev LLM gateway.');
+    }
+
     // Auth — use the user-supplied API key when available, otherwise fall back
     // to the exe.dev LLM gateway (which handles auth with any non-empty key).
     const authStorage = AuthStorage.inMemory();
