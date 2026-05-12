@@ -246,9 +246,7 @@ export default function PresetsSettingsClient() {
         <p className="text-sm text-gray-400 mt-1">Pick billing source + harness + model once, then switch by name in Evolve.</p>
       </div>
 
-      <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4 space-y-3">
-        <h2 className="text-sm font-semibold text-gray-200">Presets</h2>
-
+      <div className="space-y-3">
         <div className="grid gap-2">
           {builtIn.map((p) => {
             const disabled = disabledBuiltInIds.includes(p.id);
