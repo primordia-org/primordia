@@ -56,7 +56,7 @@ export default function ChatGptSubscriptionSettingsClient() {
   }, [credentials]);
 
   const { displayValue: decryptDisplay, isDecrypting, decrypt } = useDecryptEffect({
-    duration: 600,
+    duration: 1000,
     onComplete: () => setCredentialsRevealed(true),
   });
 

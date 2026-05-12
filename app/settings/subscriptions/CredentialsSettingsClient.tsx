@@ -32,7 +32,7 @@ export default function CredentialsSettingsClient() {
   const sessionIdRef = useRef<string | null>(null);
 
   const { displayValue: decryptDisplay, isDecrypting, decrypt } = useDecryptEffect({
-    duration: 1500,
+    duration: 1000,
     onComplete: () => setCredRevealed(true),
   });
 
