@@ -79,7 +79,7 @@ Each evolve session tracks two independent dimensions persisted to SQLite:
 | Transition | Triggered by |
 |---|---|
 | `[new]` → `starting` | `POST /api/evolve` |
-| `starting` → `running-claude` | `startLocalEvolve()` after worktree setup |
+| `starting` → `running-claude` | `startLocalEvolve()` after worktree setup, including a `VACUUM INTO` production DB snapshot copied into the worktree |
 | `running-claude` → `ready` + devServer `none→starting` | `startLocalEvolve()` after `query()` completes |
 | devServer `starting` → `running` | Next.js "Ready" string detected in dev server output |
 | `running-claude` → `ready` (devServer `none→starting`) | `POST /api/evolve/abort` — user aborts; dev server starts with partial work |
@@ -94,6 +94,7 @@ Each evolve session tracks two independent dimensions persisted to SQLite:
 | `ready` → `rejected` | `POST /api/evolve/manage` { action: "reject" } |
 | devServer `running` → `disconnected` | Dev server `close` event + branch still present (3 s later) |
 | devServer `disconnected` → `starting` | `POST /api/evolve/kill-restart` |
+| session branch behind parent → current code/data | `POST /api/evolve/upstream-sync` merges the parent/prod branch and refreshes the worktree `.primordia-auth.db` from production via `VACUUM INTO` |
 | any → `ready` (with `❌` error in log) | Uncaught exception inside the respective async helper |
 
 ---

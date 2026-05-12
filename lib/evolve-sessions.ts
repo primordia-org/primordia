@@ -542,6 +542,87 @@ function parseWorktreePathForBranch(porcelain: string, branchName: string): stri
   return null;
 }
 
+export interface CopyProductionDbResult {
+  copied: boolean;
+  sourcePath: string | null;
+  destinationPath: string;
+  error?: string;
+}
+
+async function vacuumCopySqliteDb(sourcePath: string, destinationPath: string): Promise<void> {
+  const tempDestination = `${destinationPath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    const { Database } = await import('bun:sqlite');
+    const srcDbHandle = new Database(sourcePath);
+    try {
+      srcDbHandle.prepare('VACUUM INTO ?').run(tempDestination);
+    } finally {
+      srcDbHandle.close();
+    }
+
+    // Remove WAL sidecars before swapping the main DB file so the destination
+    // worktree opens a clean, self-contained snapshot from production.
+    for (const sidecar of [destinationPath, `${destinationPath}-wal`, `${destinationPath}-shm`]) {
+      try { fs.unlinkSync(sidecar); } catch { /* absent or in use: best effort */ }
+    }
+    fs.renameSync(tempDestination, destinationPath);
+  } catch (err) {
+    try { fs.unlinkSync(tempDestination); } catch { /* absent */ }
+    throw err;
+  }
+}
+
+/**
+ * Copy the current production SQLite DB into a session worktree using
+ * `VACUUM INTO`, producing a consistent, WAL-free snapshot even while prod is
+ * actively writing. Used when creating a session and when Apply Updates brings
+ * an existing local branch up to date with production code.
+ */
+export async function copyProductionDbToWorktree(
+  repoRoot: string,
+  destinationWorktreePath: string,
+): Promise<CopyProductionDbResult> {
+  const dbName = '.primordia-auth.db';
+  const destinationPath = path.join(destinationWorktreePath, dbName);
+  let sourcePath: string | null = null;
+
+  const productionBranchResult = await runGit(['config', '--get', 'primordia.productionBranch'], repoRoot);
+  const productionBranch = productionBranchResult.stdout.trim();
+  if (productionBranch) {
+    const worktreeList = await runGit(['worktree', 'list', '--porcelain'], repoRoot);
+    const productionWorktreePath = parseWorktreePathForBranch(worktreeList.stdout, productionBranch);
+    if (productionWorktreePath) {
+      const candidate = path.join(productionWorktreePath, dbName);
+      if (fs.existsSync(candidate)) sourcePath = candidate;
+    }
+  }
+
+  // In local development, or before primordia.productionBranch has been set,
+  // the server's current working directory is the best available prod source.
+  if (!sourcePath) {
+    const candidate = path.join(repoRoot, dbName);
+    if (fs.existsSync(candidate)) sourcePath = candidate;
+  }
+
+  if (!sourcePath) {
+    return { copied: false, sourcePath: null, destinationPath, error: 'production DB not found' };
+  }
+
+  try {
+    if (fs.existsSync(destinationPath) && fs.realpathSync(sourcePath) === fs.realpathSync(destinationPath)) {
+      return { copied: false, sourcePath, destinationPath, error: 'source and destination DB are the same file' };
+    }
+  } catch { /* realpath can fail if either path disappears; continue and let copy report the error */ }
+
+  try {
+    await vacuumCopySqliteDb(sourcePath, destinationPath);
+    return { copied: true, sourcePath, destinationPath };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { copied: false, sourcePath, destinationPath, error: message };
+  }
+}
+
 // ─── Background Turbopack cache warming ─────────────────────────────────────
 
 /**
@@ -697,28 +778,13 @@ export async function startLocalEvolve(
     // Step 3 — Copy the SQLite database into the worktree so each branch gets
     // its own isolated data snapshot — analogous to Neon's database branching.
     // We copy rather than symlink so changes in the preview don't affect the
-    // main dev instance's auth/session data.
+    // production instance's auth/session data.
     const dbName = '.primordia-auth.db';
-    const srcDb = path.join(repoRoot, dbName);
-    const dstDb = path.join(session.worktreePath, dbName);
-    if (fs.existsSync(srcDb) && !fs.existsSync(dstDb)) {
-      // Use VACUUM INTO to create a clean, consistent snapshot of the live DB.
-      // This is safe while the source is actively written to — it incorporates
-      // any pending WAL data and produces a WAL-free destination file, so the
-      // child worktree never sees a partial or corrupted database.
-      try {
-        const { Database } = await import('bun:sqlite');
-        const srcDbHandle = new Database(srcDb);
-        try {
-          srcDbHandle.prepare('VACUUM INTO ?').run(dstDb);
-        } finally {
-          srcDbHandle.close();
-        }
-      } catch {
-        // Non-fatal — the child worktree will just have a stale partial session.
+    if (!fs.existsSync(path.join(session.worktreePath, dbName))) {
+      const dbCopy = await copyProductionDbToWorktree(repoRoot, session.worktreePath);
+      if (dbCopy.copied) {
+        appendSessionEvent(ndjsonPath, { type: 'setup_step', label: `Copied \`${dbName}\` (isolated data branch)`, done: true, ts: Date.now() });
       }
-
-      appendSessionEvent(ndjsonPath, { type: 'setup_step', label: `Copied \`${dbName}\` (isolated data branch)`, done: true, ts: Date.now() });
     }
 
     // Step 4 — Symlink .env.local so the preview server has the same credentials.
