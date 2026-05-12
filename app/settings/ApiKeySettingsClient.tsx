@@ -234,21 +234,23 @@ export default function ApiKeySettingsClient() {
                   )}
                 </button>
               )}
-              <a
-                href="https://console.anthropic.com/settings/keys"
-                target="_blank"
-                rel="noopener noreferrer"
-                data-id="api-key/anthropic-console"
-                className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-0.5 transition-colors"
-              >
-                Get a key
-                <ExternalLink size={10} strokeWidth={2} aria-hidden="true" />
-              </a>
+              {!isKeySet && (
+                <a
+                  href="https://console.anthropic.com/settings/keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-id="api-key/anthropic-console"
+                  className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-0.5 transition-colors"
+                >
+                  Get a key
+                  <ExternalLink size={10} strokeWidth={2} aria-hidden="true" />
+                </a>
+              )}
             </div>
           </div>
           {showCipherDisplay ? (
             <div
-              className="w-full bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 font-mono text-amber-300/50 overflow-hidden whitespace-nowrap select-none h-[38px] flex items-center"
+              className="w-full max-w-xl bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 font-mono text-amber-300/50 overflow-hidden whitespace-nowrap select-none h-[38px] flex items-center"
               aria-hidden="true"
             >
               <span className="truncate">{decryptDisplay}</span>
@@ -261,7 +263,7 @@ export default function ApiKeySettingsClient() {
               onChange={(e) => { setInputValue(e.target.value); setKeyDirty(true); setError(null); setSaved(false); }}
               onKeyDown={(e) => { if (e.key === "Enter") void handleSave(); }}
               placeholder="sk-ant-api03-…"
-              className="w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 font-mono"
+              className="w-full max-w-xl bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 font-mono"
               autoComplete="off"
               spellCheck={false}
               disabled={loading}
@@ -341,21 +343,23 @@ export default function ApiKeySettingsClient() {
                   )}
                 </button>
               )}
-              <a
-                href="https://openrouter.ai/keys"
-                target="_blank"
-                rel="noopener noreferrer"
-                data-id="api-key/openrouter-console"
-                className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-0.5 transition-colors"
-              >
-                Get a key
-                <ExternalLink size={10} strokeWidth={2} aria-hidden="true" />
-              </a>
+              {!isOrKeySet && (
+                <a
+                  href="https://openrouter.ai/keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-id="api-key/openrouter-console"
+                  className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-0.5 transition-colors"
+                >
+                  Get a key
+                  <ExternalLink size={10} strokeWidth={2} aria-hidden="true" />
+                </a>
+              )}
             </div>
           </div>
           {orShowCipherDisplay ? (
             <div
-              className="w-full bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 font-mono text-violet-300/50 overflow-hidden whitespace-nowrap select-none h-[38px] flex items-center"
+              className="w-full max-w-xl bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 font-mono text-violet-300/50 overflow-hidden whitespace-nowrap select-none h-[38px] flex items-center"
               aria-hidden="true"
             >
               <span className="truncate">{orDecryptDisplay}</span>
@@ -368,7 +372,7 @@ export default function ApiKeySettingsClient() {
               onChange={(e) => { setOrInputValue(e.target.value); setOrKeyDirty(true); setOrError(null); setOrSaved(false); }}
               onKeyDown={(e) => { if (e.key === "Enter") void handleOrSave(); }}
               placeholder="sk-or-v1-…"
-              className="w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 font-mono"
+              className="w-full max-w-xl bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 font-mono"
               autoComplete="off"
               spellCheck={false}
               disabled={orLoading}
