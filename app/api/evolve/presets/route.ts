@@ -10,8 +10,9 @@ import {
   PREF_PRESET,
   parseCustomPresets,
   parseDisabledBuiltInPresetIds,
+  SECRET_AUTH_SOURCES,
 } from '@/lib/presets';
-import { SECRET_AUTH_SOURCES, withPresetAvailability } from '@/lib/preset-availability';
+import { withPresetAvailability } from '@/lib/preset-availability';
 
 export async function GET() {
   const user = await getSessionUser();

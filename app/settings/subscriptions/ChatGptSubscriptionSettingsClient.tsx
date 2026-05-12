@@ -125,7 +125,7 @@ export default function ChatGptSubscriptionSettingsClient({ initialCiphertext }:
       const data = await res.json();
       if (res.ok && data.status === "connected") {
         const value = JSON.stringify(data.credentials);
-        await setSecret("CHATGPT_SUBSCRIPTION_OAUTH", value);
+        await setSecret("chatgpt-subscription", value);
         setCredentials(parseCredentials(value));
         setHasStoredCredentials(true);
         setCredentialsRevealed(false);
@@ -169,7 +169,7 @@ export default function ChatGptSubscriptionSettingsClient({ initialCiphertext }:
     setError(null);
     if (pollTimer.current) window.clearTimeout(pollTimer.current);
     try {
-      await clearSecret("CHATGPT_SUBSCRIPTION_OAUTH");
+      await clearSecret("chatgpt-subscription");
       setCredentials(null);
       setHasStoredCredentials(false);
       setDeviceFlow(null);

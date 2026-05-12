@@ -2,45 +2,37 @@ import 'server-only';
 
 import { getDb } from './db';
 import {
-  AUTH_SOURCE_BY_TYPE,
-  TYPE_BY_AUTH_SOURCE,
+  SECRET_AUTH_SOURCES,
   isSecretAuthSource,
   type SecretCiphertexts,
-  type SecretType,
-} from './secret-types';
+  type SecretAuthSource,
+} from './presets';
 
 export interface SettingsPageData {
-  secretTypes: SecretType[];
+  secretSources: SecretAuthSource[];
   secretCiphertexts: SecretCiphertexts;
 }
 
-const SETTINGS_SECRET_TYPES: SecretType[] = [
-  'ANTHROPIC_API_KEY',
-  'OPENROUTER_API_KEY',
-  'CLAUDE_CODE_CREDENTIALS_JSON',
-  'CHATGPT_SUBSCRIPTION_OAUTH',
-];
-
-export async function listUserSecretTypes(userId: string): Promise<SecretType[]> {
+export async function listUserSecretSources(userId: string): Promise<SecretAuthSource[]> {
   const db = await getDb();
   const authSources = await db.listEncryptedCredentialSources(userId);
-  return authSources.filter(isSecretAuthSource).map((source) => TYPE_BY_AUTH_SOURCE[source]);
+  return authSources.filter(isSecretAuthSource);
 }
 
 export async function getSettingsPageData(userId: string): Promise<SettingsPageData> {
   const db = await getDb();
-  const [secretTypes, ciphertextEntries] = await Promise.all([
-    listUserSecretTypes(userId),
+  const [secretSources, ciphertextEntries] = await Promise.all([
+    listUserSecretSources(userId),
     Promise.all(
-      SETTINGS_SECRET_TYPES.map(async (type) => {
-        const value = await db.getEncryptedCredential(userId, AUTH_SOURCE_BY_TYPE[type]);
-        return [type, value && value.length > 0 ? value : null] as const;
+      SECRET_AUTH_SOURCES.map(async (authSource) => {
+        const value = await db.getEncryptedCredential(userId, authSource);
+        return [authSource, value && value.length > 0 ? value : null] as const;
       }),
     ),
   ]);
 
   return {
-    secretTypes,
+    secretSources,
     secretCiphertexts: Object.fromEntries(ciphertextEntries) as SecretCiphertexts,
   };
 }

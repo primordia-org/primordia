@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSessionUser, isAdmin } from "@/lib/auth";
 import { getEvolvePrefs } from "@/lib/user-prefs";
-import { listUserSecretTypes } from "@/lib/settings-page-data";
+import { listUserSecretSources } from "@/lib/settings-page-data";
 import { buildPageTitle } from "@/lib/page-title";
 import { PageNavBar } from "@/components/PageNavBar";
 import SettingsSubNav from "@/components/SettingsSubNav";
@@ -19,10 +19,10 @@ export default async function PresetsSettingsPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login?next=/settings/presets");
 
-  const [adminCheck, evolvePrefs, secretTypes] = await Promise.all([
+  const [adminCheck, evolvePrefs, secretSources] = await Promise.all([
     isAdmin(user.id),
     getEvolvePrefs(user.id),
-    listUserSecretTypes(user.id),
+    listUserSecretSources(user.id),
   ]);
   const sessionUser = { id: user.id, username: user.username, isAdmin: adminCheck };
 
@@ -30,7 +30,7 @@ export default async function PresetsSettingsPage() {
     <main className="flex flex-col w-full max-w-5xl mx-auto px-4 py-6 min-h-dvh">
       <PageNavBar subtitle="Account Settings" currentPage="settings" initialSession={sessionUser} initialHarness={evolvePrefs.initialHarness} initialModel={evolvePrefs.initialModel} initialCavemanMode={evolvePrefs.initialCavemanMode} initialCavemanIntensity={evolvePrefs.initialCavemanIntensity} />
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
-        <SettingsSubNav currentTab="presets" initialSecretTypes={secretTypes} />
+        <SettingsSubNav currentTab="presets" initialSecretSources={secretSources} />
         <div className="flex-1 min-w-0">
           <PresetsSettingsClient />
         </div>
