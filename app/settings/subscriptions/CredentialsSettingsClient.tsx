@@ -235,7 +235,7 @@ export default function CredentialsSettingsClient() {
           {isSet && (
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-400 font-medium">
-                {credsDirty ? "New credentials" : credRevealed ? "credentials.json" : "Stored credentials"}
+                {credsDirty ? "New credentials" : "Stored credentials"}
               </span>
               <button
                 type="button"

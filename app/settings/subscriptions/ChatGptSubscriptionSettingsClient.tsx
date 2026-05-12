@@ -202,7 +202,7 @@ export default function ChatGptSubscriptionSettingsClient() {
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-gray-400 font-medium">
-              {credentialsRevealed ? "OAuth credentials" : "Stored OAuth credentials"}
+              Stored credentials
             </span>
             <button
               type="button"
