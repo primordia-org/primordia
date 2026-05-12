@@ -162,6 +162,13 @@ export async function POST(request: Request) {
     encryptedCredentials = null;
   }
 
+  if (authSource === 'chatgpt-subscription' && !encryptedChatGptOAuth) {
+    return Response.json(
+      { error: 'ChatGPT subscription preset selected, but no ChatGPT credentials were sent. Reconnect ChatGPT in Settings → Billing sources, then try again.' },
+      { status: 400 },
+    );
+  }
+
   // Decrypt the user's ChatGPT subscription OAuth credentials (if provided).
   let decryptedChatGptOAuth: string | undefined;
   if (encryptedChatGptOAuth) {
@@ -203,6 +210,7 @@ export async function POST(request: Request) {
     apiKey: decryptedApiKey,
     credentials: decryptedCredentials,
     chatGptOAuth: decryptedChatGptOAuth,
+    authSource,
     userId: user.id,
   };
   decryptedApiKey = undefined;

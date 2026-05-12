@@ -7,10 +7,10 @@ import type { AgentAuthInfo } from "@/lib/session-events";
 export const AUTH_SOURCE_ICON_PATH: Partial<Record<PresetAuthSource, string>> = {
   "exe-dev-gateway": "/brand-icons/exe-dev-favicon.ico",
 
-  "chatgpt-subscription": "/brand-icons/openai-icon.png",
+  "chatgpt-subscription": "/brand-icons/chatgpt-favicon.svg",
   "openrouter-api-key": "/brand-icons/openrouter-favicon.ico",
   "anthropic-api-key": "/brand-icons/anthropic-favicon.png",
-  "openai-api-key": "/brand-icons/openai-icon.png",
+  "openai-api-key": "/brand-icons/chatgpt-favicon.svg",
 };
 
 export const HARNESS_ICON_PATH: Record<string, string> = {

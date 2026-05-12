@@ -238,6 +238,7 @@ async function runAcceptAsync(
   credentials?: string,
   apiKey?: string,
   chatGptOAuth?: string,
+  authSource?: PresetAuthSource | null,
 ): Promise<void> {
   const step = (text: string) => appendLogLine(sessionId, text);
 
@@ -315,6 +316,7 @@ async function runAcceptAsync(
           credentials,
           apiKey,
           chatGptOAuth,
+          authSource,
         };
         console.log(`[runAcceptAsync] typecheck failed for session ${sessionId}, starting auto-fix`);
         void runFollowupInWorktree(
@@ -464,6 +466,13 @@ export async function POST(request: Request) {
     encryptedChatGptOAuth = null;
   }
 
+  if (authSource === 'chatgpt-subscription' && !encryptedChatGptOAuth) {
+    return Response.json(
+      { error: 'ChatGPT subscription preset selected, but no ChatGPT credentials were sent. Reconnect ChatGPT in Settings → Billing sources, then try again.' },
+      { status: 400 },
+    );
+  }
+
   // Decrypt credentials/API key up front so they can be forwarded to any
   // agent sessions spawned during accept (type-fix, auto-commit).
   let decryptedCredentials: string | undefined;
@@ -546,6 +555,7 @@ export async function POST(request: Request) {
           credentials: decryptedCredentials,
           apiKey: decryptedApiKey,
           chatGptOAuth: decryptedChatGptOAuth,
+          authSource,
         };
         const mergeResult = await runGit(
           ['merge', parentBranch, '--no-ff', '-m', `chore: merge ${parentBranch} into ${branch}`],
@@ -589,6 +599,7 @@ export async function POST(request: Request) {
           credentials: decryptedCredentials,
           apiKey: decryptedApiKey,
           chatGptOAuth: decryptedChatGptOAuth,
+          authSource,
         };
         // runFollowupInWorktree will emit the 'auto_commit' section_start itself.
         void runFollowupInWorktree(commitSession, commitPrompt, repoRoot, 'running-claude', /* onSuccess */ undefined, /* internalSectionType */ 'auto_commit');
@@ -627,7 +638,7 @@ export async function POST(request: Request) {
           appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'deploy', label: isProduction ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``, ts: Date.now() });
         }
       }
-      void runAcceptAsync(body.sessionId, worktreePath, branch, parentBranch, repoRoot, user.id, decryptedCredentials, decryptedApiKey, decryptedChatGptOAuth);
+      void runAcceptAsync(body.sessionId, worktreePath, branch, parentBranch, repoRoot, user.id, decryptedCredentials, decryptedApiKey, decryptedChatGptOAuth, authSource);
       return Response.json({ outcome: 'accepting' });
     }
 

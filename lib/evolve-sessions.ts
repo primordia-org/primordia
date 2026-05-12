@@ -72,6 +72,8 @@ export interface LocalSession {
    * harness for `openai-codex:*` models via Pi's openai-codex OAuth provider.
    */
   chatGptOAuth?: string;
+  /** Preset-selected billing/auth source. Used to prevent silent gateway fallback. */
+  authSource?: string | null;
   /**
    * Primordia user ID of the person who initiated this session.
    * Used to set CLAUDE_CONFIG_DIR so each user's Claude configuration
@@ -183,8 +185,10 @@ interface WorkerConfig {
    * Code, then deletes the file in its cleanup step.
    */
   credentials?: string;
-  /** Decrypted ChatGPT subscription OAuth credentials for Pi openai-codex models. */
+  /** Decrypted ChatGPT subscription OAuth credentials for Pi/Codex ChatGPT subscription models. */
   chatGptOAuth?: string;
+  /** Preset-selected billing/auth source. Used to prevent silent gateway fallback. */
+  authSource?: string | null;
   /**
    * Primordia user ID. CLAUDE_CONFIG_DIR is pointed at a per-user directory
    * so each user's Claude config is isolated.
@@ -213,7 +217,26 @@ function resolveAgentAuth(
   harnessId: string,
   chatGptOAuth?: string,
   modelId?: string,
+  requestedAuthSource?: string | null,
 ): { auth: AgentAuthInfo; resolvedCredentials: string | undefined; resolvedApiKey: string | undefined; resolvedChatGptOAuth: string | undefined } {
+  if (requestedAuthSource === 'chatgpt-subscription') {
+    if (harnessId !== 'pi' && harnessId !== 'codex') {
+      throw new Error('ChatGPT subscription auth is only supported by the Pi and Codex harnesses. Choose a ChatGPT-compatible preset.');
+    }
+    if (harnessId === 'pi' && !modelId?.startsWith('openai-codex:')) {
+      throw new Error('ChatGPT subscription auth for Pi requires an openai-codex model. Choose a ChatGPT subscription model.');
+    }
+    if (!chatGptOAuth) {
+      throw new Error('ChatGPT subscription was selected, but ChatGPT credentials were not provided. Reconnect ChatGPT in Settings → Billing sources, then try again.');
+    }
+    return {
+      auth: { source: 'chatgpt-subscription' },
+      resolvedCredentials: undefined,
+      resolvedApiKey: undefined,
+      resolvedChatGptOAuth: chatGptOAuth,
+    };
+  }
+
   const credentialsSupported = harnessId === 'claude-code';
   if (credentials && credentialsSupported) {
     return {
@@ -223,7 +246,7 @@ function resolveAgentAuth(
       resolvedChatGptOAuth: undefined,
     };
   }
-  if (chatGptOAuth && (harnessId === 'pi' || harnessId === 'codex') && modelId?.startsWith('openai-codex:')) {
+  if (chatGptOAuth && (harnessId === 'codex' || (harnessId === 'pi' && modelId?.startsWith('openai-codex:')))) {
     return {
       auth: { source: 'chatgpt-subscription' },
       resolvedCredentials: undefined,
@@ -310,6 +333,9 @@ async function spawnAgentWorker(
   }
   if (workerChatGptOAuth) {
     workerEnv['PRIMORDIA_CHATGPT_OAUTH'] = workerChatGptOAuth;
+  }
+  if (config.authSource) {
+    workerEnv['PRIMORDIA_REQUIRED_AUTH_SOURCE'] = config.authSource;
   }
   const homeDir = process.env.HOME ?? '/home/exedev';
   workerEnv['CLAUDE_CONFIG_DIR'] = path.join(homeDir, '.claude-users', config.userId);
@@ -758,7 +784,7 @@ export async function startLocalEvolve(
     const modelLabel = getModelLabel(harnessId, modelId);
     // Resolve auth source — credentials beat API key; both beat the gateway.
     // This also enforces exclusivity so the worker never receives two sources.
-    const { auth, resolvedApiKey, resolvedCredentials, resolvedChatGptOAuth } = resolveAgentAuth(session.credentials, session.apiKey, harnessId, session.chatGptOAuth, modelId);
+    const { auth, resolvedApiKey, resolvedCredentials, resolvedChatGptOAuth } = resolveAgentAuth(session.credentials, session.apiKey, harnessId, session.chatGptOAuth, modelId, session.authSource);
     appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: harnessLabel, model: modelLabel, harnessId, modelId, auth, label: `🤖 ${harnessLabel} (${modelLabel})`, ts: Date.now() });
 
     const attachmentSection = worktreeAttachmentPaths.length > 0
@@ -794,6 +820,7 @@ export async function startLocalEvolve(
         apiKey: resolvedApiKey,
         credentials: resolvedCredentials,
         chatGptOAuth: resolvedChatGptOAuth,
+        authSource: session.authSource,
         userId: session.userId,
       },
       workerScript,
@@ -876,7 +903,7 @@ export async function runFollowupInWorktree(
       const fuHarnessLabel = HARNESS_OPTIONS.find((h) => h.id === fuHarnessId)?.label ?? fuHarnessId;
       const fuModelLabel = getModelLabel(fuHarnessId, fuModelId);
       // Resolve auth — credentials beat API key; both beat the gateway.
-      const fuAuth = resolveAgentAuth(session.credentials, session.apiKey, fuHarnessId, session.chatGptOAuth, fuModelId);
+      const fuAuth = resolveAgentAuth(session.credentials, session.apiKey, fuHarnessId, session.chatGptOAuth, fuModelId, session.authSource);
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: fuHarnessLabel, model: fuModelLabel, harnessId: fuHarnessId, modelId: fuModelId, auth: fuAuth.auth, label: `🤖 ${fuHarnessLabel} (${fuModelLabel})`, ts: Date.now() });
     }
     session.status = inProgressStatus;
@@ -958,9 +985,10 @@ export async function runFollowupInWorktree(
         // Re-resolve auth to enforce exclusivity (credentials beat API key).
         // fuAuth may not be in scope when internalSectionType is set.
         ...(() => {
-          const r = resolveAgentAuth(session.credentials, session.apiKey, fuHarnessId, session.chatGptOAuth, fuModelId);
+          const r = resolveAgentAuth(session.credentials, session.apiKey, fuHarnessId, session.chatGptOAuth, fuModelId, session.authSource);
           return { apiKey: r.resolvedApiKey, credentials: r.resolvedCredentials, chatGptOAuth: r.resolvedChatGptOAuth };
         })(),
+        authSource: session.authSource,
         userId: session.userId,
       },
       fuWorkerScript,
@@ -1026,7 +1054,7 @@ export async function resolveConflictsWithAgent(
   mergeRoot: string,
   branch: string,
   parentBranch: string,
-  sessionContext: { id: string; harness?: string; model?: string; apiKey?: string; credentials?: string; chatGptOAuth?: string; userId: string },
+  sessionContext: { id: string; harness?: string; model?: string; apiKey?: string; credentials?: string; chatGptOAuth?: string; authSource?: string | null; userId: string },
   repoRoot?: string,
 ): Promise<{ success: boolean; log: string }> {
   const root = repoRoot ?? process.cwd();
@@ -1074,9 +1102,10 @@ export async function resolveConflictsWithAgent(
         ...(() => {
           // Conflict resolution always uses the claude-code harness (resolveConflictsWithAgent
           // picks the harness from sessionContext, defaulting to DEFAULT_HARNESS).
-          const r = resolveAgentAuth(sessionContext.credentials, sessionContext.apiKey, harnessId, sessionContext.chatGptOAuth, sessionContext.model);
+          const r = resolveAgentAuth(sessionContext.credentials, sessionContext.apiKey, harnessId, sessionContext.chatGptOAuth, sessionContext.model, sessionContext.authSource);
           return { apiKey: r.resolvedApiKey, credentials: r.resolvedCredentials, chatGptOAuth: r.resolvedChatGptOAuth };
         })(),
+        authSource: sessionContext.authSource,
         userId: sessionContext.userId,
       },
       workerScript,

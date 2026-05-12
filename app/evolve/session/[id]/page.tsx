@@ -14,9 +14,16 @@ import { buildPageTitle } from "@/lib/page-title";
 import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem, type SessionEvent } from "@/lib/session-events";
 import EvolveSessionView from "./EvolveSessionView";
 
-export function generateMetadata(): Metadata {
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const session = getSessionFromFilesystem(id, process.cwd());
+
   return {
-    title: buildPageTitle("Evolve Session"),
+    title: buildPageTitle(session?.branch ?? id),
     description: "Live progress for an evolve session.",
   };
 }

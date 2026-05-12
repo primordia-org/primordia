@@ -60,9 +60,9 @@ const PROVIDER_META: Record<string, { label: string; shortLabel: string }> = {
 
 /** Maps provider id → public path for a favicon asset (base-path-prefixed at use time). */
 const PROVIDER_FAVICON: Record<string, string> = {
-  "openai-native":  "/brand-icons/openai-icon.png",
-  "openai-codex":   "/brand-icons/codex-favicon.svg",
-  openai:           "/brand-icons/openai-icon.png",
+  "openai-native":  "/brand-icons/chatgpt-favicon.svg",
+  "openai-codex":   "/brand-icons/chatgpt-favicon.svg",
+  openai:           "/brand-icons/chatgpt-favicon.svg",
   google:           "/brand-icons/google-gemini-icon.png",
   deepseek:         "/brand-icons/deepseek-icon.png",
   mistralai:        "/brand-icons/mistralai-icon.png",
@@ -78,7 +78,7 @@ const PROVIDER_FAVICON: Record<string, string> = {
   baidu:            "/brand-icons/baidu-icon.png",
 };
 
-/** Provider icon: inline SVG for Anthropic/OpenAI/Google, favicon PNG for others. */
+/** Provider icon: inline SVG for Anthropic and favicon assets for others. */
 function ProviderIcon({
   providerId,
   size = 24,
@@ -127,7 +127,7 @@ function ProviderIcon({
     );
   }
 
-  // ── Favicon PNG for providers that have one (including OpenAI, Google/Gemini) ─────────────────────────────
+  // ── Favicon assets for providers that have one ─────────────────────────────
   const faviconSrc = PROVIDER_FAVICON[providerId];
   if (faviconSrc) {
     return (
