@@ -45,13 +45,6 @@
       "inputPriceLabel": "$5/M"
     },
     {
-      "id": "openai-codex:gpt-5.1-codex-mini",
-      "label": "GPT-5.1 Codex Mini",
-      "description": "ChatGPT · reasoning · 25¢→$2/M",
-      "pricingLabel": "25¢→$2/M",
-      "inputPriceLabel": "25¢/M"
-    },
-    {
       "id": "openai-codex:gpt-5.4-mini",
       "label": "GPT-5.4 Mini",
       "description": "ChatGPT · reasoning · 75¢→$4.5/M",

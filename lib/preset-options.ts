@@ -12,8 +12,14 @@ function isOpenAiModel(id: string): boolean {
   return id.startsWith('gpt-') || id.startsWith('codex-') || id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4') || id.startsWith('o5');
 }
 
+export const UNSUPPORTED_CHATGPT_SUBSCRIPTION_MODELS = new Set<string>([
+  // ChatGPT subscription OAuth rejects this model for Codex runs:
+  // "The 'gpt-5.1-codex-mini' model is not supported when using Codex with a ChatGPT account."
+  'openai-codex:gpt-5.1-codex-mini',
+]);
+
 function isChatGptSubscriptionModel(id: string): boolean {
-  return id.startsWith('openai-codex:');
+  return id.startsWith('openai-codex:') && !UNSUPPORTED_CHATGPT_SUBSCRIPTION_MODELS.has(id);
 }
 
 function isOpenRouterModel(id: string): boolean {
@@ -55,4 +61,14 @@ export function firstModelForAuthSource(
   harness: string,
 ): string {
   return filterModelsForAuthSource(modelOptionsByHarness[harness] ?? [], authSource, harness)[0]?.id ?? '';
+}
+
+export function isModelAllowedForAuthSource(
+  modelOptionsByHarness: Record<string, ModelOption[]>,
+  authSource: PresetAuthSource,
+  harness: string,
+  model: string,
+): boolean {
+  return filterModelsForAuthSource(modelOptionsByHarness[harness] ?? [], authSource, harness)
+    .some((option) => option.id === model);
 }

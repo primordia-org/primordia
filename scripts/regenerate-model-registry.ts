@@ -33,6 +33,11 @@ type RawModel = {
   cost?: { input: number; output: number; cacheRead: number; cacheWrite: number };
 };
 
+const UNSUPPORTED_CHATGPT_SUBSCRIPTION_MODEL_IDS = new Set<string>([
+  // ChatGPT subscription OAuth rejects this model for Codex runs.
+  'gpt-5.1-codex-mini',
+]);
+
 function fmt(n: number): string {
   if (n === 0) return '$0';
   if (n >= 10) return `$${Math.round(n)}`;
@@ -100,7 +105,11 @@ const allModels = (registry as unknown as { getAll(): RawModel[] }).getAll();
 
 const result: Record<string, ModelOption[]> = {};
 for (const [harnessId, providers] of Object.entries(HARNESS_PROVIDERS)) {
-  const providerModels = allModels.filter(m => providers.includes(m.provider));
+  const providerModels = allModels.filter(m => {
+    if (!providers.includes(m.provider)) return false;
+    if (m.provider === 'openai-codex' && UNSUPPORTED_CHATGPT_SUBSCRIPTION_MODEL_IDS.has(m.id)) return false;
+    return true;
+  });
   const filtered = filterToLatestVersions(providerModels);
   filtered.sort((a, b) => {
     const pi = providers.indexOf(a.provider), pj = providers.indexOf(b.provider);
