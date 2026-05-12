@@ -112,7 +112,7 @@ When implementing changes, follow these principles:
 | Local evolve pipeline | ✅ Live | git worktree → Claude Agent SDK → local preview → accept/reject |
 | Evolve follow-up requests | ✅ Live | Chain multiple Claude passes on the same branch; form appears when session is ready |
 | File attachments in evolve | ✅ Live | Attach images/files to initial and follow-up requests; files are copied into `worktree/attachments/` so Claude can read and use them |
-| Multiple agent harnesses | ✅ Live | Evolve form lets users choose harness (claude-code, pi, or codex) and model; preferences persisted per-user in DB |
+| Multiple agent harnesses | ✅ Live | Evolve form lets users choose harness (claude-code, pi, or codex) and model; preferences persisted per-user in DB; Codex exec JSON is normalized into the same structured tool/reasoning session events as the other harnesses |
 | Upstream changes indicator | ✅ Live | Session page shows how many commits the parent branch is ahead of the session branch, with an "Apply Updates" button (merge only) |
 | Git diff summary | ✅ Live | Session page shows a collapsible "Files changed" section (file names + +/- LOC) once the session is ready/accepted/rejected |
 | Session from existing branch | ✅ Live | Branches page shows "+ session" next to branches with no active session; evolvers can attach the full AI preview pipeline to any pre-existing local branch |

@@ -5,7 +5,7 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { appendSessionEvent, getSessionNdjsonPath } from '../lib/session-events';
+import { appendSessionEvent, getSessionNdjsonPath, type SessionEvent } from '../lib/session-events';
 
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai/v1';
 
@@ -90,35 +90,190 @@ function writeCodexConfig(codexHome: string, authMode: 'gateway' | 'api-key' | '
   );
 }
 
-function eventToText(event: Record<string, unknown>): string | null {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function stringify(value: unknown): string {
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value) ?? String(value);
+}
+
+function stripShellWrapper(command: string): string {
+  const match = command.match(/^(?:\/bin\/)?(?:ba|z|fi)?sh\s+-lc\s+([\s\S]+)$/);
+  if (!match) return command;
+  const wrapped = match[1].trim();
+  if (
+    (wrapped.startsWith("'") && wrapped.endsWith("'")) ||
+    (wrapped.startsWith('"') && wrapped.endsWith('"'))
+  ) {
+    return wrapped.slice(1, -1);
+  }
+  return wrapped;
+}
+
+function commandFromItem(item: Record<string, unknown>): string {
+  if (Array.isArray(item.command)) {
+    const parts = item.command.map((part) => String(part));
+    if ((parts[0] === '/bin/bash' || parts[0] === 'bash' || parts[0] === '/bin/sh' || parts[0] === 'sh') && parts.includes('-lc')) {
+      return parts[parts.indexOf('-lc') + 1] ?? parts.join(' ');
+    }
+    if ((parts[0] === '/bin/bash' || parts[0] === 'bash' || parts[0] === '/bin/sh' || parts[0] === 'sh') && parts.includes('-c')) {
+      return parts[parts.indexOf('-c') + 1] ?? parts.join(' ');
+    }
+    return parts.join(' ');
+  }
+
+  const command = typeof item.command === 'string'
+    ? item.command.trim()
+    : isRecord(item.arguments) && typeof item.arguments.cmd === 'string' ? item.arguments.cmd.trim() : '';
+  const args = Array.isArray(item.args)
+    ? item.args.map((arg) => String(arg))
+    : isRecord(item.arguments) && Array.isArray(item.arguments.args) ? item.arguments.args.map((arg) => String(arg)) : [];
+  const shell = command === '/bin/bash' || command === 'bash' || command === '/bin/sh' || command === 'sh';
+  const shellCommandIndex = args.findIndex((arg) => arg === '-lc' || arg === '-c');
+  if (shell && shellCommandIndex >= 0 && args[shellCommandIndex + 1]) {
+    return args[shellCommandIndex + 1];
+  }
+  if (shell && args.length > 0) return [command, ...args].join(' ');
+  return stripShellWrapper(command);
+}
+
+function normalizeTodoList(item: Record<string, unknown>): Record<string, unknown> {
+  const items = Array.isArray(item.items) ? item.items : [];
+  return {
+    todos: items
+      .filter(isRecord)
+      .map((todo) => ({
+        content: stringify(todo.text ?? todo.content ?? ''),
+        status: todo.completed === true || todo.status === 'completed' ? 'completed' : 'pending',
+      }))
+      .filter((todo) => todo.content.trim()),
+  };
+}
+
+function fileChangeEvents(item: Record<string, unknown>, ts: number): SessionEvent[] {
+  const changes = Array.isArray(item.changes) ? item.changes.filter(isRecord) : [];
+  if (changes.length === 0) {
+    return [{ type: 'tool_use', name: 'Edit', input: {}, ts }];
+  }
+  return changes.map((change) => {
+    const kind = typeof change.kind === 'string' ? change.kind : 'update';
+    const pathValue = typeof change.path === 'string' ? change.path : '';
+    const name = kind === 'add' ? 'Write' : kind === 'delete' ? 'Delete' : 'Edit';
+    return {
+      type: 'tool_use',
+      name,
+      input: { path: pathValue, kind },
+      ts,
+    };
+  });
+}
+
+function toolEventFromItem(item: Record<string, unknown>, ts: number): SessionEvent[] {
+  const itemType = item.type;
+  if (itemType === 'command_execution') {
+    const command = commandFromItem(item);
+    return [{ type: 'tool_use', name: 'Bash', input: command ? { command } : {}, ts }];
+  }
+  if (itemType === 'file_change') return fileChangeEvents(item, ts);
+  if (itemType === 'mcp_tool_call') {
+    const server = typeof item.server === 'string' ? item.server : 'mcp';
+    const tool = typeof item.tool === 'string' ? item.tool : 'tool';
+    const input = isRecord(item.arguments) ? item.arguments : {};
+    return [{ type: 'tool_use', name: `${server}.${tool}`, input, ts }];
+  }
+  if (itemType === 'collab_tool_call') {
+    const tool = typeof item.tool === 'string' ? item.tool : 'collab';
+    return [{
+      type: 'tool_use',
+      name: tool,
+      input: {
+        prompt: item.prompt,
+        receiver_thread_ids: item.receiver_thread_ids,
+      },
+      ts,
+    }];
+  }
+  if (itemType === 'web_search') {
+    return [{
+      type: 'tool_use',
+      name: 'WebSearch',
+      input: {
+        query: typeof item.query === 'string' ? item.query : '',
+        action: item.action,
+      },
+      ts,
+    }];
+  }
+  if (itemType === 'todo_list') {
+    return [{ type: 'tool_use', name: 'TodoWrite', input: normalizeTodoList(item), ts }];
+  }
+  return [];
+}
+
+function eventsFromCodexEvent(event: Record<string, unknown>, emittedToolItemIds: Set<string>): SessionEvent[] {
+  const ts = Date.now();
   const type = event.type;
-  if (type === 'item.started') {
-    const item = event.item as Record<string, unknown> | undefined;
-    if (item?.type === 'command_execution') return `\n\n$ ${String(item.command ?? '').trim()}\n`;
+  if (type === 'item.started' || type === 'item.updated') {
+    const item = isRecord(event.item) ? event.item : null;
+    if (!item) return [];
+    const itemId = typeof item.id === 'string' ? item.id : null;
+    if (itemId) emittedToolItemIds.add(itemId);
+    if (type === 'item.updated' && item.type !== 'todo_list') return [];
+    return toolEventFromItem(item, ts);
   }
   if (type === 'item.completed') {
-    const item = event.item as Record<string, unknown> | undefined;
-    if (item?.type === 'agent_message' && typeof item.text === 'string') return `\n${item.text}\n`;
-    if (item?.type === 'command_execution') {
-      const stdout = typeof item.stdout === 'string' ? item.stdout : '';
-      const stderr = typeof item.stderr === 'string' ? item.stderr : '';
-      const output = [stdout, stderr].filter(Boolean).join('\n');
-      return output ? `${output}\n` : null;
+    const item = isRecord(event.item) ? event.item : null;
+    if (!item) return [];
+    if (item.type === 'agent_message' && typeof item.text === 'string' && item.text.trim()) {
+      return [{ type: 'text', content: item.text, ts }];
+    }
+    if (item.type === 'reasoning') {
+      const text = typeof item.text === 'string' ? item.text : '';
+      return [{ type: 'thinking', content: text, ts }];
+    }
+    if (item.type === 'error') {
+      return [{ type: 'text', content: `\n\n⚠️ ${stringify(item.message ?? 'Codex reported an error')}\n`, ts }];
+    }
+    const itemId = typeof item.id === 'string' ? item.id : null;
+    if (itemId && emittedToolItemIds.has(itemId)) {
+      emittedToolItemIds.delete(itemId);
+      return [];
+    }
+    return toolEventFromItem(item, ts);
+  }
+  if (type === 'agent_message' && typeof event.message === 'string') {
+    return [{ type: 'text', content: event.message, ts }];
+  }
+  if (type === 'turn.completed') {
+    const usage = isRecord(event.usage) ? event.usage : null;
+    if (usage) {
+      const input = typeof usage.input_tokens === 'number'
+        ? usage.input_tokens
+        : typeof usage.total_input_tokens === 'number' ? usage.total_input_tokens : null;
+      const output = typeof usage.output_tokens === 'number'
+        ? usage.output_tokens
+        : typeof usage.total_output_tokens === 'number' ? usage.total_output_tokens : null;
+      const reasoning = typeof usage.reasoning_output_tokens === 'number' ? usage.reasoning_output_tokens : 0;
+      return [{
+        type: 'metrics',
+        durationMs: null,
+        inputTokens: input,
+        outputTokens: output == null ? null : output + reasoning,
+        costUsd: null,
+        ts,
+      }];
     }
   }
-  if (type === 'agent_message' && typeof event.message === 'string') return `\n${event.message}\n`;
-  if (type === 'turn.completed') {
-    const usage = event.usage as Record<string, unknown> | undefined;
-    if (usage) {
-      const input = usage.input_tokens ?? usage.total_input_tokens;
-      const output = usage.output_tokens ?? usage.total_output_tokens;
-      if (input || output) return `\nTokens: ${input ?? '?'} in, ${output ?? '?'} out\n`;
-    }
+  if (type === 'turn.failed') {
+    const error = isRecord(event.error) ? event.error : {};
+    return [{ type: 'text', content: `\n\n❌ **Codex failed**: ${stringify(error.message ?? 'Unknown Codex error')}\n`, ts }];
   }
   if (type === 'error' || type === 'stream_error') {
-    return `\nError: ${String(event.message ?? event.error ?? 'Unknown Codex error')}\n`;
+    return [{ type: 'text', content: `\n\n❌ **Codex error**: ${stringify(event.message ?? event.error ?? 'Unknown Codex error')}\n`, ts }];
   }
-  return null;
+  return [];
 }
 
 async function main(): Promise<void> {
@@ -167,6 +322,7 @@ async function main(): Promise<void> {
 
       child.stdin?.end(prompt);
       let stdoutBuf = '';
+      const emittedToolItemIds = new Set<string>();
       child.stdout?.on('data', (data: Buffer) => {
         const text = data.toString('utf8');
         process.stdout.write(text);
@@ -177,8 +333,9 @@ async function main(): Promise<void> {
           if (!line.trim()) continue;
           try {
             const event = JSON.parse(line) as Record<string, unknown>;
-            const content = eventToText(event);
-            if (content) appendSessionEvent(ndjsonPath, { type: 'text', content, ts: Date.now() });
+            for (const sessionEvent of eventsFromCodexEvent(event, emittedToolItemIds)) {
+              appendSessionEvent(ndjsonPath, sessionEvent);
+            }
           } catch {
             appendSessionEvent(ndjsonPath, { type: 'text', content: `${line}\n`, ts: Date.now() });
           }
