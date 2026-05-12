@@ -166,9 +166,6 @@ export default function ApiKeySettingsClient() {
     }
   }
 
-  // True when we should show the cipher display instead of the input
-  const showCipherDisplay = isKeySet && !showKey && isDecrypting;
-  const orShowCipherDisplay = isOrKeySet && !orShowKey && orIsDecrypting;
   const showKeyInput = !isKeySet || showKey || isDecrypting;
   const showOrKeyInput = !isOrKeySet || orShowKey || orIsDecrypting;
   const showSaveButton = !isKeySet || keyDirty || saved || loading;
@@ -250,27 +247,25 @@ export default function ApiKeySettingsClient() {
               )}
             </div>
           </div>
-          {showCipherDisplay ? (
-            <div
-              className="w-full sm:w-96 max-w-full min-w-0 bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 font-mono text-amber-300/50 overflow-hidden whitespace-nowrap select-none h-[38px] flex items-center"
-              aria-hidden="true"
-            >
-              <span className="min-w-0 truncate">{decryptDisplay}</span>
-            </div>
-          ) : showKeyInput ? (
+          {showKeyInput && (
             <input
               data-id="api-key/key-input"
-              type={showKey ? "text" : "password"}
-              value={inputValue}
+              type={showKey || isDecrypting ? "text" : "password"}
+              value={isDecrypting ? decryptDisplay : inputValue}
+              readOnly={isDecrypting}
               onChange={(e) => { setInputValue(e.target.value); setKeyDirty(true); setError(null); setSaved(false); }}
               onKeyDown={(e) => { if (e.key === "Enter") void handleSave(); }}
               placeholder="sk-ant-api03-…"
-              className="w-full sm:w-96 max-w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 font-mono"
+              className={`w-full sm:w-96 max-w-full bg-gray-800 text-sm placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 outline-none font-mono ${
+                isDecrypting
+                  ? "text-amber-300/50 select-none cursor-default"
+                  : "text-gray-100 focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50"
+              }`}
               autoComplete="off"
               spellCheck={false}
               disabled={loading}
             />
-          ) : null}
+          )}
           {error && <p className="text-xs text-red-400">{error}</p>}
         </div>
 
@@ -361,27 +356,25 @@ export default function ApiKeySettingsClient() {
               )}
             </div>
           </div>
-          {orShowCipherDisplay ? (
-            <div
-              className="w-full sm:w-96 max-w-full min-w-0 bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 font-mono text-violet-300/50 overflow-hidden whitespace-nowrap select-none h-[38px] flex items-center"
-              aria-hidden="true"
-            >
-              <span className="min-w-0 truncate">{orDecryptDisplay}</span>
-            </div>
-          ) : showOrKeyInput ? (
+          {showOrKeyInput && (
             <input
               data-id="api-key/openrouter-key-input"
-              type={orShowKey ? "text" : "password"}
-              value={orInputValue}
+              type={orShowKey || orIsDecrypting ? "text" : "password"}
+              value={orIsDecrypting ? orDecryptDisplay : orInputValue}
+              readOnly={orIsDecrypting}
               onChange={(e) => { setOrInputValue(e.target.value); setOrKeyDirty(true); setOrError(null); setOrSaved(false); }}
               onKeyDown={(e) => { if (e.key === "Enter") void handleOrSave(); }}
               placeholder="sk-or-v1-…"
-              className="w-full sm:w-96 max-w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 font-mono"
+              className={`w-full sm:w-96 max-w-full bg-gray-800 text-sm placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 outline-none font-mono ${
+                orIsDecrypting
+                  ? "text-violet-300/50 select-none cursor-default"
+                  : "text-gray-100 focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50"
+              }`}
               autoComplete="off"
               spellCheck={false}
               disabled={orLoading}
             />
-          ) : null}
+          )}
           {orError && <p className="text-xs text-red-400">{orError}</p>}
         </div>
 
