@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getDb } from './db';
+import { getDb } from '@/lib/db';
 import {
   BUILT_IN_PRESETS,
   PREF_CUSTOM_PRESETS,
@@ -11,9 +11,9 @@ import {
   parseDisabledBuiltInPresetIds,
   type SecretCiphertexts,
   type SecretAuthSource,
-} from './presets';
-import { MODEL_OPTIONS, type ModelOption } from './agent-config';
-import { withPresetAvailability, type EvolvePresetWithAvailability } from './preset-availability';
+} from '@/lib/presets';
+import { MODEL_OPTIONS, type ModelOption } from '@/lib/agent-config';
+import { withPresetAvailability, type EvolvePresetWithAvailability } from '@/lib/preset-availability';
 
 export interface SettingsPageData {
   secretSources: SecretAuthSource[];

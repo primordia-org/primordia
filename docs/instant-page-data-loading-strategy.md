@@ -29,7 +29,7 @@ Make Server Components the default source of initial page data. Move the shared 
 1. A page must not require a `useEffect(...fetch...)` call to show its initial content.
 2. If a page needs authenticated DB, git, filesystem, or git-config data, load it in the route's server component.
 3. API routes remain for external clients, mutations, polling, SSE, and client-triggered refreshes.
-4. Reuse logic by extracting a `getXxxPageData()`/`listXxx()` function in `lib/` or a route-local `data.ts`, not by having the server component call its own HTTP API route.
+4. Reuse logic by extracting a `getXxxPageData()`/`listXxx()` function, not by having the server component call its own HTTP API route. Prefer co-locating route-specific helpers inside the relevant App Router folder (for example `app/settings/settings-page-data.ts` or `app/admin/rollback/data.ts`); use `lib/` only for helpers that are genuinely shared across unrelated routes.
 5. Client components receive `initialData` props and update local state only after mutations or explicit refresh actions.
 6. New PRs should treat mount-time data fetching as a code-review smell unless it is realtime, user-triggered, or intentionally lazy.
 
@@ -143,7 +143,7 @@ Use **Solution 3** selectively for genuinely slow server data. Reconsider a clie
 ## Implementation plan
 
 1. Add a project design principle: server-load initial page data; avoid mount-time client fetches for first render.
-2. For each target page, extract shared server data helpers from API route handlers into `lib/` or route-local `data.ts` files.
+2. For each target page, extract shared server data helpers from API route handlers into route-local `data.ts`/`*-page-data.ts` files in the relevant App Router folder. Move helpers to `lib/` only when multiple unrelated route areas need the same domain logic.
 3. Change `page.tsx` to call the helper after auth/permission checks.
 4. Pass data to client components as `initialData`/`initialState` props.
 5. Keep API routes for mutations, explicit refresh buttons, SSE, polling, and public/external API consumers.
