@@ -17,7 +17,7 @@ type Step =
   | { kind: "done" }
   | { kind: "error"; message: string };
 
-export default function CredentialsSettingsClient({ hideHeader = false }: { hideHeader?: boolean } = {}) {
+export default function CredentialsSettingsClient() {
   const [isSet, setIsSet] = useState(false);
   const [storedValue, setStoredValue] = useState<string | null>(null);
   const [credRevealed, setCredRevealed] = useState(false);
@@ -203,21 +203,6 @@ export default function CredentialsSettingsClient({ hideHeader = false }: { hide
 
   return (
     <div className="flex flex-col gap-6">
-      {!hideHeader && (
-        <div className="flex flex-col gap-3">
-          <div>
-            <h2 className="text-base font-medium text-gray-200 mb-1">Claude.ai Subscription</h2>
-            <p className="text-sm text-gray-400 leading-relaxed">
-              Sign in with your Claude.ai account to use your subscription for evolve requests.
-              Credentials are encrypted in your browser — the encryption key never leaves your device(s).
-            </p>
-          </div>
-          <p className="text-xs text-gray-500 leading-relaxed">
-            Saved subscription credentials become billing sources you can choose explicitly in Evolve presets.
-          </p>
-        </div>
-      )}
-
       {/* Main card */}
       <div className="rounded-xl border border-gray-700 bg-gray-900 p-5 flex flex-col gap-5">
         {/* Card header with status */}

@@ -12,36 +12,9 @@ import { trackEvent } from "@/lib/events-client";
 import { useDecryptEffect } from "@/lib/use-decrypt-effect";
 import { AuthSourceIcon } from "@/components/AgentIdentity";
 
-function ComingSoonCard({ source, name, description }: {
-  source: "openai-api-key";
-  name: string;
-  description: string;
-}) {
-  return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-5 opacity-50 select-none">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center shrink-0">
-            <AuthSourceIcon source={source} size={20} />
-          </div>
-          <span className="text-sm font-medium text-gray-300">{name}</span>
-        </div>
-        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-500 border border-gray-700">
-          Coming soon
-        </span>
-      </div>
-      <p className="text-xs text-gray-500 ml-11">{description}</p>
-    </div>
-  );
-}
+type ApiKeyProvider = "anthropic" | "openrouter";
 
-export default function ApiKeySettingsClient({
-  hideHeader = false,
-  provider = "all",
-}: {
-  hideHeader?: boolean;
-  provider?: "all" | "anthropic" | "openrouter";
-} = {}) {
+export default function ApiKeySettingsClient({ provider }: { provider: ApiKeyProvider }) {
   // Anthropic key state
   const [isKeySet, setIsKeySet] = useState(false);
   const [inputValue, setInputValue] = useState("");
@@ -187,23 +160,7 @@ export default function ApiKeySettingsClient({
 
   return (
     <div className="flex flex-col gap-6">
-      {!hideHeader && (
-        <div className="flex flex-col gap-3">
-          <div>
-            <h2 className="text-base font-medium text-gray-200 mb-1">API Keys</h2>
-            <p className="text-sm text-gray-400 leading-relaxed">
-              Connect your own AI provider keys to use them for evolve requests.
-              Keys are encrypted in your browser and never stored in plaintext.
-            </p>
-          </div>
-          <p className="text-xs text-gray-500 leading-relaxed">
-            Saved keys become billing sources you can choose explicitly in Evolve presets.
-          </p>
-        </div>
-      )}
-
-      {/* Anthropic — fully functional */}
-      {(provider === "all" || provider === "anthropic") && (
+      {provider === "anthropic" && (
       <div className="rounded-xl border border-gray-700 bg-gray-900 p-5 flex flex-col gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -323,8 +280,7 @@ export default function ApiKeySettingsClient({
       </div>
       )}
 
-      {/* OpenRouter — fully functional */}
-      {(provider === "all" || provider === "openrouter") && (
+      {provider === "openrouter" && (
       <div className="rounded-xl border border-gray-700 bg-gray-900 p-5 flex flex-col gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -441,17 +397,6 @@ export default function ApiKeySettingsClient({
             {orLoading ? "Saving…" : orSaved ? "Saved ✓" : "Save key"}
           </button>
         </div>
-      </div>
-      )}
-
-      {/* Coming-soon providers */}
-      {provider === "all" && (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <ComingSoonCard
-          source="openai-api-key"
-          name="OpenAI"
-          description="GPT-4o and other OpenAI models."
-        />
       </div>
       )}
     </div>

@@ -116,9 +116,9 @@ function AddBillingSource({ added, onAdd }: { added: BillingSourceId[]; onAdd: (
 }
 
 function SourceContent({ source }: { source: BillingSourceId }) {
-  if (source === "anthropic-api-key") return <ApiKeySettingsClient hideHeader provider="anthropic" />;
-  if (source === "openrouter-api-key") return <ApiKeySettingsClient hideHeader provider="openrouter" />;
-  if (source === "claude-subscription") return <CredentialsSettingsClient hideHeader />;
+  if (source === "anthropic-api-key") return <ApiKeySettingsClient provider="anthropic" />;
+  if (source === "openrouter-api-key") return <ApiKeySettingsClient provider="openrouter" />;
+  if (source === "claude-subscription") return <CredentialsSettingsClient />;
   return <ChatGptSubscriptionSettingsClient />;
 }
 
