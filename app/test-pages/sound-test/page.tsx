@@ -231,6 +231,7 @@ export default function SoundTestPage() {
       const AC =
         window.AudioContext ??
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (!AC) { setDiag({ supported: false, stateOnCreate: "unavailable", userAgent: simplified }); return; }
       const ctx = new AC();
       const state = ctx.state as CtxState;
@@ -270,6 +271,7 @@ export default function SoundTestPage() {
 
   // Try on mount (works on desktop; may be a no-op on mobile until first click)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void setupAnalyser();
     return () => {
       // Detach on unmount so the sounds routing goes back to ctx.destination

@@ -100,6 +100,7 @@ export default function ServerLogsClient({
   // Connect on mount, disconnect on unmount.
   // Skip history replay if initialOutput is already populated.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     connect(!!initialOutput);
     return () => abortRef.current?.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps

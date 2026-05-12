@@ -16,7 +16,7 @@
 // server-side via getSessionUser()) so the hamburger is visible on first
 // render with no client-side fetch needed.
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { NavHeader } from "./NavHeader";
 import { FloatingEvolveDialog, EvolveSubmitToast } from "./FloatingEvolveDialog";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
@@ -78,6 +78,11 @@ export function PageNavBar({ subtitle, branch, currentPage, initialSession, init
     setSessionUser(null);
   }
 
+  const handleEvolveClick = useCallback(() => {
+    setEvolveAnchorRect(hamburgerRef.current?.getBoundingClientRect() ?? null);
+    setEvolveDialogOpen(true);
+  }, []);
+
   return (
     <header className="flex items-center justify-between mb-8 flex-shrink-0">
       <NavHeader branch={branch} subtitle={subtitle} currentPage={currentPage} />
@@ -88,11 +93,9 @@ export function PageNavBar({ subtitle, branch, currentPage, initialSession, init
           sessionUser={sessionUser}
           onLogout={handleLogout}
           containerRef={hamburgerRef}
+          // eslint-disable-next-line react-hooks/refs
           items={buildStandardMenuItems({
-            onEvolveClick: () => {
-              setEvolveAnchorRect(hamburgerRef.current?.getBoundingClientRect() ?? null);
-              setEvolveDialogOpen(true);
-            },
+            onEvolveClick: handleEvolveClick,
             isAdmin: sessionUser?.isAdmin ?? false,
             currentPath: currentPage ? `/${currentPage}` : undefined,
           })}

@@ -152,7 +152,7 @@ export function getComponentRootElement(el: Element): Element | null {
   );
   if (!fiberKey) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let fiber: any = elAny[fiberKey];
+  const fiber: any = elAny[fiberKey];
 
   // Walk UP to find the nearest named React component fiber
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
