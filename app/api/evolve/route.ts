@@ -32,13 +32,13 @@ import {
 import { DEFAULT_HARNESS, DEFAULT_MODEL } from '../../../lib/agent-config';
 
 
-/** Ask Claude to choose a short, descriptive kebab-case slug for the request.
+/** Ask the selected evolve model to choose a short, descriptive kebab-case slug for the request.
  *  Falls back to the first-4-words approach if the API call fails. */
-async function generateSlug(text: string): Promise<string> {
+async function generateSlug(text: string, model: string, apiKey?: string): Promise<string> {
   try {
-    const { client } = getLlmClient();
+    const { client } = getLlmClient(apiKey);
     const response = await client.messages.create({
-      model: 'claude-haiku-4-5',
+      model,
       max_tokens: 32,
       messages: [
         {
@@ -251,7 +251,11 @@ export async function POST(request: Request) {
   }
 
   const repoRoot = process.cwd();
-  const slug = await generateSlug(requestText);
+  const slug = await generateSlug(
+    requestText,
+    model,
+    authSource === 'anthropic-api-key' ? decryptedApiKey : undefined,
+  );
   const branch = await findUniqueBranch(slug, repoRoot);
   const sessionId = branch;
 
