@@ -35,7 +35,13 @@ function ComingSoonCard({ source, name, description }: {
   );
 }
 
-export default function ApiKeySettingsClient({ hideHeader = false }: { hideHeader?: boolean } = {}) {
+export default function ApiKeySettingsClient({
+  hideHeader = false,
+  provider = "all",
+}: {
+  hideHeader?: boolean;
+  provider?: "all" | "anthropic" | "openrouter";
+} = {}) {
   // Anthropic key state
   const [isKeySet, setIsKeySet] = useState(false);
   const [inputValue, setInputValue] = useState("");
@@ -197,6 +203,7 @@ export default function ApiKeySettingsClient({ hideHeader = false }: { hideHeade
       )}
 
       {/* Anthropic — fully functional */}
+      {(provider === "all" || provider === "anthropic") && (
       <div className="rounded-xl border border-gray-700 bg-gray-900 p-5 flex flex-col gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -314,8 +321,10 @@ export default function ApiKeySettingsClient({ hideHeader = false }: { hideHeade
           </button>
         </div>
       </div>
+      )}
 
       {/* OpenRouter — fully functional */}
+      {(provider === "all" || provider === "openrouter") && (
       <div className="rounded-xl border border-gray-700 bg-gray-900 p-5 flex flex-col gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -433,8 +442,10 @@ export default function ApiKeySettingsClient({ hideHeader = false }: { hideHeade
           </button>
         </div>
       </div>
+      )}
 
       {/* Coming-soon providers */}
+      {provider === "all" && (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <ComingSoonCard
           source="openai-api-key"
@@ -442,6 +453,7 @@ export default function ApiKeySettingsClient({ hideHeader = false }: { hideHeade
           description="GPT-4o and other OpenAI models."
         />
       </div>
+      )}
     </div>
   );
 }
