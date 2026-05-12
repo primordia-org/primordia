@@ -45,10 +45,10 @@ export const BUILT_IN_PRESETS: EvolvePreset[] = [
   },
   {
     id: 'builtin:pi-chatgpt-codex-mini',
-    name: 'Pi + ChatGPT + Codex Mini',
+    name: 'Pi + ChatGPT + GPT 5.5',
     authSource: 'chatgpt-subscription',
     harness: 'pi',
-    model: 'openai-codex:gpt-5.1-codex-mini',
+    model: 'openai-codex:gpt-5.5',
     builtIn: true,
   },
   {
