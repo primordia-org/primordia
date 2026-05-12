@@ -163,6 +163,13 @@ fi
 
 BARE_REPO="${PRIMORDIA_DIR}/source.git"
 
+# When this script is served by a Primordia instance's /install.sh route, that
+# route rewrites this default to its own public URL. New installs persist it in
+# the service environment so the child can register itself with its parent after
+# the first public request establishes its canonical URL.
+PRIMORDIA_PARENT_URL_DEFAULT=""
+PRIMORDIA_PARENT_URL="${PRIMORDIA_PARENT_URL:-${PRIMORDIA_PARENT_URL_DEFAULT}}"
+
 # ── Clone Primordia ───────────────────────────────────────────────────────────
 
 _CURRENT_STEP="Clone primordia"
@@ -433,6 +440,10 @@ if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; t
   _step "Installing systemd service..."
   SYSTEMD_SERVICE_DIR="/etc/systemd/system"
   PROXY_SERVICE_DST="${SYSTEMD_SERVICE_DIR}/primordia.service"
+  PARENT_URL_ENV_LINE=""
+  if [[ -n "${PRIMORDIA_PARENT_URL}" ]]; then
+    PARENT_URL_ENV_LINE="Environment=PRIMORDIA_PARENT_URL=${PRIMORDIA_PARENT_URL}"
+  fi
   GENERATED_UNIT=$(cat << UNIT
 [Unit]
 Description=Primordia Reverse Proxy
@@ -445,6 +456,7 @@ WorkingDirectory=${PRIMORDIA_DIR}
 Environment=REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}
 Environment=HOME=${HOME}
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
+${PARENT_URL_ENV_LINE}
 ExecStart=${SHIM_DIR}/bun-real ${PRIMORDIA_DIR}/reverse-proxy.ts
 Restart=always
 RestartSec=5

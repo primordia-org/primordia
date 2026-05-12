@@ -129,7 +129,7 @@ When implementing changes, follow these principles:
 | Deep rollback (/admin/rollback) | ✅ Live | Admin-only; lists all previous production slots from primordia.productionHistory in git config; "Roll back" button for each target; zero-downtime cutover via reverse proxy |
 | Server health (/admin/server-health) | ✅ Live | Admin-only; disk and memory usage with visual bars; oldest non-prod worktree cleanup |
 | Git mirror (/admin/git-mirror) | ✅ Live | Admin-only; every production deploy auto-pushes to `mirror` remote if it exists |
-| Instance identity & social graph | ✅ Live | Each instance has a fixed UUID v7, editable name+description; serves `/.well-known/primordia.json` with self+peers+edges; `/api/instance/register` lets child instances POST to register; admin panel at `/admin/instance` |
+| Instance identity & social graph | ✅ Live | Each instance has a fixed UUID v7, editable name+description; serves `/.well-known/primordia.json` with self+peers+edges; `/api/instance/register` lets child instances POST to register; instances installed from another Primordia persist/infer that parent URL and retry registration on first server request; admin panel at `/admin/instance` |
 | User event tracking | ✅ Live | `events` table in SQLite; `POST /api/events` (open, no auth); `GET /api/events` (admin); browser helper in `lib/events-client.ts`; admin viewer at `/admin/events` |
 | Read-only git HTTP | ✅ Live | Clone/fetch via `git clone http[s]://<host>/api/git`; proxied through `git http-backend`; push permanently blocked (403) |
 | OpenAPI spec | ✅ Live | Served at `/api/openapi`; generated on first request from `openapi-gen.config.json` |
