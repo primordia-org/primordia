@@ -79,11 +79,13 @@ export function AdminRollbackClient({ initialState }: Props) {
 - Some API route logic is currently embedded in route handlers and must be carefully extracted to avoid behavior drift.
 - Server components cannot use browser-only APIs, so client islands still need clean prop boundaries.
 
-## Alternative: Solution 2 — TanStack Query with SSR hydration
+## Considered but rejected: Solution 2 — TanStack Query with SSR hydration
 
 ### Summary
 
-Add TanStack Query (`@tanstack/react-query`) and use Next.js server components to prefetch page queries, dehydrate them, and hydrate the client cache. Pages still render with data immediately, while client components get a cache, background refetching, invalidation after mutations, and pagination helpers.
+TanStack Query (`@tanstack/react-query`) was considered as a way to prefetch page queries in Next.js server components, dehydrate them, and hydrate the client cache. That approach can render pages with data immediately while giving client components a cache, background refetching, invalidation after mutations, and pagination helpers.
+
+However, Primordia should **not** adopt TanStack Query for this effort now. The added dependency, provider setup, query-key discipline, hydration rules, and second data-loading mental model create more implementation risk than simply enforcing data fetching in Server Components. It also leaves room for future code to accidentally use client-only `useQuery` loading states and recreate the UX problem this plan is meant to eliminate.
 
 ### Rules
 
@@ -134,7 +136,9 @@ For data that is slow but still needed on load, keep fetching on the server and 
 
 ## Decision
 
-Adopt **Solution 1** as Primordia's default rule now. Use **Solution 3** selectively for genuinely slow server data. Reconsider **Solution 2** only if repeated migrations show that admin/settings pages need more sophisticated client cache invalidation than simple `initialData` props plus explicit refreshes.
+Adopt **Solution 1** as Primordia's default rule now. Enforce data fetching in Server Components for initial page content instead of adding TanStack Query. TanStack Query was considered, but its added complexity and dependency risk outweigh its benefits for this problem.
+
+Use **Solution 3** selectively for genuinely slow server data. Reconsider a client query cache only if a future, concrete interaction pattern cannot be handled cleanly with Server Component data loading, `initialData` props, and explicit refreshes after mutations.
 
 ## Implementation plan
 
