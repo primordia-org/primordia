@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, ExternalLink, Eye, EyeOff } from "lucide-react";
+import { Check, Copy, ExternalLink, EyeOff, Key } from "lucide-react";
 import { getSecret, setSecret, clearSecret } from "@/lib/secrets-client";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
 import { AuthSourceIcon } from "@/components/AgentIdentity";
+import { useDecryptEffect, generateScramble } from "@/lib/use-decrypt-effect";
 
 interface StoredChatGptCredentials {
   authMode: "chatgpt";
@@ -41,17 +42,24 @@ function parseCredentials(raw: string | null): StoredChatGptCredentials | null {
 
 export default function ChatGptSubscriptionSettingsClient() {
   const [credentials, setCredentials] = useState<StoredChatGptCredentials | null>(null);
-  const [showCredentials, setShowCredentials] = useState(false);
+  const [credentialsRevealed, setCredentialsRevealed] = useState(false);
+  const [credentialsScrambled, setCredentialsScrambled] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deviceFlow, setDeviceFlow] = useState<DeviceFlowState | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [credentialsCopied, setCredentialsCopied] = useState(false);
   const pollTimer = useRef<number | null>(null);
 
   const prettyCredentials = useMemo(() => {
     if (!credentials) return "";
     return JSON.stringify(credentials, null, 2);
   }, [credentials]);
+
+  const { displayValue: decryptDisplay, isDecrypting, decrypt } = useDecryptEffect({
+    duration: 1000,
+    onComplete: () => setCredentialsRevealed(true),
+  });
 
   const loadCredentials = useCallback(async () => {
     try {
@@ -71,6 +79,16 @@ export default function ChatGptSubscriptionSettingsClient() {
       if (pollTimer.current) window.clearTimeout(pollTimer.current);
     };
   }, [loadCredentials]);
+
+  useEffect(() => {
+    if (prettyCredentials) {
+      setCredentialsScrambled(generateScramble(prettyCredentials));
+      setCredentialsRevealed(false);
+    } else {
+      setCredentialsScrambled("");
+      setCredentialsRevealed(false);
+    }
+  }, [prettyCredentials]);
 
   async function startAuth() {
     setBusy(true);
@@ -128,6 +146,16 @@ export default function ChatGptSubscriptionSettingsClient() {
     }
   }
 
+  async function copyCredentials() {
+    try {
+      await navigator.clipboard.writeText(prettyCredentials);
+      setCredentialsCopied(true);
+      window.setTimeout(() => setCredentialsCopied(false), 2000);
+    } catch {
+      setError("Could not copy the credentials. Please copy them manually.");
+    }
+  }
+
   async function copyUserCode() {
     if (!deviceFlow) return;
     try {
@@ -148,7 +176,8 @@ export default function ChatGptSubscriptionSettingsClient() {
       setCredentials(null);
       setDeviceFlow(null);
       setCodeCopied(false);
-      setShowCredentials(false);
+      setCredentialsRevealed(false);
+      setCredentialsScrambled("");
       trackEvent("settings/subscriptions/chatgpt-disconnected/v1", {});
     } catch {
       setError("Failed to disconnect ChatGPT. Please try again.");
@@ -156,6 +185,13 @@ export default function ChatGptSubscriptionSettingsClient() {
       setBusy(false);
     }
   }
+
+  const credentialsDisplay = isDecrypting
+    ? decryptDisplay
+    : credentialsRevealed
+    ? prettyCredentials
+    : credentialsScrambled;
+  const showCredentialsBlock = isDecrypting || credentialsRevealed;
 
   return (
     <div className="rounded-xl border border-gray-700 bg-gray-900 p-5 flex flex-col gap-5">
@@ -175,19 +211,55 @@ export default function ChatGptSubscriptionSettingsClient() {
 
       {credentials && (
         <div className="flex flex-col gap-2">
-          <button
-            type="button"
-            data-id="chatgpt-subscription/toggle-visibility"
-            onClick={() => setShowCredentials((v) => !v)}
-            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors self-start"
-            aria-label={showCredentials ? "Hide stored ChatGPT credentials" : "Show stored ChatGPT credentials"}
-          >
-            {showCredentials ? <EyeOff size={13} aria-hidden="true" /> : <Eye size={13} aria-hidden="true" />}
-            {showCredentials ? "Hide OAuth credentials" : "Show OAuth credentials"}
-          </button>
-          {showCredentials && (
-            <pre className="text-xs font-mono text-gray-300 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
-              {prettyCredentials}
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-gray-400 font-medium">
+              Stored credentials
+            </span>
+            <div className="flex items-center gap-3">
+              {credentialsRevealed && (
+                <button
+                  type="button"
+                  data-id="chatgpt-subscription/copy-credentials"
+                  onClick={() => void copyCredentials()}
+                  className="flex items-center gap-1.5 text-xs text-emerald-500/70 hover:text-emerald-400 transition-colors"
+                  aria-label="Copy stored ChatGPT credentials"
+                >
+                  {credentialsCopied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+                  <span>{credentialsCopied ? "Copied" : "Copy"}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                data-id="chatgpt-subscription/toggle-visibility"
+              onClick={() => {
+                if (credentialsRevealed) {
+                  setCredentialsRevealed(false);
+                  setCredentialsScrambled(generateScramble(prettyCredentials));
+                } else if (!isDecrypting) {
+                  decrypt(prettyCredentials);
+                }
+              }}
+              disabled={isDecrypting}
+              className="flex items-center gap-1.5 text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label={credentialsRevealed ? "Hide stored ChatGPT credentials" : "Reveal stored ChatGPT credentials"}
+            >
+              {credentialsRevealed ? (
+                <>
+                  <EyeOff size={13} aria-hidden="true" className="text-gray-500 hover:text-gray-300 transition-colors" />
+                  <span className="text-gray-500 hover:text-gray-300 transition-colors">Hide</span>
+                </>
+              ) : (
+                <>
+                  <Key size={13} aria-hidden="true" className={isDecrypting ? "text-emerald-400 animate-pulse" : "text-emerald-500/70 hover:text-emerald-400 transition-colors"} />
+                  <span className={isDecrypting ? "text-emerald-400" : "text-emerald-500/70 hover:text-emerald-400 transition-colors"}>Reveal</span>
+                </>
+              )}
+              </button>
+            </div>
+          </div>
+          {showCredentialsBlock && (
+            <pre className={`text-xs font-mono bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all ${credentialsRevealed ? "text-gray-300" : "text-emerald-300/40 select-none"}`}>
+              {credentialsDisplay}
             </pre>
           )}
         </div>

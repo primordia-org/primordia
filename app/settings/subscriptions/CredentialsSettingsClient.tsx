@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ExternalLink, ChevronDown, ChevronRight, Loader2, Eye, EyeOff } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Copy, ExternalLink, Loader2, Key, EyeOff } from "lucide-react";
 import { AuthSourceIcon } from "@/components/AgentIdentity";
 import { setStoredCredentials } from "@/lib/credentials-client";
 import { getSecret } from "@/lib/secrets-client";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
+import { useDecryptEffect, generateScramble } from "@/lib/use-decrypt-effect";
 
 type Step =
   | { kind: "idle" }
@@ -19,15 +20,32 @@ type Step =
 export default function CredentialsSettingsClient() {
   const [isSet, setIsSet] = useState(false);
   const [storedValue, setStoredValue] = useState<string | null>(null);
-  const [showCredentials, setShowCredentials] = useState(false);
+  const [credRevealed, setCredRevealed] = useState(false);
+  const [credScrambled, setCredScrambled] = useState("");
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [code, setCode] = useState("");
-  const [showPaste, setShowPaste] = useState(false);
   const [pasteValue, setPasteValue] = useState("");
+  const [credsDirty, setCredsDirty] = useState(false);
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [pasteSaved, setPasteSaved] = useState(false);
   const [pasteLoading, setPasteLoading] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [copiedCredentials, setCopiedCredentials] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
+
+  const { displayValue: decryptDisplay, isDecrypting, decrypt } = useDecryptEffect({
+    duration: 1000,
+    onComplete: () => setCredRevealed(true),
+  });
+
+  function prettyCredentials(): string {
+    if (!storedValue) return "";
+    try {
+      return JSON.stringify(JSON.parse(storedValue), null, 2);
+    } catch {
+      return storedValue;
+    }
+  }
 
   useEffect(() => {
     async function checkStatus() {
@@ -45,6 +63,19 @@ export default function CredentialsSettingsClient() {
     }
     void checkStatus();
   }, []);
+
+  // When storedValue loads or changes, regenerate the scrambled display
+  useEffect(() => {
+    if (storedValue) {
+      const pretty = (() => {
+        try { return JSON.stringify(JSON.parse(storedValue), null, 2); } catch { return storedValue; }
+      })();
+      setCredScrambled(generateScramble(pretty));
+      setCredRevealed(false);
+      setCredsDirty(false);
+      setPasteValue("");
+    }
+  }, [storedValue]);
 
   useEffect(() => {
     return () => {
@@ -110,13 +141,24 @@ export default function CredentialsSettingsClient() {
     setCode("");
   }
 
+  async function copyCredentials() {
+    try {
+      await navigator.clipboard.writeText(prettyCredentials());
+      setCopiedCredentials(true);
+      setTimeout(() => setCopiedCredentials(false), 2000);
+    } catch {}
+  }
+
   async function clearCredentials() {
     try {
       await setStoredCredentials(null);
       trackEvent("settings/credentials-cleared/v1", {});
       setIsSet(false);
       setStoredValue(null);
-      setShowCredentials(false);
+      setCredRevealed(false);
+      setCredScrambled("");
+      setCredsDirty(false);
+      setPasteValue("");
       setStep({ kind: "idle" });
     } catch {}
   }
@@ -142,7 +184,6 @@ export default function CredentialsSettingsClient() {
       trackEvent("settings/credentials-saved/v1", {});
       setIsSet(true);
       setStoredValue(result.value);
-      setPasteValue("");
       setPasteSaved(true);
       setStep({ kind: "done" });
       setTimeout(() => setPasteSaved(false), 2000);
@@ -153,15 +194,12 @@ export default function CredentialsSettingsClient() {
     }
   }
 
-  // Pretty-print stored JSON if possible; fall back to raw string.
-  function prettyCredentials(): string {
-    if (!storedValue) return "";
-    try {
-      return JSON.stringify(JSON.parse(storedValue), null, 2);
-    } catch {
-      return storedValue;
-    }
-  }
+  const storedCredentialsDisplay = isDecrypting
+    ? decryptDisplay
+    : credRevealed
+    ? prettyCredentials()
+    : credScrambled;
+  const showStoredCredentials = isDecrypting || credRevealed;
 
   return (
     <div className="flex flex-col gap-6">
@@ -195,25 +233,64 @@ export default function CredentialsSettingsClient() {
           )}
         </div>
 
-        {/* Stored credentials viewer — only shown when a value is set and decrypted */}
-        {isSet && storedValue && (
-          <div className="flex flex-col gap-2">
-            <button
-              type="button"
-              data-id="credentials/toggle-visibility"
-              onClick={() => setShowCredentials((v) => !v)}
-              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors self-start"
-              aria-label={showCredentials ? "Hide stored credentials" : "Show stored credentials"}
-            >
-              {showCredentials
-                ? <EyeOff size={13} strokeWidth={2} aria-hidden="true" />
-                : <Eye size={13} strokeWidth={2} aria-hidden="true" />}
-              {showCredentials ? "Hide credentials" : "Show credentials"}
-            </button>
-            {showCredentials && (
-              <pre className="text-xs font-mono text-gray-300 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
-                {prettyCredentials()}
-              </pre>
+        {isSet && (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-gray-400 font-medium">Stored credentials</span>
+              <div className="flex items-center gap-3">
+                {credRevealed && (
+                  <button
+                    type="button"
+                    data-id="credentials/copy"
+                    onClick={() => void copyCredentials()}
+                    className="flex items-center gap-1 text-xs text-sky-500/70 hover:text-sky-400 transition-colors"
+                    aria-label="Copy credentials"
+                  >
+                    {copiedCredentials ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={2} aria-hidden="true" />}
+                    <span>{copiedCredentials ? "Copied" : "Copy"}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  data-id="credentials/toggle-visibility"
+                  onClick={() => {
+                    if (credRevealed) {
+                      setCredRevealed(false);
+                      setPasteError(null);
+                      if (storedValue) {
+                        const pretty = (() => { try { return JSON.stringify(JSON.parse(storedValue), null, 2); } catch { return storedValue; } })();
+                        setCredScrambled(generateScramble(pretty));
+                      }
+                    } else if (!isDecrypting) {
+                      decrypt(prettyCredentials());
+                    }
+                  }}
+                  disabled={isDecrypting}
+                  className="flex items-center gap-1 text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label={credRevealed ? "Hide credentials" : "Reveal credentials"}
+                >
+                  {credRevealed ? (
+                    <><EyeOff size={13} strokeWidth={2} aria-hidden="true" className="text-gray-500 hover:text-gray-300 transition-colors" /><span className="text-gray-500 hover:text-gray-300 transition-colors">Hide</span></>
+                  ) : (
+                    <><Key size={13} strokeWidth={2} aria-hidden="true" className={isDecrypting ? "text-sky-400 animate-pulse" : "text-sky-500/70 hover:text-sky-400 transition-colors"} /><span className={isDecrypting ? "text-sky-400" : "text-sky-500/70 hover:text-sky-400 transition-colors"}>Reveal</span></>
+                  )}
+                </button>
+              </div>
+            </div>
+            {showStoredCredentials && (
+              <textarea
+                data-id="credentials/json-display"
+                value={storedCredentialsDisplay}
+                readOnly
+                rows={8}
+                className={`w-full bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 outline-none font-mono resize-y ${
+                  credRevealed
+                    ? "text-gray-100"
+                    : "text-sky-300/40 select-none cursor-default"
+                }`}
+                autoComplete="off"
+                spellCheck={false}
+              />
             )}
           </div>
         )}
@@ -241,6 +318,54 @@ export default function CredentialsSettingsClient() {
             </div>
             {step.kind === "done" && (
               <p className="text-xs text-center text-gray-500">Credentials saved successfully.</p>
+            )}
+          </div>
+        )}
+
+        {(step.kind === "idle" || step.kind === "done") && (
+          <div className="border-t border-gray-800 pt-3 flex flex-col gap-3">
+            <button
+              type="button"
+              data-id="credentials/manual-toggle"
+              onClick={() => setManualOpen((open) => !open)}
+              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-400 transition-colors w-full text-left"
+            >
+              {manualOpen ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}
+              <span>Paste credentials file manually</span>
+            </button>
+            {manualOpen && (
+              <div className="flex flex-col gap-3">
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Paste the contents of <code className="text-sky-400/80 bg-gray-800 px-1 py-0.5 rounded">~/.claude/.credentials.json</code>. On macOS, credentials are stored in the system keychain and can&apos;t be copied directly — this only works if your machine is running Linux.
+                </p>
+                <textarea
+                  data-id="credentials/json-input"
+                  value={pasteValue}
+                  onChange={(e) => {
+                    setPasteValue(e.target.value);
+                    setCredsDirty(true);
+                    setPasteError(null);
+                    setPasteSaved(false);
+                  }}
+                  placeholder={'{\n  "claudeAiOauth": { ... }\n}'}
+                  rows={5}
+                  className="w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-600 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50 font-mono resize-y"
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={pasteLoading}
+                />
+                {pasteError && <p className="text-xs text-red-400">{pasteError}</p>}
+                <div className="flex justify-end">
+                  <button
+                    data-id="credentials/save-paste"
+                    onClick={() => void handlePasteSave()}
+                    disabled={!pasteValue.trim() || pasteSaved || pasteLoading}
+                    className="px-4 py-1.5 rounded-lg text-sm font-medium bg-sky-600 hover:bg-sky-500 disabled:bg-sky-900 text-white transition-colors disabled:cursor-not-allowed"
+                  >
+                    {pasteLoading ? "Saving…" : pasteSaved ? "Saved ✓" : "Save"}
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -314,50 +439,6 @@ export default function CredentialsSettingsClient() {
             </button>
           </div>
         )}
-
-        {/* Manual paste fallback */}
-        <div className="border-t border-gray-800 pt-3 flex flex-col gap-3">
-          <button
-            data-id="credentials/toggle-paste"
-            onClick={() => setShowPaste(!showPaste)}
-            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-400 transition-colors w-full text-left"
-          >
-            {showPaste ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}
-            Paste credentials file manually
-          </button>
-
-          {showPaste && (
-            <div className="flex flex-col gap-3">
-              <p className="text-xs text-gray-500 leading-relaxed">
-                Paste the contents of{" "}
-                <code className="text-sky-400/80 bg-gray-800 px-1 py-0.5 rounded">~/.claude/.credentials.json</code>.{" "}
-                On macOS, credentials are stored in the system keychain and can&apos;t be copied directly — this only works if your machine is running Linux.
-              </p>
-              <textarea
-                data-id="credentials/json-input"
-                value={pasteValue}
-                onChange={(e) => { setPasteValue(e.target.value); setPasteError(null); setPasteSaved(false); }}
-                placeholder={'{\n  "claudeAiOauth": { ... }\n}'}
-                rows={5}
-                className="w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-600 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50 font-mono resize-y"
-                autoComplete="off"
-                spellCheck={false}
-                disabled={pasteLoading}
-              />
-              {pasteError && <p className="text-xs text-red-400">{pasteError}</p>}
-              <div className="flex justify-end">
-                <button
-                  data-id="credentials/save-paste"
-                  onClick={() => void handlePasteSave()}
-                  disabled={!pasteValue.trim() || pasteSaved || pasteLoading}
-                  className="px-4 py-1.5 rounded-lg text-sm font-medium bg-sky-600 hover:bg-sky-500 disabled:bg-sky-900 text-white transition-colors disabled:cursor-not-allowed"
-                >
-                  {pasteLoading ? "Saving…" : pasteSaved ? "Saved ✓" : "Save"}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );
