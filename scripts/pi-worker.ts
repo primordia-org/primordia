@@ -187,6 +187,8 @@ async function main(): Promise<void> {
   const { sessionId, worktreePath, prompt, useContinue } = config;
   const timeoutMs = config.timeoutMs ?? 20 * 60 * 1000;
   const { provider: modelProvider, modelId } = normalizeModelSelection(config.model);
+  const hideDollarCost = modelProvider === 'openai-codex' && Boolean(_chatGptOAuth);
+  const metricCost = (cost: number | null): number | null => hideDollarCost ? null : cost;
 
   // sessionId is available in config but not used directly here.
   void sessionId;
@@ -481,7 +483,7 @@ async function main(): Promise<void> {
           durationMs: ts() - startTime,
           inputTokens: midInput > 0 ? midInput : null,
           outputTokens: midOutput > 0 ? midOutput : null,
-          costUsd: midCost > 0 ? midCost : null,
+          costUsd: metricCost(midCost > 0 ? midCost : null),
           ts: ts(),
         });
       }
@@ -497,7 +499,7 @@ async function main(): Promise<void> {
         const timeoutInput = timeoutStats && baselineStatsRef ? timeoutStats.tokens.input - baselineStatsRef.tokens.input : null;
         const timeoutOutput = timeoutStats && baselineStatsRef ? timeoutStats.tokens.output - baselineStatsRef.tokens.output : null;
         const timeoutCost = timeoutStats && baselineStatsRef ? timeoutStats.cost - baselineStatsRef.cost : null;
-        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: timeoutInput != null && timeoutInput > 0 ? timeoutInput : null, outputTokens: timeoutOutput != null && timeoutOutput > 0 ? timeoutOutput : null, costUsd: timeoutCost != null && timeoutCost > 0 ? timeoutCost : null, ts: ts() });
+        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: timeoutInput != null && timeoutInput > 0 ? timeoutInput : null, outputTokens: timeoutOutput != null && timeoutOutput > 0 ? timeoutOutput : null, costUsd: metricCost(timeoutCost != null && timeoutCost > 0 ? timeoutCost : null), ts: ts() });
         clearTimeout(timeoutId);
         cleanup();
         process.exit(0);
@@ -507,7 +509,7 @@ async function main(): Promise<void> {
         const abortInput = abortStats && baselineStatsRef ? abortStats.tokens.input - baselineStatsRef.tokens.input : null;
         const abortOutput = abortStats && baselineStatsRef ? abortStats.tokens.output - baselineStatsRef.tokens.output : null;
         const abortCost = abortStats && baselineStatsRef ? abortStats.cost - baselineStatsRef.cost : null;
-        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: abortInput != null && abortInput > 0 ? abortInput : null, outputTokens: abortOutput != null && abortOutput > 0 ? abortOutput : null, costUsd: abortCost != null && abortCost > 0 ? abortCost : null, ts: ts() });
+        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: abortInput != null && abortInput > 0 ? abortInput : null, outputTokens: abortOutput != null && abortOutput > 0 ? abortOutput : null, costUsd: metricCost(abortCost != null && abortCost > 0 ? abortCost : null), ts: ts() });
         clearTimeout(timeoutId);
         cleanup();
         process.exit(0);
@@ -607,7 +609,7 @@ async function main(): Promise<void> {
       durationMs,
       inputTokens: incrementalInput > 0 ? incrementalInput : null,
       outputTokens: incrementalOutput > 0 ? incrementalOutput : null,
-      costUsd: incrementalCost > 0 ? incrementalCost : null,
+      costUsd: metricCost(incrementalCost > 0 ? incrementalCost : null),
       ts: ts(),
     });
 
@@ -621,7 +623,7 @@ async function main(): Promise<void> {
     const errInput = errStats && baselineStatsRef ? errStats.tokens.input - baselineStatsRef.tokens.input : null;
     const errOutput = errStats && baselineStatsRef ? errStats.tokens.output - baselineStatsRef.tokens.output : null;
     const errCost = errStats && baselineStatsRef ? errStats.cost - baselineStatsRef.cost : null;
-    appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: errInput != null && errInput > 0 ? errInput : null, outputTokens: errOutput != null && errOutput > 0 ? errOutput : null, costUsd: errCost != null && errCost > 0 ? errCost : null, ts: ts() });
+    appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: errInput != null && errInput > 0 ? errInput : null, outputTokens: errOutput != null && errOutput > 0 ? errOutput : null, costUsd: metricCost(errCost != null && errCost > 0 ? errCost : null), ts: ts() });
     cleanup();
     process.exit(1);
   }

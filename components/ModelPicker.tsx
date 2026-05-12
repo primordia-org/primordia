@@ -248,17 +248,31 @@ interface DropdownContentProps {
   setActiveProvider: (id: string) => void;
   filteredModels: ModelOption[];
   selectedModel: string;
+  authSource?: PresetAuthSource;
   handleSelect: (id: string) => void;
   onClose: () => void;
 }
 
+function displayModelDescription(model: ModelOption, authSource?: PresetAuthSource): string {
+  if (authSource !== "chatgpt-subscription" || !model.id.startsWith("openai-codex:")) {
+    return model.description;
+  }
+  const withoutPricing = model.description
+    .split(" · ")
+    .filter((part) => !/[$¢]\d|\d+¢/.test(part))
+    .join(" · ");
+  return withoutPricing ? `${withoutPricing} · Subscription` : "ChatGPT subscription";
+}
+
 function ModelRow({
   model,
+  authSource,
   isSelected,
   showRowIcon,
   onSelect,
 }: {
   model: ModelOption;
+  authSource?: PresetAuthSource;
   isSelected: boolean;
   showRowIcon: boolean;
   onSelect: (id: string) => void;
@@ -268,6 +282,7 @@ function ModelRow({
   const rowIconProvId = (provId === "free" || provId === "misc") && model.id.includes("/")
     ? model.id.split("/")[0]
     : provId;
+  const description = displayModelDescription(model, authSource);
   return (
     <button
       type="button"
@@ -297,9 +312,9 @@ function ModelRow({
             />
           )}
         </span>
-        {model.description && (
+        {description && (
           <span className="block text-xs text-gray-500 truncate leading-tight mt-0.5">
-            {model.description}
+            {description}
           </span>
         )}
       </span>
@@ -318,6 +333,7 @@ function DropdownContent({
   setActiveProvider,
   filteredModels,
   selectedModel,
+  authSource,
   handleSelect,
   onClose,
 }: DropdownContentProps) {
@@ -397,6 +413,7 @@ function DropdownContent({
               <ModelRow
                 key={model.id}
                 model={model}
+                authSource={authSource}
                 isSelected={model.id === selectedModel}
                 showRowIcon={showRowIcon}
                 onSelect={handleSelect}
@@ -490,6 +507,7 @@ export function ModelPicker({
   }, [search, models, effectiveProvider, providerGroups]);
 
   const selectedModelObj = models.find((m) => m.id === selectedModel);
+  const hideSelectedPrice = authSource === "chatgpt-subscription" && selectedModelObj?.id.startsWith("openai-codex:");
   const selectedProviderRaw = selectedModelObj ? getModelProvider(selectedModelObj) : null;
   // For free/misc virtual groups in the trigger, show the actual provider icon
   const selectedProvider = (selectedProviderRaw === "free" || selectedProviderRaw === "misc") && selectedModelObj?.id.includes("/")
@@ -558,7 +576,7 @@ export function ModelPicker({
           <span className={`truncate font-medium leading-tight ${compact ? "text-xs" : "text-sm"}`}>
             {selectedModelObj?.label ?? humanizeModelId(selectedModel)}
           </span>
-          {!compact && selectedModelObj?.inputPriceLabel && (
+          {!compact && selectedModelObj?.inputPriceLabel && !hideSelectedPrice && (
             <span className="text-[10px] text-gray-500 leading-tight">
               {selectedModelObj.inputPriceLabel}
             </span>
@@ -600,6 +618,7 @@ export function ModelPicker({
                 setActiveProvider={setActiveProvider}
                 filteredModels={filteredModels}
                 selectedModel={selectedModel}
+                authSource={authSource}
                 handleSelect={handleSelect}
                 onClose={() => setOpen(false)}
               />

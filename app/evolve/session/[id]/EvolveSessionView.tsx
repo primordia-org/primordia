@@ -47,8 +47,9 @@ function formatDuration(ms: number): string {
   return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
-function MetricsRow({ metrics }: { metrics: SectionMetrics }) {
-  const { durationMs, costUsd, inputTokens, outputTokens } = metrics;
+function MetricsRow({ metrics, hideCost = false }: { metrics: SectionMetrics; hideCost?: boolean }) {
+  const { durationMs, inputTokens, outputTokens } = metrics;
+  const costUsd = hideCost ? undefined : metrics.costUsd;
   const hasAny = durationMs != null || costUsd != null || inputTokens != null || outputTokens != null;
   if (!hasAny) return null;
   return (
@@ -404,12 +405,15 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
         })}
       </div>
       {latestMetrics && (
-        <MetricsRow metrics={{
-          durationMs: elapsed > 0 ? elapsed : (latestMetrics.durationMs ?? undefined),
-          costUsd: latestMetrics.costUsd ?? undefined,
-          inputTokens: latestMetrics.inputTokens ?? undefined,
-          outputTokens: latestMetrics.outputTokens ?? undefined,
-        }} />
+        <MetricsRow
+          hideCost={auth?.source === 'chatgpt-subscription'}
+          metrics={{
+            durationMs: elapsed > 0 ? elapsed : (latestMetrics.durationMs ?? undefined),
+            costUsd: latestMetrics.costUsd ?? undefined,
+            inputTokens: latestMetrics.inputTokens ?? undefined,
+            outputTokens: latestMetrics.outputTokens ?? undefined,
+          }}
+        />
       )}
     </div>
   );
@@ -516,16 +520,19 @@ function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection
         </div>
       )}
       {metricsEvent && (
-        <MetricsRow metrics={{
-          // Prefer the recorded durationMs; fall back to computing from
-          // section_start → result timestamps when durationMs is null/0.
-          durationMs: (metricsEvent.durationMs != null && metricsEvent.durationMs > 0)
-            ? metricsEvent.durationMs
-            : (startTs != null && resultEvent != null ? resultEvent.ts - startTs : undefined),
-          costUsd: metricsEvent.costUsd ?? undefined,
-          inputTokens: metricsEvent.inputTokens ?? undefined,
-          outputTokens: metricsEvent.outputTokens ?? undefined,
-        }} />
+        <MetricsRow
+          hideCost={auth?.source === 'chatgpt-subscription'}
+          metrics={{
+            // Prefer the recorded durationMs; fall back to computing from
+            // section_start → result timestamps when durationMs is null/0.
+            durationMs: (metricsEvent.durationMs != null && metricsEvent.durationMs > 0)
+              ? metricsEvent.durationMs
+              : (startTs != null && resultEvent != null ? resultEvent.ts - startTs : undefined),
+            costUsd: metricsEvent.costUsd ?? undefined,
+            inputTokens: metricsEvent.inputTokens ?? undefined,
+            outputTokens: metricsEvent.outputTokens ?? undefined,
+          }}
+        />
       )}
     </div>
   );
