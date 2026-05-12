@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { ExternalLink, ChevronDown, ChevronRight, Loader2, Eye, EyeOff } from "lucide-react";
-import { ClaudeIcon } from "@/components/brand-icons/ClaudeIcon";
+import { AuthSourceIcon } from "@/components/AgentIdentity";
 import { setStoredCredentials } from "@/lib/credentials-client";
 import { getSecret } from "@/lib/secrets-client";
 import { withBasePath } from "@/lib/base-path";
@@ -183,8 +183,8 @@ export default function CredentialsSettingsClient() {
         {/* Card header with status */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-[#d97706]/10 flex items-center justify-center text-[#d97706] shrink-0">
-              <ClaudeIcon size={18} />
+            <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center shrink-0">
+              <AuthSourceIcon source="claude-subscription" size={20} />
             </div>
             <p className="text-sm font-medium text-gray-200">Claude.ai</p>
           </div>

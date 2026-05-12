@@ -5,6 +5,7 @@ import { Check, Copy, ExternalLink, Eye, EyeOff } from "lucide-react";
 import { getSecret, setSecret, clearSecret } from "@/lib/secrets-client";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
+import { AuthSourceIcon } from "@/components/AgentIdentity";
 
 interface StoredChatGptCredentials {
   authMode: "chatgpt";
@@ -160,8 +161,8 @@ export default function ChatGptSubscriptionSettingsClient() {
     <div className="rounded-xl border border-gray-700 bg-gray-900 p-5 flex flex-col gap-5">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-emerald-400/10 flex items-center justify-center text-sm font-bold text-emerald-400 shrink-0">
-            G
+          <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center shrink-0">
+            <AuthSourceIcon source="chatgpt-subscription" size={20} />
           </div>
           <p className="text-sm font-medium text-gray-200">ChatGPT</p>
         </div>

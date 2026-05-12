@@ -5,8 +5,8 @@
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Key } from "lucide-react";
-import { ClaudeIcon } from "@/components/brand-icons/ClaudeIcon";
+import { GitBranch, Loader2, FileText, Copy, Check, RotateCw } from "lucide-react";
+import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { NavHeader } from "@/components/NavHeader";
@@ -90,7 +90,9 @@ interface SectionGroup {
   /** Stable IDs for harness/model — used by the follow-up form to populate selects correctly. */
   harnessId?: string;
   modelId?: string;
-  /** Auth source recorded in the section_start event for this agent run. */
+  /** Auth source recorded from the request event for this agent run. */
+  authSource?: PresetAuthSource;
+  /** Coarse auth source recorded in the section_start event for this agent run. */
   auth?: AgentAuthInfo;
   /** Unix ms timestamp from the section_start event — used for live elapsed-time display. */
   startTs?: number;
@@ -100,7 +102,11 @@ interface SectionGroup {
 /** Group a flat list of SessionEvents into display sections. */
 function groupEventsIntoSections(events: SessionEvent[]): SectionGroup[] {
   const sections: SectionGroup[] = [{ type: 'setup', label: 'Setup', events: [] }];
+  let pendingAuthSource: PresetAuthSource | undefined;
   for (const event of events) {
+    if ((event.type === 'initial_request' || event.type === 'followup_request') && typeof event.authSource === 'string') {
+      pendingAuthSource = normalizeAuthSource(event.authSource) ?? pendingAuthSource;
+    }
     if (event.type === 'section_start') {
       const group: SectionGroup = { type: event.sectionType, label: event.label, events: [], startTs: event.ts };
       if (event.sectionType === 'agent') {
@@ -108,6 +114,7 @@ function groupEventsIntoSections(events: SessionEvent[]): SectionGroup[] {
         group.model = event.model;
         group.harnessId = event.harnessId;
         group.modelId = event.modelId;
+        group.authSource = pendingAuthSource;
         group.auth = event.auth;
       }
       sections.push(group);
@@ -301,38 +308,8 @@ function splitAgentEventsForDisplay(events: SessionEvent[]): {
   };
 }
 
-/**
- * Small icon badge shown next to the agent name indicating which auth source
- * was used for the run. Nothing is rendered for the exe.dev gateway (default).
- */
-function AgentAuthBadge({ auth }: { auth?: AgentAuthInfo }) {
-  if (!auth || auth.source === 'llm-gateway') return null;
-  if (auth.source === 'api-key') {
-    return (
-      <span title="Used API Key" className="inline-flex items-center text-amber-400/70 hover:text-amber-400 transition-colors cursor-default">
-        <Key size={11} strokeWidth={2.5} aria-label="Used API Key" />
-      </span>
-    );
-  }
-  if (auth.source === 'claude-credentials') {
-    return (
-      <span title="Used claude.ai login" className="inline-flex items-center text-sky-400/70 hover:text-sky-400 transition-colors cursor-default">
-        <ClaudeIcon size={16} />
-      </span>
-    );
-  }
-  if (auth.source === 'chatgpt-subscription') {
-    return (
-      <span title="Used ChatGPT subscription" className="inline-flex items-center text-emerald-400/70 hover:text-emerald-400 transition-colors cursor-default text-[11px] font-bold">
-        GPT
-      </span>
-    );
-  }
-  return null;
-}
-
 /** Render a running agent/type-fix/auto-commit section (streaming events live). */
-function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, worktreePath, harness, model, auth, startTs }: {
+function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, worktreePath, harness, model, authSource, auth, startTs }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
@@ -340,13 +317,13 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
   worktreePath?: string;
   harness?: string;
   model?: string;
+  authSource?: PresetAuthSource;
   auth?: AgentAuthInfo;
   startTs?: number;
 }) {
   const borderClass = isAutoCommitSection ? "border-green-700/50" : isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
   const headingClass = isAutoCommitSection ? "text-green-300" : isTypeFixSection ? "text-orange-300" : "text-blue-300";
-  const agentLabel = harness ? (model ? `${harness} (${model})` : harness) : 'Claude Code';
-  const runningLabel = (isTypeFixSection || isAutoCommitSection) ? label : `🤖 ${agentLabel} running…`;
+  const runningLabel = (isTypeFixSection || isAutoCommitSection) ? label : null;
 
   // Live elapsed-time counter updated every second.
   const [elapsed, setElapsed] = useState<number>(startTs ? Date.now() - startTs : 0);
@@ -363,9 +340,13 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
   return (
     <div className={`rounded-lg border ${borderClass} bg-gray-900 text-sm overflow-hidden`}>
       <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
-        <span className={`font-semibold text-xs ${headingClass}`}>{runningLabel}</span>
-        {!isTypeFixSection && !isAutoCommitSection && <AgentAuthBadge auth={auth} />}
+        {runningLabel ? (
+          <span className={`font-semibold text-xs ${headingClass}`}>{runningLabel}</span>
+        ) : (
+          <AgentIdentityLine authSource={authSource} auth={auth} harness={harness} model={model} className={`font-semibold text-xs ${headingClass}`} />
+        )}
         <span className="ml-auto flex items-center gap-1.5 text-gray-500 text-xs">
+          {!runningLabel && <span>running…</span>}
           <span className="flex items-center gap-1.5 animate-pulse">
             <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
           </span>
@@ -416,7 +397,7 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
 }
 
 /** Render a completed agent/type-fix/auto-commit section with tool calls collapsed. */
-function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, worktreePath, harness, model, auth, startTs }: {
+function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, worktreePath, harness, model, authSource, auth, startTs }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
@@ -424,6 +405,7 @@ function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection
   worktreePath?: string;
   harness?: string;
   model?: string;
+  authSource?: PresetAuthSource;
   auth?: AgentAuthInfo;
   startTs?: number;
 }) {
@@ -448,18 +430,18 @@ function DoneAgentSection({ events, label, isTypeFixSection, isAutoCommitSection
   const headingClass = isAutoCommitSection ? "text-green-300" : isTypeFixSection ? "text-orange-300" : "text-blue-300";
   const doneBorderClass = hasError ? "border-red-700/50" : borderClass;
   const doneHeadingClass = hasError ? "text-red-400" : headingClass;
-  const agentLabel = harness ? (model ? `${harness} (${model})` : harness) : 'Claude Code';
   const doneTitle = hasError
-    ? (isAutoCommitSection ? "❌ Auto-commit failed" : isTypeFixSection ? "❌ Auto-fix failed" : `❌ ${agentLabel} errored`)
-    : (isAutoCommitSection ? "📦 Unstaged changes committed" : isTypeFixSection ? "🔧 Type errors fixed" : `🤖 ${agentLabel} finished`);
+    ? (isAutoCommitSection ? "❌ Auto-commit failed" : isTypeFixSection ? "❌ Auto-fix failed" : "❌")
+    : (isAutoCommitSection ? "📦 Unstaged changes committed" : isTypeFixSection ? "🔧 Type errors fixed" : null);
 
   const { detailEvents, finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
 
   return (
     <div className={`rounded-lg border ${doneBorderClass} bg-gray-900 text-sm overflow-hidden`}>
       <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
-        <span className={`font-semibold text-xs ${doneHeadingClass}`}>{doneTitle}</span>
-        {!isTypeFixSection && !isAutoCommitSection && <AgentAuthBadge auth={auth} />}
+        {doneTitle ? <span className={`font-semibold text-xs ${doneHeadingClass}`}>{doneTitle}</span> : null}
+        {!isTypeFixSection && !isAutoCommitSection && <AgentIdentityLine authSource={authSource} auth={auth} harness={harness} model={model} className={`font-semibold text-xs ${doneHeadingClass}`} />}
+        {!isTypeFixSection && !isAutoCommitSection && <span className="ml-auto text-xs text-gray-500">{hasError ? "errored" : "finished"}</span>}
       </div>
       {toolCallCount > 0 && (
         <details className="group border-b border-gray-800">
@@ -595,8 +577,8 @@ function StructuredSection({
         )}
         {agentEvents.length > 0 && (
           isActive && !hasResult
-            ? <RunningAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} worktreePath={worktreePath} harness={harness} model={model} auth={section.auth} startTs={startTs} />
-            : <DoneAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} worktreePath={worktreePath} harness={harness} model={model} auth={section.auth} startTs={startTs} />
+            ? <RunningAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} worktreePath={worktreePath} harness={harness} model={model} authSource={section.authSource} auth={section.auth} startTs={startTs} />
+            : <DoneAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} worktreePath={worktreePath} harness={harness} model={model} authSource={section.authSource} auth={section.auth} startTs={startTs} />
         )}
       </>
     );
@@ -606,9 +588,9 @@ function StructuredSection({
   if (type === 'agent' || type === 'claude' || type === 'type_fix' || type === 'auto_commit' || type === 'conflict_resolution') {
     const hasResult = events.some((e) => e.type === 'result');
     if (isActive && !hasResult) {
-      return <RunningAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} worktreePath={worktreePath} harness={harness} model={model} auth={section.auth} startTs={startTs} />;
+      return <RunningAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} worktreePath={worktreePath} harness={harness} model={model} authSource={section.authSource} auth={section.auth} startTs={startTs} />;
     }
-    return <DoneAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} worktreePath={worktreePath} harness={harness} model={model} auth={section.auth} startTs={startTs} />;
+    return <DoneAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} worktreePath={worktreePath} harness={harness} model={model} authSource={section.authSource} auth={section.auth} startTs={startTs} />;
   }
 
   // ── Deploy ───────────────────────────────────────────────────────────────

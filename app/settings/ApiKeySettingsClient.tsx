@@ -9,10 +9,10 @@ import {
 import { getSecret } from "@/lib/secrets-client";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
+import { AuthSourceIcon } from "@/components/AgentIdentity";
 
-function ComingSoonCard({ monogram, monogramClass, name, description }: {
-  monogram: string;
-  monogramClass: string;
+function ComingSoonCard({ source, name, description }: {
+  source: "openai-api-key";
   name: string;
   description: string;
 }) {
@@ -20,8 +20,8 @@ function ComingSoonCard({ monogram, monogramClass, name, description }: {
     <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-5 opacity-50 select-none">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-3">
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${monogramClass}`}>
-            {monogram}
+          <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center shrink-0">
+            <AuthSourceIcon source={source} size={20} />
           </div>
           <span className="text-sm font-medium text-gray-300">{name}</span>
         </div>
@@ -171,8 +171,8 @@ export default function ApiKeySettingsClient() {
       <div className="rounded-xl border border-gray-700 bg-gray-900 p-5 flex flex-col gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-amber-400/10 flex items-center justify-center text-sm font-bold text-amber-400 shrink-0">
-              A
+            <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center shrink-0">
+              <AuthSourceIcon source="anthropic-api-key" size={20} />
             </div>
             <div>
               <p className="text-sm font-medium text-gray-200">Anthropic</p>
@@ -259,8 +259,8 @@ export default function ApiKeySettingsClient() {
       <div className="rounded-xl border border-gray-700 bg-gray-900 p-5 flex flex-col gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-violet-400/10 flex items-center justify-center text-sm font-bold text-violet-400 shrink-0">
-              OR
+            <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center shrink-0">
+              <AuthSourceIcon source="openrouter-api-key" size={20} />
             </div>
             <div>
               <p className="text-sm font-medium text-gray-200">OpenRouter</p>
@@ -346,16 +346,9 @@ export default function ApiKeySettingsClient() {
       {/* Coming-soon providers */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <ComingSoonCard
-          monogram="O"
-          monogramClass="bg-emerald-400/10 text-emerald-400"
+          source="openai-api-key"
           name="OpenAI"
           description="GPT-4o and other OpenAI models."
-        />
-        <ComingSoonCard
-          monogram="G"
-          monogramClass="bg-blue-400/10 text-blue-400"
-          name="Google Gemini"
-          description="Gemini 2.0 Flash, Pro, and Ultra."
         />
       </div>
     </div>

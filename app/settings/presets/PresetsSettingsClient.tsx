@@ -8,6 +8,7 @@ import type { EvolvePresetWithAvailability } from "@/lib/preset-availability";
 import { firstModelForAuthSource, getHarnessesForAuthSource, filterModelsForAuthSource } from "@/lib/preset-options";
 import type { ModelOption } from "@/lib/agent-config";
 import { ModelPicker } from "@/components/ModelPicker";
+import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { trackEvent } from "@/lib/events-client";
 
 const AUTH_SOURCES = Object.keys(PRESET_AUTH_SOURCE_LABELS) as PresetAuthSource[];
@@ -31,11 +32,13 @@ function PresetCard({
   disabled = false,
   showDisabledPill = disabled,
   right,
+  modelLabel,
 }: {
   preset: EvolvePresetWithAvailability | EvolvePreset;
   disabled?: boolean;
   showDisabledPill?: boolean;
   right?: ReactNode;
+  modelLabel?: string;
 }) {
   const unavailable = 'available' in preset && !preset.available;
   return (
@@ -58,8 +61,8 @@ function PresetCard({
               <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-500">disabled</span>
             )}
           </div>
-          <p className="text-xs text-gray-500 mt-0.5 truncate">
-            {PRESET_AUTH_SOURCE_LABELS[preset.authSource]} · {preset.harness} · {preset.model}
+          <p className="text-xs text-gray-500 mt-1 truncate">
+            <AgentIdentityLine authSource={preset.authSource} harness={preset.harness} model={modelLabel ?? preset.model} iconSize={12} />
           </p>
         </div>
         {right && <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">{right}</div>}
@@ -123,6 +126,10 @@ export default function PresetsSettingsClient() {
   function changeHarness(preset: EvolvePreset, harness: string) {
     const model = firstModelForAuthSource(modelOptionsByHarness, preset.authSource, harness) || preset.model;
     updatePreset(preset.id, { harness, model });
+  }
+
+  function modelLabelFor(harness: string, model: string): string {
+    return modelOptionsByHarness[harness]?.find((m) => m.id === model)?.label ?? model;
   }
 
   function normalizedPresets(source = custom): EvolvePreset[] {
@@ -194,6 +201,7 @@ export default function PresetsSettingsClient() {
                 preset={p}
                 disabled={disabled}
                 showDisabledPill={disabled}
+                modelLabel={modelLabelFor(p.harness, p.model)}
                 right={
                   <button
                     type="button"
@@ -225,6 +233,7 @@ export default function PresetsSettingsClient() {
                 <PresetCard
                   key={p.id}
                   preset={{ ...p, harness: selectedHarness, model: selectedModel }}
+                  modelLabel={modelLabelFor(selectedHarness, selectedModel)}
                   right={
                     <>
                       <button type="button" title="Edit preset" onClick={() => editPreset(p.id, true)} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-colors">

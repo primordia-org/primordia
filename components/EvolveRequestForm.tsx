@@ -22,11 +22,12 @@ import {
   DEFAULT_CAVEMAN_INTENSITY,
   type CavemanIntensity,
 } from "../lib/agent-config";
-import { PRESET_AUTH_SOURCE_LABELS, type EvolvePreset, type PresetAuthSource } from "../lib/presets";
+import { type EvolvePreset, type PresetAuthSource } from "../lib/presets";
 import type { EvolvePresetWithAvailability } from "../lib/preset-availability";
 import { PageElementInspector, PageElementInfo, captureElementFiles } from "./PageElementInspector";
 import { useSounds } from "@/lib/sounds";
 import { trackEvent } from "@/lib/events-client";
+import { AgentIdentityLine } from "@/components/AgentIdentity";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -592,7 +593,7 @@ export function EvolveRequestForm({
                   </select>
                 </div>
                 <p className="text-[10px] text-gray-500 pl-[4.25rem]">
-                  {selectedPreset.harness} · {selectedPreset.model} · {PRESET_AUTH_SOURCE_LABELS[selectedPreset.authSource]}
+                  <AgentIdentityLine authSource={selectedPreset.authSource} harness={selectedPreset.harness} model={selectedPreset.model} iconSize={11} />
                   {' '}<a href={withBasePath('/settings')} className="underline hover:text-gray-300">Connect more providers</a>
                   {' · '}<a href={withBasePath('/settings/presets')} className="underline hover:text-gray-300">Manage presets</a>
                 </p>
