@@ -139,6 +139,13 @@ export interface UserPreferences {
   updatedAt: number;
 }
 
+export interface EncryptedCredential {
+  userId: string;
+  authSource: string;
+  value: string;
+  updatedAt: number;
+}
+
 export interface DbAdapter {
   // Users
   createUser(user: User): Promise<void>;
@@ -179,9 +186,15 @@ export interface DbAdapter {
   getUserRoles(userId: string): Promise<string[]>;
   getUsersWithRole(roleName: string): Promise<string[]>;
 
-  // User preferences (key-value store per user)
+  // User preferences (non-secret key-value store per user)
   getUserPreferences(userId: string, keys: string[]): Promise<Record<string, string>>;
   setUserPreferences(userId: string, prefs: Record<string, string>): Promise<void>;
+
+  // Encrypted credentials (server stores ciphertext only; browser owns AES key)
+  getEncryptedCredential(userId: string, authSource: string): Promise<string | null>;
+  setEncryptedCredential(userId: string, authSource: string, value: string): Promise<void>;
+  deleteEncryptedCredential(userId: string, authSource: string): Promise<void>;
+  listEncryptedCredentialSources(userId: string): Promise<string[]>;
 
   // User events
   appendEvent(event: UserEvent): Promise<number>;

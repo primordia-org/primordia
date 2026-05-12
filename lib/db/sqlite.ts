@@ -51,9 +51,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       id TEXT PRIMARY KEY,
       status TEXT NOT NULL DEFAULT 'pending',
       user_id TEXT,
-      expires_at INTEGER NOT NULL,
-      api_key_jwk TEXT,
-      credentials_key_jwk TEXT
+      expires_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS roles (
       name TEXT PRIMARY KEY,
@@ -68,6 +66,13 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       value TEXT NOT NULL,
       updated_at INTEGER NOT NULL,
       PRIMARY KEY (user_id, key)
+    );
+    CREATE TABLE IF NOT EXISTS encrypted_credentials (
+      user_id TEXT NOT NULL REFERENCES users(id),
+      auth_source TEXT NOT NULL,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, auth_source)
     );
     CREATE TABLE IF NOT EXISTS instance_config (
       key TEXT PRIMARY KEY,
@@ -107,18 +112,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     );
   `);
 
-  // Migration: add push-flow columns to cross_device_tokens (no longer used but kept for compat)
-  try {
-    db.exec("ALTER TABLE cross_device_tokens ADD COLUMN api_key_jwk TEXT");
-  } catch {
-    // Column already exists — ignore
-  }
-  try {
-    db.exec("ALTER TABLE cross_device_tokens ADD COLUMN credentials_key_jwk TEXT");
-  } catch {
-    // Column already exists — ignore
-  }
-  // Migration: add encrypted_credentials column for pull-flow ECDH credential transfer
+  // Migration: add encrypted_credentials column for ECDH credential transfer
   try {
     db.exec("ALTER TABLE cross_device_tokens ADD COLUMN encrypted_credentials TEXT");
   } catch {
@@ -480,6 +474,31 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       }
     },
 
+
+    // ── Encrypted credentials ────────────────────────────────────────────────
+
+    async getEncryptedCredential(userId: string, authSource: string) {
+      const row = db
+        .prepare("SELECT value FROM encrypted_credentials WHERE user_id = ? AND auth_source = ?")
+        .get(userId, authSource) as { value: string } | null;
+      return row?.value ?? null;
+    },
+    async setEncryptedCredential(userId: string, authSource: string, value: string) {
+      db.prepare(
+        `INSERT INTO encrypted_credentials (user_id, auth_source, value, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (user_id, auth_source) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+      ).run(userId, authSource, value, Date.now());
+    },
+    async deleteEncryptedCredential(userId: string, authSource: string) {
+      db.prepare("DELETE FROM encrypted_credentials WHERE user_id = ? AND auth_source = ?").run(userId, authSource);
+    },
+    async listEncryptedCredentialSources(userId: string) {
+      const rows = db
+        .prepare("SELECT auth_source FROM encrypted_credentials WHERE user_id = ? ORDER BY auth_source ASC")
+        .all(userId) as Array<{ auth_source: string }>;
+      return rows.map((r) => r.auth_source);
+    },
 
     // ── Instance identity & social graph ─────────────────────────────────────
 

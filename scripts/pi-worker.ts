@@ -28,8 +28,7 @@ import {
 } from '@mariozechner/pi-coding-agent';
 import * as fs from 'fs';
 import * as path from 'path';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const minimatch = require('minimatch') as (path: string, pattern: string) => boolean;
+import { minimatch } from 'minimatch';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
@@ -42,19 +41,25 @@ import {
 const ANTHROPIC_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai';
 
-/** Infer the pi provider name from a model ID. Defaults to 'anthropic'. */
-function inferProvider(modelId: string): 'anthropic' | 'openai' | 'openrouter' {
+/** Infer the pi provider and strip any Primordia-only model ID namespace. */
+function normalizeModelSelection(modelId: string | undefined): { provider: 'anthropic' | 'openai' | 'openai-codex' | 'openrouter'; modelId: string | undefined } {
+  if (!modelId) return { provider: 'anthropic', modelId };
+  if (modelId.startsWith('openai-codex:')) {
+    return { provider: 'openai-codex', modelId: modelId.slice('openai-codex:'.length) };
+  }
   // Direct OpenAI model IDs (no slash, well-known prefixes)
-  if (modelId.startsWith('gpt-') || /^o\d/.test(modelId) || modelId.startsWith('codex-')) return 'openai';
+  if (modelId.startsWith('gpt-') || /^o\d/.test(modelId) || modelId.startsWith('codex-')) return { provider: 'openai', modelId };
   // OpenRouter model IDs always contain a slash (e.g. 'google/gemini-2.5-flash')
-  if (modelId.includes('/')) return 'openrouter';
-  return 'anthropic';
+  if (modelId.includes('/')) return { provider: 'openrouter', modelId };
+  return { provider: 'anthropic', modelId };
 }
 
 // Capture and immediately clear the injected user API key so it does not
 // persist in process.env (and cannot leak to child processes).
 const _userApiKey = process.env.PRIMORDIA_USER_API_KEY;
 delete process.env.PRIMORDIA_USER_API_KEY;
+const _chatGptOAuth = process.env.PRIMORDIA_CHATGPT_OAUTH;
+delete process.env.PRIMORDIA_CHATGPT_OAUTH;
 
 interface WorkerConfig {
   sessionId: string;
@@ -181,7 +186,9 @@ async function main(): Promise<void> {
 
   const { sessionId, worktreePath, prompt, useContinue } = config;
   const timeoutMs = config.timeoutMs ?? 20 * 60 * 1000;
-  const modelId = config.model;
+  const { provider: modelProvider, modelId } = normalizeModelSelection(config.model);
+  const hideDollarCost = modelProvider === 'openai-codex' && Boolean(_chatGptOAuth);
+  const metricCost = (cost: number | null): number | null => hideDollarCost ? null : cost;
 
   // sessionId is available in config but not used directly here.
   void sessionId;
@@ -249,14 +256,35 @@ async function main(): Promise<void> {
   try {
     // Auth — use the user-supplied API key when available, otherwise fall back
     // to the exe.dev LLM gateway (which handles auth with any non-empty key).
-    const authStorage = AuthStorage.create();
-    const modelProvider = modelId ? inferProvider(modelId) : 'anthropic';
-    if (_userApiKey) {
+    const authStorage = AuthStorage.inMemory();
+    if (_chatGptOAuth && modelProvider === 'openai-codex') {
+      const stored = JSON.parse(_chatGptOAuth) as {
+        tokens?: {
+          accessToken?: string;
+          refreshToken?: string;
+          accountId?: string | null;
+          accessTokenExpiresAt?: number | null;
+        };
+      };
+      const access = stored.tokens?.accessToken;
+      const refresh = stored.tokens?.refreshToken;
+      if (!access || !refresh) {
+        throw new Error('Stored ChatGPT subscription credentials are missing access or refresh tokens. Reconnect ChatGPT in Settings → Subscriptions.');
+      }
+      authStorage.set('openai-codex', {
+        type: 'oauth',
+        access,
+        refresh,
+        expires: stored.tokens?.accessTokenExpiresAt ?? 0,
+        accountId: stored.tokens?.accountId ?? undefined,
+      });
+      process.stderr.write('Using ChatGPT subscription OAuth for openai-codex\n');
+    } else if (_userApiKey) {
       authStorage.setRuntimeApiKey(modelProvider, _userApiKey);
       process.stderr.write(`Using user-supplied ${modelProvider} API key\n`);
     } else {
-      // Gateway handles auth for all providers — set a placeholder key for each
-      // supported provider so the SDK knows auth is configured.
+      // Gateway handles auth for Anthropic/OpenAI — set a placeholder key for each
+      // supported gateway provider so the SDK knows auth is configured.
       authStorage.setRuntimeApiKey('anthropic', 'gateway');
       authStorage.setRuntimeApiKey('openai', 'gateway');
       process.stderr.write('Using exe.dev LLM gateway\n');
@@ -322,7 +350,6 @@ async function main(): Promise<void> {
       modelRegistry,
       resourceLoader: loader,
       sessionManager: sessionMgr,
-      // createCodingTools = read, bash, edit, write — pass as names for new API
       tools: ["read", "bash", "edit", "write"],
     });
 
@@ -456,7 +483,7 @@ async function main(): Promise<void> {
           durationMs: ts() - startTime,
           inputTokens: midInput > 0 ? midInput : null,
           outputTokens: midOutput > 0 ? midOutput : null,
-          costUsd: midCost > 0 ? midCost : null,
+          costUsd: metricCost(midCost > 0 ? midCost : null),
           ts: ts(),
         });
       }
@@ -472,7 +499,7 @@ async function main(): Promise<void> {
         const timeoutInput = timeoutStats && baselineStatsRef ? timeoutStats.tokens.input - baselineStatsRef.tokens.input : null;
         const timeoutOutput = timeoutStats && baselineStatsRef ? timeoutStats.tokens.output - baselineStatsRef.tokens.output : null;
         const timeoutCost = timeoutStats && baselineStatsRef ? timeoutStats.cost - baselineStatsRef.cost : null;
-        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: timeoutInput != null && timeoutInput > 0 ? timeoutInput : null, outputTokens: timeoutOutput != null && timeoutOutput > 0 ? timeoutOutput : null, costUsd: timeoutCost != null && timeoutCost > 0 ? timeoutCost : null, ts: ts() });
+        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: timeoutInput != null && timeoutInput > 0 ? timeoutInput : null, outputTokens: timeoutOutput != null && timeoutOutput > 0 ? timeoutOutput : null, costUsd: metricCost(timeoutCost != null && timeoutCost > 0 ? timeoutCost : null), ts: ts() });
         clearTimeout(timeoutId);
         cleanup();
         process.exit(0);
@@ -482,7 +509,7 @@ async function main(): Promise<void> {
         const abortInput = abortStats && baselineStatsRef ? abortStats.tokens.input - baselineStatsRef.tokens.input : null;
         const abortOutput = abortStats && baselineStatsRef ? abortStats.tokens.output - baselineStatsRef.tokens.output : null;
         const abortCost = abortStats && baselineStatsRef ? abortStats.cost - baselineStatsRef.cost : null;
-        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: abortInput != null && abortInput > 0 ? abortInput : null, outputTokens: abortOutput != null && abortOutput > 0 ? abortOutput : null, costUsd: abortCost != null && abortCost > 0 ? abortCost : null, ts: ts() });
+        appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: abortInput != null && abortInput > 0 ? abortInput : null, outputTokens: abortOutput != null && abortOutput > 0 ? abortOutput : null, costUsd: metricCost(abortCost != null && abortCost > 0 ? abortCost : null), ts: ts() });
         clearTimeout(timeoutId);
         cleanup();
         process.exit(0);
@@ -582,7 +609,7 @@ async function main(): Promise<void> {
       durationMs,
       inputTokens: incrementalInput > 0 ? incrementalInput : null,
       outputTokens: incrementalOutput > 0 ? incrementalOutput : null,
-      costUsd: incrementalCost > 0 ? incrementalCost : null,
+      costUsd: metricCost(incrementalCost > 0 ? incrementalCost : null),
       ts: ts(),
     });
 
@@ -596,7 +623,7 @@ async function main(): Promise<void> {
     const errInput = errStats && baselineStatsRef ? errStats.tokens.input - baselineStatsRef.tokens.input : null;
     const errOutput = errStats && baselineStatsRef ? errStats.tokens.output - baselineStatsRef.tokens.output : null;
     const errCost = errStats && baselineStatsRef ? errStats.cost - baselineStatsRef.cost : null;
-    appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: errInput != null && errInput > 0 ? errInput : null, outputTokens: errOutput != null && errOutput > 0 ? errOutput : null, costUsd: errCost != null && errCost > 0 ? errCost : null, ts: ts() });
+    appendSessionEvent(ndjsonPath, { type: 'metrics', durationMs: ts() - startTime, inputTokens: errInput != null && errInput > 0 ? errInput : null, outputTokens: errOutput != null && errOutput > 0 ? errOutput : null, costUsd: metricCost(errCost != null && errCost > 0 ? errCost : null), ts: ts() });
     cleanup();
     process.exit(1);
   }

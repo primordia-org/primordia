@@ -15,12 +15,13 @@ import type { ModelOption } from '../lib/agent-config';
 // ── Providers per harness (mirrors HARNESS_PROVIDERS in pi-model-registry.server.ts) ──
 const HARNESS_PROVIDERS: Record<string, string[]> = {
   'claude-code': ['anthropic'],
-  'pi': ['anthropic', 'openai', 'openrouter'],
+  'pi': ['anthropic', 'openai-codex', 'openai', 'openrouter'],
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
+  'openai-codex': 'ChatGPT',
   openrouter: 'OpenRouter',
 };
 
@@ -31,6 +32,11 @@ type RawModel = {
   reasoning: boolean;
   cost?: { input: number; output: number; cacheRead: number; cacheWrite: number };
 };
+
+const UNSUPPORTED_CHATGPT_SUBSCRIPTION_MODEL_IDS = new Set<string>([
+  // ChatGPT subscription OAuth rejects this model for Codex runs.
+  'gpt-5.1-codex-mini',
+]);
 
 function fmt(n: number): string {
   if (n === 0) return '$0';
@@ -89,16 +95,21 @@ function filterToLatestVersions(models: RawModel[]): RawModel[] {
   return Array.from(groups.values()).map(g => g.model);
 }
 
-const auth = AuthStorage.create();
+const auth = AuthStorage.inMemory();
 auth.setRuntimeApiKey('anthropic', 'gateway');
 auth.setRuntimeApiKey('openai', 'gateway');
+auth.set('openai-codex', { type: 'oauth', access: 'placeholder', refresh: 'placeholder', expires: Date.now() + 60_000 });
 auth.setRuntimeApiKey('openrouter', 'placeholder');
 const registry = ModelRegistry.create(auth);
 const allModels = (registry as unknown as { getAll(): RawModel[] }).getAll();
 
 const result: Record<string, ModelOption[]> = {};
 for (const [harnessId, providers] of Object.entries(HARNESS_PROVIDERS)) {
-  const providerModels = allModels.filter(m => providers.includes(m.provider));
+  const providerModels = allModels.filter(m => {
+    if (!providers.includes(m.provider)) return false;
+    if (m.provider === 'openai-codex' && UNSUPPORTED_CHATGPT_SUBSCRIPTION_MODEL_IDS.has(m.id)) return false;
+    return true;
+  });
   const filtered = filterToLatestVersions(providerModels);
   filtered.sort((a, b) => {
     const pi = providers.indexOf(a.provider), pj = providers.indexOf(b.provider);
@@ -118,7 +129,7 @@ for (const [harnessId, providers] of Object.entries(HARNESS_PROVIDERS)) {
       ? `${providerLabel}${reasoningLabel} · ${pricing.full}`
       : `${providerLabel}${reasoningLabel}`;
     return {
-      id: m.id,
+      id: m.provider === 'openai-codex' ? `openai-codex:${m.id}` : m.id,
       label: m.name,
       description,
       ...(pricing ? { pricingLabel: pricing.full, inputPriceLabel: pricing.input } : {}),

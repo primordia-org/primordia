@@ -12,23 +12,22 @@
 
 import { useState, useRef, useEffect, useCallback, FormEvent, memo } from "react";
 import { Paperclip, Settings, ChevronDown, Crosshair, Loader2 } from "lucide-react";
-import { ModelPicker } from "./ModelPicker";
 import { useRouter } from "next/navigation";
 import { withBasePath } from "../lib/base-path";
-import { encryptStoredApiKey, encryptStoredOpenRouterApiKey } from "../lib/api-key-client";
-import { encryptStoredCredentials } from "../lib/credentials-client";
+import { appendCredentialFieldsForAuthSource } from "../lib/preset-credentials-client";
 import {
-  HARNESS_OPTIONS,
   DEFAULT_HARNESS,
   DEFAULT_MODEL,
   CAVEMAN_INTENSITIES,
   DEFAULT_CAVEMAN_INTENSITY,
-  type ModelOption,
   type CavemanIntensity,
 } from "../lib/agent-config";
+import { type EvolvePreset, type PresetAuthSource } from "../lib/presets";
+import type { EvolvePresetWithAvailability } from "../lib/preset-availability";
 import { PageElementInspector, PageElementInfo, captureElementFiles } from "./PageElementInspector";
 import { useSounds } from "@/lib/sounds";
 import { trackEvent } from "@/lib/events-client";
+import { AgentIdentityLine } from "@/components/AgentIdentity";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,6 +82,8 @@ interface EvolveRequestFormProps {
     request: string;
     harness: string;
     model: string;
+    authSource: PresetAuthSource;
+    presetId: string;
     files: File[];
   }) => Promise<void>;
   /**
@@ -153,26 +154,33 @@ export function EvolveRequestForm({
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  // Priority: follow-up session default > server-loaded sticky preference > compile-time default.
-  const [selectedHarness, setSelectedHarness] = useState(
-    defaultHarness ?? initialHarness ?? DEFAULT_HARNESS,
-  );
-  const [selectedModel, setSelectedModel] = useState(
-    defaultModel ?? initialModel ?? DEFAULT_MODEL,
-  );
+  const [presets, setPresets] = useState<EvolvePresetWithAvailability[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>("");
+  const availablePresets = presets.filter((preset) => preset.available);
+  const selectedPreset = presets.find((p) => p.id === selectedPresetId && p.available) ?? availablePresets[0] ?? {
+    id: 'fallback',
+    name: 'Default',
+    authSource: 'exe-dev-gateway' as PresetAuthSource,
+    harness: defaultHarness ?? initialHarness ?? DEFAULT_HARNESS,
+    model: defaultModel ?? initialModel ?? DEFAULT_MODEL,
+  };
+  const selectedHarness = selectedPreset.harness;
+  const selectedModel = selectedPreset.model;
   const [cavemanMode, setCavemanMode] = useState(initialCavemanMode ?? false);
   const [cavemanIntensity, setCavemanIntensity] = useState<CavemanIntensity>(
     initialCavemanIntensity ?? DEFAULT_CAVEMAN_INTENSITY,
   );
-  // ── Dynamic model list (fetched from /api/evolve/models) ──────────────────
-  const [modelOptionsByHarness, setModelOptionsByHarness] = useState<Record<string, ModelOption[]>>({});
+  // ── Available presets ────────────────────────────────────────────────────
   useEffect(() => {
-    fetch(withBasePath('/api/evolve/models'))
+    fetch(withBasePath('/api/evolve/presets'))
       .then((r) => r.json())
-      .then((data: Record<string, ModelOption[]>) => {
-        setModelOptionsByHarness(data);
+      .then((data: { presets?: EvolvePresetWithAvailability[]; selectedPresetId?: string | null }) => {
+        const nextPresets = data.presets ?? [];
+        const firstAvailable = nextPresets.find((preset) => preset.available);
+        setPresets(nextPresets);
+        setSelectedPresetId(data.selectedPresetId ?? firstAvailable?.id ?? "");
       })
-      .catch(() => { /* silently fall back to empty list */ });
+      .catch(() => { /* fallback object keeps form usable */ });
   }, []);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -252,6 +260,8 @@ export function EvolveRequestForm({
           request: effectiveRequest,
           harness: selectedHarness,
           model: selectedModel,
+          authSource: selectedPreset.authSource,
+          presetId: selectedPreset.id,
           files: allFiles,
         });
         // Reset form on success (caveman mode/intensity are sticky — not reset).
@@ -264,24 +274,15 @@ export function EvolveRequestForm({
         formData.append("request", effectiveRequest);
         formData.append("harness", selectedHarness);
         formData.append("model", selectedModel);
+        formData.append("presetId", selectedPreset.id);
+        formData.append("authSource", selectedPreset.authSource);
         formData.append("cavemanMode", String(cavemanMode));
         formData.append("cavemanIntensity", cavemanIntensity);
         for (const file of allFiles) {
           formData.append("attachments", file);
         }
-        // Only one auth token is ever sent. Credentials are only meaningful
-        // for the claude-code harness; OpenRouter models (id contains '/') use
-        // the OpenRouter key; everything else uses the Anthropic key.
-        if (selectedHarness === 'claude-code') {
-          const encryptedCredentials = await encryptStoredCredentials();
-          if (encryptedCredentials) formData.append("encryptedCredentials", JSON.stringify(encryptedCredentials));
-        } else if (selectedModel.includes('/')) {
-          const encryptedApiKey = await encryptStoredOpenRouterApiKey();
-          if (encryptedApiKey) formData.append("encryptedApiKey", encryptedApiKey);
-        } else {
-          const encryptedApiKey = await encryptStoredApiKey();
-          if (encryptedApiKey) formData.append("encryptedApiKey", encryptedApiKey);
-        }
+        // Preset auth source decides which one credential to send.
+        await appendCredentialFieldsForAuthSource(formData, selectedPreset.authSource);
 
         const res = await fetch(withBasePath("/api/evolve"), { method: "POST", body: formData });
         const data = (await res.json()) as { sessionId?: string; error?: string };
@@ -295,8 +296,6 @@ export function EvolveRequestForm({
           setAttachedFiles([]);
           setElementAttachments([]);
           setShowAdvanced(false);
-          setSelectedHarness(DEFAULT_HARNESS);
-          setSelectedModel(DEFAULT_MODEL);
           // caveman mode/intensity are sticky — not reset
           sounds.sparkle();
           onSessionCreated(data.sessionId!);
@@ -375,7 +374,7 @@ export function EvolveRequestForm({
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const isSubmitDisabled = isLoading || disabled || !input.trim();
+  const isSubmitDisabled = isLoading || disabled || !input.trim() || availablePresets.length === 0;
   const buttonLabel =
     disabled && disabledLabel ? disabledLabel : isLoading ? "Submitting…" : submitLabel;
 
@@ -570,41 +569,34 @@ export function EvolveRequestForm({
 
           {showAdvanced && (
             <div className="mt-3 flex flex-col gap-3">
-              <div className="flex items-center gap-3">
-                <label className="text-xs text-gray-400 w-14 flex-shrink-0">Harness</label>
-                <select
-                  data-id="evolve/harness-select"
-                  value={selectedHarness}
-                  onChange={(e) => {
-                    const harness = e.target.value;
-                    const models = modelOptionsByHarness[harness];
-                    const newModel = models?.[0]?.id ?? DEFAULT_MODEL;
-                    setSelectedHarness(harness);
-                    setSelectedModel(newModel);
-                    trackEvent("evolve-form/harness-changed/v1", { harness, model: newModel });
-                  }}
-                  disabled={isLoading}
-                  className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
-                >
-                  {HARNESS_OPTIONS.map((h) => (
-                    <option key={h.id} value={h.id}>
-                      {h.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-3">
-                  <label className="text-xs text-gray-400 w-14 flex-shrink-0">Model</label>
-                  <ModelPicker
-                    modelOptionsByHarness={modelOptionsByHarness}
-                    selectedHarness={selectedHarness}
-                    selectedModel={selectedModel}
-                    onChange={(model) => { setSelectedModel(model); trackEvent("evolve-form/model-changed/v1", { model, harness: selectedHarness }); }}
-                    disabled={isLoading}
-                    compact
-                  />
+                  <label className="text-xs text-gray-400 w-14 flex-shrink-0">Preset</label>
+                  <select
+                    data-id="evolve/preset-select"
+                    value={selectedPreset.id}
+                    onChange={(e) => {
+                      const preset = availablePresets.find((p) => p.id === e.target.value);
+                      setSelectedPresetId(e.target.value);
+                      if (preset) trackEvent("evolve-form/preset-changed/v1", { presetId: preset.id, harness: preset.harness, model: preset.model, authSource: preset.authSource });
+                    }}
+                    disabled={isLoading || availablePresets.length === 0}
+                    className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
+                  >
+                    {presets.length === 0 ? (
+                      <option value={selectedPreset.id}>No presets</option>
+                    ) : availablePresets.length === 0 ? (
+                      <option value={selectedPreset.id}>No available presets</option>
+                    ) : availablePresets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>{preset.name}</option>
+                    ))}
+                  </select>
                 </div>
+                <p className="text-[10px] text-gray-500 pl-[4.25rem]">
+                  <AgentIdentityLine authSource={selectedPreset.authSource} harness={selectedPreset.harness} model={selectedPreset.model} iconSize={11} />
+                  {' '}<a href={withBasePath('/settings')} className="underline hover:text-gray-300">Connect more providers</a>
+                  {' · '}<a href={withBasePath('/settings/presets')} className="underline hover:text-gray-300">Manage presets</a>
+                </p>
               </div>
               <div className="border-t border-gray-800 pt-2">
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 mb-2">Skills</p>

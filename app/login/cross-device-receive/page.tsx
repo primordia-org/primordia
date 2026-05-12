@@ -82,16 +82,15 @@ function ReceivePageInner() {
           // Decrypt and save credential keys if the push bundle is present.
           if (data.encryptedCredentials && receiverPrivRef.current) {
             try {
-              const { k1, k2 } = await decryptPushCredentials(
+              const aesKeyJwk = await decryptPushCredentials(
                 receiverPrivRef.current,
                 data.encryptedCredentials
               );
-              if (k1) {
+              if (aesKeyJwk) {
                 // Migrate any credentials this device stored under its own key,
                 // then adopt the sender's key so both devices share one AES key.
-                await adoptNewAesKey(k1);
+                await adoptNewAesKey(aesKeyJwk);
               }
-              if (k2) localStorage.setItem("primordia_credentials_aes_key", k2);
             } catch {
               // Decryption failed — sign-in still succeeds; credentials just won't transfer
             }

@@ -99,28 +99,25 @@ The first user to register is automatically granted both `admin` and `can_evolve
 > The page has two tabs in the sidebar: **API Keys** (`/settings`) and **Claude.ai Subscription** (`/settings/claude-ai`).
 > Steps 6–8 live on the API Keys tab; Step 9 switches to the Claude.ai tab.
 
-### Step 6 — Account Settings / priority cascade
+### Step 6 — Account Settings / credential sources
 
-- **Anchor:** `/settings` — highlight the priority badge near the top of the page: **Claude.ai › Anthropic API key › exe.dev gateway**
+- **Anchor:** `/settings` — highlight the API Keys page header
 - **[TOOLTIP]:**
-  > This is **Account Settings** — where you tell Primordia which AI service to use.
+  > This is **Account Settings** — where you save AI credentials that can power Evolve.
   >
-  > It works as a cascade (highest priority first):
-  > 1. **Claude.ai** subscription — if signed in
-  > 2. **Anthropic API key** — if entered
-  > 3. **exe.dev gateway** — the built-in fallback
+  > Credentials are not ordered globally. Each Evolve preset chooses one billing source explicitly: Claude.ai, an API key, ChatGPT, OpenRouter, or the exe.dev gateway.
   >
-  > You only need to configure one. Pick whichever fits you best.
+  > You only need to configure the sources you want to use in presets.
 - **[ADVANCE]:** "Next" button
 
 ### Step 7 — Option 1: exe.dev gateway (zero-config)
 
-- **Anchor:** `/settings` — highlight the "exe.dev gateway" portion of the priority badge
+- **Anchor:** `/settings/presets` — highlight the built-in exe.dev gateway preset
   - `[SKIP IF: instance is not hosted on exe.dev]`
 - **[TOOLTIP]:**
   > **Already set up — nothing to do.**
   >
-  > Because you're on exe.dev, the gateway is your automatic fallback. Your Shelley tokens are used whenever no other credential is configured.
+  > Because you're on exe.dev, you can pick an exe.dev gateway preset without storing a credential. Your Shelley tokens are used only when that preset is selected.
   >
   > _(Future: show remaining Shelley token balance here once the exe.dev API exposes it.)_
 - **[ADVANCE]:** "Next" button
@@ -133,7 +130,7 @@ The first user to register is automatically granted both `admin` and `can_evolve
   >
   > OpenRouter has a free tier with capable open-source coding models — no credit card needed. Get a key at **openrouter.ai/keys** (the "Get a key" link is right on the card), paste it in, and hit **Save key**.
   >
-  > Your key starts with `sk-or-v1-`. It overrides the exe.dev gateway when set.
+  > Your key starts with `sk-or-v1-`. Use it by selecting an OpenRouter preset in Evolve.
 - **[ADVANCE]:** "Next" button
 
 ### Step 9 — Option 3: Claude.ai subscription
@@ -153,7 +150,7 @@ The first user to register is automatically granted both `admin` and `can_evolve
 
 - **Anchor:** `/settings/claude-ai` — no highlight
 - **[TOOLTIP]:**
-  > That's it for credentials. Come back to Account Settings any time from the ☰ menu to update or change your choice.
+  > That's it for credentials. Come back to Account Settings any time from the ☰ menu to update saved sources, then choose among them with Evolve presets.
   >
   > Now let's see what you can actually do with it.
 - **[ADVANCE]:** "Next" button; navigate back to `/`

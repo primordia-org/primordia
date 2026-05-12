@@ -9,6 +9,7 @@
 // Docking: four corner buttons in the title bar snap the dialog to a corner.
 
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { EvolveRequestForm } from "./EvolveRequestForm";
 import { withBasePath } from "../lib/base-path";
@@ -359,34 +360,98 @@ export function EvolveSubmitToast({
   onDismiss: () => void;
 }) {
   const [visible, setVisible] = useState(false);
+  const [dragOffset, setDragOffset] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const enterTimerRef = useRef<number | null>(null);
+  const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const removeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dismissingRef = useRef(false);
+  const swipeRef = useRef<{ pointerId: number; startX: number; currentX: number } | null>(null);
+
+  const clearToastTimers = () => {
+    if (enterTimerRef.current !== null) {
+      cancelAnimationFrame(enterTimerRef.current);
+      enterTimerRef.current = null;
+    }
+    if (fadeOutTimerRef.current !== null) {
+      clearTimeout(fadeOutTimerRef.current);
+      fadeOutTimerRef.current = null;
+    }
+    if (removeTimerRef.current !== null) {
+      clearTimeout(removeTimerRef.current);
+      removeTimerRef.current = null;
+    }
+  };
+
+  const dismissToast = (swipeDirection: -1 | 0 | 1 = 0) => {
+    if (dismissingRef.current) return;
+    dismissingRef.current = true;
+    clearToastTimers();
+    setIsDragging(false);
+    if (swipeDirection !== 0) {
+      setDragOffset(swipeDirection * 420);
+    }
+    setVisible(false);
+    removeTimerRef.current = setTimeout(() => onDismiss(), 500);
+  };
 
   useEffect(() => {
     // Trigger enter animation on the next frame.
-    const enter = requestAnimationFrame(() => setVisible(true));
+    enterTimerRef.current = requestAnimationFrame(() => setVisible(true));
     // Begin fade-out just before the 5 s mark.
-    const fadeOut = setTimeout(() => setVisible(false), 4500);
-    // Remove from DOM after the transition completes.
-    const remove = setTimeout(() => onDismiss(), 5000);
-    return () => {
-      cancelAnimationFrame(enter);
-      clearTimeout(fadeOut);
-      clearTimeout(remove);
-    };
+    fadeOutTimerRef.current = setTimeout(() => dismissToast(), 4500);
+    return clearToastTimers;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest("a, button")) return;
+    swipeRef.current = { pointerId: event.pointerId, startX: event.clientX, currentX: event.clientX };
+    setIsDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const swipe = swipeRef.current;
+    if (!swipe || swipe.pointerId !== event.pointerId) return;
+    swipe.currentX = event.clientX;
+    setDragOffset(event.clientX - swipe.startX);
+  };
+
+  const finishSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const swipe = swipeRef.current;
+    if (!swipe || swipe.pointerId !== event.pointerId) return;
+    const offset = swipe.currentX - swipe.startX;
+    swipeRef.current = null;
+    setIsDragging(false);
+    if (Math.abs(offset) >= 96) {
+      dismissToast(offset > 0 ? 1 : -1);
+    } else {
+      setDragOffset(0);
+    }
+  };
 
   if (typeof document === "undefined") return null;
 
   const sessionUrl = withBasePath(`/evolve/session/${sessionId}`);
+  const opacity = visible ? Math.max(0.35, 1 - Math.min(Math.abs(dragOffset), 180) / 240) : 0;
+  const translateY = visible ? 0 : -8;
 
   return createPortal(
     <div
       role="status"
       aria-live="polite"
-      style={{ transition: "opacity 0.5s ease, transform 0.5s ease" }}
-      className={`fixed top-6 right-6 z-[9999] flex items-center gap-3 px-4 py-3 rounded-xl bg-gray-900 border border-amber-600/60 shadow-2xl text-sm text-gray-100 whitespace-nowrap pointer-events-auto ${
-        visible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2"
-      }`}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={finishSwipe}
+      onPointerCancel={finishSwipe}
+      style={{
+        opacity,
+        transform: `translate(${dragOffset}px, ${translateY}px)`,
+        transition: isDragging ? "none" : "opacity 0.5s ease, transform 0.5s ease",
+      }}
+      className="fixed top-6 right-6 z-[9999] flex touch-pan-y items-center gap-3 rounded-xl border border-amber-600/60 bg-gray-900 px-4 py-3 text-sm text-gray-100 shadow-2xl whitespace-nowrap pointer-events-auto"
     >
       <span className="text-amber-400 font-medium">Request submitted!</span>
       <a
@@ -397,6 +462,14 @@ export function EvolveSubmitToast({
         View session
         <ExternalLink size={13} strokeWidth={2} aria-hidden="true" />
       </a>
+      <button
+        type="button"
+        onClick={() => dismissToast()}
+        aria-label="Dismiss notification"
+        className="-mr-1 rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-100 focus:outline-none focus:ring-2 focus:ring-amber-400/70"
+      >
+        <X size={15} strokeWidth={2} aria-hidden="true" />
+      </button>
     </div>,
     document.body,
   );

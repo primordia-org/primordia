@@ -8,17 +8,19 @@ import {
   setSecret,
   clearSecret,
   encryptSecretForTransmission,
+  encryptChatGptSubscriptionForTransmission,
   bustPublicKeyCache,
+  type HybridEncryptedSecret,
 } from './secrets-client';
 
-export { bustPublicKeyCache };
+export { bustPublicKeyCache, encryptChatGptSubscriptionForTransmission };
 
 export async function setStoredApiKey(key: string | null): Promise<void> {
   if (key === null || key === '') return clearSecret('ANTHROPIC_API_KEY');
   return setSecret('ANTHROPIC_API_KEY', key);
 }
 
-export async function encryptStoredApiKey(): Promise<string | null> {
+export async function encryptStoredApiKey(): Promise<HybridEncryptedSecret | null> {
   return encryptSecretForTransmission('ANTHROPIC_API_KEY');
 }
 
@@ -27,6 +29,6 @@ export async function setStoredOpenRouterApiKey(key: string | null): Promise<voi
   return setSecret('OPENROUTER_API_KEY', key);
 }
 
-export async function encryptStoredOpenRouterApiKey(): Promise<string | null> {
+export async function encryptStoredOpenRouterApiKey(): Promise<HybridEncryptedSecret | null> {
   return encryptSecretForTransmission('OPENROUTER_API_KEY');
 }

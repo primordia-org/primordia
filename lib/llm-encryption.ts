@@ -1,12 +1,12 @@
 // lib/llm-encryption.ts
-// Server-side RSA-OAEP keypair for encrypting API keys in transit.
+// Server-side RSA-OAEP keypair for hybrid-encrypted secrets in transit.
 //
 // An ephemeral 2048-bit RSA-OAEP keypair is generated once per server process
 // lifetime (lazy, on first call). The private key never leaves the server
 // process — clients encrypt with the public key (JWK) and the server decrypts.
 //
 // Because the keypair is ephemeral, clients must re-encrypt on each page
-// session. The public key is fetched fresh via /api/llm-key/public-key on
+// session. The public key is fetched fresh via /api/credential-encryption/public-key on
 // every evolve/chat submission so that a server restart is handled gracefully.
 
 import { webcrypto } from 'crypto';
@@ -39,36 +39,41 @@ export async function getPublicKeyJwk(): Promise<JsonWebKey> {
   return subtle.exportKey('jwk', publicKey);
 }
 
-/**
- * Decrypts a base64-encoded RSA-OAEP ciphertext produced by the client.
- * Throws if the ciphertext was encrypted with a different (e.g. old) keypair.
- */
-export async function decryptApiKey(ciphertextBase64: string): Promise<string> {
-  const { privateKey } = await getKeyPair();
-  const ciphertext = Buffer.from(ciphertextBase64, 'base64');
-  const plaintext = await subtle.decrypt(
-    { name: 'RSA-OAEP' },
-    privateKey,
-    ciphertext,
+export type HybridEncryptedPayload = { wrappedKey: string; iv: string; ciphertext: string };
+
+function isHybridEncryptedPayload(value: unknown): value is HybridEncryptedPayload {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      typeof (value as Partial<HybridEncryptedPayload>).wrappedKey === 'string' &&
+      typeof (value as Partial<HybridEncryptedPayload>).iv === 'string' &&
+      typeof (value as Partial<HybridEncryptedPayload>).ciphertext === 'string'
   );
-  return new TextDecoder().decode(plaintext);
+}
+
+/** Decrypts an API key from the same hybrid envelope used for all secrets. */
+export async function decryptApiKey(payload: string | HybridEncryptedPayload): Promise<string> {
+  if (isHybridEncryptedPayload(payload)) return decryptHybridCredentials(payload);
+
+  const parsed = JSON.parse(payload) as unknown;
+  if (!isHybridEncryptedPayload(parsed)) {
+    throw new Error('Invalid hybrid encrypted API key payload');
+  }
+  return decryptHybridCredentials(parsed);
 }
 
 /**
- * Decrypts a hybrid-encrypted credentials payload produced by the client's
- * `encryptStoredCredentials()`. The payload format:
+ * Decrypts a hybrid-encrypted secret payload produced by the client's
+ * `encryptSecretForTransmission()`. The payload format:
  *   { wrappedKey: string, iv: string, ciphertext: string } (all base64)
  *
- * Because credentials.json can exceed RSA-OAEP's plaintext size limit, the
- * client uses a hybrid scheme: an ephemeral AES-256-GCM key encrypts the
+ * The client uses a hybrid scheme: an ephemeral AES-256-GCM key encrypts the
  * payload, and RSA-OAEP encrypts only the 32-byte AES key.
  *
  * Throws if the wrapped key was encrypted with a different keypair or if the
  * ciphertext is corrupt.
  */
-export async function decryptHybridCredentials(
-  payload: { wrappedKey: string; iv: string; ciphertext: string },
-): Promise<string> {
+export async function decryptHybridCredentials(payload: HybridEncryptedPayload): Promise<string> {
   const { privateKey } = await getKeyPair();
 
   // 1. Unwrap the ephemeral AES key using RSA-OAEP

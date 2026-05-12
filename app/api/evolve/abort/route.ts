@@ -1,5 +1,5 @@
 // app/api/evolve/abort/route.ts
-// Aborts the running Claude Code instance for a session, returning it to the
+// Aborts the running AI Agent instance for a session, returning it to the
 // ready state with whatever work was completed so far.
 //
 // POST
@@ -20,8 +20,8 @@ import {
 } from '../../../../lib/session-events';
 
 /**
- * Abort the running Claude Code agent
- * @description Signals the active Claude Code process to stop and transitions the session back to 'ready' with whatever work was completed.
+ * Abort the running AI Agent
+ * @description Signals the active AI Agent process to stop and transitions the session back to 'ready' with whatever work was completed.
  * @tag Evolve
  * @body EvolveAbortBody
  */
@@ -53,11 +53,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const aborted = abortAgentRun(body.sessionId);
+  const aborted = abortAgentRun(body.sessionId, record.worktreePath);
   if (!aborted) {
-    // No in-memory abort controller found — the server likely restarted while the
-    // Claude Code process was running, wiping in-memory state but leaving the session
-    // stuck in 'running-claude' or 'starting' in the filesystem.
+    // No live worker PID was found — the server likely restarted after the
+    // AI Agent process had already exited, leaving the session stuck in
+    // 'running-claude' or 'starting' in the filesystem.
     // Recover by transitioning the session to 'ready' directly so the user can
     // accept, reject, or submit a follow-up on whatever work was completed.
     const ndjsonPath = getSessionNdjsonPath(record.worktreePath);
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
       type: 'result',
       subtype: 'aborted',
       message:
-        '🛑 Session recovered. The server restarted while Claude Code was running. ' +
+        '🛑 Session recovered. The server restarted while AI Agent was running. ' +
         'Moving to ready state with work completed so far.' +
         (record.status === 'fixing-types' ? ' (Auto-accept was cancelled — you can accept or reject manually.)' : ''),
       ts: Date.now(),

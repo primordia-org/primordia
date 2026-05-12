@@ -1,15 +1,14 @@
-// app/api/llm-key/public-key/route.ts
+// app/api/credential-encryption/public-key/route.ts
 // Returns the server's ephemeral RSA-OAEP public key as JWK.
-// Clients use this to encrypt their Anthropic API key before sending it
-// in evolve / chat requests so the plaintext key is never in server logs.
+// Clients use this to wrap ephemeral AES keys for hybrid credential transmission.
 
 import { getSessionUser } from '@/lib/auth';
 import { getPublicKeyJwk } from '@/lib/llm-encryption';
 
 /**
- * Get LLM key encryption public key
- * @description Returns the server's ephemeral RSA-OAEP public key as JWK. Use this to encrypt a user-supplied Anthropic API key client-side before sending it to evolve endpoints.
- * @tag Llm-key
+ * Get credential-encryption public key
+ * @description Returns the server's ephemeral RSA-OAEP public key as JWK. Use this to wrap ephemeral AES keys for hybrid credential transmission.
+ * @tag Credential-encryption
  */
 export async function GET() {
   const user = await getSessionUser();

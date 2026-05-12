@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { ExternalLink, Loader2, Key, EyeOff } from "lucide-react";
-import { ClaudeIcon } from "@/components/brand-icons/ClaudeIcon";
+import { AuthSourceIcon } from "@/components/AgentIdentity";
 import { setStoredCredentials } from "@/lib/credentials-client";
 import { getSecret } from "@/lib/secrets-client";
 import { withBasePath } from "@/lib/base-path";
@@ -207,14 +207,9 @@ export default function CredentialsSettingsClient() {
             Credentials are encrypted in your browser — the encryption key never leaves your device(s).
           </p>
         </div>
-        <div className="flex items-center gap-1.5 flex-wrap text-xs">
-          <span className="px-1.5 py-0.5 rounded bg-sky-900/30 text-sky-400 border border-sky-800/40 font-medium">Claude.ai</span>
-          <span className="text-gray-600">›</span>
-          <span className="px-1.5 py-0.5 rounded bg-amber-900/20 text-amber-500/80 border border-amber-800/30">Anthropic API key</span>
-          <span className="text-gray-600">›</span>
-          <span className="px-1.5 py-0.5 rounded bg-gray-800 text-gray-600 border border-gray-700">exe.dev gateway</span>
-          <span className="text-gray-600 ml-0.5">— highest priority first</span>
-        </div>
+        <p className="text-xs text-gray-500 leading-relaxed">
+          Saved subscription credentials become billing sources you can choose explicitly in Evolve presets.
+        </p>
       </div>
 
       {/* Main card */}
@@ -222,8 +217,8 @@ export default function CredentialsSettingsClient() {
         {/* Card header with status */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-[#d97706]/10 flex items-center justify-center text-[#d97706] shrink-0">
-              <ClaudeIcon size={18} />
+            <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center shrink-0">
+              <AuthSourceIcon source="claude-subscription" size={20} />
             </div>
             <p className="text-sm font-medium text-gray-200">Claude.ai</p>
           </div>

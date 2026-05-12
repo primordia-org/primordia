@@ -75,9 +75,8 @@ function ApprovePageInner() {
       let encryptedCredentials = null;
       if (pk) {
         try {
-          const k1 = localStorage.getItem("primordia_aes_key");
-          const k2 = localStorage.getItem("primordia_credentials_aes_key");
-          encryptedCredentials = await encryptCredentialsForRequester(pk, k1, k2);
+          const aesKeyJwk = localStorage.getItem("primordia_aes_key");
+          encryptedCredentials = await encryptCredentialsForRequester(pk, aesKeyJwk);
         } catch {
           // Encryption failed — proceed with approval without credential sync
         }
@@ -105,10 +104,7 @@ function ApprovePageInner() {
   // Detect whether this approver has any credentials worth syncing.
   const hasCredentials = (() => {
     try {
-      return (
-        !!localStorage.getItem("primordia_aes_key") ||
-        !!localStorage.getItem("primordia_credentials_aes_key")
-      );
+      return !!localStorage.getItem("primordia_aes_key");
     } catch {
       return false;
     }

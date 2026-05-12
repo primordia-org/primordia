@@ -4,7 +4,7 @@
 // Dialog shown to already-authenticated users from the hamburger menu.
 //
 // Push flow (ECIES — no raw credential keys in the QR code):
-//   1. Reads own AES keys from localStorage.
+//   1. Reads own Primordia AES key from localStorage (`primordia_aes_key`).
 //   2. Generates two ephemeral ECDH P-256 keypairs (A = sender, B = receiver).
 //      Derives shared AES key = ECDH(A_priv, B_pub).
 //   3. Encrypts credentials with the shared AES key.
@@ -57,12 +57,10 @@ export function QrSignInOtherDeviceDialog({ onClose }: QrSignInOtherDeviceDialog
     setError(null);
     setQrImgSrc(null);
 
-    // Read own AES credential keys from localStorage.
-    let k1: string | null = null;
-    let k2: string | null = null;
+    // Read the single Primordia AES credential key from localStorage.
+    let aesKeyJwk: string | null = null;
     try {
-      k1 = localStorage.getItem("primordia_aes_key");
-      k2 = localStorage.getItem("primordia_credentials_aes_key");
+      aesKeyJwk = localStorage.getItem("primordia_aes_key");
     } catch {
       // localStorage unavailable — continue without credential transfer
     }
@@ -70,7 +68,7 @@ export function QrSignInOtherDeviceDialog({ onClose }: QrSignInOtherDeviceDialog
     try {
       // ECIES: encrypt credentials for the receiver using two ephemeral ECDH keypairs.
       // Returns the receiver's private key (for the QR fragment) and the server bundle.
-      const ecies = (k1 || k2) ? await encryptCredentialsForPush(k1, k2) : null;
+      const ecies = aesKeyJwk ? await encryptCredentialsForPush(aesKeyJwk) : null;
 
       // Create a pre-approved push token, storing the encrypted bundle on the server.
       const res = await fetch(withBasePath("/api/auth/cross-device/push"), {
