@@ -327,20 +327,20 @@ export default function CredentialsSettingsClient() {
         )}
 
         {(step.kind === "idle" || step.kind === "done") && (
-          <div className="border-t border-gray-800 pt-4">
+          <div className="border-t border-gray-800 pt-3 flex flex-col gap-3">
             <button
               type="button"
               data-id="credentials/manual-toggle"
               onClick={() => setManualOpen((open) => !open)}
-              className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-200 transition-colors"
+              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-400 transition-colors w-full text-left"
             >
-              {manualOpen ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
+              {manualOpen ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}
               <span>Paste credentials file manually</span>
             </button>
             {manualOpen && (
-              <div className="mt-4 flex flex-col gap-3">
-                <p className="text-sm text-gray-400 leading-relaxed">
-                  Paste the contents of <code className="rounded bg-gray-800 px-1.5 py-0.5 font-mono text-sky-300">~/.claude/.credentials.json</code>. On macOS, credentials are stored in the system keychain and cannot be copied directly — this only works if your machine is running Linux.
+              <div className="flex flex-col gap-3">
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Paste the contents of <code className="text-sky-400/80 bg-gray-800 px-1 py-0.5 rounded">~/.claude/.credentials.json</code>. On macOS, credentials are stored in the system keychain and can&apos;t be copied directly — this only works if your machine is running Linux.
                 </p>
                 <textarea
                   data-id="credentials/json-input"
@@ -353,7 +353,7 @@ export default function CredentialsSettingsClient() {
                   }}
                   placeholder={'{\n  "claudeAiOauth": { ... }\n}'}
                   rows={5}
-                  className="w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-600 border border-gray-700 rounded-lg px-3 py-2 outline-none font-mono resize-y focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50"
+                  className="w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-600 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50 font-mono resize-y"
                   autoComplete="off"
                   spellCheck={false}
                   disabled={pasteLoading}

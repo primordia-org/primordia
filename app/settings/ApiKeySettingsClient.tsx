@@ -178,8 +178,6 @@ export default function ApiKeySettingsClient() {
 
   const showKeyInput = !isKeySet || showKey || isDecrypting;
   const showOrKeyInput = !isOrKeySet || orShowKey || orIsDecrypting;
-  const showSaveButton = !isKeySet || keyDirty || saved || loading;
-  const showOrSaveButton = !isOrKeySet || orKeyDirty || orSaved || orLoading;
 
   return (
     <div className="flex flex-col gap-6">
@@ -304,16 +302,14 @@ export default function ApiKeySettingsClient() {
               </button>
             )}
           </div>
-          {showSaveButton && (
-            <button
-              data-id="api-key/save-key"
-              onClick={() => void handleSave()}
-              disabled={!inputValue.trim() || !keyDirty || saved || loading}
-              className="px-4 py-1.5 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white transition-colors disabled:cursor-not-allowed"
-            >
-              {loading ? "Saving…" : saved ? "Saved ✓" : "Save key"}
-            </button>
-          )}
+          <button
+            data-id="api-key/save-key"
+            onClick={() => void handleSave()}
+            disabled={!inputValue.trim() || !keyDirty || saved || loading}
+            className="px-4 py-1.5 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white transition-colors disabled:cursor-not-allowed"
+          >
+            {loading ? "Saving…" : saved ? "Saved ✓" : "Save key"}
+          </button>
         </div>
       </div>
 
@@ -425,16 +421,14 @@ export default function ApiKeySettingsClient() {
               </button>
             )}
           </div>
-          {showOrSaveButton && (
-            <button
-              data-id="api-key/openrouter-save-key"
-              onClick={() => void handleOrSave()}
-              disabled={!orInputValue.trim() || !orKeyDirty || orSaved || orLoading}
-              className="px-4 py-1.5 rounded-lg text-sm font-medium bg-violet-700 hover:bg-violet-600 disabled:bg-violet-900 text-white transition-colors disabled:cursor-not-allowed"
-            >
-              {orLoading ? "Saving…" : orSaved ? "Saved ✓" : "Save key"}
-            </button>
-          )}
+          <button
+            data-id="api-key/openrouter-save-key"
+            onClick={() => void handleOrSave()}
+            disabled={!orInputValue.trim() || !orKeyDirty || orSaved || orLoading}
+            className="px-4 py-1.5 rounded-lg text-sm font-medium bg-violet-700 hover:bg-violet-600 disabled:bg-violet-900 text-white transition-colors disabled:cursor-not-allowed"
+          >
+            {orLoading ? "Saving…" : orSaved ? "Saved ✓" : "Save key"}
+          </button>
         </div>
       </div>
 
