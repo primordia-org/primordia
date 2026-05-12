@@ -321,7 +321,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 const STATUS_LABEL: Record<string, string> = {
   ready: "ready",
-  "running-claude": "running claude…",
+  "running-claude": "running agent…",
   "starting-server": "starting server…",
   starting: "starting…",
   error: "error",
