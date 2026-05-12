@@ -1,3 +1,3 @@
-# Replace Codex logo
+# Update Codex logo background
 
-Updated the Codex brand icon asset to use the extracted OpenAI Codex mark with white paths instead of the previous filled gradient favicon. This keeps Codex identity consistent anywhere the harness icon is shown in the app.
+Updated the Codex brand icon asset to keep the original gradient Codex mark while removing its white rounded-square background. This preserves the preferred icon style and lets it sit cleanly on dark UI surfaces wherever the harness icon is shown.
