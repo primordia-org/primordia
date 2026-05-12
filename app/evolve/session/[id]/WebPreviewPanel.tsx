@@ -398,6 +398,10 @@ interface WebPreviewPanelProps {
   fullHeight?: boolean;
   /** Extra classes applied to the outer wrapper element. */
   className?: string;
+  /** Whether the preview iframe should be loaded. Toolbar stays visible either way. */
+  serverRunning?: boolean;
+  /** Content shown below the toolbar when the preview server is not running. */
+  offlineContent?: React.ReactNode;
   /**
    * Called when the user selects an element via the inspector tool.
    * Receives the nearest React component name and a CSS path selector.
@@ -407,7 +411,15 @@ interface WebPreviewPanelProps {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function WebPreviewPanel({ src, sessionId, fullHeight = false, className, onElementSelected }: WebPreviewPanelProps) {
+export function WebPreviewPanel({
+  src,
+  sessionId,
+  fullHeight = false,
+  className,
+  serverRunning = true,
+  offlineContent,
+  onElementSelected,
+}: WebPreviewPanelProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // The URL shown in the address bar — starts as the initial src.
   const [urlBarValue, setUrlBarValue] = useState(src);
@@ -418,6 +430,8 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
   // Ref so handleLoad can read the latest inspector state without stale closure.
   const inspectorActiveRef = useRef(false);
   useEffect(() => { inspectorActiveRef.current = inspectorActive; }, [inspectorActive]);
+
+  const browserButtonClass = "p-1.5 rounded text-gray-400 transition-colors flex-shrink-0 enabled:hover:bg-gray-800 enabled:hover:text-gray-200 disabled:opacity-40 disabled:cursor-not-allowed";
 
   const injectInspector = useCallback(() => {
     try {
@@ -439,6 +453,13 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
       iframeRef.current?.contentWindow?.postMessage({ type: 'primordia-inspector-cancel' }, '*');
     } catch { /* cross-origin */ }
   }, []);
+
+  useEffect(() => {
+    if (serverRunning) return;
+    setIsLoading(false);
+    setInspectorActive(false);
+    cancelInspector();
+  }, [serverRunning, cancelInspector]);
 
   /** Called whenever the iframe finishes loading a page. */
   const handleLoad = useCallback(() => {
@@ -468,11 +489,13 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
 
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!serverRunning) return;
     trackEvent("preview/url-navigated/v1", { sessionId, url: urlBarValue });
     navigate(urlBarValue);
   };
 
   const handleBack = () => {
+    if (!serverRunning) return;
     trackEvent("preview/back-clicked/v1", { sessionId });
     try {
       iframeRef.current?.contentWindow?.history.back();
@@ -480,6 +503,7 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
   };
 
   const handleForward = () => {
+    if (!serverRunning) return;
     trackEvent("preview/forward-clicked/v1", { sessionId });
     try {
       iframeRef.current?.contentWindow?.history.forward();
@@ -487,6 +511,7 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
   };
 
   const handleRefresh = () => {
+    if (!serverRunning) return;
     trackEvent("preview/refresh-clicked/v1", { sessionId });
     try {
       iframeRef.current?.contentWindow?.location.reload();
@@ -500,6 +525,7 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
   };
 
   const toggleInspector = useCallback(() => {
+    if (!serverRunning) return;
     setInspectorActive((prev) => {
       const next = !prev;
       trackEvent("preview/inspector-toggled/v1", { sessionId, active: next });
@@ -510,7 +536,7 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
       }
       return next;
     });
-  }, [injectInspector, cancelInspector, sessionId]);
+  }, [injectInspector, cancelInspector, serverRunning, sessionId]);
 
   // Listen for element selections and inspector-done messages from the iframe.
   useEffect(() => {
@@ -551,8 +577,9 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
           data-id="preview/back"
           type="button"
           onClick={handleBack}
-          className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors flex-shrink-0"
-          title="Back"
+          disabled={!serverRunning}
+          className={browserButtonClass}
+          title={serverRunning ? "Back" : "Preview server is not running"}
         >
           <ArrowLeft size={14} />
         </button>
@@ -560,8 +587,9 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
           data-id="preview/forward"
           type="button"
           onClick={handleForward}
-          className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors flex-shrink-0"
-          title="Forward"
+          disabled={!serverRunning}
+          className={browserButtonClass}
+          title={serverRunning ? "Forward" : "Preview server is not running"}
         >
           <ArrowRight size={14} />
         </button>
@@ -569,8 +597,9 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
           data-id="preview/refresh"
           type="button"
           onClick={handleRefresh}
-          className={`p-1.5 hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors flex-shrink-0 ${isLoading ? "animate-spin rounded-full" : "rounded"}`}
-          title="Refresh"
+          disabled={!serverRunning}
+          className={`${browserButtonClass} ${serverRunning && isLoading ? "animate-spin rounded-full" : ""}`}
+          title={serverRunning ? "Refresh" : "Preview server is not running"}
         >
           <RotateCw size={14} />
         </button>
@@ -596,12 +625,13 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
             data-id="preview/inspector-toggle"
             type="button"
             onClick={toggleInspector}
-            className={`p-1.5 rounded transition-colors flex-shrink-0 ${
+            disabled={!serverRunning}
+            className={`p-1.5 rounded transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
               inspectorActive
-                ? "bg-blue-600 text-white hover:bg-blue-500"
-                : "hover:bg-gray-800 text-gray-400 hover:text-gray-200"
+                ? "bg-blue-600 text-white enabled:hover:bg-blue-500"
+                : "text-gray-400 enabled:hover:bg-gray-800 enabled:hover:text-gray-200"
             }`}
-            title={inspectorActive ? "Cancel element selection (Esc)" : "Pick an element to inspect"}
+            title={!serverRunning ? "Preview server is not running" : inspectorActive ? "Cancel element selection (Esc)" : "Pick an element to inspect"}
           >
             <Crosshair size={14} />
           </button>
@@ -610,7 +640,7 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
         {/* Open in new tab */}
         <a
           data-id="preview/open-in-new-tab"
-          href={src}
+          href={urlBarValue || src}
           target="_blank"
           rel="noopener noreferrer"
           onClick={() => trackEvent("preview/open-in-new-tab/v1", { sessionId })}
@@ -633,22 +663,26 @@ export function WebPreviewPanel({ src, sessionId, fullHeight = false, className,
 
       {/* ── iframe ── */}
       <div className={`relative ${fullHeight ? 'flex-1' : ''}`} style={fullHeight ? undefined : { height: "600px" }}>
-        {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10 pointer-events-none">
-            <span className="text-gray-500 text-xs animate-pulse">Loading preview…</span>
-          </div>
-        )}
-        {iframeSrc ? (
-          <iframe
-            ref={iframeRef}
-            src={iframeSrc}
-            onLoad={handleLoad}
-            onLoadStart={handleLoadStart as React.ReactEventHandler<HTMLIFrameElement>}
-            className="w-full h-full bg-white"
-            style={{ border: "none", display: "block" }}
-            title="Web preview"
-          />
-        ) : null}
+        {serverRunning ? (
+          <>
+            {isLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10 pointer-events-none">
+                <span className="text-gray-500 text-xs animate-pulse">Loading preview…</span>
+              </div>
+            )}
+            {iframeSrc ? (
+              <iframe
+                ref={iframeRef}
+                src={iframeSrc}
+                onLoad={handleLoad}
+                onLoadStart={handleLoadStart as React.ReactEventHandler<HTMLIFrameElement>}
+                className="w-full h-full bg-white"
+                style={{ border: "none", display: "block" }}
+                title="Web preview"
+              />
+            ) : null}
+          </>
+        ) : offlineContent}
       </div>
     </div>
   );

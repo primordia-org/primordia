@@ -739,11 +739,37 @@ function WebPreviewCard({
 
       {/* Iframe / placeholder area */}
       <div className={fullHeight ? 'flex-1 min-h-0' : ''}>
-        {proxyServerStatus === 'running' && previewUrl ? (
+        {previewUrl ? (
           <WebPreviewPanel
             src={previewUrl}
             sessionId={cardSessionId}
             fullHeight={fullHeight}
+            serverRunning={proxyServerStatus === 'running'}
+            offlineContent={(
+              <div className="flex h-full flex-col items-center justify-center gap-4">
+                {proxyServerStatus === 'starting' ? (
+                  <>
+                    <div className="w-20 h-20 rounded-full border-2 border-yellow-600 text-yellow-400 flex items-center justify-center animate-pulse">
+                      <span className="text-3xl ml-1">▶</span>
+                    </div>
+                    <span className="text-sm text-yellow-600 animate-pulse">Starting preview…</span>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      data-id="session/start-preview"
+                      type="button"
+                      onClick={onRestartServer}
+                      disabled={isRestartingServer}
+                      className="w-20 h-20 rounded-full border-2 border-gray-500 hover:border-white text-gray-400 hover:text-white flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="text-3xl ml-1">▶</span>
+                    </button>
+                    <span className="text-sm text-gray-400">Start Preview</span>
+                  </>
+                )}
+              </div>
+            )}
             onElementSelected={onElementSelected}
           />
         ) : (
@@ -1456,17 +1482,22 @@ export default function EvolveSessionView({
     status === "rejected" ||
     status === "ready";
 
+  /**
+   * Preview URL is deterministic from the session ID. Keep a fallback so the
+   * toolbar/open-in-new-tab control remains available even if the dev server is
+   * currently stopped and no live previewUrl has been persisted yet.
+   */
+  const effectivePreviewUrl = previewUrl ?? `/preview/${sessionId}`;
+
   /** Whether to show the preview as a desktop sidebar. */
-  const showPreviewSidebar = status === "ready" && !!previewUrl;
+  const showPreviewSidebar = status === "ready";
 
   /**
    * The URL to open in the Web Preview panel when it first becomes available.
    * Derived once from the initial request so the preview starts on the most
    * relevant page rather than always defaulting to the landing page.
    */
-  const smartPreviewUrl = previewUrl
-    ? deriveSmartPreviewUrl(events, previewUrl)
-    : null;
+  const smartPreviewUrl = deriveSmartPreviewUrl(events, effectivePreviewUrl);
 
   /** Width of the session (left) panel in pixels when sidebar is visible. */
   const [mainWidthPx, setMainWidthPx] = useState(560);
