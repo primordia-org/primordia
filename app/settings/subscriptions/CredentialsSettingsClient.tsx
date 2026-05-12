@@ -196,6 +196,7 @@ export default function CredentialsSettingsClient() {
     : credScrambled;
 
   const textareaReadOnly = isDecrypting || (isSet && !credRevealed && !credsDirty);
+  const showCredentialsTextarea = !isSet || credsDirty || isDecrypting || credRevealed;
 
   return (
     <div className="flex flex-col gap-6">
@@ -265,30 +266,32 @@ export default function CredentialsSettingsClient() {
               </button>
             </div>
           )}
-          <div className="relative">
-            <textarea
-              data-id="credentials/json-input"
-              value={textareaValue}
-              readOnly={textareaReadOnly}
-              onChange={(e) => {
-                if (textareaReadOnly) return;
-                setPasteValue(e.target.value);
-                if (isSet) setCredsDirty(true);
-                setPasteError(null);
-                setPasteSaved(false);
-              }}
-              placeholder={isSet ? undefined : '{\n  "claudeAiOauth": { ... }\n}'}
-              rows={isSet ? 8 : 5}
-              className={`w-full bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 outline-none font-mono resize-y ${
-                textareaReadOnly
-                  ? "text-sky-300/40 select-none cursor-default"
-                  : "text-gray-100 placeholder-gray-600 focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50"
-              }`}
-              autoComplete="off"
-              spellCheck={false}
-              disabled={pasteLoading}
-            />
-          </div>
+          {showCredentialsTextarea && (
+            <div className="relative">
+              <textarea
+                data-id="credentials/json-input"
+                value={textareaValue}
+                readOnly={textareaReadOnly}
+                onChange={(e) => {
+                  if (textareaReadOnly) return;
+                  setPasteValue(e.target.value);
+                  if (isSet) setCredsDirty(true);
+                  setPasteError(null);
+                  setPasteSaved(false);
+                }}
+                placeholder={isSet ? undefined : '{\n  "claudeAiOauth": { ... }\n}'}
+                rows={isSet ? 8 : 5}
+                className={`w-full bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 outline-none font-mono resize-y ${
+                  textareaReadOnly
+                    ? "text-sky-300/40 select-none cursor-default"
+                    : "text-gray-100 placeholder-gray-600 focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50"
+                }`}
+                autoComplete="off"
+                spellCheck={false}
+                disabled={pasteLoading}
+              />
+            </div>
+          )}
           {pasteError && <p className="text-xs text-red-400">{pasteError}</p>}
           {credsDirty && (
             <div className="flex justify-end">

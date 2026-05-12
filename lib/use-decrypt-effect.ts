@@ -21,6 +21,7 @@ export function useDecryptEffect(options: UseDecryptEffectOptions = {}) {
   const [isDecrypting, setIsDecrypting] = useState(false)
   const targetRef = useRef("")
   const onCompleteRef = useRef(onComplete)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     onCompleteRef.current = onComplete
@@ -29,6 +30,11 @@ export function useDecryptEffect(options: UseDecryptEffectOptions = {}) {
   const getRandomChar = () => CIPHER_CHARS[Math.floor(Math.random() * CIPHER_CHARS.length)]
 
   const decrypt = useCallback((plaintext: string) => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+
     if (!plaintext) {
       setDisplayValue("")
       return
@@ -37,65 +43,76 @@ export function useDecryptEffect(options: UseDecryptEffectOptions = {}) {
     targetRef.current = plaintext
     setIsDecrypting(true)
 
-    setDisplayValue(
-      plaintext
-        .split("")
-        .map((char) => (char === " " || char === "\n" ? char : getRandomChar()))
-        .join("")
-    )
-
-    const totalChars = plaintext.replace(/[ \n]/g, "").length
-    const revealInterval = duration / totalChars
-    const scrambleInterval = 30
-
     const indicesToReveal = plaintext
       .split("")
       .map((char, i) => (char !== " " && char !== "\n" ? i : -1))
       .filter((i) => i !== -1)
+
+    if (indicesToReveal.length === 0) {
+      setDisplayValue(plaintext)
+      setIsDecrypting(false)
+      onCompleteRef.current?.()
+      return
+    }
 
     for (let i = indicesToReveal.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1))
       ;[indicesToReveal[i], indicesToReveal[j]] = [indicesToReveal[j], indicesToReveal[i]]
     }
 
-    let revealCount = 0
     const revealed = new Set<number>()
+    let revealCount = 0
     let currentDisplay = plaintext
       .split("")
       .map((char) => (char === " " || char === "\n" ? char : getRandomChar()))
 
-    const scrambleTimer = setInterval(() => {
+    setDisplayValue(currentDisplay.join(""))
+
+    const startedAt = Date.now()
+    const frameInterval = 30
+
+    timerRef.current = setInterval(() => {
+      const progress = Math.min(1, (Date.now() - startedAt) / Math.max(duration, 1))
+      const targetRevealCount = Math.floor(progress * indicesToReveal.length)
+
+      while (revealCount < targetRevealCount && revealCount < indicesToReveal.length) {
+        const indexToReveal = indicesToReveal[revealCount]
+        revealed.add(indexToReveal)
+        currentDisplay[indexToReveal] = plaintext[indexToReveal]
+        revealCount++
+      }
+
       currentDisplay = currentDisplay.map((char, i) => {
         if (plaintext[i] === " " || plaintext[i] === "\n" || revealed.has(i)) return char
         return getRandomChar()
       })
-      setDisplayValue(currentDisplay.join(""))
-    }, scrambleInterval)
 
-    const revealTimer = setInterval(() => {
-      if (revealCount >= indicesToReveal.length) {
-        clearInterval(revealTimer)
-        clearInterval(scrambleTimer)
+      if (progress >= 1) {
+        if (timerRef.current) {
+          clearInterval(timerRef.current)
+          timerRef.current = null
+        }
         setDisplayValue(plaintext)
         setIsDecrypting(false)
         onCompleteRef.current?.()
         return
       }
 
-      const indexToReveal = indicesToReveal[revealCount]
-      revealed.add(indexToReveal)
-      currentDisplay[indexToReveal] = plaintext[indexToReveal]
       setDisplayValue(currentDisplay.join(""))
-      revealCount++
-    }, revealInterval)
-
-    return () => {
-      clearInterval(scrambleTimer)
-      clearInterval(revealTimer)
-    }
+    }, frameInterval)
   }, [duration])
 
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+  }, [])
+
   const reset = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
     setDisplayValue("")
     setIsDecrypting(false)
     targetRef.current = ""

@@ -56,7 +56,7 @@ export default function ChatGptSubscriptionSettingsClient() {
   }, [credentials]);
 
   const { displayValue: decryptDisplay, isDecrypting, decrypt } = useDecryptEffect({
-    duration: 1500,
+    duration: 600,
     onComplete: () => setCredentialsRevealed(true),
   });
 
@@ -180,6 +180,7 @@ export default function ChatGptSubscriptionSettingsClient() {
     : credentialsRevealed
     ? prettyCredentials
     : credentialsScrambled;
+  const showCredentialsBlock = isDecrypting || credentialsRevealed;
 
   return (
     <div className="rounded-xl border border-gray-700 bg-gray-900 p-5 flex flex-col gap-5">
@@ -231,9 +232,11 @@ export default function ChatGptSubscriptionSettingsClient() {
               )}
             </button>
           </div>
-          <pre className={`text-xs font-mono bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all ${credentialsRevealed ? "text-gray-300" : "text-emerald-300/40 select-none"}`}>
-            {credentialsDisplay}
-          </pre>
+          {showCredentialsBlock && (
+            <pre className={`text-xs font-mono bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all ${credentialsRevealed ? "text-gray-300" : "text-emerald-300/40 select-none"}`}>
+              {credentialsDisplay}
+            </pre>
+          )}
         </div>
       )}
 
