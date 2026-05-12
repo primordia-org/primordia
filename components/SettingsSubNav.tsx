@@ -7,7 +7,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { SecretType } from "@/lib/secret-types";
+import type { SecretAuthSource } from "@/lib/presets";
 
 type TabId = "billing-sources" | "presets";
 
@@ -18,15 +18,15 @@ const tabs: { id: TabId; label: string; href: string }[] = [
 
 export default function SettingsSubNav({
   currentTab,
-  initialSecretTypes = [],
+  initialSecretSources = [],
 }: {
   currentTab: TabId;
-  initialSecretTypes?: SecretType[];
+  initialSecretSources?: SecretAuthSource[];
 }) {
   const router = useRouter();
   const currentHref = tabs.find((t) => t.id === currentTab)?.href ?? "/settings";
-  const apiKeyActive = initialSecretTypes.includes('ANTHROPIC_API_KEY') || initialSecretTypes.includes('OPENROUTER_API_KEY');
-  const credentialsActive = initialSecretTypes.includes('CLAUDE_CODE_CREDENTIALS_JSON') || initialSecretTypes.includes('CHATGPT_SUBSCRIPTION_OAUTH');
+  const apiKeyActive = initialSecretSources.includes('anthropic-api-key') || initialSecretSources.includes('openrouter-api-key');
+  const credentialsActive = initialSecretSources.includes('claude-subscription') || initialSecretSources.includes('chatgpt-subscription');
 
   function isActive(tabId: TabId) {
     if (tabId === "billing-sources") return apiKeyActive || credentialsActive;

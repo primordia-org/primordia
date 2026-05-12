@@ -29,7 +29,7 @@ export async function getCredentialFieldsForAuthSource(authSource: PresetAuthSou
   }
 
   if (authSource === 'openai-api-key') {
-    const encryptedApiKey = await encryptSecretForTransmission('OPENAI_API_KEY');
+    const encryptedApiKey = await encryptSecretForTransmission('openai-api-key');
     return encryptedApiKey ? { encryptedApiKey: JSON.stringify(encryptedApiKey) } : {};
   }
 

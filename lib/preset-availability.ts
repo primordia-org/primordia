@@ -4,20 +4,12 @@
 
 import { MODEL_OPTIONS } from './agent-config';
 import { isModelAllowedForAuthSource } from './preset-options';
-import type { EvolvePreset, PresetAuthSource } from './presets';
+import type { EvolvePreset } from './presets';
 
 export type EvolvePresetWithAvailability = EvolvePreset & {
   available: boolean;
   unavailableReason?: string;
 };
-
-export const SECRET_AUTH_SOURCES: PresetAuthSource[] = [
-  'claude-subscription',
-  'chatgpt-subscription',
-  'openrouter-api-key',
-  'anthropic-api-key',
-  'openai-api-key',
-];
 
 export const MISSING_BILLING_SOURCE_MESSAGE = 'Billing source not configured';
 

@@ -1,13 +1,19 @@
 // lib/presets.ts
 // Evolve preset definitions: billing source + harness + model + display name.
 
-export type PresetAuthSource =
-  | 'claude-subscription'
-  | 'chatgpt-subscription'
-  | 'exe-dev-gateway'
-  | 'openrouter-api-key'
-  | 'anthropic-api-key'
-  | 'openai-api-key';
+export const SECRET_AUTH_SOURCES = [
+  'claude-subscription',
+  'chatgpt-subscription',
+  'openrouter-api-key',
+  'anthropic-api-key',
+  'openai-api-key',
+] as const;
+
+export type SecretAuthSource = typeof SECRET_AUTH_SOURCES[number];
+
+export type PresetAuthSource = SecretAuthSource | 'exe-dev-gateway';
+
+export type SecretCiphertexts = Partial<Record<SecretAuthSource, string | null>>;
 
 export interface EvolvePreset {
   id: string;
@@ -112,6 +118,10 @@ export function normalizeAuthSource(value: string): PresetAuthSource | null {
   if (value === 'openai-key') return 'openai-api-key';
   const allowed = Object.keys(PRESET_AUTH_SOURCE_LABELS);
   return allowed.includes(value) ? (value as PresetAuthSource) : null;
+}
+
+export function isSecretAuthSource(value: string): value is SecretAuthSource {
+  return (SECRET_AUTH_SOURCES as readonly string[]).includes(value);
 }
 
 export function parseCustomPresets(raw: string | undefined): EvolvePreset[] {

@@ -30,10 +30,10 @@ export default async function SettingsPage() {
     <main className="flex flex-col w-full max-w-5xl mx-auto px-4 py-6 min-h-dvh">
       <PageNavBar subtitle="Account Settings" currentPage="settings" initialSession={sessionUser} initialHarness={evolvePrefs.initialHarness} initialModel={evolvePrefs.initialModel} initialCavemanMode={evolvePrefs.initialCavemanMode} initialCavemanIntensity={evolvePrefs.initialCavemanIntensity} />
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
-        <SettingsSubNav currentTab="billing-sources" initialSecretTypes={settingsData.secretTypes} />
+        <SettingsSubNav currentTab="billing-sources" initialSecretSources={settingsData.secretSources} />
         <div className="flex-1 min-w-0">
           <BillingSourcesSettingsClient
-            initialSecretTypes={settingsData.secretTypes}
+            initialSecretSources={settingsData.secretSources}
             initialSecretCiphertexts={settingsData.secretCiphertexts}
           />
         </div>

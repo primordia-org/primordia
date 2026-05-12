@@ -3,7 +3,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { AuthSourceIcon } from "@/components/AgentIdentity";
-import type { SecretCiphertexts, SecretType } from "@/lib/secret-types";
+import type { SecretAuthSource, SecretCiphertexts } from "@/lib/presets";
 import ApiKeySettingsClient from "./ApiKeySettingsClient";
 import CredentialsSettingsClient from "./subscriptions/CredentialsSettingsClient";
 import ChatGptSubscriptionSettingsClient from "./subscriptions/ChatGptSubscriptionSettingsClient";
@@ -122,27 +122,27 @@ function SourceContent({
   source: BillingSourceId;
   initialSecretCiphertexts: SecretCiphertexts;
 }) {
-  if (source === "anthropic-api-key") return <ApiKeySettingsClient provider="anthropic" initialCiphertext={initialSecretCiphertexts.ANTHROPIC_API_KEY ?? null} />;
-  if (source === "openrouter-api-key") return <ApiKeySettingsClient provider="openrouter" initialCiphertext={initialSecretCiphertexts.OPENROUTER_API_KEY ?? null} />;
-  if (source === "claude-subscription") return <CredentialsSettingsClient initialCiphertext={initialSecretCiphertexts.CLAUDE_CODE_CREDENTIALS_JSON ?? null} />;
-  return <ChatGptSubscriptionSettingsClient initialCiphertext={initialSecretCiphertexts.CHATGPT_SUBSCRIPTION_OAUTH ?? null} />;
+  if (source === "anthropic-api-key") return <ApiKeySettingsClient provider="anthropic" initialCiphertext={initialSecretCiphertexts["anthropic-api-key"] ?? null} />;
+  if (source === "openrouter-api-key") return <ApiKeySettingsClient provider="openrouter" initialCiphertext={initialSecretCiphertexts["openrouter-api-key"] ?? null} />;
+  if (source === "claude-subscription") return <CredentialsSettingsClient initialCiphertext={initialSecretCiphertexts["claude-subscription"] ?? null} />;
+  return <ChatGptSubscriptionSettingsClient initialCiphertext={initialSecretCiphertexts["chatgpt-subscription"] ?? null} />;
 }
 
 export default function BillingSourcesSettingsClient({
-  initialSecretTypes,
+  initialSecretSources,
   initialSecretCiphertexts,
 }: {
-  initialSecretTypes: SecretType[];
+  initialSecretSources: SecretAuthSource[];
   initialSecretCiphertexts: SecretCiphertexts;
 }) {
   const initialAdded = useMemo(() => {
     const activeSources: BillingSourceId[] = [];
-    if (initialSecretTypes.includes("ANTHROPIC_API_KEY")) activeSources.push("anthropic-api-key");
-    if (initialSecretTypes.includes("OPENROUTER_API_KEY")) activeSources.push("openrouter-api-key");
-    if (initialSecretTypes.includes("CLAUDE_CODE_CREDENTIALS_JSON")) activeSources.push("claude-subscription");
-    if (initialSecretTypes.includes("CHATGPT_SUBSCRIPTION_OAUTH")) activeSources.push("chatgpt-subscription");
+    if (initialSecretSources.includes("anthropic-api-key")) activeSources.push("anthropic-api-key");
+    if (initialSecretSources.includes("openrouter-api-key")) activeSources.push("openrouter-api-key");
+    if (initialSecretSources.includes("claude-subscription")) activeSources.push("claude-subscription");
+    if (initialSecretSources.includes("chatgpt-subscription")) activeSources.push("chatgpt-subscription");
     return activeSources;
-  }, [initialSecretTypes]);
+  }, [initialSecretSources]);
   const [added, setAdded] = useState<BillingSourceId[]>(initialAdded);
 
   const addedSources = useMemo(

@@ -12,9 +12,10 @@ import {
   parseDisabledBuiltInPresetIds,
   serializeDisabledBuiltInPresetIds,
   normalizeAuthSource,
+  SECRET_AUTH_SOURCES,
   type EvolvePreset,
 } from '@/lib/presets';
-import { SECRET_AUTH_SOURCES, withPresetAvailability } from '@/lib/preset-availability';
+import { withPresetAvailability } from '@/lib/preset-availability';
 
 function cleanPreset(input: unknown): EvolvePreset | null {
   if (!input || typeof input !== 'object') return null;

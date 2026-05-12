@@ -16,19 +16,19 @@ import {
 export { bustPublicKeyCache, encryptChatGptSubscriptionForTransmission };
 
 export async function setStoredApiKey(key: string | null): Promise<void> {
-  if (key === null || key === '') return clearSecret('ANTHROPIC_API_KEY');
-  return setSecret('ANTHROPIC_API_KEY', key);
+  if (key === null || key === '') return clearSecret('anthropic-api-key');
+  return setSecret('anthropic-api-key', key);
 }
 
 export async function encryptStoredApiKey(): Promise<HybridEncryptedSecret | null> {
-  return encryptSecretForTransmission('ANTHROPIC_API_KEY');
+  return encryptSecretForTransmission('anthropic-api-key');
 }
 
 export async function setStoredOpenRouterApiKey(key: string | null): Promise<void> {
-  if (key === null || key === '') return clearSecret('OPENROUTER_API_KEY');
-  return setSecret('OPENROUTER_API_KEY', key);
+  if (key === null || key === '') return clearSecret('openrouter-api-key');
+  return setSecret('openrouter-api-key', key);
 }
 
 export async function encryptStoredOpenRouterApiKey(): Promise<HybridEncryptedSecret | null> {
-  return encryptSecretForTransmission('OPENROUTER_API_KEY');
+  return encryptSecretForTransmission('openrouter-api-key');
 }

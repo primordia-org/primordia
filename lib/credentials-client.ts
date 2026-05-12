@@ -13,12 +13,12 @@ import {
 } from './secrets-client';
 
 export async function setStoredCredentials(credentials: string | null): Promise<void> {
-  if (credentials === null || credentials === '') return clearSecret('CLAUDE_CODE_CREDENTIALS_JSON');
-  return setSecret('CLAUDE_CODE_CREDENTIALS_JSON', credentials);
+  if (credentials === null || credentials === '') return clearSecret('claude-subscription');
+  return setSecret('claude-subscription', credentials);
 }
 
 export async function updateStoredCredentials(credentials: string): Promise<void> {
-  return updateSecret('CLAUDE_CODE_CREDENTIALS_JSON', credentials);
+  return updateSecret('claude-subscription', credentials);
 }
 
 export function bustCredentialsPublicKeyCache(): void {
