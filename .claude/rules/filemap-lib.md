@@ -40,7 +40,7 @@ lib/
 │   ├── exe-dev/index.ts       ← default export: exeDevPlugin (reads X-ExeDev-Email header)
 │   └── cross-device/index.ts  ← default export: crossDevicePlugin
 └── db/
-    ├── index.ts               ← Factory: getDb() → SQLite (always)
+    ├── index.ts               ← Factory: getDb() → SQLite (always); includes SQLite hotswap reset lock used by preview DB refresh
     ├── types.ts               ← Shared DB types: User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession, Role; DbAdapter includes role methods
-    └── sqlite.ts              ← bun:sqlite adapter (includes evolve_sessions, roles, user_roles tables; seeds built-in roles on boot)
+    └── sqlite.ts              ← bun:sqlite adapter (roles/user_roles/events/etc. tables; seeds built-in roles on boot; exposes reset hook to close DB before hotswap)
 ```

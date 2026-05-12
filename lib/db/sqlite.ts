@@ -6,6 +6,15 @@ import type { DbAdapter, Role, User, Passkey, Challenge, Session, CrossDeviceTok
 import { generateUuid7 } from "../uuid7";
 
 let dbInstance: DbAdapter | null = null;
+let sqliteHandle: { close: () => void } | null = null;
+
+export function resetSqliteAdapter(): void {
+  if (sqliteHandle) {
+    try { sqliteHandle.close(); } catch { /* already closed */ }
+  }
+  sqliteHandle = null;
+  dbInstance = null;
+}
 
 export async function createSqliteAdapter(): Promise<DbAdapter> {
   if (dbInstance) return dbInstance;
@@ -14,6 +23,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
   // webpack bundling errors when building for Vercel (Node.js).
   const { Database } = await import("bun:sqlite");
   const db = new Database(".primordia-auth.db", { create: true });
+  sqliteHandle = db;
 
   // WAL mode for better concurrent read performance
   db.exec("PRAGMA journal_mode=WAL");

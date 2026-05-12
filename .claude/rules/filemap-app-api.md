@@ -35,7 +35,8 @@ app/api/
 │   ├── followup/route.ts      ← POST submit a follow-up request on an existing ready session
 │   ├── abort/route.ts         ← POST abort the running Claude Code instance; transitions session to ready
 │   ├── kill-restart/route.ts  ← POST kill dev server process + restart it in the worktree
-│   ├── upstream-sync/route.ts ← POST merge parent branch into session worktree ("Apply Updates")
+│   ├── upstream-sync/route.ts ← POST merge parent branch into session worktree ("Apply Updates") and hot-swap prod DB snapshot into preview
+│   ├── hotswap-db/route.ts    ← Internal loopback-only endpoint used by Apply Updates to close/reopen preview SQLite DB around a snapshot swap
 │   ├── from-branch/route.ts   ← POST start a session on an existing local branch (external contributor workflow)
 │   ├── diff/route.ts          ← GET raw unified diff for a single file in a session branch vs its parent
 │   ├── diff-summary/route.ts  ← GET per-file diff summary (additions + deletions) for all changed files in a session

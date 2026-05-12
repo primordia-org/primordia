@@ -4,7 +4,7 @@
 //   Body: { sessionId: string; action: "merge" }
 //   Returns: { outcome: "merged" | "merged-with-conflict-resolution"; log: string }
 
-import { runCommand, runGit, resolveConflictsWithAgent } from '../../../../lib/evolve-sessions';
+import { hotswapProductionDbIntoWorktree, runCommand, runGit, resolveConflictsWithAgent } from '../../../../lib/evolve-sessions';
 import { getSessionUser } from '../../../../lib/auth';
 import { getSessionFromFilesystem } from '../../../../lib/session-events';
 
@@ -71,14 +71,26 @@ export async function POST(request: Request) {
       }
       const installResult = await runCommand('bun', ['install'], worktreePath);
       const installLog = installResult.stdout + installResult.stderr;
+      const dbCopy = await hotswapProductionDbIntoWorktree(repoRoot, worktreePath, session.port);
+      const dbCopyLog = dbCopy.copied
+        ? '\nHot-swapped a production DB snapshot into this branch.'
+        : dbCopy.error === 'production DB not found'
+          ? '\nSkipped production DB hotswap: production DB not found.'
+          : `\nSkipped production DB hotswap: ${dbCopy.error ?? 'unknown error'}.`;
       return Response.json({
         outcome: 'merged-with-conflict-resolution',
-        log: result.stdout + result.stderr + '\n\n' + resolution.log + (installLog ? '\n' + installLog : ''),
+        log: result.stdout + result.stderr + '\n\n' + resolution.log + (installLog ? '\n' + installLog : '') + dbCopyLog,
       });
     }
     const installResult = await runCommand('bun', ['install'], worktreePath);
     const installLog = installResult.stdout + installResult.stderr;
-    return Response.json({ outcome: 'merged', log: result.stdout + result.stderr + (installLog ? '\n' + installLog : '') });
+    const dbCopy = await hotswapProductionDbIntoWorktree(repoRoot, worktreePath, session.port);
+    const dbCopyLog = dbCopy.copied
+      ? '\nHot-swapped a production DB snapshot into this branch.'
+      : dbCopy.error === 'production DB not found'
+        ? '\nSkipped production DB hotswap: production DB not found.'
+        : `\nSkipped production DB hotswap: ${dbCopy.error ?? 'unknown error'}.`;
+    return Response.json({ outcome: 'merged', log: result.stdout + result.stderr + (installLog ? '\n' + installLog : '') + dbCopyLog });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return Response.json({ error: msg }, { status: 500 });
