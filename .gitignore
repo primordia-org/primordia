@@ -38,6 +38,9 @@ next-env.d.ts
 *.db-shm
 *.db-wal
 
+# Server-side credential transport keypair generated at runtime
+.primordia-credential-transport-keypair.json
+
 # Uploaded attachments copied into worktrees (transient, not part of the project)
 /attachments/
 

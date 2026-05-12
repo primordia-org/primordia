@@ -43,7 +43,7 @@ export type HybridEncryptedSecret = {
   ciphertext: string;
 };
 
-// Module-level caches — reset on page load / module re-import.
+// Module-level cache for the user's local AES key — reset on page load / module re-import.
 let cachedAesKey: CryptoKey | null = null;
 let cachedPublicKey: CryptoKey | null = null;
 
@@ -93,7 +93,9 @@ export function bustPublicKeyCache(): void {
 }
 
 async function fetchPublicKey(): Promise<CryptoKey> {
-  if (cachedPublicKey) return cachedPublicKey;
+  // Fetch on every transmission instead of reusing a module-level RSA key.
+  // Already-open tabs can span a blue/green deploy; a fresh fetch avoids using
+  // a stale transport key if the server key ever rotates.
   const res = await fetch(withBasePath('/api/credential-encryption/public-key'));
   if (!res.ok) throw new Error(`Failed to fetch server public key: ${res.statusText}`);
   const data = (await res.json()) as { publicKey: JsonWebKey };

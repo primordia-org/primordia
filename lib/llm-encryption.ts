@@ -1,35 +1,100 @@
 // lib/llm-encryption.ts
 // Server-side RSA-OAEP keypair for hybrid-encrypted secrets in transit.
 //
-// An ephemeral 2048-bit RSA-OAEP keypair is generated once per server process
-// lifetime (lazy, on first call). The private key never leaves the server
-// process — clients encrypt with the public key (JWK) and the server decrypts.
-//
-// Because the keypair is ephemeral, clients must re-encrypt on each page
-// session. The public key is fetched fresh via /api/credential-encryption/public-key on
-// every evolve/chat submission so that a server restart is handled gracefully.
+// The keypair is persisted outside production worktrees so zero-downtime
+// blue/green deploys keep accepting envelopes encrypted by already-open tabs.
+// The browser still owns the long-lived AES key for stored credentials; this
+// RSA key is only a short-hop transport key for submitting a request.
 
+import { mkdir, readFile, writeFile } from 'fs/promises';
+import path from 'path';
 import { webcrypto } from 'crypto';
 
 const subtle = webcrypto.subtle as SubtleCrypto;
+const KEYPAIR_FILE = '.primordia-credential-transport-keypair.json';
 
-// Lazily-initialised promise — resolves to the generated keypair once and
+type PersistedKeyPair = {
+  publicKey: JsonWebKey;
+  privateKey: JsonWebKey;
+};
+
+function keyPairPath(): string {
+  return path.join(process.env.PRIMORDIA_DIR || process.cwd(), KEYPAIR_FILE);
+}
+
+async function importPersistedKeyPair(persisted: PersistedKeyPair): Promise<CryptoKeyPair> {
+  const [publicKey, privateKey] = await Promise.all([
+    subtle.importKey(
+      'jwk',
+      persisted.publicKey,
+      { name: 'RSA-OAEP', hash: 'SHA-256' },
+      true,
+      ['encrypt'],
+    ),
+    subtle.importKey(
+      'jwk',
+      persisted.privateKey,
+      { name: 'RSA-OAEP', hash: 'SHA-256' },
+      false,
+      ['decrypt'],
+    ),
+  ]);
+  return { publicKey, privateKey };
+}
+
+async function generatePersistedKeyPair(): Promise<PersistedKeyPair> {
+  const generated = (await subtle.generateKey(
+    {
+      name: 'RSA-OAEP',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
+    true,
+    ['encrypt', 'decrypt'],
+  )) as CryptoKeyPair;
+
+  const [publicKey, privateKey] = await Promise.all([
+    subtle.exportKey('jwk', generated.publicKey),
+    subtle.exportKey('jwk', generated.privateKey),
+  ]);
+  return { publicKey, privateKey };
+}
+
+async function loadOrCreatePersistedKeyPair(): Promise<CryptoKeyPair> {
+  const file = keyPairPath();
+  try {
+    const existing = JSON.parse(await readFile(file, 'utf8')) as PersistedKeyPair;
+    return importPersistedKeyPair(existing);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw err;
+    }
+  }
+
+  const persisted = await generatePersistedKeyPair();
+  await mkdir(path.dirname(file), { recursive: true });
+  try {
+    await writeFile(file, JSON.stringify(persisted), { mode: 0o600, flag: 'wx' });
+  } catch (err) {
+    // Another prod slot may have created the key at the same time. Use the
+    // winner's key so old and new servers converge on one transport key.
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+      const existing = JSON.parse(await readFile(file, 'utf8')) as PersistedKeyPair;
+      return importPersistedKeyPair(existing);
+    }
+    throw err;
+  }
+
+  return importPersistedKeyPair(persisted);
+}
+
+// Lazily-initialised promise — resolves to the persisted keypair once and
 // reuses that same keypair for the lifetime of the process.
 let keyPairPromise: Promise<CryptoKeyPair> | null = null;
 
 function getKeyPair(): Promise<CryptoKeyPair> {
-  if (!keyPairPromise) {
-    keyPairPromise = subtle.generateKey(
-      {
-        name: 'RSA-OAEP',
-        modulusLength: 2048,
-        publicExponent: new Uint8Array([1, 0, 1]),
-        hash: 'SHA-256',
-      },
-      true,   // extractable (public key must be exported as JWK)
-      ['encrypt', 'decrypt'],
-    ) as Promise<CryptoKeyPair>;
-  }
+  if (!keyPairPromise) keyPairPromise = loadOrCreatePersistedKeyPair();
   return keyPairPromise;
 }
 
