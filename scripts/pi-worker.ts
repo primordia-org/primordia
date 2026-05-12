@@ -242,6 +242,19 @@ async function main(): Promise<void> {
   // these are completely invisible — no progress is written to the NDJSON log
   // and the session page shows zero activity for up to 2 minutes.
   let isInThinkingBlock = false;
+  let currentThinkingContent = '';
+
+  function extractThinkingText(value: unknown): string {
+    if (typeof value === 'string') return value;
+    if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      for (const key of ['text', 'thinking', 'content', 'delta']) {
+        const nested = record[key];
+        if (typeof nested === 'string') return nested;
+      }
+    }
+    return '';
+  }
 
   process.on('SIGTERM', () => {
     userAborted = true;
@@ -370,14 +383,31 @@ async function main(): Promise<void> {
         if (ae.type === 'thinking_start') {
           // Extended reasoning has started — emit a start-of-thinking marker so
           // the session view can show a distinct "Reasoning..." indicator instead
-          // of appearing completely frozen for up to 2 minutes.
+          // of appearing completely frozen for up to 2 minutes. Some providers
+          // (notably OpenAI Codex/GPT reasoning models) do not always expose the
+          // actual reasoning text, so this marker may be the only visible event.
           isInThinkingBlock = true;
+          currentThinkingContent = '';
           appendSessionEvent(ndjsonPath, { type: 'thinking', content: '', ts: ts() });
-        } else if (ae.type === 'thinking_delta' && ae.delta && isInThinkingBlock) {
+        } else if (ae.type === 'thinking_delta' && isInThinkingBlock) {
           // Stream reasoning tokens progressively so users can watch the model think.
-          appendSessionEvent(ndjsonPath, { type: 'thinking', content: ae.delta, ts: ts() });
+          // Normalize defensively: provider adapters usually send a string delta,
+          // but some expose structured reasoning chunks.
+          const delta = extractThinkingText((ae as unknown as Record<string, unknown>).delta);
+          if (delta) {
+            currentThinkingContent += delta;
+            appendSessionEvent(ndjsonPath, { type: 'thinking', content: delta, ts: ts() });
+          }
         } else if (ae.type === 'thinking_end') {
+          const finalContent = extractThinkingText((ae as unknown as Record<string, unknown>).content);
+          if (finalContent && !currentThinkingContent) {
+            appendSessionEvent(ndjsonPath, { type: 'thinking', content: finalContent, ts: ts() });
+          }
+          // Emit an empty end marker so the UI can show "Thought for Xs" even
+          // when the provider hid the reasoning text and no deltas were emitted.
+          appendSessionEvent(ndjsonPath, { type: 'thinking', content: '', ts: ts() });
           isInThinkingBlock = false;
+          currentThinkingContent = '';
         } else if (ae.type === 'text_delta' && ae.delta) {
           appendSessionEvent(ndjsonPath, { type: 'text', content: ae.delta, ts: ts() });
         } else if (ae.type === 'error') {

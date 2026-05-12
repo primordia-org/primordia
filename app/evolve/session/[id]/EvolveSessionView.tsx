@@ -261,24 +261,27 @@ function ThinkingBlock({
   startTs?: number;
   endTs?: number;
 }) {
+  const hasVisibleThinking = content.trim().length > 0;
   const label = isStreaming
-    ? '🧠 Thinking...'
+    ? (hasVisibleThinking ? '🧠 Thinking...' : '🧠 Thinking privately...')
     : (startTs != null && endTs != null)
-      ? `🧠 Thought for ${formatThinkDuration(startTs, endTs)}`
-      : '🧠 Thinking';
+      ? `🧠 ${hasVisibleThinking ? 'Thought' : 'Thought privately'} for ${formatThinkDuration(startTs, endTs)}`
+      : (hasVisibleThinking ? '🧠 Thinking' : '🧠 Thinking privately');
   return (
     <details className="group/thinking my-1">
       <summary className="flex items-center gap-1.5 text-xs cursor-pointer select-none list-none">
         <span className="inline-block group-open/thinking:rotate-90 transition-transform text-gray-600">▶</span>
         <span className="text-gray-500">{label}</span>
       </summary>
-      {content ? (
+      {hasVisibleThinking ? (
         <div className="mt-1 ml-4 pl-3 border-l border-gray-800 text-xs text-gray-500 font-mono whitespace-pre-wrap break-words leading-relaxed max-h-96 overflow-y-auto">
           {content}
         </div>
       ) : (
         <div className="mt-1 ml-4 pl-3 border-l border-gray-800 text-xs text-gray-600 italic">
-          {isStreaming ? 'Thinking...' : 'No content'}
+          {isStreaming
+            ? 'The model is reasoning, but this provider has not exposed reasoning text for this block yet.'
+            : 'The model reasoned during this step, but this provider did not expose the reasoning text.'}
         </div>
       )}
     </details>
