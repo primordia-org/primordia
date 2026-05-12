@@ -10,11 +10,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { withBasePath } from "@/lib/base-path";
 
-type TabId = "api-key" | "subscriptions";
+type TabId = "api-key" | "subscriptions" | "presets";
 
 const tabs: { id: TabId; label: string; href: string }[] = [
   { id: "api-key", label: "API Keys", href: "/settings" },
   { id: "subscriptions", label: "Subscriptions", href: "/settings/subscriptions" },
+  { id: "presets", label: "Presets", href: "/settings/presets" },
 ];
 
 export default function SettingsSubNav({ currentTab }: { currentTab: TabId }) {
@@ -39,6 +40,7 @@ export default function SettingsSubNav({ currentTab }: { currentTab: TabId }) {
   function isActive(tabId: TabId) {
     if (tabId === "api-key") return apiKeyActive;
     if (tabId === "subscriptions") return credentialsActive;
+    if (tabId === "presets") return true;
     return false;
   }
 

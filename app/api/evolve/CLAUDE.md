@@ -9,7 +9,7 @@ This file covers the evolve subsystem: the API routes under `app/api/evolve/`, t
 ```
 User types change request on /evolve page
   → POST /api/evolve
-      → generates slug via Claude Haiku; finds unique branch name
+      → generates slug via the selected evolve model; finds unique branch name
       → creates LocalSession in memory (id, branch, worktreePath, request, createdAt, …)
       → persists EvolveSession record to SQLite (evolve_sessions table)
       → returns { sessionId }

@@ -14,6 +14,7 @@ components/auth-tabs/            ← Client-side auth tab components (no registr
 
 components/
 ├── AdminSubNav.tsx            ← Tab subnav for admin pages: "Manage Users" (/admin), "Server Logs" (/admin/logs), "Proxy Logs" (/admin/proxy-logs), "Rollback" (/admin/rollback), "Server Health" (/admin/server-health), "Git Mirror" (/admin/git-mirror), "Instance" (/admin/instance), "Updates" (/admin/updates), "Events" (/admin/events)
+├── AgentIdentity.tsx          ← Shared auth-source/harness identity line and icon helpers for agent blocks, presets, and settings
 ├── AnsiRenderer.tsx           ← Renders text with ANSI escape codes as styled React elements (colors, bold, spinner overwrite)
 ├── ApiKeyDialog.tsx           ← Modal for setting/clearing user Anthropic API key; stores in localStorage; opened from hamburger menu
 ├── CredentialsDialog.tsx      ← Modal dialog for pasting Claude Code credentials.json with AES-256-GCM encryption

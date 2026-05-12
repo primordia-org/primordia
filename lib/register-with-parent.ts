@@ -11,6 +11,9 @@ export async function registerWithParent(config: InstanceConfig): Promise<string
   if (!parentUrl) return "";
 
   const canonicalUrl = config.canonicalUrl.trim().replace(/\/$/, "");
+  if (canonicalUrl && parentUrl === canonicalUrl) {
+    return "";
+  }
 
   const body: Record<string, string> = {
     uuid7: config.uuid7,

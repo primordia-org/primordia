@@ -110,7 +110,7 @@ export default async function globalSetup(config: FullConfig) {
       const ivB64 = btoa(String.fromCharCode(...iv));
       const ctB64 = btoa(String.fromCharCode(...new Uint8Array(ct)));
 
-      const res = await fetch("/api/llm-key/encrypted-key", {
+      const res = await fetch("/api/secrets/ANTHROPIC_API_KEY", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ iv: ivB64, ciphertext: ctB64 }),

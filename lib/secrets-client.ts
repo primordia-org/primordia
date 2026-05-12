@@ -7,12 +7,13 @@
 // Architecture:
 //   - ONE AES-256-GCM key per user stored in localStorage ('primordia_aes_key').
 //     All secret types share this key — simplifies cross-device AES key sync.
-//   - Each secret type is stored server-side under its own preference key
-//     (see /api/secrets/[type]) using AES-GCM with a per-save random IV.
+//   - Each secret type is stored server-side in encrypted_credentials by
+//     authSource (see /api/secrets/[type]) using AES-GCM with a per-save random IV.
 //   - No local presence index — always ask the server whether a secret is set.
-//   - For transmission, API keys use RSA-OAEP (small payload).
-//     Credentials use hybrid encryption (ephemeral AES + RSA-OAEP wrapped key)
-//     because credentials.json can exceed RSA-OAEP's ~190-byte plaintext limit.
+//   - For transmission, every secret uses the same hybrid envelope:
+//     ephemeral AES-256-GCM encrypts the secret, RSA-OAEP wraps that AES key.
+//     This avoids RSA plaintext-size limits and keeps one code path for all
+//     credential material.
 //
 // Key that never leaves the browser: the AES-256-GCM key in localStorage.
 // Key that never leaves the server process: the RSA-OAEP private key.
@@ -28,6 +29,19 @@ export type SecretType =
   | 'CHATGPT_SUBSCRIPTION_OAUTH';
 
 const AES_KEY_STORAGE = 'primordia_aes_key';
+const LEGACY_CREDENTIALS_AES_KEY_STORAGE = 'primordia_credentials_aes_key';
+
+function clearLegacyAesKey(): void {
+  try {
+    localStorage.removeItem(LEGACY_CREDENTIALS_AES_KEY_STORAGE);
+  } catch {}
+}
+
+export type HybridEncryptedSecret = {
+  wrappedKey: string;
+  iv: string;
+  ciphertext: string;
+};
 
 // Module-level caches — reset on page load / module re-import.
 let cachedAesKey: CryptoKey | null = null;
@@ -39,6 +53,7 @@ async function loadAesKey(): Promise<CryptoKey | null> {
   if (cachedAesKey) return cachedAesKey;
   if (typeof window === 'undefined') return null;
   try {
+    clearLegacyAesKey();
     const jwkStr = localStorage.getItem(AES_KEY_STORAGE);
     if (!jwkStr) return null;
     const jwk = JSON.parse(jwkStr) as JsonWebKey;
@@ -65,6 +80,7 @@ async function getOrCreateAesKey(): Promise<CryptoKey> {
   );
   const jwk = await crypto.subtle.exportKey('jwk', key);
   localStorage.setItem(AES_KEY_STORAGE, JSON.stringify(jwk));
+  clearLegacyAesKey();
   cachedAesKey = key;
   return key;
 }
@@ -78,7 +94,7 @@ export function bustPublicKeyCache(): void {
 
 async function fetchPublicKey(): Promise<CryptoKey> {
   if (cachedPublicKey) return cachedPublicKey;
-  const res = await fetch(withBasePath('/api/llm-key/public-key'));
+  const res = await fetch(withBasePath('/api/credential-encryption/public-key'));
   if (!res.ok) throw new Error(`Failed to fetch server public key: ${res.statusText}`);
   const data = (await res.json()) as { publicKey: JsonWebKey };
   const key = await crypto.subtle.importKey(
@@ -171,6 +187,7 @@ export async function clearSecret(type: SecretType): Promise<void> {
       if (data.types.length === 0) {
         cachedAesKey = null;
         localStorage.removeItem(AES_KEY_STORAGE);
+        clearLegacyAesKey();
       }
     }
   } catch {
@@ -188,6 +205,7 @@ export function clearOrphanedSecretsKey(): void {
   try {
     cachedAesKey = null;
     localStorage.removeItem(AES_KEY_STORAGE);
+    clearLegacyAesKey();
   } catch {}
 }
 
@@ -210,6 +228,7 @@ export async function adoptNewAesKey(newKeyJwkStr: string): Promise<void> {
 
   if (!oldKeyJwkStr || oldKeyJwkStr === newKeyJwkStr) {
     localStorage.setItem(AES_KEY_STORAGE, newKeyJwkStr);
+    clearLegacyAesKey();
     cachedAesKey = null;
     return;
   }
@@ -234,6 +253,7 @@ export async function adoptNewAesKey(newKeyJwkStr: string): Promise<void> {
   } catch {
     // Can't import keys — just adopt the new key without migrating.
     localStorage.setItem(AES_KEY_STORAGE, newKeyJwkStr);
+    clearLegacyAesKey();
     cachedAesKey = null;
     return;
   }
@@ -279,6 +299,7 @@ export async function adoptNewAesKey(newKeyJwkStr: string): Promise<void> {
   }
 
   localStorage.setItem(AES_KEY_STORAGE, newKeyJwkStr);
+  clearLegacyAesKey();
   cachedAesKey = null;
 }
 
@@ -314,66 +335,21 @@ export async function getSecret(type: SecretType): Promise<string | null> {
 }
 
 /**
- * Returns an API key ready for secure transmission using RSA-OAEP:
+ * Returns a stored secret ready for secure transmission using hybrid
+ * encryption:
  *   1. Load the shared AES key from localStorage.
- *   2. Fetch the AES-encrypted ciphertext from the server.
- *   3. Decrypt locally to recover the plaintext key.
- *   4. Re-encrypt with the server's ephemeral RSA-OAEP public key.
- *
- * Not for use with CLAUDE_CODE_CREDENTIALS_JSON — use encryptCredentialsForTransmission().
- * Returns null if no key is configured on this device or any step fails.
- */
-export async function encryptSecretForTransmission(
-  type: Exclude<SecretType, 'CLAUDE_CODE_CREDENTIALS_JSON'>,
-): Promise<string | null> {
-  try {
-    const aesKey = await loadAesKey();
-    if (!aesKey) return null;
-
-    const res = await fetch(withBasePath(`/api/secrets/${type}`));
-    if (!res.ok) return null;
-
-    const data = (await res.json()) as { ciphertext: string | null };
-    if (!data.ciphertext) return null;
-
-    const { iv: ivB64, ciphertext: ctB64 } = JSON.parse(data.ciphertext) as {
-      iv: string;
-      ciphertext: string;
-    };
-
-    const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
-    const ct = Uint8Array.from(atob(ctB64), (c) => c.charCodeAt(0));
-    const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
-
-    const publicKey = await fetchPublicKey();
-    const rsaEncrypted = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, publicKey, plaintext);
-    return btoa(String.fromCharCode(...new Uint8Array(rsaEncrypted)));
-  } catch (err) {
-    console.error(`[secrets-client] Failed to encrypt ${type} for transmission:`, err);
-    return null;
-  }
-}
-
-/**
- * Returns Claude Code credentials ready for secure transmission using hybrid
- * encryption (because credentials.json can exceed RSA-OAEP's ~190-byte limit):
- *   1. Load the shared AES key from localStorage.
- *   2. Fetch + decrypt the AES-encrypted credentials from the server.
- *   3. Generate a fresh ephemeral AES key, encrypt the credentials with it.
+ *   2. Fetch + decrypt the AES-encrypted secret from the server.
+ *   3. Generate a fresh ephemeral AES key, encrypt the secret with it.
  *   4. Wrap the ephemeral AES key with the server's RSA-OAEP public key.
  *
- * Returns null if no credentials are configured on this device or any step fails.
- * The plaintext credentials exist only as a transient ArrayBuffer in memory.
+ * Returns null if no secret is configured on this device or any step fails.
+ * The plaintext exists only as a transient ArrayBuffer in memory.
  *
  * Returned shape: { wrappedKey, iv, ciphertext } — all base64-encoded.
  * The server decrypts wrappedKey with its RSA private key to recover the
  * ephemeral AES key, then uses it to decrypt the ciphertext.
  */
-async function encryptLargeSecretForTransmission(type: SecretType): Promise<{
-  wrappedKey: string;
-  iv: string;
-  ciphertext: string;
-} | null> {
+export async function encryptSecretForTransmission(type: SecretType): Promise<HybridEncryptedSecret | null> {
   try {
     const aesKey = await loadAesKey();
     if (!aesKey) return null;
@@ -424,18 +400,10 @@ async function encryptLargeSecretForTransmission(type: SecretType): Promise<{
   }
 }
 
-export async function encryptCredentialsForTransmission(): Promise<{
-  wrappedKey: string;
-  iv: string;
-  ciphertext: string;
-} | null> {
-  return encryptLargeSecretForTransmission('CLAUDE_CODE_CREDENTIALS_JSON');
+export async function encryptCredentialsForTransmission(): Promise<HybridEncryptedSecret | null> {
+  return encryptSecretForTransmission('CLAUDE_CODE_CREDENTIALS_JSON');
 }
 
-export async function encryptChatGptSubscriptionForTransmission(): Promise<{
-  wrappedKey: string;
-  iv: string;
-  ciphertext: string;
-} | null> {
-  return encryptLargeSecretForTransmission('CHATGPT_SUBSCRIPTION_OAUTH');
+export async function encryptChatGptSubscriptionForTransmission(): Promise<HybridEncryptedSecret | null> {
+  return encryptSecretForTransmission('CHATGPT_SUBSCRIPTION_OAUTH');
 }

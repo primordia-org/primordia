@@ -15,6 +15,7 @@ import {
 import {
   getSessionFromFilesystem,
 } from '../../../../lib/session-events';
+import { normalizeAuthSource, type PresetAuthSource } from '../../../../lib/presets';
 
 /** Multipart form-data body for POST /evolve/followup */
 export interface EvolveFollowupFormData {
@@ -22,7 +23,7 @@ export interface EvolveFollowupFormData {
   request: string; // The follow-up change request text for Claude Code.
   harness?: string; // Agent harness override for this follow-up run.
   model?: string; // AI model override for this follow-up run.
-  encryptedApiKey?: string; // Optional RSA-OAEP encrypted Anthropic API key.
+  encryptedApiKey?: string; // Optional hybrid-encrypted API key (JSON: { wrappedKey, iv, ciphertext }).
   encryptedCredentials?: string; // Optional hybrid-encrypted Claude Code credentials.json (JSON: { wrappedKey, iv, ciphertext }).
   encryptedChatGptOAuth?: string; // Optional hybrid-encrypted ChatGPT subscription OAuth credentials for Pi openai-codex models.
   attachments?: string; // Optional additional file attachments to include in this follow-up run.
@@ -46,6 +47,8 @@ export async function POST(request: Request) {
   let requestText: string;
   let harness: string | undefined;
   let model: string | undefined;
+  let authSource: PresetAuthSource | null = null;
+  let presetId: string | undefined;
   let encryptedApiKey: string | null = null;
   let encryptedCredentials: string | null = null;
   let encryptedChatGptOAuth: string | null = null;
@@ -68,6 +71,10 @@ export async function POST(request: Request) {
     const modelField = formData.get('model');
     if (typeof harnessField === 'string' && harnessField) harness = harnessField;
     if (typeof modelField === 'string' && modelField) model = modelField;
+    const presetField = formData.get('presetId');
+    if (typeof presetField === 'string' && presetField) presetId = presetField;
+    const authSourceField = formData.get('authSource');
+    if (typeof authSourceField === 'string') authSource = normalizeAuthSource(authSourceField);
     const encKeyField = formData.get('encryptedApiKey');
     if (typeof encKeyField === 'string' && encKeyField) encryptedApiKey = encKeyField;
     const encCredsField = formData.get('encryptedCredentials');
@@ -99,7 +106,7 @@ export async function POST(request: Request) {
       }
     }
   } else {
-    const body = (await request.json()) as { sessionId?: string; request?: string; encryptedApiKey?: string; encryptedCredentials?: string; encryptedChatGptOAuth?: string };
+    const body = (await request.json()) as { sessionId?: string; request?: string; harness?: string; model?: string; presetId?: string; authSource?: string; encryptedApiKey?: string; encryptedCredentials?: string; encryptedChatGptOAuth?: string };
     if (!body.sessionId || typeof body.sessionId !== 'string') {
       return Response.json({ error: 'sessionId string required' }, { status: 400 });
     }
@@ -108,9 +115,28 @@ export async function POST(request: Request) {
     }
     sessionId = body.sessionId;
     requestText = body.request;
+    if (body.harness) harness = body.harness;
+    if (body.model) model = body.model;
+    if (body.presetId) presetId = body.presetId;
+    if (body.authSource) authSource = normalizeAuthSource(body.authSource);
     if (body.encryptedApiKey) encryptedApiKey = body.encryptedApiKey;
     if (body.encryptedCredentials) encryptedCredentials = body.encryptedCredentials;
     if (body.encryptedChatGptOAuth) encryptedChatGptOAuth = body.encryptedChatGptOAuth;
+  }
+
+  if (authSource === 'exe-dev-gateway') {
+    encryptedApiKey = null;
+    encryptedCredentials = null;
+    encryptedChatGptOAuth = null;
+  } else if (authSource === 'claude-subscription') {
+    encryptedApiKey = null;
+    encryptedChatGptOAuth = null;
+  } else if (authSource === 'chatgpt-subscription') {
+    encryptedApiKey = null;
+    encryptedCredentials = null;
+  } else if (authSource === 'openrouter-api-key' || authSource === 'openai-api-key' || authSource === 'anthropic-api-key') {
+    encryptedCredentials = null;
+    encryptedChatGptOAuth = null;
   }
 
   // Decrypt the user's API key right before use.
@@ -185,7 +211,12 @@ export async function POST(request: Request) {
 
   // Fire-and-forget — runFollowupInWorktree handles all state transitions and
   // error cases internally, writing events to the NDJSON log.
-  void runFollowupInWorktree(session, requestText, repoRoot, 'running-claude', undefined, undefined, savedAttachmentPaths);
+  void runFollowupInWorktree(session, requestText, repoRoot, 'running-claude', undefined, undefined, savedAttachmentPaths, {
+    ...(presetId ? { presetId } : {}),
+    ...(authSource ? { authSource } : {}),
+    ...(harness ? { harness } : {}),
+    ...(model ? { model } : {}),
+  });
 
   return Response.json({ ok: true });
 }

@@ -194,21 +194,18 @@ interface WorkerConfig {
 }
 
 /**
- * Determine which auth source a session will use and return the corresponding
- * AgentAuthInfo. Credentials take priority over an API key; both override the
- * gateway. Enforcing a single source here means the section_start event and
- * the worker env always agree on which credential was used.
+ * Determine which already-selected auth source a session will use and return
+ * the corresponding AgentAuthInfo. Evolve presets are responsible for selecting
+ * exactly one billing source before the worker is invoked; this function only
+ * sanitizes incompatible fields so the section_start event and worker env agree.
  *
  * Rules:
  *  - Claude Credentials (credentials.json) are only supported by the
- *    'claude-code' harness. Pi and other harnesses use the Anthropic API
- *    directly and cannot read a credentials.json file, so credentials are
- *    silently ignored for those harnesses.
- *  - If BOTH credentials and an API key are supplied and the harness supports
- *    credentials, credentials win and the API key is discarded.
- *  - The client is expected to only send one at a time (credentials for
- *    claude-code, API key for everything else), so this is a defensive
- *    last-resort deduplication.
+ *    'claude-code' harness. Pi and other harnesses use API/OAuth credentials
+ *    directly and cannot read a credentials.json file.
+ *  - If malformed input includes more than one credential, keep the first
+ *    harness-compatible credential only as defensive deduplication. Product
+ *    flows must not rely on this as credential selection logic.
  */
 function resolveAgentAuth(
   credentials: string | undefined,
@@ -849,6 +846,7 @@ export async function runFollowupInWorktree(
   internalSectionType?: 'type_fix' | 'auto_commit',
   /** Temporary file paths for user-uploaded attachments. Copied into worktree/attachments/ and deleted from /tmp. */
   attachmentPaths: string[] = [],
+  requestMetadata: { presetId?: string; authSource?: string; harness?: string; model?: string } = {},
 ): Promise<void> {
   const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
 
@@ -866,7 +864,13 @@ export async function runFollowupInWorktree(
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: internalSectionType, label: sectionLabels[internalSectionType], ts: Date.now() });
     } else {
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'followup', label: '🔄 Follow-up Request', ts: Date.now() });
-      appendSessionEvent(ndjsonPath, { type: 'followup_request', request: followupRequest, attachments: attachmentPaths.map(p => path.basename(p)), ts: Date.now() });
+      appendSessionEvent(ndjsonPath, {
+        type: 'followup_request',
+        request: followupRequest,
+        attachments: attachmentPaths.map(p => path.basename(p)),
+        ...requestMetadata,
+        ts: Date.now(),
+      });
       const fuHarnessLabel = HARNESS_OPTIONS.find((h) => h.id === fuHarnessId)?.label ?? fuHarnessId;
       const fuModelLabel = getModelLabel(fuHarnessId, fuModelId);
       // Resolve auth — credentials beat API key; both beat the gateway.

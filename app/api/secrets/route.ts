@@ -16,16 +16,26 @@ type SecretType =
   | 'CLAUDE_CODE_CREDENTIALS_JSON'
   | 'CHATGPT_SUBSCRIPTION_OAUTH';
 
-const SERVER_PREF_KEYS: Record<SecretType, string> = {
-  ANTHROPIC_API_KEY: 'encrypted_api_key',
-  OPENROUTER_API_KEY: 'encrypted_openrouter_api_key',
-  OPENAI_API_KEY: 'encrypted_openai_api_key',
-  GEMINI_API_KEY: 'encrypted_gemini_api_key',
-  CLAUDE_CODE_CREDENTIALS_JSON: 'encrypted_credentials',
-  CHATGPT_SUBSCRIPTION_OAUTH: 'encrypted_chatgpt_subscription_oauth',
+type AuthSource =
+  | 'anthropic-api-key'
+  | 'openrouter-api-key'
+  | 'openai-api-key'
+  | 'gemini-api-key'
+  | 'claude-subscription'
+  | 'chatgpt-subscription';
+
+const TYPE_BY_AUTH_SOURCE: Record<AuthSource, SecretType> = {
+  'anthropic-api-key': 'ANTHROPIC_API_KEY',
+  'openrouter-api-key': 'OPENROUTER_API_KEY',
+  'openai-api-key': 'OPENAI_API_KEY',
+  'gemini-api-key': 'GEMINI_API_KEY',
+  'claude-subscription': 'CLAUDE_CODE_CREDENTIALS_JSON',
+  'chatgpt-subscription': 'CHATGPT_SUBSCRIPTION_OAUTH',
 };
 
-const ALL_TYPES = Object.keys(SERVER_PREF_KEYS) as SecretType[];
+function isAuthSource(value: string): value is AuthSource {
+  return value in TYPE_BY_AUTH_SOURCE;
+}
 
 /**
  * List configured secrets
@@ -37,15 +47,8 @@ export async function GET() {
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });
 
   const db = await getDb();
-  const prefs = await db.getUserPreferences(
-    user.id,
-    ALL_TYPES.map((t) => SERVER_PREF_KEYS[t]),
-  );
-
-  const types = ALL_TYPES.filter((t) => {
-    const val = prefs[SERVER_PREF_KEYS[t]];
-    return val && val.length > 0;
-  });
+  const authSources = await db.listEncryptedCredentialSources(user.id);
+  const types = authSources.filter(isAuthSource).map((source) => TYPE_BY_AUTH_SOURCE[source]);
 
   return Response.json({ types });
 }

@@ -1,4 +1,4 @@
-// app/api/llm-key/chatgpt-subscription/route.ts
+// app/api/oauth/chatgpt-subscription/route.ts
 // ChatGPT subscription OAuth helpers. This mirrors the Codex device-code
 // "Sign in with ChatGPT" flow directly in Next.js, without spawning Codex or
 // any other CLI process.
@@ -9,6 +9,14 @@ const ISSUER = 'https://auth.openai.com';
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const DEVICE_API_BASE = `${ISSUER}/api/accounts`;
 const DEVICE_CALLBACK = `${ISSUER}/deviceauth/callback`;
+
+function upstreamUnavailable(error: unknown) {
+  const detail = error instanceof Error ? error.message : String(error);
+  return Response.json(
+    { error: 'Could not reach ChatGPT OAuth service', detail: detail.slice(0, 500) },
+    { status: 502 },
+  );
+}
 
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   const [, payload] = token.split('.');
@@ -26,7 +34,7 @@ async function requireUser() {
   return getSessionUser();
 }
 
-/** JSON body for POST /llm-key/chatgpt-subscription */
+/** JSON body for POST /api/oauth/chatgpt-subscription */
 export interface ChatGptSubscriptionBody {
   action: 'start' | 'complete';
   deviceAuthId?: string;
@@ -36,7 +44,7 @@ export interface ChatGptSubscriptionBody {
 /**
  * Start or complete ChatGPT device-code OAuth
  * @description Starts the ChatGPT device authorization flow, or polls once for completion and returns ordinary OAuth credentials when authorized. The route does not spawn a CLI process.
- * @tag Llm-key
+ * @tag OAuth
  * @body ChatGptSubscriptionBody
  */
 export async function POST(req: Request) {
@@ -51,22 +59,32 @@ export async function POST(req: Request) {
   }
 
   if (body.action === 'start') {
-    const upstream = await fetch(`${DEVICE_API_BASE}/deviceauth/usercode`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_id: CLIENT_ID }),
-    });
+    let upstream: Response;
+    try {
+      upstream = await fetch(`${DEVICE_API_BASE}/deviceauth/usercode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: CLIENT_ID }),
+      });
+    } catch (err) {
+      return upstreamUnavailable(err);
+    }
 
     if (!upstream.ok) {
       return Response.json({ error: `Device-code request failed with status ${upstream.status}` }, { status: 502 });
     }
 
-    const data = (await upstream.json()) as {
+    let data: {
       device_auth_id?: string;
       user_code?: string;
       usercode?: string;
       interval?: string | number;
     };
+    try {
+      data = (await upstream.json()) as typeof data;
+    } catch {
+      return Response.json({ error: 'Device-code response was not valid JSON' }, { status: 502 });
+    }
     const userCode = data.user_code ?? data.usercode;
     if (!data.device_auth_id || !userCode) {
       return Response.json({ error: 'Device-code response was missing required fields' }, { status: 502 });
@@ -87,11 +105,16 @@ export async function POST(req: Request) {
       return Response.json({ error: 'deviceAuthId and userCode required' }, { status: 400 });
     }
 
-    const poll = await fetch(`${DEVICE_API_BASE}/deviceauth/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ device_auth_id: body.deviceAuthId, user_code: body.userCode }),
-    });
+    let poll: Response;
+    try {
+      poll = await fetch(`${DEVICE_API_BASE}/deviceauth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_auth_id: body.deviceAuthId, user_code: body.userCode }),
+      });
+    } catch (err) {
+      return upstreamUnavailable(err);
+    }
 
     if (poll.status === 403 || poll.status === 404) return Response.json({ status: 'pending' });
     if (!poll.ok) {
@@ -107,13 +130,18 @@ export async function POST(req: Request) {
       return Response.json({ error: `Device authorization failed with status ${poll.status}`, detail: text.slice(0, 500) }, { status: 502 });
     }
 
-    const codeData = (await poll.json()) as {
+    let codeData: {
       authorization_code?: string;
       code_verifier?: string;
       id_token?: string;
       access_token?: string;
       refresh_token?: string;
     };
+    try {
+      codeData = (await poll.json()) as typeof codeData;
+    } catch {
+      return Response.json({ error: 'Device authorization response was not valid JSON' }, { status: 502 });
+    }
 
     let tokens: { id_token?: string; access_token?: string; refresh_token?: string } = codeData;
     if (!tokens.id_token || !tokens.access_token || !tokens.refresh_token) {
@@ -128,16 +156,25 @@ export async function POST(req: Request) {
         client_id: CLIENT_ID,
         code_verifier: codeData.code_verifier,
       });
-      const tokenRes = await fetch(`${ISSUER}/oauth/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: form,
-      });
+      let tokenRes: Response;
+      try {
+        tokenRes = await fetch(`${ISSUER}/oauth/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: form,
+        });
+      } catch (err) {
+        return upstreamUnavailable(err);
+      }
       if (!tokenRes.ok) {
         const text = await tokenRes.text().catch(() => '');
         return Response.json({ error: `Token exchange failed with status ${tokenRes.status}`, detail: text.slice(0, 500) }, { status: 502 });
       }
-      tokens = (await tokenRes.json()) as { id_token?: string; access_token?: string; refresh_token?: string };
+      try {
+        tokens = (await tokenRes.json()) as { id_token?: string; access_token?: string; refresh_token?: string };
+      } catch {
+        return Response.json({ error: 'Token exchange response was not valid JSON' }, { status: 502 });
+      }
     }
 
     if (!tokens.id_token || !tokens.access_token || !tokens.refresh_token) {
