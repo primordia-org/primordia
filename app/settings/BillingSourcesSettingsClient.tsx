@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Check, Plus } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { Plus } from "lucide-react";
 import { AuthSourceIcon } from "@/components/AgentIdentity";
-import { withBasePath } from "@/lib/base-path";
+import type { SecretCiphertexts, SecretType } from "@/lib/secret-types";
 import ApiKeySettingsClient from "./ApiKeySettingsClient";
 import CredentialsSettingsClient from "./subscriptions/CredentialsSettingsClient";
 import ChatGptSubscriptionSettingsClient from "./subscriptions/ChatGptSubscriptionSettingsClient";
@@ -115,37 +115,35 @@ function AddBillingSource({ added, onAdd }: { added: BillingSourceId[]; onAdd: (
   );
 }
 
-function SourceContent({ source }: { source: BillingSourceId }) {
-  if (source === "anthropic-api-key") return <ApiKeySettingsClient provider="anthropic" />;
-  if (source === "openrouter-api-key") return <ApiKeySettingsClient provider="openrouter" />;
-  if (source === "claude-subscription") return <CredentialsSettingsClient />;
-  return <ChatGptSubscriptionSettingsClient />;
+function SourceContent({
+  source,
+  initialSecretCiphertexts,
+}: {
+  source: BillingSourceId;
+  initialSecretCiphertexts: SecretCiphertexts;
+}) {
+  if (source === "anthropic-api-key") return <ApiKeySettingsClient provider="anthropic" initialCiphertext={initialSecretCiphertexts.ANTHROPIC_API_KEY ?? null} />;
+  if (source === "openrouter-api-key") return <ApiKeySettingsClient provider="openrouter" initialCiphertext={initialSecretCiphertexts.OPENROUTER_API_KEY ?? null} />;
+  if (source === "claude-subscription") return <CredentialsSettingsClient initialCiphertext={initialSecretCiphertexts.CLAUDE_CODE_CREDENTIALS_JSON ?? null} />;
+  return <ChatGptSubscriptionSettingsClient initialCiphertext={initialSecretCiphertexts.CHATGPT_SUBSCRIPTION_OAUTH ?? null} />;
 }
 
-export default function BillingSourcesSettingsClient() {
-  const [types, setTypes] = useState<string[]>([]);
-  const [added, setAdded] = useState<BillingSourceId[]>([]);
-
-  useEffect(() => {
-    async function loadSecretStatus() {
-      try {
-        const res = await fetch(withBasePath("/api/secrets"));
-        if (!res.ok) return;
-        const data = (await res.json()) as { types?: string[] };
-        setTypes(data.types ?? []);
-      } catch {}
-    }
-    void loadSecretStatus();
-  }, []);
-
-  useEffect(() => {
+export default function BillingSourcesSettingsClient({
+  initialSecretTypes,
+  initialSecretCiphertexts,
+}: {
+  initialSecretTypes: SecretType[];
+  initialSecretCiphertexts: SecretCiphertexts;
+}) {
+  const initialAdded = useMemo(() => {
     const activeSources: BillingSourceId[] = [];
-    if (types.includes("ANTHROPIC_API_KEY")) activeSources.push("anthropic-api-key");
-    if (types.includes("OPENROUTER_API_KEY")) activeSources.push("openrouter-api-key");
-    if (types.includes("CLAUDE_CODE_CREDENTIALS_JSON")) activeSources.push("claude-subscription");
-    if (types.includes("CHATGPT_SUBSCRIPTION_OAUTH")) activeSources.push("chatgpt-subscription");
-    setAdded((current) => [...current, ...activeSources.filter((source) => !current.includes(source))]);
-  }, [types]);
+    if (initialSecretTypes.includes("ANTHROPIC_API_KEY")) activeSources.push("anthropic-api-key");
+    if (initialSecretTypes.includes("OPENROUTER_API_KEY")) activeSources.push("openrouter-api-key");
+    if (initialSecretTypes.includes("CLAUDE_CODE_CREDENTIALS_JSON")) activeSources.push("claude-subscription");
+    if (initialSecretTypes.includes("CHATGPT_SUBSCRIPTION_OAUTH")) activeSources.push("chatgpt-subscription");
+    return activeSources;
+  }, [initialSecretTypes]);
+  const [added, setAdded] = useState<BillingSourceId[]>(initialAdded);
 
   const addedSources = useMemo(
     () => SOURCE_OPTIONS.filter((source) => added.includes(source.id)),
@@ -165,7 +163,7 @@ export default function BillingSourcesSettingsClient() {
         <GatewaySourceCard />
 
         {addedSources.map((source) => (
-          <SourceContent key={source.id} source={source.id} />
+          <SourceContent key={source.id} source={source.id} initialSecretCiphertexts={initialSecretCiphertexts} />
         ))}
 
         <AddBillingSource

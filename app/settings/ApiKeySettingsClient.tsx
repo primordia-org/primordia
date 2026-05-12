@@ -6,17 +6,22 @@ import {
   setStoredApiKey,
   setStoredOpenRouterApiKey,
 } from "@/lib/api-key-client";
-import { getSecret } from "@/lib/secrets-client";
-import { withBasePath } from "@/lib/base-path";
+import { decryptStoredSecretPayload } from "@/lib/secrets-client";
 import { trackEvent } from "@/lib/events-client";
 import { useDecryptEffect } from "@/lib/use-decrypt-effect";
 import { AuthSourceIcon } from "@/components/AgentIdentity";
 
 type ApiKeyProvider = "anthropic" | "openrouter";
 
-export default function ApiKeySettingsClient({ provider }: { provider: ApiKeyProvider }) {
+export default function ApiKeySettingsClient({
+  provider,
+  initialCiphertext,
+}: {
+  provider: ApiKeyProvider;
+  initialCiphertext?: string | null;
+}) {
   // Anthropic key state
-  const [isKeySet, setIsKeySet] = useState(false);
+  const [isKeySet, setIsKeySet] = useState(provider === "anthropic" && Boolean(initialCiphertext));
   const [inputValue, setInputValue] = useState("");
   const [keyDirty, setKeyDirty] = useState(false);
   const [showKey, setShowKey] = useState(false);
@@ -26,7 +31,7 @@ export default function ApiKeySettingsClient({ provider }: { provider: ApiKeyPro
   const [copiedKey, setCopiedKey] = useState(false);
 
   // OpenRouter key state
-  const [isOrKeySet, setIsOrKeySet] = useState(false);
+  const [isOrKeySet, setIsOrKeySet] = useState(provider === "openrouter" && Boolean(initialCiphertext));
   const [orInputValue, setOrInputValue] = useState("");
   const [orKeyDirty, setOrKeyDirty] = useState(false);
   const [orShowKey, setOrShowKey] = useState(false);
@@ -45,25 +50,25 @@ export default function ApiKeySettingsClient({ provider }: { provider: ApiKeyPro
   });
 
   useEffect(() => {
-    async function check() {
-      try {
-        const res = await fetch(withBasePath('/api/secrets'));
-        if (!res.ok) return;
-        const { types } = (await res.json()) as { types: string[] };
-        if (types.includes('ANTHROPIC_API_KEY')) {
-          setIsKeySet(true);
-          const val = await getSecret('ANTHROPIC_API_KEY');
-          if (val) { setInputValue(val); setKeyDirty(false); }
-        }
-        if (types.includes('OPENROUTER_API_KEY')) {
-          setIsOrKeySet(true);
-          const val = await getSecret('OPENROUTER_API_KEY');
-          if (val) { setOrInputValue(val); setOrKeyDirty(false); }
-        }
-      } catch {}
+    let cancelled = false;
+
+    async function decryptInitialValue() {
+      const val = await decryptStoredSecretPayload(initialCiphertext);
+      if (cancelled || !val) return;
+      if (provider === "anthropic") {
+        setInputValue(val);
+        setKeyDirty(false);
+      } else {
+        setOrInputValue(val);
+        setOrKeyDirty(false);
+      }
     }
-    void check();
-  }, []);
+
+    void decryptInitialValue();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialCiphertext, provider]);
 
   async function handleSave() {
     const trimmed = inputValue.trim();

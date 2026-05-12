@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { Check, ChevronDown, ChevronRight, Copy, ExternalLink, Loader2, Key, EyeOff } from "lucide-react";
 import { AuthSourceIcon } from "@/components/AgentIdentity";
 import { setStoredCredentials } from "@/lib/credentials-client";
-import { getSecret } from "@/lib/secrets-client";
+import { decryptStoredSecretPayload } from "@/lib/secrets-client";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
 import { useDecryptEffect, generateScramble } from "@/lib/use-decrypt-effect";
@@ -17,15 +17,13 @@ type Step =
   | { kind: "done" }
   | { kind: "error"; message: string };
 
-export default function CredentialsSettingsClient() {
-  const [isSet, setIsSet] = useState(false);
+export default function CredentialsSettingsClient({ initialCiphertext }: { initialCiphertext?: string | null }) {
+  const [isSet, setIsSet] = useState(Boolean(initialCiphertext));
   const [storedValue, setStoredValue] = useState<string | null>(null);
   const [credRevealed, setCredRevealed] = useState(false);
-  const [credScrambled, setCredScrambled] = useState("");
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [code, setCode] = useState("");
   const [pasteValue, setPasteValue] = useState("");
-  const [credsDirty, setCredsDirty] = useState(false);
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [pasteSaved, setPasteSaved] = useState(false);
   const [pasteLoading, setPasteLoading] = useState(false);
@@ -38,44 +36,32 @@ export default function CredentialsSettingsClient() {
     onComplete: () => setCredRevealed(true),
   });
 
-  function prettyCredentials(): string {
+  const prettyStoredCredentials = useMemo(() => {
     if (!storedValue) return "";
     try {
       return JSON.stringify(JSON.parse(storedValue), null, 2);
     } catch {
       return storedValue;
     }
-  }
+  }, [storedValue]);
 
   useEffect(() => {
-    async function checkStatus() {
-      try {
-        const res = await fetch(withBasePath('/api/secrets/CLAUDE_CODE_CREDENTIALS_JSON'));
-        if (res.ok) {
-          const data = (await res.json()) as { ciphertext: string | null };
-          if (data.ciphertext) {
-            setIsSet(true);
-            const val = await getSecret('CLAUDE_CODE_CREDENTIALS_JSON');
-            setStoredValue(val);
-          }
-        }
-      } catch {}
-    }
-    void checkStatus();
-  }, []);
+    let cancelled = false;
 
-  // When storedValue loads or changes, regenerate the scrambled display
-  useEffect(() => {
-    if (storedValue) {
-      const pretty = (() => {
-        try { return JSON.stringify(JSON.parse(storedValue), null, 2); } catch { return storedValue; }
-      })();
-      setCredScrambled(generateScramble(pretty));
+    async function decryptInitialCredentials() {
+      const val = await decryptStoredSecretPayload(initialCiphertext);
+      if (cancelled || !val) return;
+      setIsSet(true);
+      setStoredValue(val);
       setCredRevealed(false);
-      setCredsDirty(false);
       setPasteValue("");
     }
-  }, [storedValue]);
+
+    void decryptInitialCredentials();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialCiphertext]);
 
   useEffect(() => {
     return () => {
@@ -121,6 +107,8 @@ export default function CredentialsSettingsClient() {
       trackEvent("settings/claude-auth-completed/v1", {});
       setIsSet(true);
       setStoredValue(credentials);
+      setCredRevealed(false);
+      setPasteValue("");
       setStep({ kind: "done" });
     } catch (e) {
       setStep({ kind: "error", message: e instanceof Error ? e.message : "Failed to complete authentication." });
@@ -143,7 +131,7 @@ export default function CredentialsSettingsClient() {
 
   async function copyCredentials() {
     try {
-      await navigator.clipboard.writeText(prettyCredentials());
+      await navigator.clipboard.writeText(prettyStoredCredentials);
       setCopiedCredentials(true);
       setTimeout(() => setCopiedCredentials(false), 2000);
     } catch {}
@@ -156,8 +144,6 @@ export default function CredentialsSettingsClient() {
       setIsSet(false);
       setStoredValue(null);
       setCredRevealed(false);
-      setCredScrambled("");
-      setCredsDirty(false);
       setPasteValue("");
       setStep({ kind: "idle" });
     } catch {}
@@ -184,6 +170,8 @@ export default function CredentialsSettingsClient() {
       trackEvent("settings/credentials-saved/v1", {});
       setIsSet(true);
       setStoredValue(result.value);
+      setCredRevealed(false);
+      setPasteValue("");
       setPasteSaved(true);
       setStep({ kind: "done" });
       setTimeout(() => setPasteSaved(false), 2000);
@@ -197,8 +185,8 @@ export default function CredentialsSettingsClient() {
   const storedCredentialsDisplay = isDecrypting
     ? decryptDisplay
     : credRevealed
-    ? prettyCredentials()
-    : credScrambled;
+    ? prettyStoredCredentials
+    : generateScramble(prettyStoredCredentials);
   const showStoredCredentials = isDecrypting || credRevealed;
 
   return (
@@ -244,12 +232,8 @@ export default function CredentialsSettingsClient() {
                     if (credRevealed) {
                       setCredRevealed(false);
                       setPasteError(null);
-                      if (storedValue) {
-                        const pretty = (() => { try { return JSON.stringify(JSON.parse(storedValue), null, 2); } catch { return storedValue; } })();
-                        setCredScrambled(generateScramble(pretty));
-                      }
                     } else if (!isDecrypting) {
-                      decrypt(prettyCredentials());
+                      decrypt(prettyStoredCredentials);
                     }
                   }}
                   disabled={isDecrypting}
@@ -330,7 +314,6 @@ export default function CredentialsSettingsClient() {
                   value={pasteValue}
                   onChange={(e) => {
                     setPasteValue(e.target.value);
-                    setCredsDirty(true);
                     setPasteError(null);
                     setPasteSaved(false);
                   }}

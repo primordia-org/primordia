@@ -19,14 +19,9 @@
 // Key that never leaves the server process: the RSA-OAEP private key.
 
 import { withBasePath } from './base-path';
+import type { SecretType } from './secret-types';
 
-export type SecretType =
-  | 'ANTHROPIC_API_KEY'
-  | 'OPENROUTER_API_KEY'
-  | 'OPENAI_API_KEY'
-  | 'GEMINI_API_KEY'
-  | 'CLAUDE_CODE_CREDENTIALS_JSON'
-  | 'CHATGPT_SUBSCRIPTION_OAUTH';
+export type { SecretType } from './secret-types';
 
 const AES_KEY_STORAGE = 'primordia_aes_key';
 const LEGACY_CREDENTIALS_AES_KEY_STORAGE = 'primordia_credentials_aes_key';
@@ -320,6 +315,28 @@ export async function getSecret(type: SecretType): Promise<string | null> {
     if (!data.ciphertext) return null;
 
     const { iv: ivB64, ciphertext: ctB64 } = JSON.parse(data.ciphertext) as {
+      iv: string;
+      ciphertext: string;
+    };
+
+    const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
+    const ct = Uint8Array.from(atob(ctB64), (c) => c.charCodeAt(0));
+    const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
+
+    return new TextDecoder().decode(plaintext);
+  } catch {
+    return null;
+  }
+}
+
+export async function decryptStoredSecretPayload(ciphertextPayload: string | null | undefined): Promise<string | null> {
+  try {
+    if (!ciphertextPayload) return null;
+
+    const aesKey = await loadAesKey();
+    if (!aesKey) return null;
+
+    const { iv: ivB64, ciphertext: ctB64 } = JSON.parse(ciphertextPayload) as {
       iv: string;
       ciphertext: string;
     };

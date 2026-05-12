@@ -16,36 +16,10 @@
 
 import { getSessionUser } from '@/lib/auth';
 import { getDb } from '@/lib/db';
-
-type SecretType =
-  | 'ANTHROPIC_API_KEY'
-  | 'OPENROUTER_API_KEY'
-  | 'OPENAI_API_KEY'
-  | 'GEMINI_API_KEY'
-  | 'CLAUDE_CODE_CREDENTIALS_JSON'
-  | 'CHATGPT_SUBSCRIPTION_OAUTH';
-
-type AuthSource =
-  | 'anthropic-api-key'
-  | 'openrouter-api-key'
-  | 'openai-api-key'
-  | 'gemini-api-key'
-  | 'claude-subscription'
-  | 'chatgpt-subscription';
-
-const AUTH_SOURCES: Record<SecretType, AuthSource> = {
-  ANTHROPIC_API_KEY: 'anthropic-api-key',
-  OPENROUTER_API_KEY: 'openrouter-api-key',
-  OPENAI_API_KEY: 'openai-api-key',
-  GEMINI_API_KEY: 'gemini-api-key',
-  CLAUDE_CODE_CREDENTIALS_JSON: 'claude-subscription',
-  CHATGPT_SUBSCRIPTION_OAUTH: 'chatgpt-subscription',
-};
-
-const VALID_TYPES = new Set<string>(Object.keys(AUTH_SOURCES));
+import { AUTH_SOURCE_BY_TYPE, isSecretType, type SecretType } from '@/lib/secret-types';
 
 function resolveType(params: { type: string }): SecretType | null {
-  return VALID_TYPES.has(params.type) ? (params.type as SecretType) : null;
+  return isSecretType(params.type) ? params.type : null;
 }
 
 /**
@@ -64,7 +38,7 @@ export async function GET(
   if (!type) return Response.json({ error: 'Unknown secret type' }, { status: 400 });
 
   const db = await getDb();
-  const stored = await db.getEncryptedCredential(user.id, AUTH_SOURCES[type]);
+  const stored = await db.getEncryptedCredential(user.id, AUTH_SOURCE_BY_TYPE[type]);
   const ciphertext = stored && stored.length > 0 ? stored : null;
 
   return Response.json({ ciphertext });
@@ -111,7 +85,7 @@ export async function POST(
   const { iv, ciphertext } = body as { iv: string; ciphertext: string };
 
   const db = await getDb();
-  await db.setEncryptedCredential(user.id, AUTH_SOURCES[type], JSON.stringify({ iv, ciphertext }));
+  await db.setEncryptedCredential(user.id, AUTH_SOURCE_BY_TYPE[type], JSON.stringify({ iv, ciphertext }));
 
   return Response.json({ ok: true });
 }
@@ -132,7 +106,7 @@ export async function DELETE(
   if (!type) return Response.json({ error: 'Unknown secret type' }, { status: 400 });
 
   const db = await getDb();
-  await db.deleteEncryptedCredential(user.id, AUTH_SOURCES[type]);
+  await db.deleteEncryptedCredential(user.id, AUTH_SOURCE_BY_TYPE[type]);
 
   return Response.json({ ok: true });
 }

@@ -6,36 +6,7 @@
 // GET → { types: SecretType[] }
 
 import { getSessionUser } from '@/lib/auth';
-import { getDb } from '@/lib/db';
-
-type SecretType =
-  | 'ANTHROPIC_API_KEY'
-  | 'OPENROUTER_API_KEY'
-  | 'OPENAI_API_KEY'
-  | 'GEMINI_API_KEY'
-  | 'CLAUDE_CODE_CREDENTIALS_JSON'
-  | 'CHATGPT_SUBSCRIPTION_OAUTH';
-
-type AuthSource =
-  | 'anthropic-api-key'
-  | 'openrouter-api-key'
-  | 'openai-api-key'
-  | 'gemini-api-key'
-  | 'claude-subscription'
-  | 'chatgpt-subscription';
-
-const TYPE_BY_AUTH_SOURCE: Record<AuthSource, SecretType> = {
-  'anthropic-api-key': 'ANTHROPIC_API_KEY',
-  'openrouter-api-key': 'OPENROUTER_API_KEY',
-  'openai-api-key': 'OPENAI_API_KEY',
-  'gemini-api-key': 'GEMINI_API_KEY',
-  'claude-subscription': 'CLAUDE_CODE_CREDENTIALS_JSON',
-  'chatgpt-subscription': 'CHATGPT_SUBSCRIPTION_OAUTH',
-};
-
-function isAuthSource(value: string): value is AuthSource {
-  return value in TYPE_BY_AUTH_SOURCE;
-}
+import { listUserSecretTypes } from '@/lib/settings-page-data';
 
 /**
  * List configured secrets
@@ -46,9 +17,7 @@ export async function GET() {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });
 
-  const db = await getDb();
-  const authSources = await db.listEncryptedCredentialSources(user.id);
-  const types = authSources.filter(isAuthSource).map((source) => TYPE_BY_AUTH_SOURCE[source]);
+  const types = await listUserSecretTypes(user.id);
 
   return Response.json({ types });
 }

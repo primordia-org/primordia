@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy, ExternalLink, EyeOff, Key } from "lucide-react";
-import { getSecret, setSecret, clearSecret } from "@/lib/secrets-client";
+import { decryptStoredSecretPayload, setSecret, clearSecret } from "@/lib/secrets-client";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
 import { AuthSourceIcon } from "@/components/AgentIdentity";
@@ -40,10 +40,10 @@ function parseCredentials(raw: string | null): StoredChatGptCredentials | null {
   }
 }
 
-export default function ChatGptSubscriptionSettingsClient() {
+export default function ChatGptSubscriptionSettingsClient({ initialCiphertext }: { initialCiphertext?: string | null }) {
   const [credentials, setCredentials] = useState<StoredChatGptCredentials | null>(null);
+  const [hasStoredCredentials, setHasStoredCredentials] = useState(Boolean(initialCiphertext));
   const [credentialsRevealed, setCredentialsRevealed] = useState(false);
-  const [credentialsScrambled, setCredentialsScrambled] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deviceFlow, setDeviceFlow] = useState<DeviceFlowState | null>(null);
@@ -61,34 +61,29 @@ export default function ChatGptSubscriptionSettingsClient() {
     onComplete: () => setCredentialsRevealed(true),
   });
 
-  const loadCredentials = useCallback(async () => {
-    try {
-      const raw = await getSecret("CHATGPT_SUBSCRIPTION_OAUTH");
-      setCredentials(parseCredentials(raw));
-    } catch {
-      setCredentials(null);
-    }
-  }, []);
-
   useEffect(() => {
-    const id = window.setTimeout(() => {
-      void loadCredentials();
-    }, 0);
+    let cancelled = false;
+
+    async function decryptInitialCredentials() {
+      const raw = await decryptStoredSecretPayload(initialCiphertext);
+      if (cancelled) return;
+      const parsed = parseCredentials(raw);
+      setCredentials(parsed);
+      setHasStoredCredentials(Boolean(parsed ?? initialCiphertext));
+      setCredentialsRevealed(false);
+    }
+
+    void decryptInitialCredentials();
     return () => {
-      window.clearTimeout(id);
+      cancelled = true;
       if (pollTimer.current) window.clearTimeout(pollTimer.current);
     };
-  }, [loadCredentials]);
+  }, [initialCiphertext]);
 
-  useEffect(() => {
-    if (prettyCredentials) {
-      setCredentialsScrambled(generateScramble(prettyCredentials));
-      setCredentialsRevealed(false);
-    } else {
-      setCredentialsScrambled("");
-      setCredentialsRevealed(false);
-    }
-  }, [prettyCredentials]);
+  const credentialsScrambled = useMemo(
+    () => prettyCredentials ? generateScramble(prettyCredentials) : "",
+    [prettyCredentials],
+  );
 
   async function startAuth() {
     setBusy(true);
@@ -132,6 +127,8 @@ export default function ChatGptSubscriptionSettingsClient() {
         const value = JSON.stringify(data.credentials);
         await setSecret("CHATGPT_SUBSCRIPTION_OAUTH", value);
         setCredentials(parseCredentials(value));
+        setHasStoredCredentials(true);
+        setCredentialsRevealed(false);
         setDeviceFlow(null);
         setCodeCopied(false);
         trackEvent("settings/subscriptions/chatgpt-connected/v1", {});
@@ -174,10 +171,10 @@ export default function ChatGptSubscriptionSettingsClient() {
     try {
       await clearSecret("CHATGPT_SUBSCRIPTION_OAUTH");
       setCredentials(null);
+      setHasStoredCredentials(false);
       setDeviceFlow(null);
       setCodeCopied(false);
       setCredentialsRevealed(false);
-      setCredentialsScrambled("");
       trackEvent("settings/subscriptions/chatgpt-disconnected/v1", {});
     } catch {
       setError("Failed to disconnect ChatGPT. Please try again.");
@@ -202,7 +199,7 @@ export default function ChatGptSubscriptionSettingsClient() {
           </div>
           <p className="text-sm font-medium text-gray-200">ChatGPT</p>
         </div>
-        {credentials && (
+        {(credentials || hasStoredCredentials) && (
           <span className="text-xs px-2 py-0.5 rounded-full bg-green-900/40 text-green-400 border border-green-800/50">
             Active
           </span>
@@ -234,7 +231,6 @@ export default function ChatGptSubscriptionSettingsClient() {
               onClick={() => {
                 if (credentialsRevealed) {
                   setCredentialsRevealed(false);
-                  setCredentialsScrambled(generateScramble(prettyCredentials));
                 } else if (!isDecrypting) {
                   decrypt(prettyCredentials);
                 }
@@ -304,9 +300,9 @@ export default function ChatGptSubscriptionSettingsClient() {
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
-      {(credentials || !deviceFlow) && (
+      {(credentials || !deviceFlow || hasStoredCredentials) && (
         <div className="flex items-center gap-2">
-          {credentials && (
+          {(credentials || hasStoredCredentials) && (
             <button
               data-id="chatgpt-subscription/disconnect"
               onClick={() => void disconnect()}
@@ -321,9 +317,9 @@ export default function ChatGptSubscriptionSettingsClient() {
               data-id="chatgpt-subscription/start-auth"
               onClick={() => void startAuth()}
               disabled={busy}
-              className={`${credentials ? "flex-1" : "w-full"} px-4 py-2 rounded-lg text-sm font-medium bg-sky-600 hover:bg-sky-500 disabled:bg-sky-900 text-white transition-colors disabled:cursor-not-allowed`}
+              className={`${credentials || hasStoredCredentials ? "flex-1" : "w-full"} px-4 py-2 rounded-lg text-sm font-medium bg-sky-600 hover:bg-sky-500 disabled:bg-sky-900 text-white transition-colors disabled:cursor-not-allowed`}
             >
-              {busy ? "Starting…" : credentials ? "Sign in again" : "Sign in with ChatGPT"}
+              {busy ? "Starting…" : (credentials || hasStoredCredentials) ? "Sign in again" : "Sign in with ChatGPT"}
             </button>
           )}
         </div>
