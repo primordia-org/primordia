@@ -6,7 +6,7 @@
 // GET → { sources: SecretAuthSource[] }
 
 import { getSessionUser } from '@/lib/auth';
-import { listUserSecretSources } from '@/app/settings/settings-page-data';
+import { listUserSecretSources } from '@/app/settings/data';
 
 /**
  * List configured secrets

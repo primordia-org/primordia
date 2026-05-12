@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSessionUser, isAdmin } from "@/lib/auth";
 import { getEvolvePrefs } from "@/lib/user-prefs";
-import { getPresetsSettingsPageData } from "../settings-page-data";
+import { getPresetsSettingsPageData } from "../data";
 import { buildPageTitle } from "@/lib/page-title";
 import { PageNavBar } from "@/components/PageNavBar";
 import SettingsSubNav from "@/components/SettingsSubNav";

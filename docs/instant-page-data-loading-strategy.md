@@ -29,7 +29,7 @@ Make Server Components the default source of initial page data. Move the shared 
 1. A page must not require a `useEffect(...fetch...)` call to show its initial content.
 2. If a page needs authenticated DB, git, filesystem, or git-config data, load it in the route's server component.
 3. API routes remain for external clients, mutations, polling, SSE, and client-triggered refreshes.
-4. Reuse logic by extracting a `getXxxPageData()`/`listXxx()` function, not by having the server component call its own HTTP API route. Prefer co-locating route-specific helpers inside the relevant App Router folder (for example `app/settings/settings-page-data.ts` or `app/admin/rollback/data.ts`); use `lib/` only for helpers that are genuinely shared across unrelated routes.
+4. Reuse logic by extracting a `getXxxPageData()`/`listXxx()` function, not by having the server component call its own HTTP API route. Prefer co-locating route-specific helpers in a `data.ts` file inside the relevant App Router folder (for example `app/settings/data.ts` or `app/admin/rollback/data.ts`); use `lib/` only for helpers that are genuinely shared across unrelated routes.
 5. Client components receive `initialData` props and update local state only after mutations or explicit refresh actions.
 6. New PRs should treat mount-time data fetching as a code-review smell unless it is realtime, user-triggered, or intentionally lazy.
 
