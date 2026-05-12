@@ -171,6 +171,8 @@ export default function ApiKeySettingsClient() {
   const orShowCipherDisplay = isOrKeySet && !orShowKey && orIsDecrypting;
   const showKeyInput = !isKeySet || showKey || isDecrypting;
   const showOrKeyInput = !isOrKeySet || orShowKey || orIsDecrypting;
+  const showSaveButton = !isKeySet || keyDirty || saved || loading;
+  const showOrSaveButton = !isOrKeySet || orKeyDirty || orSaved || orLoading;
 
   return (
     <div className="flex flex-col gap-6">
@@ -250,10 +252,10 @@ export default function ApiKeySettingsClient() {
           </div>
           {showCipherDisplay ? (
             <div
-              className="w-full max-w-xl bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 font-mono text-amber-300/50 overflow-hidden whitespace-nowrap select-none h-[38px] flex items-center"
+              className="w-full sm:w-96 max-w-full min-w-0 bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 font-mono text-amber-300/50 overflow-hidden whitespace-nowrap select-none h-[38px] flex items-center"
               aria-hidden="true"
             >
-              <span className="truncate">{decryptDisplay}</span>
+              <span className="min-w-0 truncate">{decryptDisplay}</span>
             </div>
           ) : showKeyInput ? (
             <input
@@ -263,7 +265,7 @@ export default function ApiKeySettingsClient() {
               onChange={(e) => { setInputValue(e.target.value); setKeyDirty(true); setError(null); setSaved(false); }}
               onKeyDown={(e) => { if (e.key === "Enter") void handleSave(); }}
               placeholder="sk-ant-api03-…"
-              className="w-full max-w-xl bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 font-mono"
+              className="w-full sm:w-96 max-w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 font-mono"
               autoComplete="off"
               spellCheck={false}
               disabled={loading}
@@ -285,14 +287,16 @@ export default function ApiKeySettingsClient() {
               </button>
             )}
           </div>
-          <button
-            data-id="api-key/save-key"
-            onClick={() => void handleSave()}
-            disabled={!inputValue.trim() || !keyDirty || saved || loading}
-            className="px-4 py-1.5 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white transition-colors disabled:cursor-not-allowed"
-          >
-            {loading ? "Saving…" : saved ? "Saved ✓" : "Save key"}
-          </button>
+          {showSaveButton && (
+            <button
+              data-id="api-key/save-key"
+              onClick={() => void handleSave()}
+              disabled={!inputValue.trim() || !keyDirty || saved || loading}
+              className="px-4 py-1.5 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white transition-colors disabled:cursor-not-allowed"
+            >
+              {loading ? "Saving…" : saved ? "Saved ✓" : "Save key"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -359,10 +363,10 @@ export default function ApiKeySettingsClient() {
           </div>
           {orShowCipherDisplay ? (
             <div
-              className="w-full max-w-xl bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 font-mono text-violet-300/50 overflow-hidden whitespace-nowrap select-none h-[38px] flex items-center"
+              className="w-full sm:w-96 max-w-full min-w-0 bg-gray-800 text-sm border border-gray-700 rounded-lg px-3 py-2 font-mono text-violet-300/50 overflow-hidden whitespace-nowrap select-none h-[38px] flex items-center"
               aria-hidden="true"
             >
-              <span className="truncate">{orDecryptDisplay}</span>
+              <span className="min-w-0 truncate">{orDecryptDisplay}</span>
             </div>
           ) : showOrKeyInput ? (
             <input
@@ -372,7 +376,7 @@ export default function ApiKeySettingsClient() {
               onChange={(e) => { setOrInputValue(e.target.value); setOrKeyDirty(true); setOrError(null); setOrSaved(false); }}
               onKeyDown={(e) => { if (e.key === "Enter") void handleOrSave(); }}
               placeholder="sk-or-v1-…"
-              className="w-full max-w-xl bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 font-mono"
+              className="w-full sm:w-96 max-w-full bg-gray-800 text-sm text-gray-100 placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 font-mono"
               autoComplete="off"
               spellCheck={false}
               disabled={orLoading}
@@ -394,14 +398,16 @@ export default function ApiKeySettingsClient() {
               </button>
             )}
           </div>
-          <button
-            data-id="api-key/openrouter-save-key"
-            onClick={() => void handleOrSave()}
-            disabled={!orInputValue.trim() || !orKeyDirty || orSaved || orLoading}
-            className="px-4 py-1.5 rounded-lg text-sm font-medium bg-violet-700 hover:bg-violet-600 disabled:bg-violet-900 text-white transition-colors disabled:cursor-not-allowed"
-          >
-            {orLoading ? "Saving…" : orSaved ? "Saved ✓" : "Save key"}
-          </button>
+          {showOrSaveButton && (
+            <button
+              data-id="api-key/openrouter-save-key"
+              onClick={() => void handleOrSave()}
+              disabled={!orInputValue.trim() || !orKeyDirty || orSaved || orLoading}
+              className="px-4 py-1.5 rounded-lg text-sm font-medium bg-violet-700 hover:bg-violet-600 disabled:bg-violet-900 text-white transition-colors disabled:cursor-not-allowed"
+            >
+              {orLoading ? "Saving…" : orSaved ? "Saved ✓" : "Save key"}
+            </button>
+          )}
         </div>
       </div>
 
