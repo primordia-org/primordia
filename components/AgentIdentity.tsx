@@ -14,6 +14,7 @@ export const AUTH_SOURCE_ICON_PATH: Partial<Record<PresetAuthSource, string>> = 
 };
 
 export const HARNESS_ICON_PATH: Record<string, string> = {
+  codex: "/brand-icons/codex-favicon.svg",
   pi: "/brand-icons/pi-dev-favicon.svg",
 };
 
@@ -27,6 +28,7 @@ export function authSourceFromAgentAuth(auth?: AgentAuthInfo): PresetAuthSource 
 export function harnessLabel(harnessIdOrLabel?: string): string {
   if (!harnessIdOrLabel) return "Claude Code";
   if (harnessIdOrLabel === "claude-code") return "Claude Code";
+  if (harnessIdOrLabel === "codex") return "Codex";
   if (harnessIdOrLabel === "pi") return "Pi";
   return harnessIdOrLabel;
 }
@@ -46,7 +48,7 @@ export function AuthSourceIcon({ source, size = 16 }: { source?: PresetAuthSourc
 }
 
 export function HarnessIcon({ harness, size = 16 }: { harness?: string; size?: number }) {
-  const key = harness === "Pi" ? "pi" : harness === "Claude Code" ? "claude-code" : harness;
+  const key = harness === "Pi" ? "pi" : harness === "Codex" ? "codex" : harness === "Claude Code" ? "claude-code" : harness;
   if (key === "claude-code") {
     return <ClaudeIcon size={size} />;
   }
