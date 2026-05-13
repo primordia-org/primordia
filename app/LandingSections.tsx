@@ -217,7 +217,7 @@ const BOX_FEATURES = [
     bg: "bg-rose-500/5",
     title: "Secure Secret Storage",
     description:
-      "API keys and credentials are encrypted before they leave your browser. The server stores only ciphertext — your secrets stay yours.",
+      "API keys and credentials are encrypted before they leave your browser. The server never sees them in plaintext — your secrets stay yours.",
   },
   {
     icon: <Layers size={22} strokeWidth={1.5} aria-hidden="true" />,
@@ -235,7 +235,7 @@ const BOX_FEATURES = [
     bg: "bg-yellow-500/5",
     title: "Your AI, Your Way",
     description:
-      "Connect your existing Claude or ChatGPT subscription, paste an API key, or use free models via the built-in gateway. No AI costs baked in.",
+      "Connect your existing Claude or ChatGPT subscription, or paste an Anthropic, OpenAI, or OpenRouter API key. No AI costs baked in.",
   },
 ];
 

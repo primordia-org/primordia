@@ -14,7 +14,7 @@ The section contains nine feature tiles arranged in a perfect 3×3 responsive gr
 - **Automatic Updates** — pull upstream Primordia improvements via the admin panel, on your schedule
 - **Secure Secret Storage** — client-side hybrid envelope encryption; server never sees plaintext secrets
 - **Decisions Already Made** — framework, database, auth, AI integration, and deployment pre-chosen
-- **Your AI, Your Way** — connect an existing Claude or ChatGPT subscription, paste an API key, or use free models
+- **Your AI, Your Way** — connect an existing Claude or ChatGPT subscription, or paste an Anthropic, OpenAI, or OpenRouter API key
 
 Also fixed a layout bug in the "What is Primordia?" section: the grid declared `sm:grid-cols-3` for only two cards; corrected to `sm:grid-cols-2`.
 
@@ -27,7 +27,7 @@ Also fixed a layout bug in the "What is Primordia?" section: the grid declared `
 - Replaced "One-Command Deploy" tile with "Automatic Updates"
 - Removed "Fork" and "repo" from the Open Source card (rewrote as "customize the source code")
 - Fixed "Four steps" → "Three steps" in the How it works section (there are only 3 steps)
-- Added "Your AI, Your Way" tile highlighting ChatGPT/Claude subscription support and free model options
+- Added "Your AI, Your Way" tile highlighting ChatGPT/Claude subscription support and Anthropic/OpenAI/OpenRouter API key options
 
 ### CTABannerSection simplified
 
@@ -53,6 +53,6 @@ The landing page previously mixed marketing copy with technical jargon ("Git", "
 
 The Automatic Updates tile replaces One-Command Deploy (which belonged more in the CTA section), and the Security and Architecture tiles fill gaps that weren't previously highlighted — both are meaningful differentiators for anyone evaluating Primordia as a foundation.
 
-The "Your AI, Your Way" tile addresses a common question: do you need to pay for a new AI subscription just to use Primordia? The answer is no — existing Claude or ChatGPT subscriptions work, free models are available via the gateway, and API keys are welcome too.
+The "Your AI, Your Way" tile addresses a common question: do you need to pay for a new AI subscription just to use Primordia? The answer is no — existing Claude or ChatGPT subscriptions work, and Anthropic, OpenAI, or OpenRouter API keys are all supported. (Free models via OpenRouter require an OpenRouter key; the built-in gateway only covers Anthropic and OpenAI models.) The Secure Secret Storage tile no longer uses the word "ciphertext" — replaced with plain-English "The server never sees them in plaintext".
 
 The /under-the-hood page intro was updated to remove a joke that implied the landing page was dishonest; Primordia has no secrets from its users. The agent section was expanded to accurately describe all supported harnesses (Claude Code, Codex, pi) and mention chained follow-up requests.
