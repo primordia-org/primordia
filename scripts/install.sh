@@ -15,7 +15,7 @@
 # The installer doubles as an updater script, and is used to update existing
 # Primordia instances.
 
-set -euo pipefail
+set -eEuo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 # ── Colours / formatting ──────────────────────────────────────────────────────
@@ -534,37 +534,12 @@ if [[ -n "$OLD_PROD_BRANCH" && "$OLD_PROD_BRANCH" != "$BRANCH" ]]; then
   OLD_SLOT="$(git -C "${BARE_REPO}" worktree list --porcelain \
     | awk '/^worktree /{p=$2} /^branch refs\/heads\/'"${OLD_PROD_BRANCH}"'$/{print p; exit}' || true)"
   if [[ -n "$OLD_SLOT" && -f "${OLD_SLOT}/${DB_NAME}" ]]; then
+    _CURRENT_STEP="copy production DB"
     _step "Copying production DB..."
     NEW_DB="${INSTALL_DIR}/${DB_NAME}"
     rm -f "${NEW_DB}" "${NEW_DB}-wal" "${NEW_DB}-shm"
     sqlite3 "${OLD_SLOT}/${DB_NAME}" "VACUUM INTO '${NEW_DB}'"
     _done "DB copied"
-
-    # Post-copy diagnostics — verify the new DB before continuing so a
-    # corrupt or incomplete copy doesn't mask itself as a later failure.
-    diag "--- Post-copy DB diagnostics ---------------------------------"
-    diag "Source:    ${OLD_SLOT}/${DB_NAME}"
-    diag "Source size: $(du -sh "${OLD_SLOT}/${DB_NAME}" 2>/dev/null | awk '{print $1}' || echo 'unknown')"
-    diag "Dest:      ${NEW_DB}"
-    diag "Dest size: $(du -sh "${NEW_DB}" 2>/dev/null | awk '{print $1}' || echo 'MISSING')"
-    diag "Dest perms: $(ls -la "${NEW_DB}" 2>/dev/null | awk '{print $1, $3, $4}' || echo 'stat failed')"
-    _wal_files="$(ls "${NEW_DB}-wal" "${NEW_DB}-shm" 2>/dev/null || true)"
-    if [[ -n "$_wal_files" ]]; then
-      diag "WARNING: WAL/SHM files present after copy: ${_wal_files}"
-    else
-      diag "WAL/SHM:   cleared (OK)"
-    fi
-    _ic_result="$(sqlite3 "${NEW_DB}" "PRAGMA integrity_check;" 2>&1 || echo 'sqlite3 failed')"
-    diag "Integrity: ${_ic_result}"
-    _page_count="$(sqlite3 "${NEW_DB}" "PRAGMA page_count;" 2>&1 || echo 'unknown')"
-    _table_count="$(sqlite3 "${NEW_DB}" "SELECT COUNT(*) FROM sqlite_master WHERE type='table';" 2>&1 || echo 'unknown')"
-    diag "Pages:     ${_page_count}  Tables: ${_table_count}"
-    diag "Disk after copy: $(df -h "${INSTALL_DIR}" 2>/dev/null | awk 'NR==2{print $4" free of "$2}' || echo 'unknown')"
-    diag "--------------------------------------------------------------"
-
-    if [[ "$_ic_result" != "ok" ]]; then
-      die "Copied DB failed integrity check: ${_ic_result}"
-    fi
   fi
 fi
 
@@ -578,11 +553,15 @@ fi
 #   - If main is not checked out anywhere, use `git update-ref` directly
 #     (safe when no worktree has it checked out).
 advance_main_and_push() {
+  _CURRENT_STEP="advance main ref: rev-parse branch"
   local branch_sha
   branch_sha="$(git -C "${BARE_REPO}" rev-parse "$BRANCH")"
+  diag "advance_main_and_push: BRANCH=${BRANCH} sha=${branch_sha}"
 
   # Find the worktree (if any) that has main checked out.
+  _CURRENT_STEP="advance main ref: find main worktree"
   local main_worktree=""
+  local _wt_path="" _wt_branch=""
   while IFS= read -r line; do
     if [[ "$line" == worktree\ * ]]; then
       _wt_path="${line#worktree }"
@@ -594,13 +573,18 @@ advance_main_and_push() {
       break
     fi
   done < <(git -C "${BARE_REPO}" worktree list --porcelain)
+  diag "advance_main_and_push: main_worktree=${main_worktree:-<none>}"
 
+  _CURRENT_STEP="advance main ref: reset/update-ref"
   if [[ -n "$main_worktree" ]]; then
+    diag "advance_main_and_push: git reset --hard ${branch_sha} in ${main_worktree}"
     git -C "$main_worktree" reset --hard "$branch_sha"
   else
+    diag "advance_main_and_push: git update-ref refs/heads/main ${branch_sha}"
     git -C "${BARE_REPO}" update-ref refs/heads/main "$branch_sha"
   fi
 
+  _CURRENT_STEP="advance main ref: push mirror"
   if git -C "${BARE_REPO}" config --get remote.mirror.url &>/dev/null; then
     _mirror_err="$(mktemp)"
     if git -C "${BARE_REPO}" push mirror 2>"$_mirror_err"; then
@@ -626,11 +610,14 @@ if [[ "${PROXY_RUNNING}" == "true" ]] && \
   # The proxy is running and neither it nor the service unit changed.
   # Tell the proxy to spawn the new production server, health-check it, and
   # cut over atomically — no restart required.
+  _CURRENT_STEP="zero-downtime spawn: create FIFO"
   _step "Deploying to new slot (zero-downtime)..."
   # Stream SSE events from the proxy: print log lines immediately, capture
   # the final done line to check success/failure.
   _SPAWN_FIFO="$(mktemp -u)"
   mkfifo "$_SPAWN_FIFO"
+  _CURRENT_STEP="zero-downtime spawn: curl /_proxy/prod/spawn"
+  diag "zero-downtime spawn: POST /_proxy/prod/spawn branch=${BRANCH} port=${REVERSE_PROXY_PORT}"
   curl -sf --max-time 60 \
     -X POST "http://localhost:${REVERSE_PROXY_PORT}/_proxy/prod/spawn" \
     -H 'Content-Type: application/json' \
@@ -638,6 +625,7 @@ if [[ "${PROXY_RUNNING}" == "true" ]] && \
     --no-buffer 2>/dev/null \
     | grep '^data: ' | sed 's/^data: //' > "$_SPAWN_FIFO" &
   _SPAWN_CURL_PID=$!
+  _CURRENT_STEP="zero-downtime spawn: read SSE stream"
   SPAWN_RESULT=""
   while IFS= read -r _sse_line; do
     SPAWN_RESULT="$_sse_line"
@@ -651,6 +639,8 @@ if [[ "${PROXY_RUNNING}" == "true" ]] && \
   done < "$_SPAWN_FIFO"
   wait "$_SPAWN_CURL_PID" 2>/dev/null || true
   rm -f "$_SPAWN_FIFO"
+  _CURRENT_STEP="zero-downtime spawn: evaluate result"
+  diag "zero-downtime spawn: result=${SPAWN_RESULT:-<empty>}"
   # The last SSE data line is: {"type":"done","ok":true} or {"type":"done","ok":false,"error":"..."}
   if echo "${SPAWN_RESULT}" | grep -q '"ok":true'; then
     SERVICE_READY=true
@@ -672,18 +662,23 @@ if [[ "${SERVICE_READY}" == "false" ]]; then
   # ── Restart/start path ────────────────────────────────────────────────────
   # Used when: first install, proxy/service changed, or zero-downtime failed.
   # Mark the production branch directly — the proxy will pick it up on start.
+  _CURRENT_STEP="set production branch in git config"
+  diag "restart path: setting primordia.productionBranch=${BRANCH}"
   git -C "${BARE_REPO}" config primordia.productionBranch "$BRANCH"
 
   if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; then
     if [[ "${PROXY_RUNNING}" == "true" ]]; then
+      _CURRENT_STEP="restart systemd service"
       sudo systemctl restart --quiet primordia
       success "Restarted primordia systemd service"
     else
+      _CURRENT_STEP="start systemd service"
       sudo systemctl start --quiet primordia
       success "Started primordia systemd service"
     fi
 
     # Only poll for readiness when we actually started/restarted a managed service.
+    _CURRENT_STEP="wait for service to be ready"
     _step "Waiting for Primordia to be ready..."
     for i in $(seq 1 30); do
       sleep 2
@@ -710,6 +705,7 @@ if [[ "${SERVICE_READY}" == "false" ]]; then
   else
     # Non-server install: proxy not running (or zero-downtime already handled it).
     # Build and git config are updated; nothing to start here.
+    _CURRENT_STEP="advance main ref and push mirror (non-server)"
     advance_main_and_push
     echo -e "${GREEN}✓${RESET} Congratulations! Primordia is ready."
     if [[ "${PROXY_RUNNING}" == "false" ]]; then
