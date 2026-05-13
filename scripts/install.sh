@@ -539,6 +539,32 @@ if [[ -n "$OLD_PROD_BRANCH" && "$OLD_PROD_BRANCH" != "$BRANCH" ]]; then
     rm -f "${NEW_DB}" "${NEW_DB}-wal" "${NEW_DB}-shm"
     sqlite3 "${OLD_SLOT}/${DB_NAME}" "VACUUM INTO '${NEW_DB}'"
     _done "DB copied"
+
+    # Post-copy diagnostics — verify the new DB before continuing so a
+    # corrupt or incomplete copy doesn't mask itself as a later failure.
+    diag "--- Post-copy DB diagnostics ---------------------------------"
+    diag "Source:    ${OLD_SLOT}/${DB_NAME}"
+    diag "Source size: $(du -sh "${OLD_SLOT}/${DB_NAME}" 2>/dev/null | awk '{print $1}' || echo 'unknown')"
+    diag "Dest:      ${NEW_DB}"
+    diag "Dest size: $(du -sh "${NEW_DB}" 2>/dev/null | awk '{print $1}' || echo 'MISSING')"
+    diag "Dest perms: $(ls -la "${NEW_DB}" 2>/dev/null | awk '{print $1, $3, $4}' || echo 'stat failed')"
+    _wal_files="$(ls "${NEW_DB}-wal" "${NEW_DB}-shm" 2>/dev/null || true)"
+    if [[ -n "$_wal_files" ]]; then
+      diag "WARNING: WAL/SHM files present after copy: ${_wal_files}"
+    else
+      diag "WAL/SHM:   cleared (OK)"
+    fi
+    _ic_result="$(sqlite3 "${NEW_DB}" "PRAGMA integrity_check;" 2>&1 || echo 'sqlite3 failed')"
+    diag "Integrity: ${_ic_result}"
+    _page_count="$(sqlite3 "${NEW_DB}" "PRAGMA page_count;" 2>&1 || echo 'unknown')"
+    _table_count="$(sqlite3 "${NEW_DB}" "SELECT COUNT(*) FROM sqlite_master WHERE type='table';" 2>&1 || echo 'unknown')"
+    diag "Pages:     ${_page_count}  Tables: ${_table_count}"
+    diag "Disk after copy: $(df -h "${INSTALL_DIR}" 2>/dev/null | awk 'NR==2{print $4" free of "$2}' || echo 'unknown')"
+    diag "--------------------------------------------------------------"
+
+    if [[ "$_ic_result" != "ok" ]]; then
+      die "Copied DB failed integrity check: ${_ic_result}"
+    fi
   fi
 fi
 
