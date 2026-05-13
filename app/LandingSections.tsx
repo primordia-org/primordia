@@ -7,9 +7,10 @@
 // passes it down as a prop.
 
 import Link from "next/link";
-import { RefreshCw, GitBranch, ChevronDown, KeyRound, Users, LayoutDashboard, History, Eye, Zap } from "lucide-react";
+import { RefreshCw, GitBranch, ChevronDown, KeyRound, Users, LayoutDashboard, History, Eye, RefreshCcw, ShieldCheck, Layers } from "lucide-react";
 import { ChangelogNewsticker } from "./ChangelogNewsticker";
 import InstallBlock from "./InstallBlock";
+import SimpleCurlBlock from "./SimpleCurlBlock";
 
 // ── Feature card data ────────────────────────────────────────────────────────
 
@@ -30,7 +31,7 @@ const FEATURES = [
     bg: "bg-fuchsia-500/5",
     title: "Open Source",
     description:
-      "Fork the repo, deploy to exe.dev in minutes, and own your instance entirely. Every change is tracked in git — full history, full control.",
+      "Fork the repo, deploy to exe.dev in minutes, and own your instance entirely. Every change is tracked and versioned — full history, full control.",
   },
 ];
 
@@ -162,7 +163,7 @@ const BOX_FEATURES = [
     bg: "bg-blue-500/5",
     title: "Passkey Authentication",
     description:
-      "WebAuthn passkeys built in. No passwords, no password-reset flows, no third-party auth service to configure.",
+      "Secure passkeys built in. No passwords, no password-reset flows, no third-party auth service to configure.",
   },
   {
     icon: <Users size={22} strokeWidth={1.5} aria-hidden="true" />,
@@ -180,16 +181,16 @@ const BOX_FEATURES = [
     bg: "bg-amber-500/5",
     title: "Admin Dashboard",
     description:
-      "Live server logs, memory and disk health, deep rollbacks, git mirror, and upstream update management — all included.",
+      "Live server logs, memory and disk health, deep rollbacks, remote mirroring, and upstream update management — all included.",
   },
   {
     icon: <History size={22} strokeWidth={1.5} aria-hidden="true" />,
     accent: "text-violet-400",
     ring: "ring-violet-500/20",
     bg: "bg-violet-500/5",
-    title: "Full Git History",
+    title: "Full Change History",
     description:
-      "Every change is a real git commit. Roll back to any previous production version with one click from the rollback page.",
+      "Every accepted change is versioned and stored. Roll back to any previous production snapshot with one click.",
   },
   {
     icon: <Eye size={22} strokeWidth={1.5} aria-hidden="true" />,
@@ -201,13 +202,31 @@ const BOX_FEATURES = [
       "Before any AI change goes live, inspect it in a real browser preview. Accept or reject — you stay in full control.",
   },
   {
-    icon: <Zap size={22} strokeWidth={1.5} aria-hidden="true" />,
-    accent: "text-cyan-400",
-    ring: "ring-cyan-500/20",
-    bg: "bg-cyan-500/5",
-    title: "One-Command Deploy",
+    icon: <RefreshCcw size={22} strokeWidth={1.5} aria-hidden="true" />,
+    accent: "text-indigo-400",
+    ring: "ring-indigo-500/20",
+    bg: "bg-indigo-500/5",
+    title: "Automatic Updates",
     description:
-      "Two shell commands spin up a VM and install Primordia end-to-end. Zero manual configuration required.",
+      "Pull upstream Primordia improvements into your instance from the admin panel. New features and fixes on your schedule, not ours.",
+  },
+  {
+    icon: <ShieldCheck size={22} strokeWidth={1.5} aria-hidden="true" />,
+    accent: "text-rose-400",
+    ring: "ring-rose-500/20",
+    bg: "bg-rose-500/5",
+    title: "Secure Secret Storage",
+    description:
+      "API keys and credentials are encrypted before they leave your browser. The server stores only ciphertext — your secrets stay yours.",
+  },
+  {
+    icon: <Layers size={22} strokeWidth={1.5} aria-hidden="true" />,
+    accent: "text-sky-400",
+    ring: "ring-sky-500/20",
+    bg: "bg-sky-500/5",
+    title: "Decisions Already Made",
+    description:
+      "Framework, database, auth, AI integration, deployment — choices that typically take weeks are already made for you. Fork and build immediately.",
   },
 ];
 
@@ -302,7 +321,8 @@ function HowItWorksStep({
   );
 }
 
-export function CTABannerSection({ installUrl, defaultVmName, installBranch }: { installUrl: string; defaultVmName: string; installBranch?: string | null }) {
+export function CTABannerSection({ installUrl, installBranch }: { installUrl: string; installBranch?: string | null }) {
+  const curlCmd = `curl -fsSL ${installUrl} | bash${installBranch ? ` -s ${installBranch}` : ""}`;
   return (
     <section className="relative px-6 py-24">
       <div className="relative max-w-3xl mx-auto rounded-3xl overflow-hidden">
@@ -315,9 +335,9 @@ export function CTABannerSection({ installUrl, defaultVmName, installBranch }: {
             Ready to deploy?
           </h2>
           <p className="text-gray-400 max-w-md mx-auto mb-8 leading-relaxed">
-            Two commands create a VM and install Primordia end-to-end.
+            Run this on your exe.dev VM and Primordia installs itself.
           </p>
-          <InstallBlock installUrl={installUrl} defaultName={defaultVmName} installBranch={installBranch} />
+          <SimpleCurlBlock command={curlCmd} />
         </div>
       </div>
     </section>
@@ -332,6 +352,7 @@ export function LandingFooter() {
         <div className="flex items-center gap-6">
           <Link data-id="landing/footer-evolve" href="/evolve" className="hover:text-gray-300 transition-colors">Evolve</Link>
           <Link data-id="landing/footer-changelog" href="/changelog" className="hover:text-gray-300 transition-colors">Changelog</Link>
+          <Link data-id="landing/footer-under-the-hood" href="/under-the-hood" className="hover:text-gray-300 transition-colors">How it works</Link>
           <Link data-id="landing/footer-login" href="/login" className="hover:text-gray-300 transition-colors">Login</Link>
         </div>
       </div>

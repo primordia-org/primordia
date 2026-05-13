@@ -50,7 +50,7 @@ export default async function LandingPage() {
       <FeaturesSection />
       <OutOfTheBoxSection />
       <HowItWorksSection />
-      <CTABannerSection installUrl={installUrl} defaultVmName={defaultVmName} installBranch={branch} />
+      <CTABannerSection installUrl={installUrl} installBranch={branch} />
       <LandingFooter />
     </div>
   );
