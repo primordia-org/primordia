@@ -321,7 +321,7 @@ function HowItWorksStep({
     <div className="relative">
       {/* Connector line (not on last item) */}
       {!isLast && (
-        <div className="hidden lg:block absolute top-5 left-full w-full h-px bg-gradient-to-r from-white/10 to-transparent -translate-y-px" aria-hidden="true" />
+        <div className="hidden sm:block absolute top-5 left-full w-8 h-px bg-gradient-to-r from-white/10 to-transparent -translate-y-px" aria-hidden="true" />
       )}
       <div className="font-mono text-3xl font-black text-white/8 mb-3 select-none">{step.n}</div>
       <h3 className="font-mono font-semibold text-white text-lg mb-2">{step.label}</h3>
