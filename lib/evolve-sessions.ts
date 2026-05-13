@@ -2,7 +2,7 @@
 // Helpers for the local evolve flow.
 // Only used when NODE_ENV=development.
 
-import { spawn } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import {
@@ -90,7 +90,6 @@ export interface LocalSession {
  * path whether it is a bare repo (source.git) or a non-bare .git directory.
  */
 export function getRepoRoot(worktreePath: string): string {
-  const { execFileSync } = require('child_process') as typeof import('child_process');
   const commonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
     cwd: worktreePath,
     encoding: 'utf8',
@@ -117,8 +116,6 @@ export function getWorktreesDir(repoRoot: string): string {
  * the same port. Port 3001 is reserved for the main production branch.
  */
 function getOrAssignBranchPort(branch: string, repoRoot: string): number {
-  const { execFileSync } = require('child_process') as typeof import('child_process');
-
   // Return existing assignment if present.
   try {
     const out = execFileSync('git', ['config', '--get', `branch.${branch}.port`], {

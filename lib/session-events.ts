@@ -13,6 +13,7 @@
 // Preview URL is always /preview/<branchName> once the session is ready.
 // Branch name is read from the git worktree list (or git symbolic-ref HEAD).
 
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { EvolveSession } from './db/types';
@@ -172,7 +173,6 @@ function buildSessionFromWorktreePath(
   // Read port from git config (stored when the worktree was created).
   let port: number | null = null;
   try {
-    const { execFileSync } = require('child_process') as typeof import('child_process');
     const out = execFileSync('git', ['config', '--get', `branch.${branch}.port`], {
       cwd: repoRoot,
       encoding: 'utf8',
@@ -208,7 +208,6 @@ export function getSessionFromFilesystem(id: string, repoRoot: string): EvolveSe
   // For from-branch sessions, the branch differs from the session ID.
   let branch = id;
   try {
-    const { execFileSync } = require('child_process') as typeof import('child_process');
     const ref = execFileSync('git', ['symbolic-ref', 'HEAD'], {
       cwd: worktreePath,
       encoding: 'utf8',
@@ -227,7 +226,6 @@ export function getSessionFromFilesystem(id: string, repoRoot: string): EvolveSe
  * Returns sessions sorted by createdAt descending.
  */
 export function listSessionsFromFilesystem(repoRoot: string): EvolveSession[] {
-  const { execFileSync } = require('child_process') as typeof import('child_process');
   let porcelain: string;
   try {
     porcelain = execFileSync('git', ['worktree', 'list', '--porcelain'], {
