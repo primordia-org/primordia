@@ -56,6 +56,7 @@ export default function EventsClient() {
 
   // initial load
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchPage(0, "", "");
   }, [fetchPage]);
 

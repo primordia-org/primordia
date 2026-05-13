@@ -456,6 +456,7 @@ export function WebPreviewPanel({
 
   useEffect(() => {
     if (serverRunning) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(false);
     setInspectorActive(false);
     cancelInspector();

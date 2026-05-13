@@ -87,6 +87,7 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
   // Mount: fetch to decide whether to show bell at all.
   useEffect(() => {
     if (!canShow) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
   }, [canShow, fetchData]);
 

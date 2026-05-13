@@ -55,7 +55,7 @@ function formatPricing(cost: RawModel['cost']): { full: string; input: string } 
 }
 
 function familyOf(name: string): { key: string; version: number } {
-  let s = name.toLowerCase().replace(/\bv\d+\b/g, ' ');
+  const s = name.toLowerCase().replace(/\bv\d+\b/g, ' ');
   const m = s.match(/(\d+(?:\.\d+)?)[a-z]?/);
   const version = m ? parseFloat(m[1]) : -1;
   const key = s

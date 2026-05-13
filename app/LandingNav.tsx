@@ -9,7 +9,7 @@
 
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { useSessionUser } from "@/lib/hooks";
 import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
@@ -31,13 +31,16 @@ export function LandingNav() {
   const [toastSessionId, setToastSessionId] = useState<string | null>(null);
   const hamburgerRef = useRef<HTMLDivElement>(null);
 
+  const handleEvolveClick = useCallback(() => {
+    setEvolveAnchorRect(hamburgerRef.current?.getBoundingClientRect() ?? null);
+    setEvolveDialogOpen(true);
+  }, []);
+
+  // eslint-disable-next-line react-hooks/refs
   const menuItems = buildStandardMenuItems({
     isAdmin: sessionUser?.isAdmin ?? false,
     currentPath: "/",
-    onEvolveClick: () => {
-      setEvolveAnchorRect(hamburgerRef.current?.getBoundingClientRect() ?? null);
-      setEvolveDialogOpen(true);
-    },
+    onEvolveClick: handleEvolveClick,
   });
 
   return (

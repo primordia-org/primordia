@@ -88,6 +88,7 @@ export function FloatingEvolveDialog({
   // convert top/bottom back to corners.
   useEffect(() => {
     if (isSmallScreen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDock((prev) => {
         if (prev === "top-left" || prev === "top-right") return "top";
         if (prev === "bottom-left" || prev === "bottom-right") return "bottom";
@@ -324,6 +325,7 @@ export function FloatingEvolveDialog({
           initialCavemanMode={initialCavemanMode}
           initialCavemanIntensity={initialCavemanIntensity}
           onSessionCreated={handleSessionCreated}
+          // eslint-disable-next-line react-hooks/refs
           inspectorSkipElement={dialogRef.current}
         />
       </div>

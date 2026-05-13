@@ -29,7 +29,7 @@
 //   ctx.resume() before scheduling any nodes, and is never closed.  This is
 //   also cheaper - no create/GC overhead per sound.
 
-import { useRef, useCallback } from "react";
+import { useMemo } from "react";
 
 // ─── Shared AudioContext ──────────────────────────────────────────────────────
 
@@ -463,15 +463,13 @@ export const RAW_SOUND_MAP: Record<SoundName, () => Promise<void>> = {
  * silently swallowed so a broken audio environment never crashes the UI.
  */
 export function useSounds(): SoundEffects {
-  const stableRef = useRef<SoundEffects | null>(null);
-  if (!stableRef.current) {
-    stableRef.current = Object.fromEntries(
+  return useMemo(
+    () => Object.fromEntries(
       (Object.entries(RAW_SOUND_MAP) as [SoundName, () => Promise<void>][]).map(([name, fn]) => [
         name,
         () => { void fn().catch(() => { /* never crash the UI over a sound */ }); },
       ])
-    ) as SoundEffects;
-  }
-  const get = useCallback(() => stableRef.current!, []);
-  return get();
+    ) as SoundEffects,
+    []
+  );
 }

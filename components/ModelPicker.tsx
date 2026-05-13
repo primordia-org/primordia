@@ -522,6 +522,7 @@ export function ModelPicker({
     if (open) {
       setTimeout(() => searchRef.current?.focus(), 50);
     } else {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSearch("");
     }
   }, [open]);

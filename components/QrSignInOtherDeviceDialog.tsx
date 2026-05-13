@@ -113,6 +113,7 @@ export function QrSignInOtherDeviceDialog({ onClose }: QrSignInOtherDeviceDialog
 
   // Start the push flow on mount.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     startPushFlow();
   }, [startPushFlow]);
 

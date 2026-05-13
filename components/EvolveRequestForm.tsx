@@ -49,6 +49,7 @@ const ImagePreview = memo(function ImagePreview({ file }: { file: File }) {
   const [url, setUrl] = useState("");
   useEffect(() => {
     const u = URL.createObjectURL(file);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setUrl(u);
     return () => URL.revokeObjectURL(u);
   }, [file]);

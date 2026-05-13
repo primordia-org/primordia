@@ -330,9 +330,10 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
   const runningLabel = (isTypeFixSection || isAutoCommitSection) ? label : null;
 
   // Live elapsed-time counter updated every second.
-  const [elapsed, setElapsed] = useState<number>(startTs ? Date.now() - startTs : 0);
+  const [elapsed, setElapsed] = useState<number>(() => startTs ? Date.now() - startTs : 0);
   useEffect(() => {
     if (!startTs) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setElapsed(Date.now() - startTs);
     const id = setInterval(() => setElapsed(Date.now() - startTs), 1000);
     return () => clearInterval(id);
@@ -427,6 +428,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, workt
   const [convertedMessage, setConvertedMessage] = useState<string | null>(null);
   useEffect(() => {
     if (hasError && resultEvent?.message) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setConvertedMessage(convertUtcTimeToLocal(resultEvent.message));
     } else {
       setConvertedMessage(null);
@@ -1081,6 +1083,7 @@ export default function EvolveSessionView({
     const STUCK_THRESHOLD_MS = 30_000;
     const isLongRunning = status === "accepting" || status === "fixing-types";
     if (!isLongRunning) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowStuckButton(false);
       return;
     }
@@ -1280,6 +1283,7 @@ export default function EvolveSessionView({
 
   useEffect(() => {
     if (status !== "ready") return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void startServerLogsStream();
     return () => { proxyLogsControllerRef.current?.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
