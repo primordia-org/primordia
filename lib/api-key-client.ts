@@ -32,3 +32,12 @@ export async function setStoredOpenRouterApiKey(key: string | null): Promise<voi
 export async function encryptStoredOpenRouterApiKey(): Promise<HybridEncryptedSecret | null> {
   return encryptSecretForTransmission('openrouter-api-key');
 }
+
+export async function setStoredGeminiApiKey(key: string | null): Promise<void> {
+  if (key === null || key === '') return clearSecret('gemini-api-key');
+  return setSecret('gemini-api-key', key);
+}
+
+export async function encryptStoredGeminiApiKey(): Promise<HybridEncryptedSecret | null> {
+  return encryptSecretForTransmission('gemini-api-key');
+}

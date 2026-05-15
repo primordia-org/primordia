@@ -36,7 +36,7 @@ import { DEFAULT_HARNESS, DEFAULT_MODEL } from '../../../lib/agent-config';
 const ANTHROPIC_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai';
 
-type SlugModelProvider = 'anthropic' | 'openai' | 'openai-codex' | 'openrouter';
+type SlugModelProvider = 'anthropic' | 'openai' | 'openai-codex' | 'openrouter' | 'google';
 
 /** Infer the pi provider and strip any Primordia-only model ID namespace. */
 function normalizeSlugModelSelection(modelId: string): { provider: SlugModelProvider; modelId: string } {
@@ -46,6 +46,7 @@ function normalizeSlugModelSelection(modelId: string): { provider: SlugModelProv
   if (modelId.startsWith('gpt-') || /^o\d/.test(modelId) || modelId.startsWith('codex-')) {
     return { provider: 'openai', modelId };
   }
+  if (modelId.startsWith('gemini-')) return { provider: 'google', modelId };
   if (modelId.includes('/')) return { provider: 'openrouter', modelId };
   return { provider: 'anthropic', modelId };
 }
@@ -284,7 +285,7 @@ export async function POST(request: Request) {
   } else if (authSource === 'chatgpt-subscription') {
     encryptedApiKey = null;
     encryptedCredentials = null;
-  } else if (authSource === 'openrouter-api-key' || authSource === 'openai-api-key' || authSource === 'anthropic-api-key') {
+  } else if (authSource === 'openrouter-api-key' || authSource === 'openai-api-key' || authSource === 'anthropic-api-key' || authSource === 'gemini-api-key') {
     encryptedCredentials = null;
     encryptedChatGptOAuth = null;
   }

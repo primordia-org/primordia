@@ -8,7 +8,7 @@ import ApiKeySettingsClient from "./ApiKeySettingsClient";
 import CredentialsSettingsClient from "./subscriptions/CredentialsSettingsClient";
 import ChatGptSubscriptionSettingsClient from "./subscriptions/ChatGptSubscriptionSettingsClient";
 
-type BillingSourceId = "anthropic-api-key" | "openrouter-api-key" | "claude-subscription" | "chatgpt-subscription";
+type BillingSourceId = "anthropic-api-key" | "openrouter-api-key" | "claude-subscription" | "chatgpt-subscription" | "gemini-api-key";
 
 const SOURCE_OPTIONS: {
   id: BillingSourceId;
@@ -39,6 +39,12 @@ const SOURCE_OPTIONS: {
     title: "ChatGPT subscription",
     description: "Use Codex models through Pi with ChatGPT OAuth credentials.",
     icon: <AuthSourceIcon source="chatgpt-subscription" size={20} />,
+  },
+  {
+    id: "gemini-api-key",
+    title: "Google Gemini API key",
+    description: "Use Gemini models directly through the Pi harness.",
+    icon: <AuthSourceIcon source="gemini-api-key" size={20} />,
   },
 ];
 
@@ -124,6 +130,7 @@ function SourceContent({
 }) {
   if (source === "anthropic-api-key") return <ApiKeySettingsClient provider="anthropic" initialCiphertext={initialSecretCiphertexts["anthropic-api-key"] ?? null} />;
   if (source === "openrouter-api-key") return <ApiKeySettingsClient provider="openrouter" initialCiphertext={initialSecretCiphertexts["openrouter-api-key"] ?? null} />;
+  if (source === "gemini-api-key") return <ApiKeySettingsClient provider="gemini" initialCiphertext={initialSecretCiphertexts["gemini-api-key"] ?? null} />;
   if (source === "claude-subscription") return <CredentialsSettingsClient initialCiphertext={initialSecretCiphertexts["claude-subscription"] ?? null} />;
   return <ChatGptSubscriptionSettingsClient initialCiphertext={initialSecretCiphertexts["chatgpt-subscription"] ?? null} />;
 }
@@ -139,6 +146,7 @@ export default function BillingSourcesSettingsClient({
     const activeSources: BillingSourceId[] = [];
     if (initialSecretSources.includes("anthropic-api-key")) activeSources.push("anthropic-api-key");
     if (initialSecretSources.includes("openrouter-api-key")) activeSources.push("openrouter-api-key");
+    if (initialSecretSources.includes("gemini-api-key")) activeSources.push("gemini-api-key");
     if (initialSecretSources.includes("claude-subscription")) activeSources.push("claude-subscription");
     if (initialSecretSources.includes("chatgpt-subscription")) activeSources.push("chatgpt-subscription");
     return activeSources;

@@ -7,6 +7,7 @@ export const SECRET_AUTH_SOURCES = [
   'openrouter-api-key',
   'anthropic-api-key',
   'openai-api-key',
+  'gemini-api-key',
 ] as const;
 
 export type SecretAuthSource = typeof SECRET_AUTH_SOURCES[number];
@@ -97,6 +98,14 @@ export const BUILT_IN_PRESETS: EvolvePreset[] = [
     model: 'baidu/cobuddy:free',
     builtIn: true,
   },
+  {
+    id: 'builtin:pi-gemini-flash',
+    name: 'Pi + Gemini 2.5 Flash',
+    authSource: 'gemini-api-key',
+    harness: 'pi',
+    model: 'gemini-2.5-flash',
+    builtIn: true,
+  },
 ];
 
 export const PRESET_AUTH_SOURCE_LABELS: Record<PresetAuthSource, string> = {
@@ -106,6 +115,7 @@ export const PRESET_AUTH_SOURCE_LABELS: Record<PresetAuthSource, string> = {
   'openrouter-api-key': 'OpenRouter API key',
   'anthropic-api-key': 'Anthropic API key',
   'openai-api-key': 'OpenAI API key',
+  'gemini-api-key': 'Google Gemini API key',
 };
 
 export const PREF_CUSTOM_PRESETS = 'evolve:custom-presets';

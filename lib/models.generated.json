@@ -45,6 +45,34 @@
       "inputPriceLabel": "$5/M"
     },
     {
+      "id": "gemini-2.5-flash",
+      "label": "Gemini 2.5 Flash",
+      "description": "Google · reasoning · 30¢→$2.5/M",
+      "pricingLabel": "30¢→$2.5/M",
+      "inputPriceLabel": "30¢/M"
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "label": "Gemini 2.5 Pro",
+      "description": "Google · reasoning · $1.25→$10/M",
+      "pricingLabel": "$1.25→$10/M",
+      "inputPriceLabel": "$1.25/M"
+    },
+    {
+      "id": "gemini-3.1-pro-preview",
+      "label": "Gemini 3.1 Pro Preview",
+      "description": "Google · reasoning · $2→$12/M",
+      "pricingLabel": "$2→$12/M",
+      "inputPriceLabel": "$2/M"
+    },
+    {
+      "id": "gemini-2.0-flash",
+      "label": "Gemini 2.0 Flash",
+      "description": "Google · 10¢→40¢/M",
+      "pricingLabel": "10¢→40¢/M",
+      "inputPriceLabel": "10¢/M"
+    },
+    {
       "id": "openai-codex:gpt-5.4-mini",
       "label": "GPT-5.4 Mini",
       "description": "ChatGPT · reasoning · 75¢→$4.5/M",

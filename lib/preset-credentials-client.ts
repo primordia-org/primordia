@@ -28,6 +28,11 @@ export async function getCredentialFieldsForAuthSource(authSource: PresetAuthSou
     return encryptedApiKey ? { encryptedApiKey: JSON.stringify(encryptedApiKey) } : {};
   }
 
+  if (authSource === 'gemini-api-key') {
+    const encryptedApiKey = await encryptSecretForTransmission('gemini-api-key');
+    return encryptedApiKey ? { encryptedApiKey: JSON.stringify(encryptedApiKey) } : {};
+  }
+
   if (authSource === 'openai-api-key') {
     const encryptedApiKey = await encryptSecretForTransmission('openai-api-key');
     return encryptedApiKey ? { encryptedApiKey: JSON.stringify(encryptedApiKey) } : {};

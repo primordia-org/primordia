@@ -5,13 +5,14 @@ import { Check, Copy, Key, EyeOff, ExternalLink } from "lucide-react";
 import {
   setStoredApiKey,
   setStoredOpenRouterApiKey,
+  setStoredGeminiApiKey,
 } from "@/lib/api-key-client";
 import { decryptStoredSecretPayload } from "@/lib/secrets-client";
 import { trackEvent } from "@/lib/events-client";
 import { useDecryptEffect } from "@/lib/use-decrypt-effect";
 import { AuthSourceIcon } from "@/components/AgentIdentity";
 
-type ApiKeyProvider = "anthropic" | "openrouter";
+type ApiKeyProvider = "anthropic" | "openrouter" | "gemini";
 
 export default function ApiKeySettingsClient({
   provider,
@@ -40,6 +41,16 @@ export default function ApiKeySettingsClient({
   const [orError, setOrError] = useState<string | null>(null);
   const [orCopiedKey, setOrCopiedKey] = useState(false);
 
+  // Gemini key state
+  const [isGemKeySet, setIsGemKeySet] = useState(provider === "gemini" && Boolean(initialCiphertext));
+  const [gemInputValue, setGemInputValue] = useState("");
+  const [gemKeyDirty, setGemKeyDirty] = useState(false);
+  const [gemShowKey, setGemShowKey] = useState(false);
+  const [gemSaved, setGemSaved] = useState(false);
+  const [gemLoading, setGemLoading] = useState(false);
+  const [gemError, setGemError] = useState<string | null>(null);
+  const [gemCopiedKey, setGemCopiedKey] = useState(false);
+
   const { displayValue: decryptDisplay, isDecrypting, decrypt } = useDecryptEffect({
     duration: 1000,
     onComplete: () => setShowKey(true),
@@ -47,6 +58,10 @@ export default function ApiKeySettingsClient({
   const { displayValue: orDecryptDisplay, isDecrypting: orIsDecrypting, decrypt: orDecrypt } = useDecryptEffect({
     duration: 1000,
     onComplete: () => setOrShowKey(true),
+  });
+  const { displayValue: gemDecryptDisplay, isDecrypting: gemIsDecrypting, decrypt: gemDecrypt } = useDecryptEffect({
+    duration: 1000,
+    onComplete: () => setGemShowKey(true),
   });
 
   useEffect(() => {
@@ -58,9 +73,12 @@ export default function ApiKeySettingsClient({
       if (provider === "anthropic") {
         setInputValue(val);
         setKeyDirty(false);
-      } else {
+      } else if (provider === "openrouter") {
         setOrInputValue(val);
         setOrKeyDirty(false);
+      } else {
+        setGemInputValue(val);
+        setGemKeyDirty(false);
       }
     }
 
@@ -160,8 +178,50 @@ export default function ApiKeySettingsClient({
     }
   }
 
+  async function handleGemSave() {
+    const trimmed = gemInputValue.trim();
+    if (!trimmed) { setGemError("Please enter an API key."); return; }
+    if (!trimmed.startsWith("AIza")) {
+      setGemError('Google Gemini API keys start with "AIza". Please double-check your key.');
+      return;
+    }
+    setGemError(null);
+    setGemLoading(true);
+    try {
+      await setStoredGeminiApiKey(trimmed);
+      trackEvent("settings/gemini-key-saved/v1", {});
+      setIsGemKeySet(true);
+      setGemKeyDirty(false);
+      setGemShowKey(false);
+      setGemSaved(true);
+      setTimeout(() => setGemSaved(false), 2000);
+    } catch {
+      setGemError("Failed to save key. Please try again.");
+    } finally {
+      setGemLoading(false);
+    }
+  }
+
+  async function handleGemClear() {
+    setGemLoading(true);
+    try {
+      await setStoredGeminiApiKey(null);
+      trackEvent("settings/gemini-key-cleared/v1", {});
+      setIsGemKeySet(false);
+      setGemInputValue("");
+      setGemKeyDirty(false);
+      setGemShowKey(false);
+      setGemError(null);
+    } catch {
+      setGemError("Failed to clear key. Please try again.");
+    } finally {
+      setGemLoading(false);
+    }
+  }
+
   const showKeyInput = !isKeySet || showKey || isDecrypting;
   const showOrKeyInput = !isOrKeySet || orShowKey || orIsDecrypting;
+  const showGemKeyInput = !isGemKeySet || gemShowKey || gemIsDecrypting;
 
   return (
     <div className="flex flex-col gap-6">
@@ -400,6 +460,126 @@ export default function ApiKeySettingsClient({
             className="px-4 py-1.5 rounded-lg text-sm font-medium bg-violet-700 hover:bg-violet-600 disabled:bg-violet-900 text-white transition-colors disabled:cursor-not-allowed"
           >
             {orLoading ? "Saving…" : orSaved ? "Saved ✓" : "Save key"}
+          </button>
+        </div>
+      </div>
+      )}
+
+      {provider === "gemini" && (
+      <div className="rounded-xl border border-gray-700 bg-gray-900 p-5 flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center shrink-0">
+              <AuthSourceIcon source="gemini-api-key" size={20} />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-200">Google Gemini</p>
+              <p className="text-xs text-gray-500 mt-0.5">Gemini models direct via the Pi harness</p>
+            </div>
+          </div>
+          {isGemKeySet && (
+            <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-green-900/40 text-green-400 border border-green-800/50">
+              Active
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-xs text-gray-400 font-medium">
+              {isGemKeySet ? "Stored API key" : "API key"}
+            </label>
+            <div className="flex items-center gap-3">
+              {gemShowKey && (
+                <button
+                  type="button"
+                  data-id="api-key/gemini-copy-key"
+                  onClick={() => void copyKey(gemInputValue, setGemCopiedKey)}
+                  className="flex items-center gap-1 text-xs text-blue-500/70 hover:text-blue-400 transition-colors"
+                  aria-label="Copy Gemini API key"
+                >
+                  {gemCopiedKey ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={2} aria-hidden="true" />}
+                  <span>{gemCopiedKey ? "Copied" : "Copy"}</span>
+                </button>
+              )}
+              {isGemKeySet && (
+                <button
+                  type="button"
+                  data-id="api-key/gemini-toggle-visibility"
+                  onClick={() => {
+                    if (gemShowKey) {
+                      setGemShowKey(false);
+                    } else if (!gemIsDecrypting) {
+                      gemDecrypt(gemInputValue);
+                    }
+                  }}
+                  disabled={gemIsDecrypting}
+                  className="flex items-center gap-1 text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label={gemShowKey ? "Hide key" : "Reveal key"}
+                >
+                  {gemShowKey ? (
+                    <><EyeOff size={13} strokeWidth={2} aria-hidden="true" className="text-gray-500 hover:text-gray-300 transition-colors" /><span className="text-gray-500 hover:text-gray-300 transition-colors">Hide</span></>
+                  ) : (
+                    <><Key size={13} strokeWidth={2} aria-hidden="true" className={gemIsDecrypting ? "text-blue-400 animate-pulse" : "text-blue-500/70 hover:text-blue-400 transition-colors"} /><span className={gemIsDecrypting ? "text-blue-400" : "text-blue-500/70 hover:text-blue-400 transition-colors"}>Reveal</span></>
+                  )}
+                </button>
+              )}
+              {!isGemKeySet && (
+                <a
+                  href="https://aistudio.google.com/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-id="api-key/gemini-console"
+                  className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-0.5 transition-colors"
+                >
+                  Get a key
+                  <ExternalLink size={10} strokeWidth={2} aria-hidden="true" />
+                </a>
+              )}
+            </div>
+          </div>
+          {showGemKeyInput && (
+            <input
+              data-id="api-key/gemini-key-input"
+              type={gemShowKey || gemIsDecrypting ? "text" : "password"}
+              value={gemIsDecrypting ? gemDecryptDisplay : gemInputValue}
+              readOnly={gemIsDecrypting}
+              onChange={(e) => { setGemInputValue(e.target.value); setGemKeyDirty(true); setGemError(null); setGemSaved(false); }}
+              onKeyDown={(e) => { if (e.key === "Enter") void handleGemSave(); }}
+              placeholder="AIzaSy…"
+              className={`w-full sm:w-96 max-w-full bg-gray-800 text-sm placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2 outline-none font-mono ${
+                gemIsDecrypting
+                  ? "text-blue-300/50 select-none cursor-default"
+                  : "text-gray-100 focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
+              }`}
+              autoComplete="off"
+              spellCheck={false}
+              disabled={gemLoading}
+            />
+          )}
+          {gemError && <p className="text-xs text-red-400">{gemError}</p>}
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            {isGemKeySet && (
+              <button
+                data-id="api-key/gemini-clear-key"
+                onClick={() => void handleGemClear()}
+                disabled={gemLoading}
+                className="px-3 py-1.5 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-900/20 border border-red-800/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Clear key
+              </button>
+            )}
+          </div>
+          <button
+            data-id="api-key/gemini-save-key"
+            onClick={() => void handleGemSave()}
+            disabled={!gemInputValue.trim() || !gemKeyDirty || gemSaved || gemLoading}
+            className="px-4 py-1.5 rounded-lg text-sm font-medium bg-blue-700 hover:bg-blue-600 disabled:bg-blue-900 text-white transition-colors disabled:cursor-not-allowed"
+          >
+            {gemLoading ? "Saving…" : gemSaved ? "Saved ✓" : "Save key"}
           </button>
         </div>
       </div>

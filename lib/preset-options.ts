@@ -26,6 +26,10 @@ function isOpenRouterModel(id: string): boolean {
   return id.includes('/');
 }
 
+function isGeminiModel(id: string): boolean {
+  return id.startsWith('gemini-');
+}
+
 export function getHarnessesForAuthSource(authSource: PresetAuthSource): HarnessOption[] {
   const allowed = new Set<string>();
   if (authSource === 'claude-subscription') allowed.add('claude-code');
@@ -34,6 +38,7 @@ export function getHarnessesForAuthSource(authSource: PresetAuthSource): Harness
   if (authSource === 'openrouter-api-key') allowed.add('pi');
   if (authSource === 'anthropic-api-key') { allowed.add('claude-code'); allowed.add('pi'); }
   if (authSource === 'openai-api-key') { allowed.add('pi'); allowed.add('codex'); }
+  if (authSource === 'gemini-api-key') allowed.add('pi');
   return HARNESS_OPTIONS.filter((h) => allowed.has(h.id));
 }
 
@@ -55,6 +60,7 @@ export function filterModelsForAuthSource(
   if (authSource === 'openrouter-api-key') return models.filter((m) => isOpenRouterModel(m.id));
   if (authSource === 'anthropic-api-key') return models.filter((m) => isAnthropicModel(m.id));
   if (authSource === 'openai-api-key') return models.filter((m) => isOpenAiModel(m.id));
+  if (authSource === 'gemini-api-key') return models.filter((m) => isGeminiModel(m.id));
   if (authSource === 'exe-dev-gateway') return models.filter((m) => isAnthropicModel(m.id) || isOpenAiModel(m.id));
   if (authSource === 'claude-subscription') return models.filter((m) => isAnthropicModel(m.id));
   return models;

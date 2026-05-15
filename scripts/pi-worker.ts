@@ -41,13 +41,15 @@ const ANTHROPIC_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai';
 
 /** Infer the pi provider and strip any Primordia-only model ID namespace. */
-function normalizeModelSelection(modelId: string | undefined): { provider: 'anthropic' | 'openai' | 'openai-codex' | 'openrouter'; modelId: string | undefined } {
+function normalizeModelSelection(modelId: string | undefined): { provider: 'anthropic' | 'openai' | 'openai-codex' | 'openrouter' | 'google'; modelId: string | undefined } {
   if (!modelId) return { provider: 'anthropic', modelId };
   if (modelId.startsWith('openai-codex:')) {
     return { provider: 'openai-codex', modelId: modelId.slice('openai-codex:'.length) };
   }
   // Direct OpenAI model IDs (no slash, well-known prefixes)
   if (modelId.startsWith('gpt-') || /^o\d/.test(modelId) || modelId.startsWith('codex-')) return { provider: 'openai', modelId };
+  // Direct Google Gemini model IDs (e.g. 'gemini-2.5-flash')
+  if (modelId.startsWith('gemini-')) return { provider: 'google', modelId };
   // OpenRouter model IDs always contain a slash (e.g. 'google/gemini-2.5-flash')
   if (modelId.includes('/')) return { provider: 'openrouter', modelId };
   return { provider: 'anthropic', modelId };
@@ -273,6 +275,12 @@ async function main(): Promise<void> {
     }
     if (_requiredAuthSource === 'chatgpt-subscription' && modelProvider !== 'openai-codex') {
       throw new Error('ChatGPT subscription was selected, but the Pi model is not an openai-codex model. Refusing to fall back to the exe.dev LLM gateway.');
+    }
+    if (_requiredAuthSource === 'gemini-api-key' && !_userApiKey) {
+      throw new Error('Google Gemini API key was selected, but no API key was provided. Refusing to fall back to the exe.dev LLM gateway.');
+    }
+    if (_requiredAuthSource === 'gemini-api-key' && modelProvider !== 'google') {
+      throw new Error('Google Gemini API key was selected, but the Pi model is not a Gemini model. Refusing to fall back to the exe.dev LLM gateway.');
     }
 
     // Auth — use the user-supplied API key when available, otherwise fall back

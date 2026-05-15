@@ -11,6 +11,7 @@ export const AUTH_SOURCE_ICON_PATH: Partial<Record<PresetAuthSource, string>> = 
   "openrouter-api-key": "/brand-icons/openrouter-favicon.ico",
   "anthropic-api-key": "/brand-icons/anthropic-favicon.png",
   "openai-api-key": "/brand-icons/chatgpt-favicon.svg",
+  "gemini-api-key": "/brand-icons/google-gemini-icon.png",
 };
 
 export const HARNESS_ICON_PATH: Record<string, string> = {
