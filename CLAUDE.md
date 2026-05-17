@@ -29,6 +29,7 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 | Hosting | exe.dev | Production builds via `bun run build && bun run start`; single systemd service (`primordia-proxy`) manages both proxy and production app; blue/green slot swap on accept |
 | AI code gen | `@anthropic-ai/claude-agent-sdk` | `query()` runs Claude Code in git worktrees for evolve requests |
 | Database | bun:sqlite | Local SQLite for passkey auth **and evolve session persistence**; same adapter on exe.dev and local dev |
+| Package install security | Bun `minimumReleaseAge` + `@socketsecurity/bun-security-scanner` | New package resolutions must be at least 24 hours old and are scanned by Socket during `bun install` |
 
 ### File Map
 
@@ -42,6 +43,7 @@ primordia/
 ├── .env.example                   ← Copy to .env.local, fill in secrets
 ├── .gitignore
 ├── instrumentation.ts             ← Next.js instrumentation hook; starts update-source background scheduler on server boot
+├── bunfig.toml                    ← Bun package install hardening: 24h minimum release age + Socket scanner
 ├── next.config.ts                 ← Minimal Next.js config
 ├── tailwind.config.ts
 ├── tsconfig.json / package.json / bun.d.ts / eslint.config.mjs / postcss.config.mjs
