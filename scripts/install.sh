@@ -254,23 +254,65 @@ fi
 git -C "${BARE_REPO}" config receive.denyCurrentBranch ignore
 git -C "${BARE_REPO}" config receive.denyDeleteCurrent refuse
 
-# ── Install bun ───────────────────────────────────────────────────────────────
+# ── Install mise + Bun ────────────────────────────────────────────────────────
 
-_CURRENT_STEP="install bun"
-export PATH="$HOME/.bun/bin:$PATH"
-if [[ ! -f "$HOME/.bun/bin/bun" ]]; then
-  _step "Installing bun..."
-  _bun_install_log=$(mktemp)
-  if ! curl -fsSL https://bun.sh/install | bash >"$_bun_install_log" 2>&1; then
-    cat "$_bun_install_log" >&2
-    rm -f "$_bun_install_log"
-    die "bun installation failed"
+_CURRENT_STEP="install mise"
+MISE_BIN="${HOME}/.local/bin/mise"
+MISE_SHIMS_DIR="${HOME}/.local/share/mise/shims"
+BUN_VERSION="1.3.13"
+
+if [[ ! -x "${MISE_BIN}" ]] && ! command -v mise &>/dev/null; then
+  _step "Installing mise..."
+  _mise_install_log=$(mktemp)
+  if ! curl -fsSL https://mise.run | sh >"$_mise_install_log" 2>&1; then
+    cat "$_mise_install_log" >&2
+    rm -f "$_mise_install_log"
+    die "mise installation failed"
   fi
-  rm -f "$_bun_install_log"
-  _done "Using bun $("$HOME/.bun/bin/bun" --version)"
-else
-  success "Using bun $("$HOME/.bun/bin/bun" --version)"
+  rm -f "$_mise_install_log"
+  _done "mise installed"
 fi
+
+if [[ ! -x "${MISE_BIN}" ]]; then
+  MISE_BIN="$(command -v mise || true)"
+fi
+[[ -n "${MISE_BIN}" && -x "${MISE_BIN}" ]] || die "mise installation failed"
+
+export PATH="$(dirname "${MISE_BIN}"):${MISE_SHIMS_DIR}:${PATH}"
+export MISE_TRUSTED_CONFIG_PATHS="${WORKTREES_DIR}${MISE_TRUSTED_CONFIG_PATHS:+:${MISE_TRUSTED_CONFIG_PATHS}}"
+success "Using $("${MISE_BIN}" --version)"
+
+_CURRENT_STEP="configure bash for mise"
+BASHRC="${HOME}/.bashrc"
+MISE_BASH_MARKER="# Primordia mise activation"
+if [[ -f "${BASHRC}" ]] && grep -Fq "${MISE_BASH_MARKER}" "${BASHRC}"; then
+  success "Using bash mise integration"
+else
+  {
+    echo ""
+    echo "${MISE_BASH_MARKER}"
+    echo "if [ -x \"${MISE_BIN}\" ]; then"
+    echo "  eval \"\$(${MISE_BIN} activate bash)\""
+    echo 'fi'
+  } >> "${BASHRC}"
+  success "Configured bash mise integration"
+fi
+
+_CURRENT_STEP="install bun with mise"
+cd "${INSTALL_DIR}"
+if [[ -f "${INSTALL_DIR}/mise.toml" ]]; then
+  "${MISE_BIN}" trust "${INSTALL_DIR}/mise.toml" >/dev/null 2>&1 || true
+fi
+_step "Installing bun..."
+_bun_install_log=$(mktemp)
+if ! "${MISE_BIN}" install "bun@${BUN_VERSION}" >"$_bun_install_log" 2>&1; then
+  cat "$_bun_install_log" >&2
+  rm -f "$_bun_install_log"
+  die "bun installation failed"
+fi
+"${MISE_BIN}" reshim bun >/dev/null 2>&1 || true
+rm -f "$_bun_install_log"
+_done "Using bun $(bun --version)"
 
 # ── Install dependencies ──────────────────────────────────────────────────────
 
@@ -404,9 +446,10 @@ User=${USER}
 WorkingDirectory=${PRIMORDIA_DIR}
 Environment=REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}
 Environment=HOME=${HOME}
-Environment=PATH=${HOME}/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=${MISE_SHIMS_DIR}:$(dirname "${MISE_BIN}"):/usr/local/bin:/usr/bin:/bin
+Environment=MISE_TRUSTED_CONFIG_PATHS=${WORKTREES_DIR}
 ${PARENT_URL_ENV_LINE}
-ExecStart=${HOME}/.bun/bin/bun ${PRIMORDIA_DIR}/reverse-proxy.ts
+ExecStart=${MISE_BIN} exec -C ${INSTALL_DIR} -- bun ${PRIMORDIA_DIR}/reverse-proxy.ts
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -658,7 +701,7 @@ if [[ "${SERVICE_READY}" == "false" ]]; then
     advance_main_and_push
     echo -e "${GREEN}✓${RESET} Congratulations! Primordia is ready."
     if [[ "${PROXY_RUNNING}" == "false" ]]; then
-      info "Proxy not detected — start it with: bun ${PRIMORDIA_DIR}/reverse-proxy.ts"
+      info "Proxy not detected — start it with: mise exec -C ${INSTALL_DIR} -- bun ${PRIMORDIA_DIR}/reverse-proxy.ts"
     fi
   fi
 fi

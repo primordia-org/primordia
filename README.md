@@ -39,7 +39,7 @@ You can attach images or files to any request. Follow-up requests on the same br
 ## Setup
 
 ### Prerequisites
-- [Bun](https://bun.sh) runtime
+- [mise](https://mise.jdx.dev) runtime version manager, which installs the Bun version pinned in `mise.toml`
 - An [exe.dev](https://exe.dev) server (provides the LLM gateway — no API key required)
 
 ### Local Development
@@ -47,6 +47,7 @@ You can attach images or files to any request. Follow-up requests on the same br
 ```bash
 cp .env.example .env.local
 
+mise install
 bun install
 bun run dev
 ```
@@ -84,7 +85,7 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
    ```
    The script will:
    - Copy your `.env.local` to the server via `scp`
-   - Install `git` and `bun` if missing
+   - Install `git`, `mise`, and the pinned Bun runtime if missing
    - Clone your repo and install dependencies
    - Start Primordia as a `systemd` service and wait for it to be ready
 5. **Open** `http://<server-name>.exe.xyz:3000`.

@@ -27,6 +27,7 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 | Language | TypeScript | Catches mistakes; Claude Code understands it well |
 | AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Routes through exe.dev LLM gateway by default; users may override with their own Anthropic API key or Claude Code credentials.json (stored in localStorage/DB, encrypted in transit via one hybrid AES-GCM + RSA-OAEP envelope for all credential types) |
 | Hosting | exe.dev | Production builds via `bun run build && bun run start`; single systemd service (`primordia-proxy`) manages both proxy and production app; blue/green slot swap on accept |
+| Runtime versioning | mise (`mise.toml`) | Pins Bun per worktree so previews and production can run the Bun version declared by that branch |
 | AI code gen | `@anthropic-ai/claude-agent-sdk` | `query()` runs Claude Code in git worktrees for evolve requests |
 | Database | bun:sqlite | Local SQLite for passkey auth **and evolve session persistence**; same adapter on exe.dev and local dev |
 | Package install security | Bun `minimumReleaseAge` + `@socketsecurity/bun-security-scanner` | New package resolutions must be at least 24 hours old and are scanned by Socket during `bun install` |
@@ -44,6 +45,7 @@ primordia/
 ├── .gitignore
 ├── instrumentation.ts             ← Next.js instrumentation hook; starts update-source background scheduler on server boot
 ├── bunfig.toml                    ← Bun package install hardening: 24h minimum release age + Socket scanner
+├── mise.toml                      ← Runtime version pin; currently Bun 1.3.13
 ├── next.config.ts                 ← Minimal Next.js config
 ├── tailwind.config.ts
 ├── tsconfig.json / package.json / bun.d.ts / eslint.config.mjs / postcss.config.mjs
@@ -82,7 +84,7 @@ These must be set in:
 
 1. **Clone** this repo.
 2. **Copy** `.env.example` to `.env.local` and fill in `REVERSE_PROXY_PORT`.
-3. **Run** `bun install && bun run dev`.
+3. **Run** `mise install && bun install && bun run dev`.
 4. The app is live at `http://localhost:3000`.
 
 To deploy to exe.dev: `bun run deploy-to-exe.dev <server-name>`
