@@ -235,6 +235,23 @@ function resolveAgentAuth(
       resolvedChatGptOAuth: chatGptOAuth,
     };
   }
+  if (requestedAuthSource === 'gemini-api-key') {
+    if (harnessId !== 'pi') {
+      throw new Error('Google Gemini API key auth is only supported by the Pi harness. Choose a Gemini-compatible preset.');
+    }
+    if (!modelId?.startsWith('gemini-')) {
+      throw new Error('Google Gemini API key auth requires a Gemini model. Choose a Gemini preset.');
+    }
+    if (!apiKey) {
+      throw new Error('Google Gemini API key was selected, but no API key was provided. Reconnect Google Gemini in Settings → Billing sources, then try again.');
+    }
+    return {
+      auth: { source: 'api-key' },
+      resolvedCredentials: undefined,
+      resolvedApiKey: apiKey,
+      resolvedChatGptOAuth: undefined,
+    };
+  }
 
   const credentialsSupported = harnessId === 'claude-code';
   if (credentials && credentialsSupported) {
@@ -1276,4 +1293,3 @@ export async function resolveConflictsWithAgent(
 
   return { success: true, log: '' };
 }
-

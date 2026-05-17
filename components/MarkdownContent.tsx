@@ -6,7 +6,7 @@
 // text-gray-300, etc.).  Used on the evolve session page and in changelog
 // entries.  For the lighter chat-bubble variant see SimpleMarkdown.tsx.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Streamdown, type Components } from "streamdown";
 import { withBasePath } from "@/lib/base-path";
 
@@ -109,10 +109,7 @@ function createProseComponents(attachmentSessionId?: string): Components {
 }
 
 export function MarkdownContent({ text, className, attachmentSessionId }: { text: string; className?: string; attachmentSessionId?: string }) {
-  const [origin, setOrigin] = useState<string | null>(null);
-  useEffect(() => {
-    if (attachmentSessionId) setOrigin(window.location.origin);
-  }, [attachmentSessionId]);
+  const origin = attachmentSessionId && typeof window !== "undefined" ? window.location.origin : null;
 
   const resolvedText = useMemo(
     () => resolveAttachmentImageMarkdown(text, attachmentSessionId, origin),

@@ -897,6 +897,7 @@ function getSessionCredentialAuthSource(events: SessionEvent[], sessionModel?: s
   if (lastAgent?.auth?.source === 'api-key') {
     const model = lastAgent.modelId ?? sessionModel ?? '';
     if (model.includes('/')) return 'openrouter-api-key';
+    if (model.startsWith('gemini-')) return 'gemini-api-key';
     if (model.startsWith('openai') || model.startsWith('gpt-') || model.includes('gpt')) return 'openai-api-key';
     return 'anthropic-api-key';
   }

@@ -461,7 +461,7 @@ export async function POST(request: Request) {
   } else if (authSource === 'chatgpt-subscription') {
     encryptedApiKey = null;
     encryptedCredentials = null;
-  } else if (authSource === 'openrouter-api-key' || authSource === 'openai-api-key' || authSource === 'anthropic-api-key') {
+  } else if (authSource === 'openrouter-api-key' || authSource === 'openai-api-key' || authSource === 'anthropic-api-key' || authSource === 'gemini-api-key') {
     encryptedCredentials = null;
     encryptedChatGptOAuth = null;
   }
