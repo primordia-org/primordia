@@ -98,6 +98,11 @@ interface EvolveRequestFormProps {
   /** Auto-focus the textarea on mount. */
   autoFocus?: boolean;
   /**
+   * localStorage key used to preserve the textarea draft across refreshes.
+   * When omitted, the textarea behaves like an ordinary ephemeral form field.
+   */
+  draftStorageKey?: string;
+  /**
    * Override the initial harness/model with the session's last-used agent
    * config. Used by the follow-up form so it inherits the previous run's
    * harness without triggering preference persistence on submit.
@@ -140,6 +145,7 @@ export function EvolveRequestForm({
   disabled = false,
   disabledLabel,
   autoFocus = false,
+  draftStorageKey,
   defaultHarness,
   defaultModel,
   initialHarness,
@@ -151,6 +157,7 @@ export function EvolveRequestForm({
   const router = useRouter();
   const sounds = useSounds();
   const [input, setInput] = useState("");
+  const draftHydratedRef = useRef(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -187,6 +194,45 @@ export function EvolveRequestForm({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Draft persistence ────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!draftStorageKey) return;
+    try {
+      const savedDraft = window.localStorage.getItem(draftStorageKey);
+      if (savedDraft !== null) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setInput(savedDraft);
+      }
+    } catch {
+      // localStorage can be unavailable in private/incognito contexts.
+    } finally {
+      draftHydratedRef.current = true;
+    }
+  }, [draftStorageKey]);
+
+  useEffect(() => {
+    if (!draftStorageKey || !draftHydratedRef.current) return;
+    try {
+      if (input.length > 0) {
+        window.localStorage.setItem(draftStorageKey, input);
+      } else {
+        window.localStorage.removeItem(draftStorageKey);
+      }
+    } catch {
+      // Ignore storage quota/privacy errors; the form still works normally.
+    }
+  }, [draftStorageKey, input]);
+
+  const clearPersistedDraft = useCallback(() => {
+    if (!draftStorageKey) return;
+    try {
+      window.localStorage.removeItem(draftStorageKey);
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [draftStorageKey]);
 
   // ── Element inspector ─────────────────────────────────────────────────────
 
@@ -267,6 +313,7 @@ export function EvolveRequestForm({
           files: allFiles,
         });
         // Reset form on success (caveman mode/intensity are sticky — not reset).
+        clearPersistedDraft();
         setInput("");
         setAttachedFiles([]);
         setElementAttachments([]);
@@ -294,6 +341,7 @@ export function EvolveRequestForm({
         }
 
         if (onSessionCreated) {
+          clearPersistedDraft();
           setInput("");
           setAttachedFiles([]);
           setElementAttachments([]);
@@ -302,6 +350,7 @@ export function EvolveRequestForm({
           sounds.sparkle();
           onSessionCreated(data.sessionId!);
         } else {
+          clearPersistedDraft();
           sounds.sparkle();
           router.push(`/evolve/session/${data.sessionId}`);
         }

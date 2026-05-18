@@ -1915,6 +1915,7 @@ export default function EvolveSessionView({
               <EvolveRequestForm
                 placeholder="Describe what to fix or improve…"
                 submitLabel="Submit follow-up"
+                draftStorageKey={`primordia:evolve-draft:followup:${sessionId}`}
                 disabled={isAgentRunning}
                 disabledLabel={`Waiting for ${agentRunningLabel} to finish…`}
                 autoFocus

@@ -46,7 +46,13 @@ export default function EvolveForm({ branch, initialHarness, initialModel, initi
       </div>
 
       <div className="border border-gray-800 rounded-xl bg-gray-900 p-4">
-        <EvolveRequestForm initialHarness={initialHarness} initialModel={initialModel} initialCavemanMode={initialCavemanMode} initialCavemanIntensity={initialCavemanIntensity} />
+        <EvolveRequestForm
+          draftStorageKey="primordia:evolve-draft:initial"
+          initialHarness={initialHarness}
+          initialModel={initialModel}
+          initialCavemanMode={initialCavemanMode}
+          initialCavemanIntensity={initialCavemanIntensity}
+        />
       </div>
     </main>
   );

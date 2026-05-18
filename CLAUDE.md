@@ -115,8 +115,9 @@ When implementing changes, follow these principles:
 |---|---|---|
 | Evolve mode | ✅ Live | "Propose a change" in the hamburger opens a draggable/dockable floating dialog; `/evolve` page also exists as standalone |
 | Local evolve pipeline | ✅ Live | git worktree → Claude Agent SDK → local preview → accept/reject |
-| Evolve follow-up requests | ✅ Live | Chain multiple Claude passes on the same branch; form appears when session is ready |
+| Evolve follow-up requests | ✅ Live | Chain multiple Claude passes on the same branch; form appears when session is ready; draft text persists across refreshes per session |
 | File attachments in evolve | ✅ Live | Attach images/files to initial and follow-up requests; files are copied into `worktree/attachments/` so Claude can read and use them |
+| Evolve draft persistence | ✅ Live | Initial request drafts in `/evolve` and the floating Propose-a-change dialog share a local draft; follow-up drafts are saved per session until submitted |
 | Multiple agent harnesses | ✅ Live | Evolve form lets users choose harness (claude-code, pi, or codex) and model; preferences persisted per-user in DB; Codex exec JSON is normalized into the same structured tool/reasoning session events as the other harnesses |
 | Upstream changes indicator | ✅ Live | Session page shows how many commits the parent branch is ahead of the session branch, with an "Apply Updates" button that merges prod updates, snapshots the prod DB via SQLite `VACUUM INTO`, and hot-swaps the preview server DB cleanly |
 | Git diff summary | ✅ Live | Session page shows a collapsible "Files changed" section (file names + +/- LOC) once the session is ready/accepted/rejected |

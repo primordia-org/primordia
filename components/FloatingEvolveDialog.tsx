@@ -320,6 +320,7 @@ export function FloatingEvolveDialog({
       <div className="p-3 flex flex-col flex-1 overflow-y-auto min-h-0">
         <EvolveRequestForm
           compact
+          draftStorageKey="primordia:evolve-draft:initial"
           initialHarness={initialHarness}
           initialModel={initialModel}
           initialCavemanMode={initialCavemanMode}
