@@ -103,7 +103,7 @@ function derivePublicPort(incoming: http.IncomingMessage): string {
 }
 
 const LISTEN_PORT = parseInt(process.env.REVERSE_PROXY_PORT ?? '3000', 10);
-const BUN_COMMAND = 'bun';
+const MISE_COMMAND = 'mise';
 
 /**
  * Compute paths relative to the reverse-proxy.ts file location.
@@ -485,7 +485,7 @@ async function startPreviewServer(
     return entry;
   }
 
-  const proc = spawn(BUN_COMMAND, ['run', 'dev'], {
+  const proc = spawn(MISE_COMMAND, ['exec', '-C', info.worktreePath, '--', 'bun', 'run', 'dev'], {
     cwd: info.worktreePath,
     env: {
       ...process.env,
@@ -654,7 +654,7 @@ async function startProdServerIfNeeded(): Promise<void> {
 
   console.log(`[proxy] starting production server (${currentProdBranch}) on :${upstreamPort} in ${prodPath}`);
   await killPortOwner(upstreamPort);
-  const server = spawn(BUN_COMMAND, ['run', 'start'], {
+  const server = spawn(MISE_COMMAND, ['exec', '-C', prodPath, '--', 'bun', 'run', 'start'], {
     cwd: prodPath,
     env: { ...process.env, PORT: String(upstreamPort), HOSTNAME: '0.0.0.0' },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -803,7 +803,7 @@ async function handleProdSpawn(
     await killPortOwner(port);
 
     // Spawn new prod server — proxy owns this process.
-    const newServer = spawn(BUN_COMMAND, ['run', 'start'], {
+    const newServer = spawn(MISE_COMMAND, ['exec', '-C', path.resolve(worktreePath), '--', 'bun', 'run', 'start'], {
       cwd: path.resolve(worktreePath),
       env: { ...process.env, PORT: String(port), HOSTNAME: '0.0.0.0' },
       stdio: ['ignore', 'pipe', 'pipe'],

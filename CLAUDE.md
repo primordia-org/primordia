@@ -27,7 +27,7 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 | Language | TypeScript | Catches mistakes; Claude Code understands it well |
 | AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Routes through exe.dev LLM gateway by default; users may override with their own Anthropic API key or Claude Code credentials.json (stored in localStorage/DB, encrypted in transit via one hybrid AES-GCM + RSA-OAEP envelope for all credential types) |
 | Hosting | exe.dev | Production builds via `bun run build && bun run start`; single systemd service (`primordia-proxy`) manages both proxy and production app; blue/green slot swap on accept |
-| Runtime versioning | mise (`mise.toml`) | Pins Bun per worktree so previews and production can run the Bun version declared by that branch |
+| Runtime versioning | mise (`mise.toml`) | Pins Bun per worktree; evolve setup trusts `mise.toml`, and the reverse proxy launches worktree servers with `mise exec -C <worktree>` |
 | AI code gen | `@anthropic-ai/claude-agent-sdk` | `query()` runs Claude Code in git worktrees for evolve requests |
 | Database | bun:sqlite | Local SQLite for passkey auth **and evolve session persistence**; same adapter on exe.dev and local dev |
 | Package install security | Bun `minimumReleaseAge` + `@socketsecurity/bun-security-scanner` | New package resolutions must be at least 24 hours old and are scanned by Socket during `bun install` |

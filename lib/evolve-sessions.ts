@@ -520,6 +520,18 @@ export function runGit(
   });
 }
 
+async function trustMiseConfig(worktreePath: string): Promise<boolean> {
+  const miseConfigPath = path.join(worktreePath, 'mise.toml');
+  if (!fs.existsSync(miseConfigPath)) return false;
+
+  const trustResult = await runCommand('mise', ['trust', miseConfigPath], worktreePath);
+  if (trustResult.code !== 0) {
+    throw new Error(`mise trust failed:\n${trustResult.stderr || trustResult.stdout}`);
+  }
+
+  return true;
+}
+
 // ─── Worktree helpers ─────────────────────────────────────────────────────────
 
 /**
@@ -817,6 +829,10 @@ export async function startLocalEvolve(
     appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'setup', label: 'Setup', ts: Date.now() });
     appendSessionEvent(ndjsonPath, { type: 'setup_step', label: worktreeLabel, done: true, ts: Date.now() });
 
+    if (await trustMiseConfig(session.worktreePath)) {
+      appendSessionEvent(ndjsonPath, { type: 'setup_step', label: '`mise trust` complete', done: true, ts: Date.now() });
+    }
+
     // Store parent branch in git config so the manage endpoint can find it
     // when logging the accept/reject decision back to the parent instance.
     await runGit(['config', `branch.${session.branch}.parent`, parentBranch], repoRoot);
@@ -830,7 +846,7 @@ export async function startLocalEvolve(
     // Bun is fast enough that a full install is preferable to a shared symlink,
     // which can cause subtle dependency issues when the worktree diverges.
     await new Promise<void>((resolve, reject) => {
-      const proc = spawn('bun', ['install'], {
+      const proc = spawn('mise', ['exec', '-C', session.worktreePath, '--', 'bun', 'install'], {
         cwd: session.worktreePath,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -1276,4 +1292,3 @@ export async function resolveConflictsWithAgent(
 
   return { success: true, log: '' };
 }
-
