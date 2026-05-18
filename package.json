@@ -19,11 +19,11 @@
     "test:e2e:headed": "bunx playwright test --headed"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.76",
-    "@anthropic-ai/sdk": "^0.78.0",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.141",
+    "@anthropic-ai/sdk": "^0.96.0",
     "@mariozechner/pi-coding-agent": "0.73.1",
     "@openai/codex": "0.130.0",
-    "@scalar/api-reference-react": "^0.9.26",
+    "@scalar/api-reference-react": "^0.9.38",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.0",
     "@zumer/snapdom": "^2.8.0",
@@ -32,7 +32,7 @@
     "lucide-react": "^1.8.0",
     "minimatch": "^10.2.5",
     "mnemonic-id": "^4.1.0",
-    "next": "16.2.2",
+    "next": "16.2.6",
     "next-openapi-gen": "^1.0.7",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
@@ -40,7 +40,19 @@
     "streamdown": "^2.5.0",
     "swc-plugin-component-annotate": "^1.14.0",
     "tailwind-merge": "^3.5.0",
-    "uuid": "^14.0.0"
+    "uuid": "^11.1.1"
+  },
+  "overrides": {
+    "basic-ftp": "^6.0.1",
+    "brace-expansion": "^5.0.6",
+    "fast-uri": "^3.1.2",
+    "fast-xml-builder": "^1.2.0",
+    "hono": "^4.12.19",
+    "ip-address": "^10.2.0",
+    "mermaid": "^11.15.0",
+    "postcss": "^8.5.14",
+    "protobufjs": "^8.3.0",
+    "uuid": "^11.1.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
@@ -52,8 +64,8 @@
     "@types/uuid": "^11.0.0",
     "autoprefixer": "^10",
     "eslint": "^9",
-    "eslint-config-next": "16.2.2",
-    "postcss": "^8",
+    "eslint-config-next": "16.2.6",
+    "postcss": "^8.5.14",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
   }
