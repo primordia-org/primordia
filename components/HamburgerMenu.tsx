@@ -167,9 +167,9 @@ export function HamburgerMenu({ sessionUser, onLogout, items, containerRef }: Ha
                 <p className="text-xs text-gray-500">Signed in as</p>
                 <p className="text-sm text-gray-200 font-medium truncate">@{sessionUser.username}</p>
               </div>
-              <MenuBtn dataId="nav-menu/sign-in-other-device" className="hover:text-blue-400" onClick={() => { setMenuOpen(false); trackEvent("nav/menu-item-clicked/v1", { dataId: "nav-menu/sign-in-other-device", label: "Sign in on another device" }); setQrSignInDialogOpen(true); }}>
+              <MenuBtn dataId="nav-menu/sign-in-other-device" className="hover:text-blue-400" onClick={() => { setMenuOpen(false); trackEvent("nav/menu-item-clicked/v1", { dataId: "nav-menu/sign-in-other-device", label: "Mobile sign in" }); setQrSignInDialogOpen(true); }}>
                 <QrCode size={16} strokeWidth={2} aria-hidden="true" />
-                Sign in on another device
+                Mobile sign in
               </MenuBtn>
               <MenuBtn dataId="nav-menu/sign-out" className="hover:text-red-400" onClick={() => { setMenuOpen(false); trackEvent("nav/menu-item-clicked/v1", { dataId: "nav-menu/sign-out", label: "Sign out" }); onLogout(); }}>
                 <LogOut size={16} strokeWidth={2} aria-hidden="true" />
