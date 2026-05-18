@@ -259,7 +259,6 @@ git -C "${BARE_REPO}" config receive.denyDeleteCurrent refuse
 _CURRENT_STEP="install mise"
 MISE_BIN="${HOME}/.local/bin/mise"
 MISE_SHIMS_DIR="${HOME}/.local/share/mise/shims"
-BUN_VERSION="1.3.13"
 
 if [[ ! -x "${MISE_BIN}" ]] && ! command -v mise &>/dev/null; then
   _step "Installing mise..."
@@ -279,7 +278,7 @@ fi
 [[ -n "${MISE_BIN}" && -x "${MISE_BIN}" ]] || die "mise installation failed"
 
 export PATH="$(dirname "${MISE_BIN}"):${MISE_SHIMS_DIR}:${PATH}"
-export MISE_TRUSTED_CONFIG_PATHS="${WORKTREES_DIR}${MISE_TRUSTED_CONFIG_PATHS:+:${MISE_TRUSTED_CONFIG_PATHS}}"
+export MISE_TRUSTED_CONFIG_PATHS="${PRIMORDIA_DIR}:${WORKTREES_DIR}${MISE_TRUSTED_CONFIG_PATHS:+:${MISE_TRUSTED_CONFIG_PATHS}}"
 success "Using $("${MISE_BIN}" --version)"
 
 _CURRENT_STEP="configure bash for mise"
@@ -298,19 +297,18 @@ else
   success "Configured bash mise integration"
 fi
 
-_CURRENT_STEP="install bun with mise"
+_CURRENT_STEP="install tools with mise"
 cd "${INSTALL_DIR}"
-if [[ -f "${INSTALL_DIR}/mise.toml" ]]; then
-  "${MISE_BIN}" trust "${INSTALL_DIR}/mise.toml" >/dev/null 2>&1 || true
-fi
-_step "Installing bun..."
+[[ -f "${INSTALL_DIR}/mise.toml" ]] || die "Missing mise.toml"
+"${MISE_BIN}" trust "${INSTALL_DIR}/mise.toml" >/dev/null 2>&1 || true
+_step "Installing mise tools..."
 _bun_install_log=$(mktemp)
-if ! "${MISE_BIN}" install "bun@${BUN_VERSION}" >"$_bun_install_log" 2>&1; then
+if ! "${MISE_BIN}" install >"$_bun_install_log" 2>&1; then
   cat "$_bun_install_log" >&2
   rm -f "$_bun_install_log"
-  die "bun installation failed"
+  die "mise tool installation failed"
 fi
-"${MISE_BIN}" reshim bun >/dev/null 2>&1 || true
+"${MISE_BIN}" reshim >/dev/null 2>&1 || true
 rm -f "$_bun_install_log"
 _done "Using bun $(bun --version)"
 
@@ -381,6 +379,9 @@ _done "Build complete"
 _CURRENT_STEP="install reverse proxy"
 REVERSE_PROXY_SOURCE="${INSTALL_DIR}/scripts/reverse-proxy.ts"
 REVERSE_PROXY_DEST="${PRIMORDIA_DIR}/reverse-proxy.ts"
+MISE_CONFIG_SOURCE="${INSTALL_DIR}/mise.toml"
+MISE_CONFIG_DEST="${PRIMORDIA_DIR}/mise.toml"
+ROOT_MISE_CHANGED=false
 
 # Calculate if the proxy script needs updating
 if [[ ! -f "${REVERSE_PROXY_DEST}" ]]; then
@@ -396,6 +397,15 @@ if [[ "${PROXY_CHANGED}" == "true" ]]; then
   success "Installed reverse-proxy.ts"
 else
   success "Using reverse-proxy.ts"
+fi
+
+if [[ ! -f "${MISE_CONFIG_DEST}" ]] || ! diff -q "${MISE_CONFIG_SOURCE}" "${MISE_CONFIG_DEST}" >/dev/null 2>&1; then
+  cp -f "${MISE_CONFIG_SOURCE}" "${MISE_CONFIG_DEST}"
+  "${MISE_BIN}" trust "${MISE_CONFIG_DEST}" >/dev/null 2>&1 || true
+  ROOT_MISE_CHANGED=true
+  success "Installed mise.toml"
+else
+  success "Using mise.toml"
 fi
 
 # ── Determine hostname ────────────────────────────────────────────────────────
@@ -447,9 +457,9 @@ WorkingDirectory=${PRIMORDIA_DIR}
 Environment=REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}
 Environment=HOME=${HOME}
 Environment=PATH=${MISE_SHIMS_DIR}:$(dirname "${MISE_BIN}"):/usr/local/bin:/usr/bin:/bin
-Environment=MISE_TRUSTED_CONFIG_PATHS=${WORKTREES_DIR}
+Environment=MISE_TRUSTED_CONFIG_PATHS=${PRIMORDIA_DIR}:${WORKTREES_DIR}
 ${PARENT_URL_ENV_LINE}
-ExecStart=${MISE_BIN} exec -C ${INSTALL_DIR} -- bun ${PRIMORDIA_DIR}/reverse-proxy.ts
+ExecStart=${MISE_BIN} exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/reverse-proxy.ts
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -597,7 +607,7 @@ SERVICE_READY=false
 #   zero-downtime; if PROXY_CHANGED, warn user to restart proxy manually afterward)
 if [[ "${PROXY_RUNNING}" == "true" ]] && \
    { [[ "${PROBABLY_A_SERVER}" == "false" ]] || \
-     [[ "${PROXY_CHANGED}" == "false" && "${SERVICE_CHANGED}" == "false" ]]; }; then
+     [[ "${PROXY_CHANGED}" == "false" && "${SERVICE_CHANGED}" == "false" && "${ROOT_MISE_CHANGED}" == "false" ]]; }; then
   # ── Zero-downtime path ────────────────────────────────────────────────────
   # The proxy is running and neither it nor the service unit changed.
   # Tell the proxy to spawn the new production server, health-check it, and
@@ -638,8 +648,8 @@ if [[ "${PROXY_RUNNING}" == "true" ]] && \
     SERVICE_READY=true
     _spin_kill
     advance_main_and_push
-    if [[ "${PROBABLY_A_SERVER}" == "false" && "${PROXY_CHANGED}" == "true" ]]; then
-      warn "reverse-proxy.ts changed — restart the proxy manually to pick up the new version."
+    if [[ "${PROBABLY_A_SERVER}" == "false" ]] && { [[ "${PROXY_CHANGED}" == "true" ]] || [[ "${ROOT_MISE_CHANGED}" == "true" ]]; }; then
+      warn "Proxy runtime files changed — restart the proxy manually to pick up the new version."
     fi
     echo -e "${GREEN}✓${RESET} Congratulations! Primordia is running!"
   else
@@ -701,7 +711,7 @@ if [[ "${SERVICE_READY}" == "false" ]]; then
     advance_main_and_push
     echo -e "${GREEN}✓${RESET} Congratulations! Primordia is ready."
     if [[ "${PROXY_RUNNING}" == "false" ]]; then
-      info "Proxy not detected — start it with: mise exec -C ${INSTALL_DIR} -- bun ${PRIMORDIA_DIR}/reverse-proxy.ts"
+      info "Proxy not detected — start it with: mise exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/reverse-proxy.ts"
     fi
   fi
 fi
