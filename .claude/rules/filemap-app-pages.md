@@ -81,8 +81,5 @@ app/                           ← Next.js App Router
 │   ├── LoginClient.tsx        ← Client component: renders one tab per provider; loads tab components via next/dynamic
 │   ├── approve/page.tsx       ← Approval page: authenticated device approves a QR cross-device sign-in
 │   └── cross-device-receive/page.tsx ← Receive page: new device scanning QR completes cross-device push sign-in flow
-├── register-passkey/
-│   ├── page.tsx               ← Server component: shown after exe.dev login when user has no passkeys yet
-│   └── RegisterPasskeyClient.tsx ← Client component: prompts logged-in users to register a passkey
 └── schemas/instance/v1.json/route.ts ← Serves the JSON Schema for Primordia instance manifests
 ```
