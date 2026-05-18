@@ -506,7 +506,7 @@ async function startPreviewServer(
       entry.logBuffer = entry.logBuffer.slice(entry.logBuffer.length - MAX_LOG_BYTES);
     }
     for (const sub of entry.logSubscribers) {
-      sub.write(text);
+      try { sub.write(text); } catch { entry.logSubscribers.delete(sub); }
     }
     if (entry.status === 'starting' && text.includes('Ready')) {
       entry.status = 'running';
@@ -1084,33 +1084,54 @@ function handleProxyApi(
 
   // POST /_proxy/preview/:id/restart
   if (action === 'restart' && clientReq.method === 'POST') {
-    // If a start is already in progress for this session, treat the request as idempotent
-    // rather than spawning a second concurrent startPreviewServer — that causes a race
-    // where both calls share the same port and one orphans its process.
-    const existingEntry = previewProcesses.get(sessionId);
-    if (existingEntry?.status === 'starting') {
-      clientRes.writeHead(200, { 'content-type': 'application/json' });
-      clientRes.end(JSON.stringify({ ok: true, note: 'already starting' }));
-      return;
-    }
-    stopPreviewServer(sessionId);
-    const info = sessionWorktreeCache[sessionId] ?? (() => { readAllPorts(); return sessionWorktreeCache[sessionId]; })();
-    if (!info) {
-      clientRes.writeHead(404, { 'content-type': 'application/json' });
-      clientRes.end(JSON.stringify({ error: 'Session worktree not found in cache' }));
-      return;
-    }
-    // Guard: refuse to restart a preview server whose port is currently serving production.
-    // This mirrors the same guard in handlePreviewRequest and prevents killPortOwner from
-    // taking down the production server when a just-accepted session is restarted.
-    if (info.port === upstreamPort) {
-      clientRes.writeHead(409, { 'content-type': 'application/json' });
-      clientRes.end(JSON.stringify({ error: 'Session is currently the production server; cannot restart as dev server' }));
-      return;
-    }
-    void startPreviewServer(sessionId, info);
-    clientRes.writeHead(200, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ ok: true }));
+    void (async () => {
+      // If a start is already in progress for this session, treat the request as idempotent
+      // rather than spawning a second concurrent startPreviewServer — that causes a race
+      // where both calls share the same port and one orphans its process.
+      const existingEntry = previewProcesses.get(sessionId);
+      if (existingEntry?.status === 'starting') {
+        clientRes.writeHead(200, { 'content-type': 'application/json' });
+        clientRes.end(JSON.stringify({ ok: true, note: 'already starting' }));
+        return;
+      }
+      stopPreviewServer(sessionId);
+      const info = sessionWorktreeCache[sessionId] ?? (() => { readAllPorts(); return sessionWorktreeCache[sessionId]; })();
+      if (!info) {
+        clientRes.writeHead(404, { 'content-type': 'application/json' });
+        clientRes.end(JSON.stringify({ error: 'Session worktree not found in cache' }));
+        return;
+      }
+      // Guard: refuse to restart a preview server whose port is currently serving production.
+      // This mirrors the same guard in handlePreviewRequest and prevents killPortOwner from
+      // taking down the production server when a just-accepted session is restarted.
+      if (info.port === upstreamPort) {
+        clientRes.writeHead(409, { 'content-type': 'application/json' });
+        clientRes.end(JSON.stringify({ error: 'Session is currently the production server; cannot restart as dev server' }));
+        return;
+      }
+      try {
+        await startPreviewServer(sessionId, info);
+        clientRes.writeHead(200, { 'content-type': 'application/json' });
+        clientRes.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[proxy] preview restart failed for session ${sessionId}:`, msg);
+        previewProcesses.delete(sessionId);
+        if (!clientRes.headersSent) {
+          clientRes.writeHead(500, { 'content-type': 'application/json' });
+        }
+        clientRes.end(JSON.stringify({ error: msg }));
+      }
+    })().catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[proxy] preview restart handler failed for session ${sessionId}:`, msg);
+      if (!clientRes.headersSent) {
+        clientRes.writeHead(500, { 'content-type': 'application/json' });
+        clientRes.end(JSON.stringify({ error: msg }));
+      } else if (!clientRes.writableEnded) {
+        clientRes.end();
+      }
+    });
     return;
   }
 
@@ -1235,7 +1256,16 @@ async function handleRequest(
 // Internal HTTP handler. Listens on a random localhost port; the external
 // net.Server forwards non-WebSocket connections to it via loopback.
 const httpHandler = http.createServer((clientReq, clientRes) => {
-  void handleRequest(clientReq, clientRes);
+  void handleRequest(clientReq, clientRes).catch((err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[proxy] request handler error:', msg);
+    if (!clientRes.headersSent) {
+      clientRes.writeHead(500, { 'content-type': 'text/plain' });
+      clientRes.end(`Internal proxy error: ${msg}\n`);
+    } else if (!clientRes.writableEnded) {
+      clientRes.end();
+    }
+  });
 });
 
 // Inject x-forwarded-for / x-forwarded-proto into a raw HTTP upgrade request
