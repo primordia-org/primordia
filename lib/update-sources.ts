@@ -17,14 +17,15 @@
 //       builtin         = true
 //       enabled         = true
 //       fetchFrequency  = daily
-//       fetchDelayDays  = 7
+//       fetchDelayDays  = 1
 //       lastFetchedAt   = 1714300000000
 //
 // The `url` and `fetch` fields are set by `git remote add` (standard git).
 // The remaining fields are Primordia-specific metadata added on top.
 //
 // fetchFrequency controls how often the background scheduler automatically fetches
-// this source. Values: "never", "hourly", "daily", "weekly". Defaults to "never".
+// this source. Values: "never", "hourly", "daily", "weekly". Defaults to "daily"
+// for the built-in source on new instances and "never" for user-added sources.
 //
 // fetchDelayDays controls a safety buffer: instead of using the latest commit on
 // the tracking branch, the system only surfaces commits whose committer date is at
@@ -68,7 +69,7 @@ export interface UpdateSource {
   builtin: boolean;
   /**
    * How often the background scheduler auto-fetches this source.
-   * "never" (default) disables automatic fetching.
+   * "never" disables automatic fetching.
    */
   fetchFrequency: FetchFrequency;
   /**
@@ -94,8 +95,8 @@ const BUILTIN_SOURCE: UpdateSource = {
   trackingBranch: "primordia-official-main",
   enabled: true,
   builtin: true,
-  fetchFrequency: "never",
-  fetchDelayDays: 0,
+  fetchFrequency: "daily",
+  fetchDelayDays: 1,
   lastFetchedAt: null,
 };
 
@@ -218,8 +219,8 @@ function ensureBuiltin(repoRoot: string): UpdateSource {
   const source: UpdateSource = {
     ...BUILTIN_SOURCE,
     enabled: existing?.enabled ?? true,
-    fetchFrequency: existing?.fetchFrequency ?? "never",
-    fetchDelayDays: existing?.fetchDelayDays ?? 0,
+    fetchFrequency: existing?.fetchFrequency ?? BUILTIN_SOURCE.fetchFrequency,
+    fetchDelayDays: existing?.fetchDelayDays ?? BUILTIN_SOURCE.fetchDelayDays,
     lastFetchedAt: existing?.lastFetchedAt ?? null,
   };
   writeSourceMeta(source, repoRoot);
