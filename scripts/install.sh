@@ -36,7 +36,6 @@ fi
 info()    { echo -e "${CYAN}▸${RESET} $*"; }
 success() { echo -e "${GREEN}✓${RESET} $*"; }
 warn()    { echo -e "${YELLOW}⚠${RESET} $*"; }
-die()     { echo -e "${RED}✗ $*${RESET}" >&2; exit 1; }
 diag()    { echo -e "${DIM}  $*${RESET}"; }
 
 # _step: print a spinner line (no newline) — replaced by _done on success
@@ -87,19 +86,54 @@ server_diagnostics() {
   echo ""
 }
 
-# ── ERR trap ──────────────────────────────────────────────────────────────────
+# ── Failure reporting ─────────────────────────────────────────────────────────
 
 _CURRENT_STEP="(initialising)"
-trap '_exit_code=$?
-_spin_kill
-echo -e "\n${RED}✗ Install failed${RESET} at step: ${BOLD}${_CURRENT_STEP}${RESET} (line ${LINENO}, exit ${_exit_code})" >&2
-server_diagnostics >&2
-echo "" >&2
-echo -e "${DIM}  Service logs (last 30 lines):${RESET}" >&2
-journalctl -u primordia -n 30 --no-pager 2>/dev/null >&2 || true
-echo "" >&2
-echo -e "${DIM}  Service status:${RESET}" >&2
-systemctl status primordia --no-pager 2>/dev/null >&2 || true' ERR
+_INSTALL_FAILURE_REPORTED=false
+_LAST_FAILURE_LINE=""
+_LAST_FAILURE_COMMAND=""
+
+report_install_failure() {
+  local exit_code="$1"
+  local line="${2:-unknown}"
+  local command="${3:-unknown}"
+
+  if [[ "${_INSTALL_FAILURE_REPORTED}" == "true" ]]; then
+    return
+  fi
+  _INSTALL_FAILURE_REPORTED=true
+
+  _spin_kill
+  echo -e "\n${RED}✗ Install failed${RESET} at step: ${BOLD}${_CURRENT_STEP}${RESET} (line ${line}, exit ${exit_code})" >&2
+  echo -e "${DIM}  Failed command: ${command}${RESET}" >&2
+  server_diagnostics >&2
+  echo "" >&2
+  echo -e "${DIM}  Service logs (last 30 lines):${RESET}" >&2
+  journalctl -u primordia -n 30 --no-pager 2>/dev/null >&2 || true
+  echo "" >&2
+  echo -e "${DIM}  Service status:${RESET}" >&2
+  systemctl status primordia --no-pager 2>/dev/null >&2 || true
+}
+
+die() {
+  echo -e "${RED}✗ $*${RESET}" >&2
+  _LAST_FAILURE_LINE="${BASH_LINENO[0]:-${LINENO}}"
+  _LAST_FAILURE_COMMAND="die: $*"
+  report_install_failure 1 "$_LAST_FAILURE_LINE" "$_LAST_FAILURE_COMMAND"
+  exit 1
+}
+
+exit_with_failure() {
+  local exit_code="${1:-1}"
+  local line="${2:-${BASH_LINENO[0]:-${LINENO}}}"
+  local command="${3:-explicit exit ${exit_code}}"
+  _LAST_FAILURE_LINE="$line"
+  _LAST_FAILURE_COMMAND="$command"
+  report_install_failure "$exit_code" "$_LAST_FAILURE_LINE" "$_LAST_FAILURE_COMMAND"
+  exit "$exit_code"
+}
+
+trap '_exit_code=$?; _failed_line="${BASH_LINENO[0]:-${LINENO}}"; _failed_command="${BASH_COMMAND:-unknown}"; report_install_failure "$_exit_code" "$_failed_line" "$_failed_command"' ERR
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 # Show only on initial install (git unavailable = fresh machine, or the current
@@ -176,7 +210,7 @@ _CURRENT_STEP="Clone primordia"
 if [[ ! -d "${BARE_REPO}" ]]; then
   _step "Cloning Primordia..."
   _log=$(mktemp)
-  if ! git clone --bare https://primordia.exe.xyz/api/git "${BARE_REPO}" >"$_log" 2>&1; then _spin_kill; cat "$_log" >&2; rm -f "$_log"; exit 1; fi
+  if ! git clone --bare https://primordia.exe.xyz/api/git "${BARE_REPO}" >"$_log" 2>&1; then _spin_kill; cat "$_log" >&2; rm -f "$_log"; exit_with_failure 1 "$LINENO" "git clone --bare https://primordia.exe.xyz/api/git ${BARE_REPO}"; fi
   rm -f "$_log"
   _done "Cloned to ${BARE_REPO}"
 fi
@@ -221,7 +255,7 @@ else
   # Create a local tracking branch from the remote ref and check it out in
   # the new worktree.
   _log=$(mktemp)
-  if ! git -C "${BARE_REPO}" worktree add "${INSTALL_DIR}" "${BRANCH}" >"$_log" 2>&1; then _spin_kill; cat "$_log" >&2; rm -f "$_log"; exit 1; fi
+  if ! git -C "${BARE_REPO}" worktree add "${INSTALL_DIR}" "${BRANCH}" >"$_log" 2>&1; then _spin_kill; cat "$_log" >&2; rm -f "$_log"; exit_with_failure 1 "$LINENO" "git worktree add ${INSTALL_DIR} ${BRANCH}"; fi
   rm -f "$_log"
   _done "Worktree created"
 fi
@@ -287,7 +321,7 @@ if [[ "$_BUN_OK" != "true" ]]; then
   echo -e "${DIM}  --- bun install output ---${RESET}" >&2
   tail -60 "$_bun_log" >&2
   echo -e "${DIM}  --------------------------${RESET}" >&2
-  rm -f "$_bun_log"; exit 1
+  rm -f "$_bun_log"; exit_with_failure 1 "$LINENO" "bun install --frozen-lockfile"
 fi
 rm -f "$_bun_log"
 _done "Dependencies installed"
@@ -329,7 +363,7 @@ if ! bun run build > "$_build_log" 2>&1; then
   echo -e "${DIM}  --- build output ---${RESET}" >&2
   cat "$_build_log" >&2
   echo -e "${DIM}  --------------------${RESET}" >&2
-  rm -f "$_build_log"; exit 1
+  rm -f "$_build_log"; exit_with_failure 1 "$LINENO" "bun run build"
 fi
 rm -f "$_build_log"
 _done "Build complete"
