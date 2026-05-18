@@ -111,14 +111,19 @@ function runInstallSh(
     proc.stdout.on('data', forward);
     proc.stderr.on('data', forward);
     proc.on('exit', (code) => {
-      // Destroy the streams so the spinner sub-process (which still holds the
-      // pipe write FDs) gets SIGPIPE and terminates. Without this the streams
-      // stay open and keep delivering spinner noise to the session log.
-      proc.stdout.destroy();
-      proc.stderr.destroy();
-      // Clean up PID file now that the process has exited normally.
-      try { fs.unlinkSync(path.join(worktreePath, INSTALL_SH_PID_FILE)); } catch { /* already gone */ }
-      resolve(code ?? 1);
+      // Give Node a short window to drain stderr/stdout written immediately
+      // before bash exited. Without this, install.sh's final failure report can
+      // be lost and the UI only shows "install.sh exited with code 1".
+      setTimeout(() => {
+        // Destroy the streams so the spinner sub-process (which still holds the
+        // pipe write FDs) gets SIGPIPE and terminates. Without this the streams
+        // stay open and keep delivering spinner noise to the session log.
+        proc.stdout.destroy();
+        proc.stderr.destroy();
+        // Clean up PID file now that the process has exited normally.
+        try { fs.unlinkSync(path.join(worktreePath, INSTALL_SH_PID_FILE)); } catch { /* already gone */ }
+        resolve(code ?? 1);
+      }, 250);
     });
     proc.on('error', (err) => reject(new Error(`install.sh spawn failed: ${err.message}`)));
   });
