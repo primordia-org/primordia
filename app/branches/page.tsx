@@ -135,8 +135,9 @@ async function getBranchData(parentSource: BranchParentSource): Promise<{
   };
 
   const branches: BranchData[] = allBranchNames
-    // Skip branches with slashes — not supported for preview or session URLs.
-    .filter((name) => !name.includes('/'))
+    // Skip the historical main alias and branches with slashes (slashes are not
+    // supported for preview or session URLs).
+    .filter((name) => name !== 'main' && !name.includes('/'))
     .map((name) => {
       const parent = getBranchParent(name, cwd, parentSource)?.parentBranch ?? null;
       const session = sessionByBranch.get(name);

@@ -52,25 +52,17 @@ test("writeBranchMarker reports git commit failures", () => {
   );
 });
 
-test("branch-marker source falls back to legacy git-config parent metadata", () => {
-  const productionSha = git(["rev-parse", "production"]);
+test("branch-marker source does not fall back to legacy git-config parent metadata", () => {
   git(["switch", "-c", "automate-common-steps"]);
   commit("branch work");
   git(["config", "branch.automate-common-steps.parent", "production"]);
 
-  expect(getBranchParent("automate-common-steps", repo, "branch-marker")).toEqual({
-    parentBranch: "production",
-    parentSha: productionSha,
-  });
+  expect(getBranchParent("automate-common-steps", repo, "branch-marker")).toBeNull();
 });
 
-test("branch-marker source infers production parent from ancestry when metadata is missing", () => {
-  const productionSha = git(["rev-parse", "production"]);
+test("branch-marker source does not infer production parent from ancestry", () => {
   git(["switch", "-c", "automate-common-steps"]);
   commit("branch work");
 
-  expect(getBranchParent("automate-common-steps", repo, "branch-marker")).toEqual({
-    parentBranch: "production",
-    parentSha: productionSha,
-  });
+  expect(getBranchParent("automate-common-steps", repo, "branch-marker")).toBeNull();
 });

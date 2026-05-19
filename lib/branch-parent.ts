@@ -123,13 +123,6 @@ function readProductionBranch(root: string): string | null {
   }
 }
 
-function revParse(branch: string, root: string): string {
-  return execFileSync('git', ['-C', root, 'rev-parse', branch], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  }).trim();
-}
-
 function branchExists(branch: string, root: string): boolean {
   try {
     execFileSync('git', ['-C', root, 'rev-parse', '--verify', branch], {
@@ -154,25 +147,6 @@ function isAncestor(ancestor: string, descendant: string, root: string): boolean
   }
 }
 
-function inferProductionParent(branch: string, root: string): { parentBranch: string; parentSha: string } | null {
-  const productionBranch = readProductionBranch(root);
-  if (!productionBranch || productionBranch === branch) return null;
-  if (!branchExists(productionBranch, root)) return null;
-  if (!isAncestor(productionBranch, branch, root)) return null;
-
-  try {
-    return { parentBranch: productionBranch, parentSha: revParse(productionBranch, root) };
-  } catch {
-    return { parentBranch: productionBranch, parentSha: '' };
-  }
-}
-
-function readBranchMarkerWithFallback(branch: string, root: string): { parentBranch: string; parentSha: string } | null {
-  return readBranchMarker(branch, root)
-    ?? readGitConfigParent(branch, root)
-    ?? inferProductionParent(branch, root);
-}
-
 /**
  * Returns the effective parent branch for computing diffs and upstream syncs.
  *
@@ -180,9 +154,8 @@ function readBranchMarkerWithFallback(branch: string, root: string): { parentBra
  * branch.<name>.parent from local git config only.
  *
  * When source is `branch-marker`, this reads the branch's marker trailers.
- * If no marker exists (for branches created before marker commits were added),
- * it falls back to legacy git-config metadata and then to production ancestry.
- * If the recorded parent has since been deployed, it returns current production.
+ * If no marker exists, it returns null. If the recorded parent has since been
+ * deployed, it returns current production.
  */
 export function getParentBranch(
   branch: string,
@@ -195,7 +168,7 @@ export function getParentBranch(
     return readGitConfigParent(branch, root)?.parentBranch ?? null;
   }
 
-  const marker = readBranchMarkerWithFallback(branch, root);
+  const marker = readBranchMarker(branch, root);
   if (!marker) return null;
 
   const { parentBranch } = marker;
@@ -221,5 +194,5 @@ export function getBranchParent(
   const root = repoPath(repo);
   return source === 'git-config'
     ? readGitConfigParent(branch, root)
-    : readBranchMarkerWithFallback(branch, root);
+    : readBranchMarker(branch, root);
 }
