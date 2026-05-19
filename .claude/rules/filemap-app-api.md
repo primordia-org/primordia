@@ -13,6 +13,7 @@ app/api/
 ├── openapi/route.ts           ← Serves OpenAPI spec, generating on first request if not on disk
 ├── prune-branches/route.ts    ← Returns 410 Gone (superseded endpoint)
 ├── rollback/route.ts          ← Returns 410 Gone (superseded by /api/admin/rollback)
+├── branches/parent-source/route.ts ← PATCH current user's Branches page parent source (`git-config` or `fork-marker`)
 ├── auth/
 │   ├── session/route.ts       ← GET current session user
 │   ├── logout/route.ts        ← POST clear session

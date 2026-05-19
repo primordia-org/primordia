@@ -12,14 +12,17 @@ import {
   type CavemanIntensity,
 } from "./agent-config";
 import { MODEL_OPTIONS } from "./agent-config";
+import { BRANCH_PARENT_SOURCES, DEFAULT_BRANCH_PARENT_SOURCE, type BranchParentSource } from "./branch-parent";
 
 export const PREF_HARNESS = "evolve:preferred-harness";
 export const PREF_MODEL = "evolve:preferred-model";
 export const PREF_CAVEMAN = "evolve:caveman-mode";
 export const PREF_CAVEMAN_INTENSITY = "evolve:caveman-intensity";
+export const PREF_BRANCH_PARENT_SOURCE = "branches:parent-source";
 
 // Re-export for callers that import caveman constants from this module.
 export { CAVEMAN_INTENSITIES, DEFAULT_CAVEMAN_INTENSITY, type CavemanIntensity } from "./agent-config";
+export { BRANCH_PARENT_SOURCES, DEFAULT_BRANCH_PARENT_SOURCE, type BranchParentSource } from "./branch-parent";
 
 export interface EvolvePrefs {
   initialHarness: string;
@@ -35,6 +38,19 @@ export interface EvolvePrefs {
  *
  * Safe to call in server components and route handlers — never throws.
  */
+export async function getBranchParentSource(userId: string | null | undefined): Promise<BranchParentSource> {
+  if (!userId) return DEFAULT_BRANCH_PARENT_SOURCE;
+  try {
+    const db = await getDb();
+    const prefs = await db.getUserPreferences(userId, [PREF_BRANCH_PARENT_SOURCE]);
+    return (BRANCH_PARENT_SOURCES as readonly string[]).includes(prefs[PREF_BRANCH_PARENT_SOURCE])
+      ? (prefs[PREF_BRANCH_PARENT_SOURCE] as BranchParentSource)
+      : DEFAULT_BRANCH_PARENT_SOURCE;
+  } catch {
+    return DEFAULT_BRANCH_PARENT_SOURCE;
+  }
+}
+
 export async function getEvolvePrefs(userId: string): Promise<EvolvePrefs> {
   try {
     const db = await getDb();

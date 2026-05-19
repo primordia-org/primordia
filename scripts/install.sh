@@ -554,8 +554,20 @@ else
   fi
 fi
 
+# Reparent sibling sessions whose legacy git-config parent was the old production
+# branch so the old branch-parent source remains usable while fork-marker tracking
+# is being tested.
 DB_NAME=".primordia-auth.db"
 OLD_PROD_BRANCH="$(git -C "${BARE_REPO}" config --get primordia.productionBranch 2>/dev/null || true)"
+if [[ -n "$OLD_PROD_BRANCH" && "$OLD_PROD_BRANCH" != "$BRANCH" ]]; then
+  while read -r key val; do
+    # key looks like: branch.<name>.parent  (space-separated, git config --get-regexp output)
+    sibling="${key#branch.}"; sibling="${sibling%.parent}"
+    if [[ "$val" == "$OLD_PROD_BRANCH" && "$sibling" != "$BRANCH" ]]; then
+      git -C "${BARE_REPO}" config "branch.${sibling}.parent" "$BRANCH" 2>/dev/null || true
+    fi
+  done < <(git -C "${BARE_REPO}" config --get-regexp 'branch\..*\.parent' 2>/dev/null || true)
+fi
 
 # Copy DB from old production slot before activating, so the new slot
 # inherits all users/sessions/passkeys.  Mirrors what blueGreenAccept() does.

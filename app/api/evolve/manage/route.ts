@@ -39,6 +39,7 @@ import {
   listSessionsFromFilesystem,
 } from '../../../../lib/session-events';
 import { getParentBranch } from '../../../../lib/branch-parent';
+import { getBranchParentSource } from '../../../../lib/user-prefs';
 
 /** Run an arbitrary command; resolves with stdout, stderr, and exit code. */
 function runCmd(
@@ -513,7 +514,8 @@ export async function POST(request: Request) {
 
   const { branch, worktreePath } = session;
 
-  const parentBranch = getParentBranch(branch) ?? 'main';
+  const parentSource = await getBranchParentSource(user.id);
+  const parentBranch = getParentBranch(branch, undefined, parentSource) ?? 'main';
 
   const isProduction = process.env.NODE_ENV === 'production';
 

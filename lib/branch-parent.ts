@@ -7,6 +7,10 @@ import { execFileSync } from 'node:child_process';
 export const MARKER_SUBJECT = '[primordia] fork marker';
 export const TRAILER_KEY = 'Primordia-Forked-From';
 
+export const BRANCH_PARENT_SOURCES = ['git-config', 'fork-marker'] as const;
+export type BranchParentSource = typeof BRANCH_PARENT_SOURCES[number];
+export const DEFAULT_BRANCH_PARENT_SOURCE: BranchParentSource = 'git-config';
+
 function repoPath(override?: string): string {
   return override ?? process.cwd();
 }
@@ -65,127 +69,110 @@ export function readForkMarker(
   }
 }
 
-/**
- * Returns the effective parent branch for computing diffs and upstream syncs.
- *
- * Resolution order:
- *  1. Marker's recorded parent, if that branch still exists AND is not yet
- *     merged into the current production branch (sibling/chain case).
- *  2. Current primordia.productionBranch (parent was accepted/deployed).
- *  3. Legacy git config branch.<name>.parent (pre-marker branches, from-branch sessions).
- */
-export function getParentBranch(branch: string, repo?: string): string | null {
-  const root = repoPath(repo);
-
-  const marker = readForkMarker(branch, root);
-  if (marker) {
-    const { parentBranch } = marker;
-    // Check whether the recorded parent branch still exists locally.
-    const parentExists = (() => {
-      try {
-        execFileSync('git', ['-C', root, 'rev-parse', '--verify', parentBranch], {
-          stdio: ['ignore', 'ignore', 'ignore'],
-        });
-        return true;
-      } catch {
-        return false;
-      }
-    })();
-
-    if (parentExists) {
-      // Check if parentBranch is already merged into the current prod branch.
-      const prodBranch = (() => {
-        try {
-          return execFileSync('git', ['-C', root, 'config', '--get', 'primordia.productionBranch'], {
-            encoding: 'utf8',
-            stdio: ['ignore', 'pipe', 'ignore'],
-          }).trim() || null;
-        } catch {
-          return null;
-        }
-      })();
-
-      if (prodBranch) {
-        // If parentBranch is an ancestor of prod it has been deployed; fall through to prod.
-        const mergedIntoProd = (() => {
-          try {
-            execFileSync(
-              'git',
-              ['-C', root, 'merge-base', '--is-ancestor', parentBranch, prodBranch],
-              { stdio: ['ignore', 'ignore', 'ignore'] },
-            );
-            return true;
-          } catch {
-            return false;
-          }
-        })();
-
-        if (!mergedIntoProd) {
-          return parentBranch;
-        }
-      } else {
-        // No prod branch configured — treat parent as still active.
-        return parentBranch;
-      }
-    }
-  }
-
-  // Fallback: current production branch.
+function readGitConfigParent(branch: string, root: string): { parentBranch: string; parentSha: string } | null {
   try {
-    const prod = execFileSync(
-      'git',
-      ['-C', root, 'config', '--get', 'primordia.productionBranch'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-    ).trim();
-    if (prod) return prod;
-  } catch { /* no prod branch */ }
-
-  // Legacy git config fallback for pre-marker branches.
-  try {
-    const legacy = execFileSync(
+    const parentBranch = execFileSync(
       'git',
       ['-C', root, 'config', '--get', `branch.${branch}.parent`],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
     ).trim();
-    if (legacy) return legacy;
-  } catch { /* no config entry */ }
-
-  return null;
-}
-
-/**
- * Returns the immutable fork ancestry recorded in the marker commit.
- * Used by the /branches tree to show original parentage regardless of deploy state.
- * Falls back to legacy git config (branch.<name>.parent) for pre-marker branches.
- */
-export function getForkParent(
-  branch: string,
-  repo?: string,
-): { parentBranch: string; parentSha: string } | null {
-  const root = repoPath(repo);
-
-  const marker = readForkMarker(branch, root);
-  if (marker) return marker;
-
-  // Legacy fallback: git config branch.<name>.parent (no sha available).
-  try {
-    const legacy = execFileSync(
-      'git',
-      ['-C', root, 'config', '--get', `branch.${branch}.parent`],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-    ).trim();
-    if (!legacy) return null;
-    // Resolve current sha — may be null if branch is gone.
+    if (!parentBranch) return null;
     try {
-      const sha = execFileSync('git', ['-C', root, 'rev-parse', legacy], {
+      const parentSha = execFileSync('git', ['-C', root, 'rev-parse', parentBranch], {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
       }).trim();
-      return sha ? { parentBranch: legacy, parentSha: sha } : null;
+      return { parentBranch, parentSha };
     } catch {
-      return { parentBranch: legacy, parentSha: '' };
+      return { parentBranch, parentSha: '' };
     }
   } catch {
     return null;
   }
+}
+
+function readProductionBranch(root: string): string | null {
+  try {
+    return execFileSync('git', ['-C', root, 'config', '--get', 'primordia.productionBranch'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function branchExists(branch: string, root: string): boolean {
+  try {
+    execFileSync('git', ['-C', root, 'rev-parse', '--verify', branch], {
+      stdio: ['ignore', 'ignore', 'ignore'],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isAncestor(ancestor: string, descendant: string, root: string): boolean {
+  try {
+    execFileSync(
+      'git',
+      ['-C', root, 'merge-base', '--is-ancestor', ancestor, descendant],
+      { stdio: ['ignore', 'ignore', 'ignore'] },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns the effective parent branch for computing diffs and upstream syncs.
+ *
+ * When source is `git-config`, this preserves the legacy behavior and reads
+ * branch.<name>.parent from local git config only.
+ *
+ * When source is `fork-marker`, this reads the branch's fork-marker trailer.
+ * If the recorded parent has since been deployed, it returns current production;
+ * if no marker exists, it returns null so the new codepath can be tested without
+ * silently falling back to legacy metadata.
+ */
+export function getParentBranch(
+  branch: string,
+  repo?: string,
+  source: BranchParentSource = DEFAULT_BRANCH_PARENT_SOURCE,
+): string | null {
+  const root = repoPath(repo);
+
+  if (source === 'git-config') {
+    return readGitConfigParent(branch, root)?.parentBranch ?? null;
+  }
+
+  const marker = readForkMarker(branch, root);
+  if (!marker) return null;
+
+  const { parentBranch } = marker;
+  const prodBranch = readProductionBranch(root);
+  if (!branchExists(parentBranch, root)) return prodBranch;
+
+  if (prodBranch && isAncestor(parentBranch, prodBranch, root)) {
+    return prodBranch;
+  }
+
+  return parentBranch;
+}
+
+/**
+ * Returns immutable fork ancestry according to the selected source.
+ * Used by the /branches tree to show original parentage.
+ */
+export function getForkParent(
+  branch: string,
+  repo?: string,
+  source: BranchParentSource = DEFAULT_BRANCH_PARENT_SOURCE,
+): { parentBranch: string; parentSha: string } | null {
+  const root = repoPath(repo);
+  return source === 'git-config'
+    ? readGitConfigParent(branch, root)
+    : readForkMarker(branch, root);
 }

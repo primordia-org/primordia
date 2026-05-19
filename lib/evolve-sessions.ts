@@ -836,9 +836,14 @@ export async function startLocalEvolve(
       appendSessionEvent(ndjsonPath, { type: 'setup_step', label: '`mise trust` complete', done: true, ts: Date.now() });
     }
 
+    // Keep the legacy git-config parent metadata for now while also writing
+    // fork-marker commits. The branches page exposes a toggle so both sources
+    // can be tested side by side during the migration.
+    await runGit(['config', `branch.${session.branch}.parent`, parentBranch], repoRoot);
+
     // Write an empty "fork marker" commit to record parentage so it travels
     // with the branch through clones. Only written for new branches; from-branch
-    // sessions rely on the production-branch fallback in getParentBranch().
+    // sessions keep relying on their existing branch metadata.
     if (!options.skipBranchCreation && !options.worktreeAlreadyCreated && parentSha) {
       writeForkMarker(session.worktreePath, parentBranch, parentSha);
     }

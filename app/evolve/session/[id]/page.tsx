@@ -9,10 +9,10 @@ import type { Metadata } from "next";
 import { execSync } from "child_process";
 import * as fs from "fs";
 import { getSessionUser, hasEvolvePermission } from "@/lib/auth";
-import { getEvolvePrefs } from "@/lib/user-prefs";
+import { getBranchParentSource, getEvolvePrefs } from "@/lib/user-prefs";
 import { buildPageTitle } from "@/lib/page-title";
 import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem, type SessionEvent } from "@/lib/session-events";
-import { getParentBranch } from "@/lib/branch-parent";
+import { getParentBranch, type BranchParentSource } from "@/lib/branch-parent";
 import EvolveSessionView from "./EvolveSessionView";
 
 export async function generateMetadata({
@@ -48,9 +48,9 @@ export interface DiffFileSummary {
   deletions: number;
 }
 
-function getGitDiffSummary(sessionBranch: string): DiffFileSummary[] {
+function getGitDiffSummary(sessionBranch: string, parentSource: BranchParentSource): DiffFileSummary[] {
   try {
-    const parentBranch = getParentBranch(sessionBranch);
+    const parentBranch = getParentBranch(sessionBranch, undefined, parentSource);
     if (!parentBranch) return [];
 
     const output = execSync(
@@ -76,9 +76,9 @@ function getGitDiffSummary(sessionBranch: string): DiffFileSummary[] {
   }
 }
 
-function getUpstreamCommitCount(sessionBranch: string): number {
+function getUpstreamCommitCount(sessionBranch: string, parentSource: BranchParentSource): number {
   try {
-    const parentBranch = getParentBranch(sessionBranch);
+    const parentBranch = getParentBranch(sessionBranch, undefined, parentSource);
     if (!parentBranch) return 0;
     const count = execSync(
       `git rev-list ${sessionBranch}..${parentBranch} --count`,
@@ -98,6 +98,7 @@ export default async function EvolveSessionPage({
   const user = await getSessionUser();
   const canEvolve = user ? await hasEvolvePermission(user.id) : false;
   const evolvePrefs = user ? await getEvolvePrefs(user.id) : { initialHarness: undefined, initialModel: undefined, initialCavemanMode: undefined, initialCavemanIntensity: undefined };
+  const parentSource = await getBranchParentSource(user?.id);
 
   const { id } = await params;
 
@@ -106,14 +107,14 @@ export default async function EvolveSessionPage({
 
   const branch = readGitBranch();
 
-  const parentBranch = getParentBranch(session.branch);
+  const parentBranch = getParentBranch(session.branch, undefined, parentSource);
 
   // Only allow accept/reject when the session branch was branched directly off
   // the currently checked-out branch.
   const canAcceptReject = parentBranch !== null && branch !== null && branch === parentBranch;
 
-  const upstreamCommitCount = getUpstreamCommitCount(session.branch);
-  const diffSummary = getGitDiffSummary(session.branch);
+  const upstreamCommitCount = getUpstreamCommitCount(session.branch, parentSource);
+  const diffSummary = getGitDiffSummary(session.branch, parentSource);
 
   // Load initial events from the NDJSON log.
   let initialEvents: SessionEvent[] = [];

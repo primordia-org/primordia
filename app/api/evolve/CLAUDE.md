@@ -17,7 +17,7 @@ User types change request on /evolve page
   → server component reads initial state from SQLite, renders EvolveSessionView
   → git worktree add $PRIMORDIA_DIR/worktrees/{branchName} -b {branchName}
        ($PRIMORDIA_DIR is set by the installer — the repo root for fresh installs, two levels above the worktree for worktree-based installs; branches with slashes not supported)
-  → writes an empty `[primordia] fork marker` commit with `Primordia-Forked-From: <parent>@<sha>` so parentage survives pushes/clones
+  → records parentage in legacy git config (`branch.{branch}.parent`) and writes an empty `[primordia] fork marker` commit with `Primordia-Forked-From: <parent>@<sha>` so trailer-based parentage can survive pushes/clones
   → bun install in worktree
   → copy .primordia-auth.db + symlink .env.local into worktree
   → @anthropic-ai/claude-agent-sdk query() in worktree
@@ -33,7 +33,7 @@ User types change request on /evolve page
       → pre-accept gates: (1) ancestor check — auto-merges parent if ahead; (2) clean worktree — auto-commits unstaged changes; (3) concurrent deploy guard — returns 409 if another session is already `accepting`; then runs install.sh which includes typecheck + build
       → blue/green deploy (production): bun install in worktree → session branch becomes new prod as-is (no merge commit; Gate 1 guarantees it already contains parentBranch)
           → parentBranch ref NOT advanced — old slot stays at pre-accept commit so rollback can match it by branch name
-          → sibling sessions keep their original fork-marker parentage; parent resolution dynamically falls back to current production when the original parent has been deployed
+          → sibling sessions using legacy git-config parentage are reparented to the session branch; fork-marker parentage remains immutable, and marker-mode parent resolution dynamically falls back to current production when the original parent has been deployed
           → session worktree stays checked out on the session branch; no detached HEAD
           → copy prod DB from old slot into new slot (preserves auth data)
           → fix .env.local symlink in new slot to point to main repo (prevents dangling link)

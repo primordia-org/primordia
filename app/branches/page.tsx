@@ -17,9 +17,10 @@ import { PageNavBar } from "@/components/PageNavBar";
 import { CreateSessionFromBranchButton } from "./CreateSessionFromBranchButton";
 import { buildPageTitle } from "@/lib/page-title";
 import { getSessionUser, isAdmin, hasEvolvePermission } from "@/lib/auth";
-import { getEvolvePrefs } from "@/lib/user-prefs";
+import { getBranchParentSource, getEvolvePrefs } from "@/lib/user-prefs";
 import { withBasePath } from "@/lib/base-path";
-import { getForkParent } from "@/lib/branch-parent";
+import { getForkParent, type BranchParentSource } from "@/lib/branch-parent";
+import { BranchParentSourceToggle } from "./BranchParentSourceToggle";
 
 export const dynamic = "force-dynamic";
 
@@ -100,7 +101,7 @@ function gitConfigValue(key: string, cwd: string): string | null {
 
 // ─── Data fetching ──────────────────────────────────────────────────────────────
 
-async function getBranchData(): Promise<{
+async function getBranchData(parentSource: BranchParentSource): Promise<{
   branches: BranchData[];
   productionBranch: string;
   diag: DiagnosticInfo;
@@ -137,7 +138,7 @@ async function getBranchData(): Promise<{
     // Skip branches with slashes — not supported for preview or session URLs.
     .filter((name) => !name.includes('/'))
     .map((name) => {
-      const parent = getForkParent(name, cwd)?.parentBranch ?? null;
+      const parent = getForkParent(name, cwd, parentSource)?.parentBranch ?? null;
       const session = sessionByBranch.get(name);
       return {
         name,
@@ -503,11 +504,11 @@ function GitResultRow({
 
 export default async function BranchesPage() {
   const user = await getSessionUser();
-  const [userIsAdmin, userCanEvolve, evolvePrefs] = user
-    ? await Promise.all([isAdmin(user.id), hasEvolvePermission(user.id), getEvolvePrefs(user.id)])
-    : [false, false, null];
+  const [userIsAdmin, userCanEvolve, evolvePrefs, parentSource] = user
+    ? await Promise.all([isAdmin(user.id), hasEvolvePermission(user.id), getEvolvePrefs(user.id), getBranchParentSource(user.id)])
+    : [false, false, null, await getBranchParentSource(null)];
 
-  const { branches, productionBranch, diag } = await getBranchData();
+  const { branches, productionBranch, diag } = await getBranchData(parentSource);
   const { activeProd, pastSlots, unattached } = buildSections(branches, productionBranch);
 
   const [headerStore] = await Promise.all([headers()]);
@@ -535,7 +536,13 @@ export default async function BranchesPage() {
         initialCavemanIntensity={evolvePrefs?.initialCavemanIntensity}
       />
 
+      <BranchParentSourceToggle
+        initialSource={parentSource}
+        disabled={!user}
+      />
+
       {/* ── Active section ── */}
+
       <div className="mt-2">
         <p className="text-xs text-gray-500 font-mono uppercase tracking-widest mb-2">
           Active

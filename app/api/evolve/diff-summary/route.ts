@@ -9,7 +9,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { execSync } from "child_process";
 import { getSessionFromFilesystem } from "@/lib/session-events";
 import type { DiffFileSummary } from "@/app/evolve/session/[id]/page";
+import { getSessionUser } from "@/lib/auth";
 import { getParentBranch } from "@/lib/branch-parent";
+import { getBranchParentSource } from "@/lib/user-prefs";
 
 /**
  * Get diff summary for a session
@@ -30,7 +32,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const parentBranch = getParentBranch(session.branch);
+    const user = await getSessionUser();
+    const parentSource = await getBranchParentSource(user?.id);
+    const parentBranch = getParentBranch(session.branch, undefined, parentSource);
 
     if (!parentBranch) {
       return NextResponse.json({ files: [] });
