@@ -5,7 +5,7 @@
 import { execFileSync, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import { writeForkMarker } from './branch-parent';
+import { writeBranchMarker } from './branch-parent';
 import {
   appendSessionEvent,
   readSessionEvents,
@@ -837,15 +837,15 @@ export async function startLocalEvolve(
     }
 
     // Keep the legacy git-config parent metadata for now while also writing
-    // fork-marker commits. The branches page exposes a toggle so both sources
+    // branch-marker commits. The branches page exposes a toggle so both sources
     // can be tested side by side during the migration.
     await runGit(['config', `branch.${session.branch}.parent`, parentBranch], repoRoot);
 
-    // Write an empty "fork marker" commit to record parentage so it travels
+    // Write an empty "branch marker" commit to record parentage so it travels
     // with the branch through clones. Only written for new branches; from-branch
     // sessions keep relying on their existing branch metadata.
     if (!options.skipBranchCreation && !options.worktreeAlreadyCreated && parentSha) {
-      writeForkMarker(session.worktreePath, parentBranch, parentSha);
+      writeBranchMarker(session.worktreePath, parentBranch, parentSha);
     }
 
     // Assign an ephemeral port to this branch in git config (idempotent).

@@ -555,7 +555,7 @@ else
 fi
 
 # Reparent sibling sessions whose legacy git-config parent was the old production
-# branch so the old branch-parent source remains usable while fork-marker tracking
+# branch so the old branch-parent source remains usable while branch-marker tracking
 # is being tested.
 DB_NAME=".primordia-auth.db"
 OLD_PROD_BRANCH="$(git -C "${BARE_REPO}" config --get primordia.productionBranch 2>/dev/null || true)"

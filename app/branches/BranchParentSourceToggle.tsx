@@ -18,7 +18,7 @@ export function BranchParentSourceToggle({
   const [source, setSource] = useState<BranchParentSource>(initialSource);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const usesForkMarkers = source === "fork-marker";
+  const usesBranchMarkers = source === "branch-marker";
 
   async function updateSource(nextSource: BranchParentSource) {
     if (disabled || isPending || nextSource === source) return;
@@ -52,28 +52,28 @@ export function BranchParentSourceToggle({
         <div>
           <p className="text-gray-300">Branch parent source</p>
           <p className="mt-1 text-gray-600">
-            Toggle between legacy git config and fork-marker commit trailers.
+            Toggle between legacy git config and branch-marker commit trailers.
           </p>
         </div>
         <button
           type="button"
           disabled={disabled || isPending}
-          onClick={() => updateSource(usesForkMarkers ? "git-config" : "fork-marker")}
+          onClick={() => updateSource(usesBranchMarkers ? "git-config" : "branch-marker")}
           className={`relative h-7 w-36 rounded-full border transition ${
             disabled
               ? "cursor-not-allowed border-gray-800 bg-gray-900 text-gray-700"
               : "border-gray-700 bg-gray-900 text-gray-300 hover:border-purple-500"
           }`}
-          aria-pressed={usesForkMarkers}
+          aria-pressed={usesBranchMarkers}
         >
           <span
             className={`absolute top-0.5 h-6 w-[4.1rem] rounded-full bg-purple-600 transition ${
-              usesForkMarkers ? "left-[4.15rem]" : "left-0.5"
+              usesBranchMarkers ? "left-[4.15rem]" : "left-0.5"
             }`}
           />
           <span className="relative grid h-full grid-cols-2 items-center text-[10px] uppercase tracking-wide">
-            <span className={!usesForkMarkers ? "text-white" : "text-gray-500"}>config</span>
-            <span className={usesForkMarkers ? "text-white" : "text-gray-500"}>marker</span>
+            <span className={!usesBranchMarkers ? "text-white" : "text-gray-500"}>config</span>
+            <span className={usesBranchMarkers ? "text-white" : "text-gray-500"}>marker</span>
           </span>
         </button>
       </div>

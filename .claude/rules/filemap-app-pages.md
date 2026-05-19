@@ -48,7 +48,7 @@ app/                           ← Next.js App Router
 │   └── sound-test/page.tsx    ← Web Audio API soundboard with oscilloscope and browser diagnostics
 ├── branches/
 │   ├── page.tsx               ← Server component: git branch tree; publicly viewable; admin-only actions conditionally hidden
-│   ├── BranchParentSourceToggle.tsx ← Client toggle for per-user branch parent source (`git-config` vs `fork-marker`)
+│   ├── BranchParentSourceToggle.tsx ← Client toggle for per-user branch parent source (`git-config` vs `branch-marker`)
 │   └── CreateSessionFromBranchButton.tsx ← Client component: "+ session" button; inline form to start a session on an existing branch
 ├── changelog/
 │   ├── page.tsx               ← Server component: reads changelog/ filenames at runtime; lazy-loads body via /api/changelog

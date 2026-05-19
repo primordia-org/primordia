@@ -1,13 +1,14 @@
 // lib/branch-parent.ts
-// Tracks branch parentage via empty "fork marker" commits so the relationship
+// Tracks branch parentage via empty "branch marker" commits so the relationship
 // travels with the branch through clones (git config does not).
 
 import { execFileSync } from 'node:child_process';
 
-export const MARKER_SUBJECT = '[primordia] fork marker';
-export const TRAILER_KEY = 'Primordia-Forked-From';
+export const MARKER_SUBJECT = '[branch marker]';
+export const BRANCHED_FROM_TRAILER = 'Branched-From';
+export const BASE_COMMIT_TRAILER = 'Base-Commit';
 
-export const BRANCH_PARENT_SOURCES = ['git-config', 'fork-marker'] as const;
+export const BRANCH_PARENT_SOURCES = ['git-config', 'branch-marker'] as const;
 export type BranchParentSource = typeof BRANCH_PARENT_SOURCES[number];
 export const DEFAULT_BRANCH_PARENT_SOURCE: BranchParentSource = 'git-config';
 
@@ -16,10 +17,10 @@ function repoPath(override?: string): string {
 }
 
 /**
- * Writes an empty commit to record where this branch was forked from.
+ * Writes an empty commit to record which branch this branch was created from.
  * Call this immediately after `git worktree add -b <branch>`.
  */
-export function writeForkMarker(
+export function writeBranchMarker(
   worktreePath: string,
   parentBranch: string,
   parentSha: string,
@@ -30,17 +31,18 @@ export function writeForkMarker(
       '-C', worktreePath,
       'commit', '--allow-empty',
       '-m', MARKER_SUBJECT,
-      '--trailer', `${TRAILER_KEY}: ${parentBranch}@${parentSha}`,
+      '--trailer', `${BRANCHED_FROM_TRAILER}: ${parentBranch}`,
+      '--trailer', `${BASE_COMMIT_TRAILER}: ${parentSha}`,
     ],
     { stdio: ['ignore', 'ignore', 'ignore'] },
   );
 }
 
 /**
- * Reads the fork marker from the branch's log.
+ * Reads the branch marker from the branch's log.
  * Returns null if no marker is found or the branch does not exist.
  */
-export function readForkMarker(
+export function readBranchMarker(
   branchOrSha: string,
   repo?: string,
 ): { parentBranch: string; parentSha: string } | null {
@@ -50,20 +52,27 @@ export function readForkMarker(
       [
         '-C', repoPath(repo),
         'log', branchOrSha,
-        '--grep', `^${TRAILER_KEY}:`,
+        '--grep', `^${BRANCHED_FROM_TRAILER}:`,
         '--format=%B%x00',
         '-n', '1',
       ],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
     );
     const body = out.split('\0')[0] ?? '';
+    let parentBranch: string | null = null;
+    let parentSha: string | null = null;
     for (const line of body.split('\n')) {
-      const match = line.match(new RegExp(`^${TRAILER_KEY}:\\s*(\\S+)@([0-9a-f]{4,})\\s*$`, 'i'));
-      if (match) {
-        return { parentBranch: match[1], parentSha: match[2] };
+      const branchMatch = line.match(new RegExp(`^${BRANCHED_FROM_TRAILER}:\\s*(\\S+)\\s*$`, 'i'));
+      if (branchMatch) {
+        parentBranch = branchMatch[1];
+        continue;
+      }
+      const shaMatch = line.match(new RegExp(`^${BASE_COMMIT_TRAILER}:\\s*([0-9a-f]{4,})\\s*$`, 'i'));
+      if (shaMatch) {
+        parentSha = shaMatch[1];
       }
     }
-    return null;
+    return parentBranch && parentSha ? { parentBranch, parentSha } : null;
   } catch {
     return null;
   }
@@ -132,7 +141,7 @@ function isAncestor(ancestor: string, descendant: string, root: string): boolean
  * When source is `git-config`, this preserves the legacy behavior and reads
  * branch.<name>.parent from local git config only.
  *
- * When source is `fork-marker`, this reads the branch's fork-marker trailer.
+ * When source is `branch-marker`, this reads the branch's marker trailers.
  * If the recorded parent has since been deployed, it returns current production;
  * if no marker exists, it returns null so the new codepath can be tested without
  * silently falling back to legacy metadata.
@@ -148,7 +157,7 @@ export function getParentBranch(
     return readGitConfigParent(branch, root)?.parentBranch ?? null;
   }
 
-  const marker = readForkMarker(branch, root);
+  const marker = readBranchMarker(branch, root);
   if (!marker) return null;
 
   const { parentBranch } = marker;
@@ -163,10 +172,10 @@ export function getParentBranch(
 }
 
 /**
- * Returns immutable fork ancestry according to the selected source.
+ * Returns immutable branch ancestry according to the selected source.
  * Used by the /branches tree to show original parentage.
  */
-export function getForkParent(
+export function getBranchParent(
   branch: string,
   repo?: string,
   source: BranchParentSource = DEFAULT_BRANCH_PARENT_SOURCE,
@@ -174,5 +183,5 @@ export function getForkParent(
   const root = repoPath(repo);
   return source === 'git-config'
     ? readGitConfigParent(branch, root)
-    : readForkMarker(branch, root);
+    : readBranchMarker(branch, root);
 }

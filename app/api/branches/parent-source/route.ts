@@ -15,7 +15,7 @@ export interface BranchParentSourceBody {
 
 /**
  * Update branch parent source preference
- * @description Switches the current user's Branches page/evolve parent resolver between legacy git-config metadata and fork-marker commit trailers.
+ * @description Switches the current user's Branches page/evolve parent resolver between legacy git-config metadata and branch-marker commit trailers.
  * @tag Branches
  * @body BranchParentSourceBody
  */
@@ -27,7 +27,7 @@ export async function PATCH(request: Request) {
 
   const body = (await request.json()) as { source?: unknown };
   if (typeof body.source !== 'string' || !(BRANCH_PARENT_SOURCES as readonly string[]).includes(body.source)) {
-    return Response.json({ error: 'source must be "git-config" or "fork-marker"' }, { status: 400 });
+    return Response.json({ error: 'source must be "git-config" or "branch-marker"' }, { status: 400 });
   }
 
   const db = await getDb();
