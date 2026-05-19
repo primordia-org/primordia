@@ -38,6 +38,11 @@ interface BranchData {
   isProduction: boolean;
   /** Recorded branch parent branch name, or null if unknown. */
   parent: string | null;
+  /**
+   * Parent used for the active branch tree. Accepted session branches are
+   * skipped over so live work remains attached to the nearest active ancestor.
+   */
+  activeParent: string | null;
   /** Preview server URL if a session is active, null otherwise. */
   previewUrl: string | null;
   /** Session status, or null if no session is active for this branch. */
@@ -134,7 +139,7 @@ async function getBranchData(parentSource: BranchParentSource): Promise<{
     sessions: fsSessions,
   };
 
-  const branches: BranchData[] = allBranchNames
+  const branchesWithRecordedParents: BranchData[] = allBranchNames
     // Skip the historical main alias and branches with slashes (slashes are not
     // supported for preview or session URLs).
     .filter((name) => name !== 'main' && !name.includes('/'))
@@ -146,11 +151,30 @@ async function getBranchData(parentSource: BranchParentSource): Promise<{
         isCurrent: name === current,
         isProduction: name === productionBranch,
         parent,
+        activeParent: parent,
         previewUrl: session?.previewUrl ?? null,
         sessionStatus: session?.status ?? null,
         hasSession: session !== undefined,
       };
     });
+
+  const byName = new Map(branchesWithRecordedParents.map((b) => [b.name, b]));
+
+  function skipAcceptedParents(parent: string | null, visited = new Set<string>()): string | null {
+    if (!parent || visited.has(parent)) return parent;
+    visited.add(parent);
+    const parentBranch = byName.get(parent);
+    if (!parentBranch) return parent;
+    if (parentBranch.sessionStatus === "accepted" && !parentBranch.isProduction) {
+      return skipAcceptedParents(parentBranch.parent, visited);
+    }
+    return parent;
+  }
+
+  const branches = branchesWithRecordedParents.map((branch) => ({
+    ...branch,
+    activeParent: skipAcceptedParents(branch.parent),
+  }));
 
   return { branches, productionBranch, diag };
 }
@@ -216,7 +240,7 @@ function buildSections(
     const children: BranchNode[] = [];
     for (const b of branches) {
       if (
-        b.parent !== parentName ||
+        b.activeParent !== parentName ||
         visited.has(b.name) ||
         TERMINAL_STATUSES.has(b.sessionStatus ?? "")
       )
@@ -314,7 +338,7 @@ function buildSections(
   while (frontier.length > 0) {
     const next: string[] = [];
     for (const b of branches) {
-      if (b.parent && covered.has(b.parent) && !covered.has(b.name)) {
+      if (b.activeParent && covered.has(b.activeParent) && !covered.has(b.name)) {
         covered.add(b.name);
         next.push(b.name);
       }
@@ -344,7 +368,7 @@ function buildSections(
     const inferredParentByBranch = new Map<string, string>();
     for (const b of branches) {
       if (b.name === currentBranch.name || !currentDescendantNames.has(b.name)) continue;
-      const explicitParent = b.parent && currentDescendantNames.has(b.parent) ? b.parent : null;
+      const explicitParent = b.activeParent && currentDescendantNames.has(b.activeParent) ? b.activeParent : null;
       const inferredParent = explicitParent ?? nearestDescendantParent(b.name, currentDescendantNames);
       if (inferredParent) inferredParentByBranch.set(b.name, inferredParent);
     }
