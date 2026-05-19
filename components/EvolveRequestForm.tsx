@@ -27,6 +27,7 @@ import type { EvolvePresetWithAvailability } from "../lib/preset-availability";
 import { PageElementInspector, PageElementInfo, captureElementFiles } from "./PageElementInspector";
 import { useSounds } from "@/lib/sounds";
 import { trackEvent } from "@/lib/events-client";
+import { useLocalStorageDraft } from "@/lib/hooks";
 import { AgentIdentityLine } from "@/components/AgentIdentity";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -156,8 +157,7 @@ export function EvolveRequestForm({
 }: EvolveRequestFormProps) {
   const router = useRouter();
   const sounds = useSounds();
-  const [input, setInput] = useState("");
-  const draftHydratedRef = useRef(false);
+  const { draft: input, setDraft: setInput, clearDraft: clearPersistedDraft } = useLocalStorageDraft(draftStorageKey);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -194,45 +194,6 @@ export function EvolveRequestForm({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // ── Draft persistence ────────────────────────────────────────────────────
-
-  useEffect(() => {
-    if (!draftStorageKey) return;
-    try {
-      const savedDraft = window.localStorage.getItem(draftStorageKey);
-      if (savedDraft !== null) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setInput(savedDraft);
-      }
-    } catch {
-      // localStorage can be unavailable in private/incognito contexts.
-    } finally {
-      draftHydratedRef.current = true;
-    }
-  }, [draftStorageKey]);
-
-  useEffect(() => {
-    if (!draftStorageKey || !draftHydratedRef.current) return;
-    try {
-      if (input.length > 0) {
-        window.localStorage.setItem(draftStorageKey, input);
-      } else {
-        window.localStorage.removeItem(draftStorageKey);
-      }
-    } catch {
-      // Ignore storage quota/privacy errors; the form still works normally.
-    }
-  }, [draftStorageKey, input]);
-
-  const clearPersistedDraft = useCallback(() => {
-    if (!draftStorageKey) return;
-    try {
-      window.localStorage.removeItem(draftStorageKey);
-    } catch {
-      // Ignore storage errors.
-    }
-  }, [draftStorageKey]);
 
   // ── Element inspector ─────────────────────────────────────────────────────
 
