@@ -193,10 +193,8 @@ async function main(): Promise<void> {
   const hideDollarCost = modelProvider === 'openai-codex' && Boolean(_chatGptOAuth);
   const metricCost = (cost: number | null): number | null => hideDollarCost ? null : cost;
 
-  // Expose session metadata to shell commands run by the agent, including
-  // `bun run set-preview-url /route`.
-  process.env.PRIMORDIA_SESSION_ID = sessionId;
-  process.env.PRIMORDIA_WORKTREE_PATH = worktreePath;
+  // sessionId is available in config but not used directly here.
+  void sessionId;
 
   const ndjsonPath = getSessionNdjsonPath(worktreePath);
   const ts = () => Date.now();

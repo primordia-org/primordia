@@ -289,10 +289,6 @@ async function main(): Promise<void> {
   const { sessionId, worktreePath, prompt, useContinue } = config;
   const timeoutMs = config.timeoutMs ?? 20 * 60 * 1000;
 
-  // Expose session metadata to shell commands run by the agent, including
-  // `bun run set-preview-url /route`.
-  process.env.PRIMORDIA_SESSION_ID = sessionId;
-  process.env.PRIMORDIA_WORKTREE_PATH = worktreePath;
   const ndjsonPath = getSessionNdjsonPath(worktreePath);
   const pidFile = path.join(worktreePath, '.primordia-worker.pid');
   const homeDir = process.env.HOME ?? '/home/exedev';

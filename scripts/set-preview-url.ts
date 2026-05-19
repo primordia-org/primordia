@@ -40,7 +40,7 @@ if (!/^\/[A-Za-z0-9/_?=&.#%-]*$/.test(routePath)) {
   usage('Route path contains unsupported characters.');
 }
 
-const worktreePath = process.env.PRIMORDIA_WORKTREE_PATH || process.cwd();
+const worktreePath = process.cwd();
 const ndjsonPath = getSessionNdjsonPath(worktreePath);
 if (!fs.existsSync(ndjsonPath)) {
   usage(`Could not find session log at ${path.relative(process.cwd(), ndjsonPath) || ndjsonPath}. Run this from an evolve session worktree.`);
