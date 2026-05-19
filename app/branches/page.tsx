@@ -160,12 +160,20 @@ async function getBranchData(parentSource: BranchParentSource): Promise<{
 
   const byName = new Map(branchesWithRecordedParents.map((b) => [b.name, b]));
 
+  function isGitAncestor(ancestor: string, descendant: string): boolean {
+    if (ancestor === descendant) return true;
+    return runGit(["merge-base", "--is-ancestor", ancestor, descendant], cwd).code === 0;
+  }
+
   function skipAcceptedParents(parent: string | null, visited = new Set<string>()): string | null {
     if (!parent || visited.has(parent)) return parent;
     visited.add(parent);
     const parentBranch = byName.get(parent);
     if (!parentBranch) return parent;
     if (parentBranch.sessionStatus === "accepted" && !parentBranch.isProduction) {
+      if (productionBranch && isGitAncestor(parent, productionBranch)) {
+        return productionBranch;
+      }
       return skipAcceptedParents(parentBranch.parent, visited);
     }
     return parent;
@@ -286,7 +294,8 @@ function buildSections(
       if (
         b.parent !== parentName ||
         b.name === excludeName ||
-        visited.has(b.name)
+        visited.has(b.name) ||
+        (!TERMINAL_STATUSES.has(b.sessionStatus ?? "") && b.activeParent !== parentName)
       )
         continue;
       const node: BranchNode = {

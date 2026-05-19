@@ -1,5 +1,7 @@
 # Skip accepted parents in branch tree
 
-Updated the Branches page parent resolution so active branch trees skip over accepted session branches. This keeps live descendant work attached to the nearest active ancestor (typically the current production branch) when using branch-marker parentage, while preserving the recorded parent relationship for the Past Sessions history.
+Updated the Branches page parent resolution so active branch trees skip over accepted session branches. If an accepted parent is already part of the current production chain, live descendants are attached directly to the current production branch; otherwise they fall back to the nearest non-accepted ancestor.
 
-This fixes cases where ready branches created from an accepted branch marker were incorrectly shown under Past Sessions instead of remaining visible in the Active tree.
+Past Sessions still preserve the recorded parent relationship for terminal branches, but non-terminal/live branches are no longer duplicated under accepted historical slots.
+
+This fixes cases where ready branches created from an accepted branch marker were incorrectly shown under Past Sessions instead of remaining visible under the Active production tree.
