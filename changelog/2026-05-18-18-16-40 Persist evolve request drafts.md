@@ -6,6 +6,5 @@ Draft text in evolve request forms is now saved to `localStorage` while users ty
 - Follow-up forms on session pages use per-session draft keys, so feedback for one session does not leak into another.
 - Drafts are cleared automatically after a successful submission.
 - Draft storage garbage-collects Primordia evolve drafts older than one year.
-- Lint now passes after removing the incompatible global `brace-expansion` override and cleaning up React hook lint findings.
 
 This prevents accidental data loss when a page refreshes, navigates away, or reloads during a long prompt-writing session.

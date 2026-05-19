@@ -138,6 +138,7 @@ export function useLocalStorageDraft(storageKey?: string) {
 
     hydratedKeyRef.current = storageKey;
     skipNextPersistRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraftState(nextDraft);
   }, [storageKey]);
 
