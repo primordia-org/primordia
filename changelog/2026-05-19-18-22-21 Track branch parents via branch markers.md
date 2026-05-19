@@ -14,7 +14,7 @@ The `/branches` page now has a per-user toggle between:
 - `git-config` — the legacy `branch.<name>.parent` metadata path, kept as the default for current branches.
 - `branch-marker` — the new trailer-based metadata path, with no silent fallback to git config so it can be tested honestly.
 
-The toggle uses the app's standard on/off switch styling, and the branch tree now renders descendants below the current branch even when that branch is not attached to the production ancestry.
+The toggle uses the app's standard on/off switch styling, and the branch tree now renders descendants below the current branch even when that branch is not attached to the production ancestry. For the current branch tree, descendants are inferred from git commit ancestry when branch parent metadata is missing, so manually-created child branches still nest correctly.
 
 New session branches always write both metadata formats. Deploy-time sibling reparenting for the legacy git-config path is also kept so the old behavior remains available while branch-marker tracking is validated.
 
