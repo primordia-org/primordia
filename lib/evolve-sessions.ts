@@ -5,6 +5,7 @@
 import { execFileSync, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import { writeForkMarker } from './branch-parent';
 import {
   appendSessionEvent,
   readSessionEvents,
@@ -787,6 +788,8 @@ export async function startLocalEvolve(
     // Record the current branch so the preview instance can merge back into it.
     const parentBranchResult = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot);
     const parentBranch = parentBranchResult.stdout.trim() || 'main';
+    const parentShaResult = await runGit(['rev-parse', parentBranch], repoRoot);
+    const parentSha = parentShaResult.stdout.trim();
 
     // When checking out an existing branch, detect if it's already registered in
     // a worktree (e.g. a previous session left the worktree behind). If so,
@@ -833,9 +836,12 @@ export async function startLocalEvolve(
       appendSessionEvent(ndjsonPath, { type: 'setup_step', label: '`mise trust` complete', done: true, ts: Date.now() });
     }
 
-    // Store parent branch in git config so the manage endpoint can find it
-    // when logging the accept/reject decision back to the parent instance.
-    await runGit(['config', `branch.${session.branch}.parent`, parentBranch], repoRoot);
+    // Write an empty "fork marker" commit to record parentage so it travels
+    // with the branch through clones. Only written for new branches; from-branch
+    // sessions rely on the production-branch fallback in getParentBranch().
+    if (!options.skipBranchCreation && !options.worktreeAlreadyCreated && parentSha) {
+      writeForkMarker(session.worktreePath, parentBranch, parentSha);
+    }
 
     // Assign an ephemeral port to this branch in git config (idempotent).
     // The port is stable for the lifetime of the branch and is reused if the

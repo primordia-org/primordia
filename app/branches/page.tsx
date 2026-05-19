@@ -19,6 +19,7 @@ import { buildPageTitle } from "@/lib/page-title";
 import { getSessionUser, isAdmin, hasEvolvePermission } from "@/lib/auth";
 import { getEvolvePrefs } from "@/lib/user-prefs";
 import { withBasePath } from "@/lib/base-path";
+import { getForkParent } from "@/lib/branch-parent";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,7 @@ interface BranchData {
   isCurrent: boolean;
   /** True if this branch is the configured production branch. */
   isProduction: boolean;
-  /** Value of git config branch.<name>.parent — set by the local evolve flow. */
+  /** Recorded fork parent branch name, or null if unknown. */
   parent: string | null;
   /** Preview server URL if a session is active, null otherwise. */
   previewUrl: string | null;
@@ -136,7 +137,7 @@ async function getBranchData(): Promise<{
     // Skip branches with slashes — not supported for preview or session URLs.
     .filter((name) => !name.includes('/'))
     .map((name) => {
-      const parent = gitConfigValue(`branch.${name}.parent`, cwd);
+      const parent = getForkParent(name, cwd)?.parentBranch ?? null;
       const session = sessionByBranch.get(name);
       return {
         name,

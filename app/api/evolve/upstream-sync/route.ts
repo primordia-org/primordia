@@ -7,6 +7,7 @@
 import { hotswapProductionDbIntoWorktree, runCommand, runGit, resolveConflictsWithAgent } from '../../../../lib/evolve-sessions';
 import { getSessionUser } from '../../../../lib/auth';
 import { getSessionFromFilesystem } from '../../../../lib/session-events';
+import { getParentBranch } from '../../../../lib/branch-parent';
 
 /** JSON body for POST /evolve/upstream-sync */
 export interface EvolveUpstreamSyncBody {
@@ -43,12 +44,7 @@ export async function POST(request: Request) {
   const { worktreePath, branch } = session;
   const sessionContext = { id: session.id, userId: user.id };
 
-  // Read the parent branch from git config (written at worktree-creation time).
-  const parentBranchResult = await runGit(
-    ['config', `branch.${branch}.parent`],
-    worktreePath,
-  );
-  const parentBranch = parentBranchResult.stdout.trim();
+  const parentBranch = getParentBranch(branch);
   if (!parentBranch) {
     return Response.json({ error: 'Could not determine parent branch' }, { status: 400 });
   }

@@ -11,7 +11,7 @@
 //              1. TypeScript gate — auto-fix via Claude if it fails
 //              2. Run scripts/install.sh from the session worktree with REPORT_STYLE=ansi,
 //                 streaming its output as log_line events. install.sh handles build, DB copy,
-//                 sibling reparenting, proxy spawn, main pointer advancement, and mirror push.
+//                 proxy spawn, main pointer advancement, and mirror push.
 //              3. Write decision event + self-terminate (proxy already switched traffic)
 //
 //            LEGACY (local dev, NODE_ENV !== 'production'):
@@ -38,6 +38,7 @@ import {
   getSessionFromFilesystem,
   listSessionsFromFilesystem,
 } from '../../../../lib/session-events';
+import { getParentBranch } from '../../../../lib/branch-parent';
 
 /** Run an arbitrary command; resolves with stdout, stderr, and exit code. */
 function runCmd(
@@ -223,7 +224,7 @@ async function retryAcceptAfterFix(
  * Production path:
  *   1. Run install.sh from the session worktree with REPORT_STYLE=ansi,
  *      streaming its output as log_line events. install.sh handles typecheck
- *      (exit 2 on failure), build, DB copy, sibling reparenting, proxy spawn,
+ *      (exit 2 on failure), build, DB copy, proxy spawn,
  *      main advancement, and mirror push.
  *   2. On exit code 2: read .primordia-typecheck-errors.txt and trigger the
  *      auto-fix Claude session (fixing-types → retryAcceptAfterFix).
@@ -291,8 +292,7 @@ async function runAcceptAsync(
 
       // ── Production: run install.sh from the session worktree ─────────────
       // install.sh handles: typecheck (exits 2 on failure), bun install, build,
-      // DB copy, sibling reparenting, proxy spawn, main pointer advancement,
-      // and mirror push.
+      // DB copy, proxy spawn, main pointer advancement, and mirror push.
       const exitCode = await runInstallSh(sessionId, worktreePath, branch);
 
       if (exitCode === INSTALL_EXIT_TYPECHECK) {
@@ -513,9 +513,7 @@ export async function POST(request: Request) {
 
   const { branch, worktreePath } = session;
 
-  // Read the parent branch from git config (stored when the worktree was created).
-  const parentBranchResult = await runGit(['config', `branch.${branch}.parent`], repoRoot);
-  const parentBranch = parentBranchResult.stdout.trim() || 'main';
+  const parentBranch = getParentBranch(branch) ?? 'main';
 
   const isProduction = process.env.NODE_ENV === 'production';
 

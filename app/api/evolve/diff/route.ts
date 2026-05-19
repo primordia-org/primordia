@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execSync } from "child_process";
 import { getSessionFromFilesystem } from "@/lib/session-events";
+import { getParentBranch } from "@/lib/branch-parent";
 
 /**
  * Get raw diff for a single file
@@ -29,10 +30,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const parentBranch = execSync(
-      `git config branch.${session.branch}.parent`,
-      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
+    const parentBranch = getParentBranch(session.branch);
 
     if (!parentBranch) {
       return NextResponse.json({ error: "No parent branch found" }, { status: 404 });

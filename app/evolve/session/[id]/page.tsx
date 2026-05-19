@@ -12,6 +12,7 @@ import { getSessionUser, hasEvolvePermission } from "@/lib/auth";
 import { getEvolvePrefs } from "@/lib/user-prefs";
 import { buildPageTitle } from "@/lib/page-title";
 import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem, type SessionEvent } from "@/lib/session-events";
+import { getParentBranch } from "@/lib/branch-parent";
 import EvolveSessionView from "./EvolveSessionView";
 
 export async function generateMetadata({
@@ -41,40 +42,15 @@ function readGitBranch(): string | null {
   }
 }
 
-/**
- * Returns the stored parent branch for a session branch, or null if unknown.
- * Reads the `branch.<name>.parent` git config key that is written when the
- * worktree is created, so no git-graph traversal is required.
- */
-function getSessionParentBranch(sessionBranch: string): string | null {
-  try {
-    return execSync(
-      `git config branch.${sessionBranch}.parent`,
-      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
-    ).trim() || null;
-  } catch {
-    return null;
-  }
-}
-
 export interface DiffFileSummary {
   file: string;
   additions: number;
   deletions: number;
 }
 
-/**
- * Returns a per-file diff summary (additions + deletions) for all files
- * changed in the session branch relative to where it diverged from its parent.
- * Uses `git diff --numstat parent...sessionBranch` (three-dot notation) so
- * only commits exclusive to the session branch are counted.
- */
 function getGitDiffSummary(sessionBranch: string): DiffFileSummary[] {
   try {
-    const parentBranch = execSync(
-      `git config branch.${sessionBranch}.parent`,
-      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
+    const parentBranch = getParentBranch(sessionBranch);
     if (!parentBranch) return [];
 
     const output = execSync(
@@ -100,16 +76,9 @@ function getGitDiffSummary(sessionBranch: string): DiffFileSummary[] {
   }
 }
 
-/**
- * Returns the number of commits on the parent branch that are not yet in
- * the session branch (i.e. how far ahead the parent is).
- */
 function getUpstreamCommitCount(sessionBranch: string): number {
   try {
-    const parentBranch = execSync(
-      `git config branch.${sessionBranch}.parent`,
-      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
+    const parentBranch = getParentBranch(sessionBranch);
     if (!parentBranch) return 0;
     const count = execSync(
       `git rev-list ${sessionBranch}..${parentBranch} --count`,
@@ -137,9 +106,7 @@ export default async function EvolveSessionPage({
 
   const branch = readGitBranch();
 
-  // Read the stored parent branch for this session branch.  Used both to gate
-  // accept/reject and to correctly label the upstream-changes message.
-  const parentBranch = getSessionParentBranch(session.branch);
+  const parentBranch = getParentBranch(session.branch);
 
   // Only allow accept/reject when the session branch was branched directly off
   // the currently checked-out branch.

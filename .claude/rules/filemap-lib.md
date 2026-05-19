@@ -10,6 +10,7 @@ lib/
 ├── system-prompt.ts           ← Orphaned: was chat assistant system prompt builder; reads CLAUDE.md + changelog; no longer imported anywhere
 ├── auth.ts                    ← Session helpers: createSession, getSessionUser, isAdmin (admin role check), hasEvolvePermission (admin or can_evolve role)
 ├── base-path.ts               ← basePath constant + withBasePath() helper; used by all client-side fetch() calls to prefix API routes when NEXT_BASE_PATH is set
+├── branch-parent.ts           ← Fork-marker commit helpers for persistent branch parentage (`Primordia-Forked-From` trailers) with legacy git-config fallback
 ├── hooks.ts                   ← Shared React hooks: useSessionUser (fetches session on mount, provides logout)
 ├── evolve-sessions.ts         ← Shared session state + business logic for local evolve; persists to SQLite
 ├── page-title.ts              ← Utility: buildPageTitle() — formats <title> with branch suffix in development mode; clean title in production

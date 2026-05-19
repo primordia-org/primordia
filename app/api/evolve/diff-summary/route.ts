@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { execSync } from "child_process";
 import { getSessionFromFilesystem } from "@/lib/session-events";
 import type { DiffFileSummary } from "@/app/evolve/session/[id]/page";
+import { getParentBranch } from "@/lib/branch-parent";
 
 /**
  * Get diff summary for a session
@@ -29,10 +30,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const parentBranch = execSync(
-      `git config branch.${session.branch}.parent`,
-      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
+    const parentBranch = getParentBranch(session.branch);
 
     if (!parentBranch) {
       return NextResponse.json({ files: [] });
