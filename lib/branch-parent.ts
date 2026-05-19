@@ -2,7 +2,7 @@
 // Tracks branch parentage via empty "branch marker" commits so the relationship
 // travels with the branch through clones (git config does not).
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 
 export const MARKER_SUBJECT = '[branch marker]';
 export const BRANCHED_FROM_TRAILER = 'Branched-From';
@@ -25,7 +25,7 @@ export function writeBranchMarker(
   parentBranch: string,
   parentSha: string,
 ): void {
-  execFileSync(
+  const result = spawnSync(
     'git',
     [
       '-C', worktreePath,
@@ -34,8 +34,20 @@ export function writeBranchMarker(
       '--trailer', `${BRANCHED_FROM_TRAILER}: ${parentBranch}`,
       '--trailer', `${BASE_COMMIT_TRAILER}: ${parentSha}`,
     ],
-    { stdio: ['ignore', 'ignore', 'ignore'] },
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
   );
+
+  if (result.error || result.status !== 0) {
+    const details = [
+      result.error?.message,
+      result.stderr?.trim(),
+      result.stdout?.trim(),
+    ].filter(Boolean).join('\n');
+    throw new Error(
+      `Failed to write branch marker commit in ${worktreePath} ` +
+      `(parent ${parentBranch} at ${parentSha}):${details ? `\n${details}` : ''}`,
+    );
+  }
 }
 
 /**

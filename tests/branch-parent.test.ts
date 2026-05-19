@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { getBranchParent } from "../lib/branch-parent";
+import { getBranchParent, readBranchMarker, writeBranchMarker } from "../lib/branch-parent";
 
 let repo: string;
 
@@ -32,6 +32,24 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(repo, { recursive: true, force: true });
+});
+
+test("writeBranchMarker writes readable branch parent trailers", () => {
+  const productionSha = git(["rev-parse", "production"]);
+  git(["switch", "-c", "automate-common-steps"]);
+
+  writeBranchMarker(repo, "production", productionSha);
+
+  expect(readBranchMarker("automate-common-steps", repo)).toEqual({
+    parentBranch: "production",
+    parentSha: productionSha,
+  });
+});
+
+test("writeBranchMarker reports git commit failures", () => {
+  expect(() => writeBranchMarker(join(repo, "missing-worktree"), "production", "abc123")).toThrow(
+    /Failed to write branch marker commit/,
+  );
 });
 
 test("branch-marker source falls back to legacy git-config parent metadata", () => {

@@ -31,6 +31,7 @@ import {
   getSessionNdjsonPath,
 } from '../../../lib/session-events';
 import { DEFAULT_HARNESS, DEFAULT_MODEL } from '../../../lib/agent-config';
+import { writeBranchMarker } from '../../../lib/branch-parent';
 
 
 const ANTHROPIC_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
@@ -358,11 +359,31 @@ export async function POST(request: Request) {
   const repoGitRoot = getRepoRoot(repoRoot);
   const worktreePath = path.join(getWorktreesDir(repoGitRoot), branch);
 
+  const parentBranchResult = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot);
+  const parentBranch = parentBranchResult.stdout.trim() || 'main';
+  const parentShaResult = await runGit(['rev-parse', parentBranch], repoRoot);
+  if (parentShaResult.code !== 0) {
+    return Response.json({ error: `Failed to resolve parent branch ${parentBranch}: ${parentShaResult.stderr}` }, { status: 500 });
+  }
+  const parentSha = parentShaResult.stdout.trim();
+
   // Create the git worktree synchronously before returning so the session page
   // is immediately reachable when the client navigates to it after the redirect.
   const wtResult = await runGit(['worktree', 'add', worktreePath, '-b', branch], repoRoot);
   if (wtResult.code !== 0) {
     return Response.json({ error: `Failed to create session worktree: ${wtResult.stderr}` }, { status: 500 });
+  }
+
+  const parentConfigResult = await runGit(['config', `branch.${branch}.parent`, parentBranch], repoRoot);
+  if (parentConfigResult.code !== 0) {
+    return Response.json({ error: `Failed to record parent branch metadata: ${parentConfigResult.stderr}` }, { status: 500 });
+  }
+
+  try {
+    writeBranchMarker(worktreePath, parentBranch, parentSha);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return Response.json({ error: msg }, { status: 500 });
   }
 
   // Write the initial_request event synchronously so getSessionFromFilesystem()

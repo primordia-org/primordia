@@ -32,6 +32,7 @@
 import { execFileSync } from "child_process";
 import * as path from "path";
 import { getSessionUser, isAdmin, hasEvolvePermission } from "@/lib/auth";
+import { writeBranchMarker } from "@/lib/branch-parent";
 import {
   startLocalEvolve,
   runGit,
@@ -369,9 +370,29 @@ export async function POST(request: Request) {
     const worktreesDir = getWorktreesDir(repoGitRoot);
     const worktreePath = path.join(worktreesDir, sessionBranch);
 
+    const parentBranchResult = await runGit(["rev-parse", "--abbrev-ref", "HEAD"], repoRoot);
+    const parentBranch = parentBranchResult.stdout.trim() || "main";
+    const parentShaResult = await runGit(["rev-parse", parentBranch], repoRoot);
+    if (parentShaResult.code !== 0) {
+      return Response.json({ error: `Failed to resolve parent branch ${parentBranch}: ${parentShaResult.stderr}` }, { status: 500 });
+    }
+    const parentSha = parentShaResult.stdout.trim();
+
     const wtResult = await runGit(["worktree", "add", worktreePath, "-b", sessionBranch], repoRoot);
     if (wtResult.code !== 0) {
       return Response.json({ error: `Failed to create worktree: ${wtResult.stderr}` }, { status: 500 });
+    }
+
+    const parentConfigResult = await runGit(["config", `branch.${sessionBranch}.parent`, parentBranch], repoRoot);
+    if (parentConfigResult.code !== 0) {
+      return Response.json({ error: `Failed to record parent branch metadata: ${parentConfigResult.stderr}` }, { status: 500 });
+    }
+
+    try {
+      writeBranchMarker(worktreePath, parentBranch, parentSha);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return Response.json({ error: msg }, { status: 500 });
     }
 
     const ndjsonPath = getSessionNdjsonPath(worktreePath);
