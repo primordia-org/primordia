@@ -121,7 +121,7 @@ When implementing changes, follow these principles:
 | Multiple agent harnesses | ✅ Live | Evolve form lets users choose harness (claude-code, pi, or codex) and model; preferences persisted per-user in DB; Codex exec JSON is normalized into the same structured tool/reasoning session events as the other harnesses |
 | Upstream changes indicator | ✅ Live | Session page shows how many commits the resolved parent branch is ahead of the session branch, with an "Apply Updates" button that merges prod updates, snapshots the prod DB via SQLite `VACUUM INTO`, and hot-swaps the preview server DB cleanly; new session parentage is stored in both legacy git config and branch-marker commit trailers, with a `/branches` per-user toggle for which source to use while trailer tracking is validated |
 | Git diff summary | ✅ Live | Session page shows a collapsible "Files changed" section (file names + +/- LOC) once the session is ready/accepted/rejected |
-| Session from existing branch | ✅ Live | Branches page shows "+ session" next to branches with no active session; evolvers can attach the full AI preview pipeline to any pre-existing local branch |
+| Session from existing branch | ✅ Live | Branches page shows "+ session" next to branches with no active session; evolvers can attach the full AI preview pipeline to any pre-existing local branch; the current branch is shown with its descendant tree even when it is outside production ancestry |
 | Upstream updates (/admin/updates) | ✅ Live | Admin-only; pull upstream Primordia changes from configured update sources; auto-scheduled fetches |
 | exe.dev deploy | ✅ Live | One-command SSH deploy via `bun run deploy-to-exe.dev <server-name>` |
 | Dark theme | ✅ Live | Default dark UI with Tailwind |
