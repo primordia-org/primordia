@@ -131,6 +131,7 @@ export async function POST(request: Request) {
   };
 
   void startLocalEvolve(session, '', repoRoot, undefined, [], {
+    skipBranchCreation: true,
     worktreeAlreadyCreated: true,
     initialEventAlreadyWritten: true,
   });

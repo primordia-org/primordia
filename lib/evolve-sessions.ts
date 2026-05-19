@@ -5,7 +5,7 @@
 import { execFileSync, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import { writeBranchMarker } from './branch-parent';
+import { readBranchMarker, writeBranchMarker } from './branch-parent';
 import {
   appendSessionEvent,
   readSessionEvents,
@@ -836,16 +836,19 @@ export async function startLocalEvolve(
       appendSessionEvent(ndjsonPath, { type: 'setup_step', label: '`mise trust` complete', done: true, ts: Date.now() });
     }
 
-    // Keep the legacy git-config parent metadata for now while also writing
-    // branch-marker commits. The branches page exposes a toggle so both sources
-    // can be tested side by side during the migration.
-    await runGit(['config', `branch.${session.branch}.parent`, parentBranch], repoRoot);
+    // Keep the legacy git-config parent metadata for new branches while also
+    // writing branch-marker commits. The branch may already have been created
+    // synchronously by the route handler so the session page can load
+    // immediately; it still needs the marker commit in that case.
+    if (!options.skipBranchCreation) {
+      await runGit(['config', `branch.${session.branch}.parent`, parentBranch], repoRoot);
 
-    // Write an empty "branch marker" commit to record parentage so it travels
-    // with the branch through clones. Only written for new branches; from-branch
-    // sessions keep relying on their existing branch metadata.
-    if (!options.skipBranchCreation && !options.worktreeAlreadyCreated && parentSha) {
-      writeBranchMarker(session.worktreePath, parentBranch, parentSha);
+      // Write an empty "branch marker" commit to record parentage so it travels
+      // with the branch through clones. Avoid duplicating it if a retry resumes
+      // after the marker has already been written.
+      if (parentSha && !readBranchMarker(session.branch, repoRoot)) {
+        writeBranchMarker(session.worktreePath, parentBranch, parentSha);
+      }
     }
 
     // Assign an ephemeral port to this branch in git config (idempotent).
