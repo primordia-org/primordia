@@ -178,7 +178,7 @@ function buildSections(
 ): {
   activeProd: BranchNode | null;
   pastSlots: PastSlot[];
-  unattached: BranchData[];
+  unattached: BranchNode[];
 } {
   const byName = new Map<string, BranchData>(
     branches.map((b) => [b.name, b]),
@@ -302,9 +302,42 @@ function buildSections(
     }
     frontier = next;
   }
-  const unattached = branches
-    .filter((b) => !covered.has(b.name))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  function treeContains(node: BranchNode | null, branchName: string): boolean {
+    if (!node) return false;
+    if (node.name === branchName) return true;
+    return node.children.some((child) => treeContains(child, branchName));
+  }
+
+  const unattached: BranchNode[] = [];
+  const currentBranch = branches.find((b) => b.isCurrent);
+  const currentIsVisible = currentBranch
+    ? treeContains(activeProd, currentBranch.name) ||
+      pastSlots.some((slot) => slot.branch.name === currentBranch.name || slot.children.some((child) => treeContains(child, currentBranch.name)))
+    : false;
+  if (currentBranch && !currentIsVisible) {
+    const currentNode: BranchNode = {
+      ...currentBranch,
+      children: buildPastChildren(
+        currentBranch.name,
+        null,
+        new Set([currentBranch.name]),
+      ),
+    };
+    unattached.push(currentNode);
+
+    const markCovered = (node: BranchNode) => {
+      covered.add(node.name);
+      for (const child of node.children) markCovered(child);
+    };
+    markCovered(currentNode);
+  }
+
+  unattached.push(
+    ...branches
+      .filter((b) => !covered.has(b.name))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((b) => ({ ...b, children: [] })),
+  );
 
   return { activeProd, pastSlots, unattached };
 }
@@ -600,20 +633,17 @@ export default async function BranchesPage() {
             Other Branches
           </p>
           <div className="space-y-0 overflow-x-auto pb-1">
-            {unattached.map((b) => {
-              const node: BranchNode = { ...b, children: [] };
-              return (
-                <BranchRow
-                  key={b.name}
-                  node={node}
-                  depth={0}
-                  linePrefix=""
-                  isLast={true}
-                  currentServerUrl={currentServerUrl}
-                  canCreateSession={userCanEvolve}
-                />
-              );
-            })}
+            {unattached.map((node) => (
+              <BranchRow
+                key={node.name}
+                node={node}
+                depth={0}
+                linePrefix=""
+                isLast={true}
+                currentServerUrl={currentServerUrl}
+                canCreateSession={userCanEvolve}
+              />
+            ))}
           </div>
         </div>
       )}

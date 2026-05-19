@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { ToggleLeft, ToggleRight } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import type { BranchParentSource } from "@/lib/branch-parent";
 
@@ -57,23 +58,19 @@ export function BranchParentSourceToggle({
         </div>
         <button
           type="button"
+          title={usesBranchMarkers ? "Use legacy git config" : "Use branch marker trailers"}
           disabled={disabled || isPending}
           onClick={() => updateSource(usesBranchMarkers ? "git-config" : "branch-marker")}
-          className={`relative h-7 w-36 rounded-full border transition ${
-            disabled
-              ? "cursor-not-allowed border-gray-800 bg-gray-900 text-gray-700"
-              : "border-gray-700 bg-gray-900 text-gray-300 hover:border-purple-500"
-          }`}
+          className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
           aria-pressed={usesBranchMarkers}
         >
-          <span
-            className={`absolute top-0.5 h-6 w-[4.1rem] rounded-full bg-purple-600 transition ${
-              usesBranchMarkers ? "left-[4.15rem]" : "left-0.5"
-            }`}
-          />
-          <span className="relative grid h-full grid-cols-2 items-center text-[10px] uppercase tracking-wide">
-            <span className={!usesBranchMarkers ? "text-white" : "text-gray-500"}>config</span>
-            <span className={usesBranchMarkers ? "text-white" : "text-gray-500"}>marker</span>
+          {usesBranchMarkers ? (
+            <ToggleRight size={18} strokeWidth={2} className="text-blue-400" />
+          ) : (
+            <ToggleLeft size={18} strokeWidth={2} />
+          )}
+          <span className="text-xs text-gray-300">
+            {usesBranchMarkers ? "branch marker" : "git config"}
           </span>
         </button>
       </div>
