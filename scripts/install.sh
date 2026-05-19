@@ -160,7 +160,7 @@ if ! command -v git &>/dev/null; then
   _step "Installing git..."
   sudo apt-get update -qq </dev/null >/dev/null 2>&1
   sudo apt-get install -y git </dev/null >/dev/null 2>&1
-  _done "Using git $(git --version | awk '{print $3}')"
+  _done "Installed git $(git --version | awk '{print $3}')"
 else
   success "Using git $(git --version | awk '{print $3}')"
 fi
@@ -281,7 +281,7 @@ mkdir -p "${GIT_HOOKS_DST}"
 if [[ ! -f "${GIT_HOOKS_DST}/reference-transaction" ]] || ! diff -q "${GIT_HOOKS_SRC}/reference-transaction" "${GIT_HOOKS_DST}/reference-transaction" >/dev/null 2>&1; then
   _step "Installing git hooks..."
   install_git_hook "reference-transaction"
-  _done "Git hooks installed"
+  _done "Installed git hooks"
 else
   success "Using git hooks"
 fi
@@ -294,6 +294,7 @@ _CURRENT_STEP="install mise"
 MISE_BIN="${HOME}/.local/bin/mise"
 MISE_SHIMS_DIR="${HOME}/.local/share/mise/shims"
 
+MISE_WAS_INSTALLED=false
 if [[ ! -x "${MISE_BIN}" ]] && ! command -v mise &>/dev/null; then
   _step "Installing mise..."
   _mise_install_log=$(mktemp)
@@ -303,7 +304,7 @@ if [[ ! -x "${MISE_BIN}" ]] && ! command -v mise &>/dev/null; then
     die "mise installation failed"
   fi
   rm -f "$_mise_install_log"
-  _done "mise installed"
+  MISE_WAS_INSTALLED=true
 fi
 
 if [[ ! -x "${MISE_BIN}" ]]; then
@@ -313,7 +314,11 @@ fi
 
 export PATH="$(dirname "${MISE_BIN}"):${MISE_SHIMS_DIR}:${PATH}"
 export MISE_TRUSTED_CONFIG_PATHS="${PRIMORDIA_DIR}:${WORKTREES_DIR}${MISE_TRUSTED_CONFIG_PATHS:+:${MISE_TRUSTED_CONFIG_PATHS}}"
-success "Using $("${MISE_BIN}" --version)"
+if [[ "${MISE_WAS_INSTALLED}" == "true" ]]; then
+  _done "Installed mise $("${MISE_BIN}" --version)"
+else
+  success "Using mise $("${MISE_BIN}" --version)"
+fi
 
 _CURRENT_STEP="configure bash for mise"
 BASHRC="${HOME}/.bashrc"
@@ -328,7 +333,7 @@ else
     echo "  eval \"\$(${MISE_BIN} activate bash)\""
     echo 'fi'
   } >> "${BASHRC}"
-  success "Configured bash mise integration"
+  success "Installed bash mise integration"
 fi
 
 _CURRENT_STEP="install tools with mise"
@@ -364,7 +369,7 @@ if [[ "$_BUN_OK" != "true" ]]; then
   rm -f "$_bun_log"; exit_with_failure 1 "$LINENO" "bun install --frozen-lockfile"
 fi
 rm -f "$_bun_log"
-_done "Dependencies installed"
+_done "Installed dependencies"
 
 # ── Typecheck (worktree installs only) ───────────────────────────────────────
 # Run the typechecker before the production build so type errors are caught
