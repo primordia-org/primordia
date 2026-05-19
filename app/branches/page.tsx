@@ -175,6 +175,7 @@ const TERMINAL_STATUSES = new Set(["accepted", "rejected"]);
 function buildSections(
   branches: BranchData[],
   productionBranchName: string,
+  cwd: string,
 ): {
   activeProd: BranchNode | null;
   pastSlots: PastSlot[];
@@ -230,6 +231,23 @@ function buildSections(
     }
     children.sort((a, b) => a.name.localeCompare(b.name));
     return children;
+  }
+
+  function isGitAncestor(ancestor: string, descendant: string): boolean {
+    if (ancestor === descendant) return false;
+    return runGit(["merge-base", "--is-ancestor", ancestor, descendant], cwd).code === 0;
+  }
+
+  function nearestDescendantParent(branchName: string, candidates: Set<string>): string | null {
+    let best: { name: string; distance: number } | null = null;
+    for (const candidate of candidates) {
+      if (candidate === branchName || !isGitAncestor(candidate, branchName)) continue;
+      const distanceResult = runGit(["rev-list", `${candidate}..${branchName}`, "--count"], cwd);
+      const distance = parseInt(distanceResult.stdout, 10);
+      if (Number.isNaN(distance)) continue;
+      if (!best || distance < best.distance) best = { name: candidate, distance };
+    }
+    return best?.name ?? null;
   }
 
   // Recursively build all children for past-slot descendants (no terminal filter).
@@ -315,11 +333,39 @@ function buildSections(
       pastSlots.some((slot) => slot.branch.name === currentBranch.name || slot.children.some((child) => treeContains(child, currentBranch.name)))
     : false;
   if (currentBranch && !currentIsVisible) {
+    const currentDescendantNames = new Set<string>([currentBranch.name]);
+    for (const b of branches) {
+      if (!covered.has(b.name) && isGitAncestor(currentBranch.name, b.name)) {
+        currentDescendantNames.add(b.name);
+      }
+    }
+
+    const inferredParentByBranch = new Map<string, string>();
+    for (const b of branches) {
+      if (b.name === currentBranch.name || !currentDescendantNames.has(b.name)) continue;
+      const explicitParent = b.parent && currentDescendantNames.has(b.parent) ? b.parent : null;
+      const inferredParent = explicitParent ?? nearestDescendantParent(b.name, currentDescendantNames);
+      if (inferredParent) inferredParentByBranch.set(b.name, inferredParent);
+    }
+
+    function buildCurrentChildren(parentName: string, visited: Set<string>): BranchNode[] {
+      const children: BranchNode[] = [];
+      for (const b of branches) {
+        if (visited.has(b.name) || inferredParentByBranch.get(b.name) !== parentName) continue;
+        const node: BranchNode = {
+          ...b,
+          children: buildCurrentChildren(b.name, new Set([...visited, b.name])),
+        };
+        children.push(node);
+      }
+      children.sort((a, b) => a.name.localeCompare(b.name));
+      return children;
+    }
+
     const currentNode: BranchNode = {
       ...currentBranch,
-      children: buildPastChildren(
+      children: buildCurrentChildren(
         currentBranch.name,
-        null,
         new Set([currentBranch.name]),
       ),
     };
@@ -542,7 +588,7 @@ export default async function BranchesPage() {
     : [false, false, null, await getBranchParentSource(null)];
 
   const { branches, productionBranch, diag } = await getBranchData(parentSource);
-  const { activeProd, pastSlots, unattached } = buildSections(branches, productionBranch);
+  const { activeProd, pastSlots, unattached } = buildSections(branches, productionBranch, diag.cwd);
 
   const [headerStore] = await Promise.all([headers()]);
   const sessionUser = user
