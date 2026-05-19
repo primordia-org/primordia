@@ -446,7 +446,7 @@ function BranchRow({
 
   return (
     <>
-      <div className="flex items-baseline gap-1.5 font-mono text-sm leading-7 flex-wrap">
+      <div className="flex min-w-max items-baseline gap-1.5 whitespace-nowrap font-mono text-sm leading-7">
         {!isRoot && (
           <span className="text-gray-600 whitespace-pre select-none shrink-0">
             {linePrefix + connector}
@@ -627,7 +627,7 @@ export default async function BranchesPage() {
           Active
         </p>
         {activeProd ? (
-          <div className="space-y-0">
+          <div className="space-y-0 overflow-x-auto pb-1">
             <BranchRow
               node={activeProd}
               depth={0}
@@ -650,7 +650,7 @@ export default async function BranchesPage() {
           <p className="text-xs text-gray-500 font-mono uppercase tracking-widest mb-2">
             Past Sessions
           </p>
-          <div className="space-y-0">
+          <div className="space-y-0 overflow-x-auto pb-1">
             {pastSlots.map((slot) => {
               const slotNode: BranchNode = {
                 ...slot.branch,
@@ -678,7 +678,7 @@ export default async function BranchesPage() {
           <p className="text-xs text-gray-500 font-mono uppercase tracking-widest mb-2">
             Other Branches
           </p>
-          <div className="space-y-0">
+          <div className="space-y-0 overflow-x-auto pb-1">
             {unattached.map((node) => (
               <BranchRow
                 key={node.name}
