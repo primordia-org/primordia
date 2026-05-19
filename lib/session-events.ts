@@ -49,6 +49,7 @@ export type SessionEvent =
   | { type: 'thinking'; content: string; ts: number }
   | { type: 'initial_request'; request: string; attachments?: string[]; presetId?: string; authSource?: string; harness?: string; model?: string; ts: number }
   | { type: 'followup_request'; request: string; attachments?: string[]; presetId?: string; authSource?: string; harness?: string; model?: string; ts: number }
+  | { type: 'preview_path'; path: string; ts: number }
   | { type: 'decision'; action: 'accepted' | 'rejected'; detail: string; ts: number };
 
 export function getSessionNdjsonPath(worktreePath: string): string {

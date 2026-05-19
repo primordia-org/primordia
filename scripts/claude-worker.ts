@@ -227,9 +227,10 @@ async function main(): Promise<void> {
   // not return a result message (e.g. on errors).
   const startTime = Date.now();
 
-  // sessionId is available in config but not used directly here — status/previewUrl
-  // are now inferred from events by the server, not written by the worker.
-  void sessionId;
+  // Expose session metadata to shell commands run by the agent, including
+  // `bun run set-preview-url /route`.
+  process.env.PRIMORDIA_SESSION_ID = sessionId;
+  process.env.PRIMORDIA_WORKTREE_PATH = worktreePath;
 
   try {
     const run = query({

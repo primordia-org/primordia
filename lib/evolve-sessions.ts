@@ -24,6 +24,8 @@ function getModelLabel(harnessId: string, modelId: string): string {
 
 const MARKDOWN_SCREENSHOT_INSTRUCTION = `If you capture screenshots or create image files under the worktree's \`attachments/\` folder, you may include them in your final text output using Markdown image syntax like \`![description](attachments/screenshot.png)\`; put the image syntax on its own line/paragraph, not inside a list item or inline code span. The session page renders final text as Markdown and will display those images inline with a figure caption from the alt text.`;
 
+const SET_PREVIEW_URL_INSTRUCTION = `If there is a single most relevant page to open in the preview, run \`bun run set-preview-url /route\` after making changes (example: \`bun run set-preview-url /admin\`). Use \`/\` for the landing page. Do not provide a full URL or filesystem path. Skip this only if all changes are purely server-side or no single page is more relevant than the landing page.`;
+
 export type LocalSessionStatus =
   | 'starting'
   | 'running-claude'
@@ -966,7 +968,7 @@ export async function startLocalEvolve(
       `1. Create a new changelog file in the \`changelog/\` directory named \`YYYY-MM-DD-HH-MM-SS Description of change.md\` (UTC time, e.g. \`2026-03-16-21-00-00 Fix login bug.md\`). The filename is the short description; the file body is the full "what changed + why" detail in markdown. Do NOT add changelog entries to CLAUDE.md itself.\n` +
       `2. Commit all changes with a descriptive message.\n` +
       `3. ${MARKDOWN_SCREENSHOT_INSTRUCTION}\n` +
-      `4. In your final message, mention the path of the most relevant page to open in the preview, e.g. "Preview \`/admin\`." Skip this step only if all changes are purely server-side or no single page is more relevant than the landing page.`;
+      `4. ${SET_PREVIEW_URL_INSTRUCTION}`;
 
     const workerScript = harnessId === 'pi'
       ? path.join(repoRoot, 'scripts/pi-worker.ts')
@@ -1124,7 +1126,7 @@ export async function runFollowupInWorktree(
     // .primordia-session.ndjson to reconstruct session history — see CLAUDE.md.
     const previewPathInstruction = internalSectionType
       ? ''
-      : `\n\n${MARKDOWN_SCREENSHOT_INSTRUCTION}\n\nIn your final message, mention the path of the most relevant page to open in the preview, e.g. "Preview \`/admin\`." Skip this only if all changes are purely server-side or no single page is more relevant than the landing page.`;
+      : `\n\n${MARKDOWN_SCREENSHOT_INSTRUCTION}\n\n${SET_PREVIEW_URL_INSTRUCTION}`;
 
     const prompt =
       `Address the following follow-up request:\n\n` +
