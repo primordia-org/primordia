@@ -16,6 +16,7 @@ type TabId =
   | "server-health"
   | "git-mirror"
   | "updates"
+  | "dependencies-security"
   | "instance"
   | "events";
 
@@ -31,6 +32,7 @@ const tabs: { id: TabId; label: string; href: string }[] = [
   { id: "server-health", label: "Server Health", href: "/admin/server-health" },
   { id: "git-mirror", label: "Git Mirror", href: "/admin/git-mirror" },
   { id: "updates", label: "Fetch Updates", href: "/admin/updates" },
+  { id: "dependencies-security", label: "Dependencies", href: "/admin/dependencies-security" },
   { id: "instance", label: "Instance", href: "/admin/instance" },
   { id: "events",   label: "Events",   href: "/admin/events" },
 ];

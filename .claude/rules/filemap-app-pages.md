@@ -13,7 +13,7 @@ components/auth-tabs/            ← Client-side auth tab components (no registr
 └── cross-device/index.tsx      ← default export: CrossDeviceTab
 
 components/
-├── AdminSubNav.tsx            ← Tab subnav for admin pages: "Manage Users" (/admin), "Server Logs" (/admin/logs), "Proxy Logs" (/admin/proxy-logs), "Rollback" (/admin/rollback), "Server Health" (/admin/server-health), "Git Mirror" (/admin/git-mirror), "Instance" (/admin/instance), "Updates" (/admin/updates), "Events" (/admin/events)
+├── AdminSubNav.tsx            ← Tab subnav for admin pages: "Manage Users" (/admin), "Server Logs" (/admin/logs), "Proxy Logs" (/admin/proxy-logs), "Rollback" (/admin/rollback), "Server Health" (/admin/server-health), "Git Mirror" (/admin/git-mirror), "Instance" (/admin/instance), "Updates" (/admin/updates), "Dependencies" (/admin/dependencies-security), "Events" (/admin/events)
 ├── AgentIdentity.tsx          ← Shared auth-source/harness identity line and icon helpers for agent blocks, presets, and settings
 ├── AnsiRenderer.tsx           ← Renders text with ANSI escape codes as styled React elements (colors, bold, spinner overwrite)
 ├── ApiKeyDialog.tsx           ← Modal for setting/clearing user Anthropic API key; stores in localStorage; opened from hamburger menu
@@ -63,6 +63,7 @@ app/                           ← Next.js App Router
 │   ├── rollback/{page.tsx,AdminRollbackClient.tsx} ← Deep rollback from productionHistory; admin only
 │   ├── server-health/{page.tsx,AdminServerHealthClient.tsx} ← Disk/memory usage + worktree cleanup; admin only
 │   ├── updates/{page.tsx,UpdatesClient.tsx} ← Upstream update sources fetch/merge; admin only
+│   ├── dependencies-security/{page.tsx,DependenciesSecurityClient.tsx} ← bun audit output, severe vulnerability alerts, and evolve-session creation; admin only
 │   └── events/{page.tsx,EventsClient.tsx} ← Event log viewer: paginated, filterable table of all tracked user events; admin only
 ├── api-docs/
 │   ├── layout.tsx             ← Thin server layout for /api-docs; exports page metadata (client page can't export metadata directly)
