@@ -100,10 +100,10 @@ export const BUILT_IN_PRESETS: EvolvePreset[] = [
   },
   {
     id: 'builtin:pi-gemini-flash',
-    name: 'Pi + Gemini 2.5 Flash',
+    name: 'Pi + Gemini 3.5 Flash',
     authSource: 'gemini-api-key',
     harness: 'pi',
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.5-flash',
     builtIn: true,
   },
 ];

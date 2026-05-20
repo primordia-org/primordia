@@ -32,6 +32,7 @@ import {
 } from '../../../lib/session-events';
 import { DEFAULT_HARNESS, DEFAULT_MODEL } from '../../../lib/agent-config';
 import { writeBranchMarker } from '../../../lib/branch-parent';
+import { ensurePrimordiaPiModelsJson } from '../../../lib/pi-custom-models';
 
 
 const ANTHROPIC_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
@@ -113,7 +114,7 @@ async function generateSlug(
       authStorage.setRuntimeApiKey('openai', 'gateway');
     }
 
-    const modelRegistry = ModelRegistry.create(authStorage);
+    const modelRegistry = ModelRegistry.create(authStorage, ensurePrimordiaPiModelsJson());
     if (!apiKey && (authSource === 'exe-dev-gateway' || authSource === 'claude-subscription' || authSource === null)) {
       modelRegistry.registerProvider('anthropic', { baseUrl: ANTHROPIC_GATEWAY_BASE_URL });
       modelRegistry.registerProvider('openai', { baseUrl: OPENAI_GATEWAY_BASE_URL });

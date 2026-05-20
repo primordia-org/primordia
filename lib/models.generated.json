@@ -66,6 +66,13 @@
       "inputPriceLabel": "$2/M"
     },
     {
+      "id": "gemini-3.5-flash",
+      "label": "Gemini 3.5 Flash",
+      "description": "Google · reasoning · 50¢→$3/M",
+      "pricingLabel": "50¢→$3/M",
+      "inputPriceLabel": "50¢/M"
+    },
+    {
       "id": "gemini-2.0-flash",
       "label": "Gemini 2.0 Flash",
       "description": "Google · 10¢→40¢/M",
