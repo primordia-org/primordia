@@ -7,6 +7,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 export const GEMINI_3_5_FLASH_MODEL_ID = 'gemini-3.5-flash';
+export const OPENROUTER_GEMINI_3_5_FLASH_MODEL_ID = 'google/gemini-3.5-flash';
 
 const PRIMORDIA_PI_MODELS_JSON = {
   providers: {
@@ -19,6 +20,19 @@ const PRIMORDIA_PI_MODELS_JSON = {
           baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
           reasoning: true,
           thinkingLevelMap: { off: null },
+          input: ['text', 'image'],
+          cost: { input: 0.5, output: 3, cacheRead: 0.05, cacheWrite: 0 },
+          contextWindow: 1048576,
+          maxTokens: 65536,
+        },
+      ],
+    },
+    openrouter: {
+      models: [
+        {
+          id: OPENROUTER_GEMINI_3_5_FLASH_MODEL_ID,
+          name: 'Google: Gemini 3.5 Flash',
+          reasoning: true,
           input: ['text', 'image'],
           cost: { input: 0.5, output: 3, cacheRead: 0.05, cacheWrite: 0 },
           contextWindow: 1048576,
