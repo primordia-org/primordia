@@ -2,7 +2,6 @@ import { LocalizedTimestampClient } from "./LocalizedTimestampClient";
 
 interface LocalizedTimestampProps {
   timestamp: number;
-  className?: string;
 }
 
 function formatServerTimestamp(timestamp: number): string {
@@ -17,12 +16,11 @@ function formatServerTimestamp(timestamp: number): string {
   }).format(new Date(timestamp));
 }
 
-export function LocalizedTimestamp({ timestamp, className }: LocalizedTimestampProps) {
+export function LocalizedTimestamp({ timestamp }: LocalizedTimestampProps) {
   return (
     <LocalizedTimestampClient
       timestamp={timestamp}
       serverText={formatServerTimestamp(timestamp)}
-      className={className}
     />
   );
 }

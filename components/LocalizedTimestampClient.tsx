@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 interface LocalizedTimestampClientProps {
   timestamp: number;
   serverText: string;
-  className?: string;
 }
 
 function formatTimestamp(timestamp: number): string {
@@ -23,7 +22,6 @@ function formatTimestamp(timestamp: number): string {
 export function LocalizedTimestampClient({
   timestamp,
   serverText,
-  className,
 }: LocalizedTimestampClientProps) {
   const [text, setText] = useState(serverText);
 
@@ -31,5 +29,5 @@ export function LocalizedTimestampClient({
     setText(formatTimestamp(timestamp));
   }, [timestamp]);
 
-  return <span className={className}>{text}</span>;
+  return text;
 }
