@@ -10,21 +10,14 @@ import type { BunAuditResult } from "@/lib/dependency-audit";
 interface Props {
   initialAudit: BunAuditResult;
   initialCheckedAt: ReactNode;
+  timestampOptions: Intl.DateTimeFormatOptions;
 }
 
-function formatClientTimestamp(timestamp: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    timeZoneName: "short",
-  }).format(new Date(timestamp));
+function formatClientTimestamp(timestamp: number, options: Intl.DateTimeFormatOptions): string {
+  return new Intl.DateTimeFormat(undefined, options).format(new Date(timestamp));
 }
 
-export default function DependenciesSecurityClient({ initialAudit, initialCheckedAt }: Props) {
+export default function DependenciesSecurityClient({ initialAudit, initialCheckedAt, timestampOptions }: Props) {
   const router = useRouter();
   const [audit, setAudit] = useState<BunAuditResult>(initialAudit);
   const [busy, setBusy] = useState(false);
@@ -94,7 +87,7 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
                   : "No known vulnerable dependencies found"}
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Checked {audit.checkedAt === initialAudit.checkedAt ? initialCheckedAt : formatClientTimestamp(audit.checkedAt)}
+              Checked {audit.checkedAt === initialAudit.checkedAt ? initialCheckedAt : formatClientTimestamp(audit.checkedAt, timestampOptions)}
             </p>
             {audit.error && <p className="text-xs text-red-300 mt-2">{audit.error}</p>}
           </div>

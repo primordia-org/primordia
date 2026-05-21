@@ -21,6 +21,16 @@ export function generateMetadata(): Metadata {
   };
 }
 
+const auditTimestampOptions: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+  timeZoneName: "short",
+};
+
 export default async function DependenciesSecurityPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
@@ -62,7 +72,13 @@ export default async function DependenciesSecurityPage() {
         <div className="flex-1 min-w-0">
           <DependenciesSecurityClient
             initialAudit={audit}
-            initialCheckedAt={<LocalizedTimestamp timestamp={audit.checkedAt} />}
+            timestampOptions={auditTimestampOptions}
+            initialCheckedAt={(
+              <LocalizedTimestamp
+                timestamp={audit.checkedAt}
+                options={auditTimestampOptions}
+              />
+            )}
           />
         </div>
       </div>
