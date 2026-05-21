@@ -20,6 +20,14 @@ export function generateMetadata(): Metadata {
   };
 }
 
+function formatServerTimestamp(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "medium",
+    timeZoneName: "short",
+  }).format(new Date(timestamp));
+}
+
 export default async function DependenciesSecurityPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
@@ -59,7 +67,10 @@ export default async function DependenciesSecurityPage() {
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
         <AdminSubNav currentTab="dependencies-security" />
         <div className="flex-1 min-w-0">
-          <DependenciesSecurityClient initialAudit={audit} />
+          <DependenciesSecurityClient
+            initialAudit={audit}
+            initialCheckedAtServerText={formatServerTimestamp(audit.checkedAt)}
+          />
         </div>
       </div>
     </main>

@@ -4,15 +4,8 @@ import { useEffect, useState } from "react";
 
 interface LocalizedTimestampProps {
   timestamp: number;
+  serverText: string;
   className?: string;
-}
-
-function formatUtcPlaceholder(timestamp: number): string {
-  return `${new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "medium",
-    timeZone: "UTC",
-  }).format(new Date(timestamp))} UTC`;
 }
 
 function formatLocalizedTimestamp(timestamp: number): string {
@@ -25,13 +18,14 @@ function formatLocalizedTimestamp(timestamp: number): string {
 
 export function LocalizedTimestamp({
   timestamp,
+  serverText,
   className,
 }: LocalizedTimestampProps) {
-  const [localized, setLocalized] = useState<string | null>(null);
+  const [localized, setLocalized] = useState<{ timestamp: number; text: string } | null>(null);
 
   useEffect(() => {
-    setLocalized(formatLocalizedTimestamp(timestamp));
+    setLocalized({ timestamp, text: formatLocalizedTimestamp(timestamp) });
   }, [timestamp]);
 
-  return <span className={className}>{localized ?? formatUtcPlaceholder(timestamp)}</span>;
+  return <span className={className}>{localized?.timestamp === timestamp ? localized.text : serverText}</span>;
 }
