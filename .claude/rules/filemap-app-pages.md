@@ -23,6 +23,7 @@ components/
 ├── ForbiddenPage.tsx          ← Server component: 403 access-denied page with page description, required/met/unmet conditions, and how-to-fix
 ├── AdminUpdatesBell.tsx       ← Bell notification icon shown to admins when upstream update sources have new commits available
 ├── HamburgerMenu.tsx          ← Reusable hamburger button + dropdown; used by LandingNav, EvolveForm, EvolveSessionView, PageNavBar
+├── LocalizedTimestamp.tsx     ← Client-only localized timestamp renderer; uses useEffect so browser timezone formatting never hydrates from server text
 ├── MarkdownContent.tsx        ← Block-prose markdown renderer with dark styling used on session pages and changelogs
 ├── NavHeader.tsx              ← Shared nav header (title, branch name, nav links); used by /evolve/session, /changelog, /branches pages
 ├── PageElementInspector.tsx   ← Full-screen portal overlay for picking DOM elements on current page with screenshot capture

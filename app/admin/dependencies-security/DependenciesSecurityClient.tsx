@@ -5,14 +5,11 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle, Loader, RefreshCw, ShieldAlert, WandSparkles } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
+import { LocalizedTimestamp } from "@/components/LocalizedTimestamp";
 import type { BunAuditResult } from "@/lib/dependency-audit";
 
 interface Props {
   initialAudit: BunAuditResult;
-}
-
-function formatTime(ts: number): string {
-  return new Date(ts).toLocaleString();
 }
 
 export default function DependenciesSecurityClient({ initialAudit }: Props) {
@@ -85,7 +82,7 @@ export default function DependenciesSecurityClient({ initialAudit }: Props) {
                   : "No known vulnerable dependencies found"}
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Checked <span suppressHydrationWarning>{formatTime(audit.checkedAt)}</span>
+              Checked <LocalizedTimestamp timestamp={audit.checkedAt} />
             </p>
             {audit.error && <p className="text-xs text-red-300 mt-2">{audit.error}</p>}
           </div>
