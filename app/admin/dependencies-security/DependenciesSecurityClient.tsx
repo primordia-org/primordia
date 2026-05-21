@@ -10,22 +10,9 @@ import type { BunAuditResult } from "@/lib/dependency-audit";
 
 interface Props {
   initialAudit: BunAuditResult;
-  initialCheckedAtServerText: string;
 }
 
-function formatClientTimestamp(timestamp: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    timeZoneName: "short",
-  }).format(new Date(timestamp));
-}
-
-export default function DependenciesSecurityClient({ initialAudit, initialCheckedAtServerText }: Props) {
+export default function DependenciesSecurityClient({ initialAudit }: Props) {
   const router = useRouter();
   const [audit, setAudit] = useState<BunAuditResult>(initialAudit);
   const [busy, setBusy] = useState(false);
@@ -33,9 +20,6 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
 
   const severeCount = audit.severeFindings.length;
   const hasFindings = audit.findings.length > 0;
-  const checkedAtServerText = audit.checkedAt === initialAudit.checkedAt
-    ? initialCheckedAtServerText
-    : formatClientTimestamp(audit.checkedAt);
 
   async function post(action: string): Promise<Record<string, unknown> | null> {
     setBusy(true);
@@ -98,7 +82,7 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
                   : "No known vulnerable dependencies found"}
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Checked <LocalizedTimestamp timestamp={audit.checkedAt} serverText={checkedAtServerText} />
+              Checked <LocalizedTimestamp timestamp={audit.checkedAt} />
             </p>
             {audit.error && <p className="text-xs text-red-300 mt-2">{audit.error}</p>}
           </div>
