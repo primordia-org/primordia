@@ -30,6 +30,8 @@ lib/
 ├── session-events.ts          ← Structured event types for session progress logs stored as NDJSON in worktree
 ├── smart-preview-url.ts       ← Infers the most relevant preview page path from LLM text output in session events
 ├── update-source-scheduler.ts ← Background scheduler that automatically fetches update sources per frequency settings
+├── dependency-audit.ts        ← Runs `bun audit`, parses findings, and stores severe-audit notification state in git config
+├── dependency-audit-scheduler.ts ← Daily background scheduler that checks `bun audit --audit-level=high` and updates admin notifications
 ├── update-sources.ts          ← Manages git-based update sources via git config remote.{id}.* namespace
 ├── user-prefs.ts              ← Server-side helpers for reading per-user preferences (harness, model, caveman) from database
 ├── events-client.ts           ← Client/server/worker helper: trackEvent() (fire-and-forget) + appendEvent() (async); both POST to /api/events

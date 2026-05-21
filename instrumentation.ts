@@ -1,6 +1,6 @@
 // instrumentation.ts
 // Next.js instrumentation hook — runs once when the server starts.
-// Used to start the update-source background scheduler.
+// Used to start background schedulers.
 // See: https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
 
 export async function register() {
@@ -9,6 +9,10 @@ export async function register() {
     const { startUpdateSourceScheduler } = await import(
       "./lib/update-source-scheduler"
     );
+    const { startDependencyAuditScheduler } = await import(
+      "./lib/dependency-audit-scheduler"
+    );
     startUpdateSourceScheduler(process.cwd());
+    startDependencyAuditScheduler(process.cwd());
   }
 }

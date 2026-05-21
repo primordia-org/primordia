@@ -1,0 +1,88 @@
+// app/api/admin/dependencies-security/route.ts
+// Runs `bun audit` for admins and creates evolve sessions to update vulnerable packages.
+
+import { getSessionUser, isAdmin, hasEvolvePermission } from "@/lib/auth";
+import { runBunAudit, writeDependencyAuditNotification, type BunAuditResult } from "@/lib/dependency-audit";
+
+async function requireAdmin() {
+  const user = await getSessionUser();
+  if (!user) return { user: null, error: Response.json({ error: "Authentication required" }, { status: 401 }) };
+  if (!(await isAdmin(user.id))) return { user: null, error: Response.json({ error: "Admin required" }, { status: 403 }) };
+  return { user, error: null };
+}
+
+function responseForAudit(result: BunAuditResult) {
+  return {
+    audit: {
+      ok: result.ok,
+      rawOutput: result.rawOutput,
+      jsonText: result.jsonText,
+      findings: result.findings,
+      severeFindings: result.severeFindings,
+      error: result.error,
+      checkedAt: result.checkedAt,
+    },
+  };
+}
+
+export async function GET() {
+  const { error } = await requireAdmin();
+  if (error) return error;
+
+  const result = runBunAudit();
+  writeDependencyAuditNotification(process.cwd(), result);
+  return Response.json(responseForAudit(result));
+}
+
+export async function POST(request: Request) {
+  const { user, error } = await requireAdmin();
+  if (error) return error;
+
+  const body = (await request.json()) as Record<string, unknown>;
+  const action = typeof body.action === "string" ? body.action : "";
+
+  if (action === "refresh") {
+    const result = runBunAudit();
+    writeDependencyAuditNotification(process.cwd(), result);
+    return Response.json(responseForAudit(result));
+  }
+
+  if (action === "create-session") {
+    if (!(await hasEvolvePermission(user!.id))) {
+      return Response.json({ error: "You need the evolve permission to create sessions." }, { status: 403 });
+    }
+
+    const result = runBunAudit();
+    writeDependencyAuditNotification(process.cwd(), result);
+    const issueList = result.findings.length > 0
+      ? result.findings.map((f) => `- ${f.packageName}: ${f.severity} — ${f.title} (${f.id})`).join("\n")
+      : "bun audit did not return structured findings. Inspect the raw output below.";
+
+    const evolveRes = await fetch(new URL("/api/evolve", request.url), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: request.headers.get("cookie") ?? "",
+      },
+      body: JSON.stringify({
+        request:
+          `Update vulnerable dependencies reported by bun audit.\n\n` +
+          `Goals:\n` +
+          `1. Upgrade or patch the vulnerable packages with the smallest safe dependency changes.\n` +
+          `2. Preserve existing functionality and avoid unrelated dependency churn.\n` +
+          `3. Run \`bun install\`, \`bun audit\`, \`bun run typecheck\`, and \`bun run build\`.\n` +
+          `4. If a vulnerable transitive package cannot be updated directly, update the parent dependency or document why it remains.\n\n` +
+          `Structured findings:\n${issueList}\n\n` +
+          `Raw bun audit output:\n\n\`\`\`json\n${result.jsonText || result.rawOutput}\n\`\`\``,
+      }),
+    });
+
+    const data = (await evolveRes.json()) as { sessionId?: string; error?: string };
+    if (!evolveRes.ok || !data.sessionId) {
+      return Response.json({ error: data.error ?? "Failed to create evolve session" }, { status: evolveRes.status || 500 });
+    }
+    return Response.json({ sessionId: data.sessionId });
+  }
+
+  return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });
+}
