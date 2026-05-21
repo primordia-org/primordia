@@ -1,13 +1,11 @@
-"use client";
-
-import { useEffect, useState } from "react";
+import { LocalizedTimestampClient } from "./LocalizedTimestampClient";
 
 interface LocalizedTimestampProps {
   timestamp: number;
   className?: string;
 }
 
-function formatLocalizedTimestamp(timestamp: number): string {
+function formatServerTimestamp(timestamp: number): string {
   return new Intl.DateTimeFormat(undefined, {
     year: "numeric",
     month: "short",
@@ -19,20 +17,12 @@ function formatLocalizedTimestamp(timestamp: number): string {
   }).format(new Date(timestamp));
 }
 
-export function LocalizedTimestamp({
-  timestamp,
-  className,
-}: LocalizedTimestampProps) {
-  const [localized, setLocalized] = useState<{ timestamp: number; text: string } | null>(null);
-  const fallbackText = formatLocalizedTimestamp(timestamp);
-
-  useEffect(() => {
-    setLocalized({ timestamp, text: formatLocalizedTimestamp(timestamp) });
-  }, [timestamp]);
-
+export function LocalizedTimestamp({ timestamp, className }: LocalizedTimestampProps) {
   return (
-    <span className={className} suppressHydrationWarning>
-      {localized?.timestamp === timestamp ? localized.text : fallbackText}
-    </span>
+    <LocalizedTimestampClient
+      timestamp={timestamp}
+      serverText={formatServerTimestamp(timestamp)}
+      className={className}
+    />
   );
 }

@@ -11,6 +11,7 @@ import { runBunAudit, writeDependencyAuditNotification } from "@/lib/dependency-
 import ForbiddenPage from "@/components/ForbiddenPage";
 import { PageNavBar } from "@/components/PageNavBar";
 import AdminSubNav from "@/components/AdminSubNav";
+import { LocalizedTimestamp } from "@/components/LocalizedTimestamp";
 import DependenciesSecurityClient from "./DependenciesSecurityClient";
 
 export function generateMetadata(): Metadata {
@@ -59,7 +60,10 @@ export default async function DependenciesSecurityPage() {
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
         <AdminSubNav currentTab="dependencies-security" />
         <div className="flex-1 min-w-0">
-          <DependenciesSecurityClient initialAudit={audit} />
+          <DependenciesSecurityClient
+            initialAudit={audit}
+            initialCheckedAt={<LocalizedTimestamp timestamp={audit.checkedAt} />}
+          />
         </div>
       </div>
     </main>

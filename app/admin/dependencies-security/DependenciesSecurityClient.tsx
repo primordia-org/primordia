@@ -1,18 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle, Loader, RefreshCw, ShieldAlert, WandSparkles } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
-import { LocalizedTimestamp } from "@/components/LocalizedTimestamp";
 import type { BunAuditResult } from "@/lib/dependency-audit";
 
 interface Props {
   initialAudit: BunAuditResult;
+  initialCheckedAt: ReactNode;
 }
 
-export default function DependenciesSecurityClient({ initialAudit }: Props) {
+function formatClientTimestamp(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
+  }).format(new Date(timestamp));
+}
+
+export default function DependenciesSecurityClient({ initialAudit, initialCheckedAt }: Props) {
   const router = useRouter();
   const [audit, setAudit] = useState<BunAuditResult>(initialAudit);
   const [busy, setBusy] = useState(false);
@@ -82,7 +94,7 @@ export default function DependenciesSecurityClient({ initialAudit }: Props) {
                   : "No known vulnerable dependencies found"}
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Checked <LocalizedTimestamp timestamp={audit.checkedAt} />
+              Checked {audit.checkedAt === initialAudit.checkedAt ? initialCheckedAt : formatClientTimestamp(audit.checkedAt)}
             </p>
             {audit.error && <p className="text-xs text-red-300 mt-2">{audit.error}</p>}
           </div>
