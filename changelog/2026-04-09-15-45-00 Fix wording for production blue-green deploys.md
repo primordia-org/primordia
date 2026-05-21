@@ -18,4 +18,4 @@ In a production (blue/green) deploy, the session branch is **not merged** into t
 
 ## Why
 
-The previous wording implied a `git merge` happened, which is only true in the legacy local-dev path. In the production blue/green path, the proxy is pointed at the new slot without any merge commit — saying "merged into" was factually wrong and confusing to users watching the progress log.
+The previous wording implied a `git merge` happened, which is only true in the faster dev pipeline. In the production blue/green path, the proxy is pointed at the new slot without any merge commit — saying "merged into" was factually wrong and confusing to users watching the progress log.
