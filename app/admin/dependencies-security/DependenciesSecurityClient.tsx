@@ -12,7 +12,11 @@ interface Props {
 }
 
 function formatTime(ts: number): string {
-  return new Date(ts).toLocaleString();
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "medium",
+    timeZone: "UTC",
+  }).format(new Date(ts)) + " UTC";
 }
 
 export default function DependenciesSecurityClient({ initialAudit }: Props) {
