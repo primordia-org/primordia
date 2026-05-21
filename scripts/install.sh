@@ -314,10 +314,43 @@ fi
 
 export PATH="$(dirname "${MISE_BIN}"):${MISE_SHIMS_DIR}:${PATH}"
 export MISE_TRUSTED_CONFIG_PATHS="${PRIMORDIA_DIR}:${WORKTREES_DIR}${MISE_TRUSTED_CONFIG_PATHS:+:${MISE_TRUSTED_CONFIG_PATHS}}"
+
+mise_version_output() {
+  "${MISE_BIN}" --version 2>&1
+}
+
+mise_display_version() {
+  local output="$1"
+  local version_line=""
+  version_line="$(printf '%s\n' "$output" | awk '/^[0-9]+\.[0-9]+\.[0-9]+/ { print; exit }')"
+  if [[ -n "$version_line" ]]; then
+    printf '%s' "$version_line"
+  else
+    printf '%s' "$output" | head -n 1
+  fi
+}
+
+_mise_version_output="$(mise_version_output)"
 if [[ "${MISE_WAS_INSTALLED}" == "true" ]]; then
-  _done "Installed mise $("${MISE_BIN}" --version)"
-else
-  success "Using mise $("${MISE_BIN}" --version)"
+  _done "Installed mise $(mise_display_version "$_mise_version_output")"
+fi
+
+if printf '%s\n' "$_mise_version_output" | grep -Eq 'mise version .+ available|To update, run mise self-update'; then
+  _CURRENT_STEP="update mise"
+  _step "Updating mise..."
+  _mise_update_log=$(mktemp)
+  if ! "${MISE_BIN}" self-update --yes >"$_mise_update_log" 2>&1; then
+    _spin_kill
+    cat "$_mise_update_log" >&2
+    rm -f "$_mise_update_log"
+    die "mise self-update failed"
+  fi
+  rm -f "$_mise_update_log"
+  hash -r
+  _mise_version_output="$(mise_version_output)"
+  _done "Updated mise $(mise_display_version "$_mise_version_output")"
+elif [[ "${MISE_WAS_INSTALLED}" != "true" ]]; then
+  success "Using mise $(mise_display_version "$_mise_version_output")"
 fi
 
 _CURRENT_STEP="configure bash for mise"
