@@ -34,7 +34,7 @@ Admin-only API endpoint (unchanged interface):
 
 **New: `bun run rollback` standalone script** (`scripts/rollback.ts`) — performs the identical rollback operation directly via bun, bypassing the HTTP server entirely. Use this when the server itself is broken or unresponsive and the API endpoint is not reachable. Requires SSH / direct terminal access; no authentication is checked.
 
-**Legacy path** (local dev — no `current` symlink):
+**Faster dev pipeline path** (NODE_ENV !== 'production' — no `current` symlink):
 git merge → stash/pop → `bun install --frozen-lockfile` → worktree remove (unchanged from before)
 
 The self-healing retry (`retryAcceptAfterFix`) re-runs **both** typecheck and build before merging — so a type-error fix that accidentally breaks the build is caught before it reaches main.

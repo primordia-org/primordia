@@ -9,7 +9,7 @@ production server (`prodServerEntry` is null), it now immediately calls
 
 ## Why
 
-On localhost (local / legacy accept flow), there is no `POST /_proxy/prod/spawn`
+On direct merge (faster dev pipeline accept flow), there is no `POST /_proxy/prod/spawn`
 call — the evolve pipeline just merges the session branch, kills the old dev
 server worktree, and updates `primordia.productionBranch` in git config.
 
