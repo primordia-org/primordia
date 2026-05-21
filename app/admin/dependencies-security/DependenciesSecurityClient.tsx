@@ -12,11 +12,7 @@ interface Props {
 }
 
 function formatTime(ts: number): string {
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "medium",
-    timeZone: "UTC",
-  }).format(new Date(ts)) + " UTC";
+  return new Date(ts).toLocaleString();
 }
 
 export default function DependenciesSecurityClient({ initialAudit }: Props) {
@@ -88,7 +84,9 @@ export default function DependenciesSecurityClient({ initialAudit }: Props) {
                   ? `${audit.findings.length} lower-severity issue${audit.findings.length === 1 ? "" : "s"} found`
                   : "No known vulnerable dependencies found"}
             </div>
-            <p className="text-xs text-gray-500 mt-1">Checked {formatTime(audit.checkedAt)}</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Checked <span suppressHydrationWarning>{formatTime(audit.checkedAt)}</span>
+            </p>
             {audit.error && <p className="text-xs text-red-300 mt-2">{audit.error}</p>}
           </div>
           <div className="flex items-center gap-2 shrink-0">
