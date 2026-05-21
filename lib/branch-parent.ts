@@ -64,6 +64,7 @@ export function readBranchMarker(
       [
         '-C', repoPath(repo),
         'log', branchOrSha,
+        '--first-parent',
         '--grep', `^${BRANCHED_FROM_TRAILER}:`,
         '--format=%B%x00',
         '-n', '1',

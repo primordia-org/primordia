@@ -52,6 +52,26 @@ test("writeBranchMarker reports git commit failures", () => {
   );
 });
 
+test("readBranchMarker ignores marker commits from merged child branches", () => {
+  const productionSha = git(["rev-parse", "production"]);
+  git(["switch", "-c", "gemini-35-flash-support"]);
+  writeBranchMarker(repo, "production", productionSha);
+  const geminiMarkerSha = git(["rev-parse", "HEAD"]);
+  commit("gemini work");
+
+  git(["switch", "-c", "child-session"]);
+  writeBranchMarker(repo, "gemini-35-flash-support", geminiMarkerSha);
+  commit("child work");
+
+  git(["switch", "gemini-35-flash-support"]);
+  git(["merge", "--no-ff", "child-session", "-m", "merge child session"]);
+
+  expect(readBranchMarker("gemini-35-flash-support", repo)).toEqual({
+    parentBranch: "production",
+    parentSha: productionSha,
+  });
+});
+
 test("branch-marker source does not fall back to legacy git-config parent metadata", () => {
   git(["switch", "-c", "automate-common-steps"]);
   commit("branch work");
