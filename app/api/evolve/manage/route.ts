@@ -374,7 +374,7 @@ async function runAcceptAsync(
         stashed = stashResult.code === 0 && !stashResult.stdout.includes('No local changes');
       }
 
-      await step('- Merging branch…');
+      await step('- Merging branch…\n');
       const mergeResult = await runGit(
         ['merge', branch, '--no-ff', '-m', `chore: merge ${branch}`],
         mergeRoot,
@@ -399,7 +399,7 @@ async function runAcceptAsync(
         }
       }
 
-      await step('- Installing dependencies…');
+      await step('- Installing dependencies…\n');
       const installResult = await runCmd('bun', ['install', '--frozen-lockfile'], mergeRoot);
       if (installResult.code !== 0) {
         await failWithError(
