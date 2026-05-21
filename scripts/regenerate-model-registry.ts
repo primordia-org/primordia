@@ -11,6 +11,55 @@ import { writeFileSync } from 'fs';
 import { join } from 'path';
 import { ModelRegistry, AuthStorage } from '@mariozechner/pi-coding-agent';
 import type { ModelOption } from '../lib/agent-config';
+import { GEMINI_3_5_FLASH_MODEL_ID, OPENROUTER_GEMINI_3_5_FLASH_MODEL_ID } from '../lib/pi-custom-models';
+
+const PRIMORDIA_DIRECT_GOOGLE_MODEL_OPTIONS: ModelOption[] = [
+  {
+    id: 'gemini-2.5-flash',
+    label: 'Gemini 2.5 Flash',
+    description: 'Google · reasoning · 30¢→$2.5/M',
+    pricingLabel: '30¢→$2.5/M',
+    inputPriceLabel: '30¢/M',
+  },
+  {
+    id: 'gemini-2.5-pro',
+    label: 'Gemini 2.5 Pro',
+    description: 'Google · reasoning · $1.25→$10/M',
+    pricingLabel: '$1.25→$10/M',
+    inputPriceLabel: '$1.25/M',
+  },
+  {
+    id: 'gemini-3.1-pro-preview',
+    label: 'Gemini 3.1 Pro Preview',
+    description: 'Google · reasoning · $2→$12/M',
+    pricingLabel: '$2→$12/M',
+    inputPriceLabel: '$2/M',
+  },
+  {
+    id: GEMINI_3_5_FLASH_MODEL_ID,
+    label: 'Gemini 3.5 Flash',
+    description: 'Google · reasoning · 50¢→$3/M',
+    pricingLabel: '50¢→$3/M',
+    inputPriceLabel: '50¢/M',
+  },
+  {
+    id: 'gemini-2.0-flash',
+    label: 'Gemini 2.0 Flash',
+    description: 'Google · 10¢→40¢/M',
+    pricingLabel: '10¢→40¢/M',
+    inputPriceLabel: '10¢/M',
+  },
+];
+
+const PRIMORDIA_OPENROUTER_MODEL_OPTIONS: ModelOption[] = [
+  {
+    id: OPENROUTER_GEMINI_3_5_FLASH_MODEL_ID,
+    label: 'Google: Gemini 3.5 Flash',
+    description: 'OpenRouter · reasoning · 50¢→$3/M',
+    pricingLabel: '50¢→$3/M',
+    inputPriceLabel: '50¢/M',
+  },
+];
 
 // ── Providers per harness (mirrors HARNESS_PROVIDERS in pi-model-registry.server.ts) ──
 const HARNESS_PROVIDERS: Record<string, string[]> = {
@@ -136,6 +185,18 @@ for (const [harnessId, providers] of Object.entries(HARNESS_PROVIDERS)) {
       ...(pricing ? { pricingLabel: pricing.full, inputPriceLabel: pricing.input } : {}),
     };
   });
+}
+
+for (const [offset, modelOption] of PRIMORDIA_DIRECT_GOOGLE_MODEL_OPTIONS.entries()) {
+  if (!result.pi.some((model) => model.id === modelOption.id)) {
+    result.pi.splice(3 + offset, 0, modelOption);
+  }
+}
+for (const modelOption of PRIMORDIA_OPENROUTER_MODEL_OPTIONS) {
+  if (!result.pi.some((model) => model.id === modelOption.id)) {
+    const insertAfter = result.pi.findIndex((model) => model.id === 'google/gemini-3-flash-preview');
+    result.pi.splice(insertAfter >= 0 ? insertAfter + 1 : result.pi.length, 0, modelOption);
+  }
 }
 
 const outPath = join(import.meta.dir, '../lib/models.generated.json');

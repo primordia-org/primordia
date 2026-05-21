@@ -40,7 +40,7 @@ User types change request on /evolve page
           → POST /_proxy/prod/spawn to the reverse proxy (SSE stream): proxy spawns new prod server, health-checks it, sets primordia.productionBranch + productionHistory in git config, and switches traffic; proxy does NOT kill the old prod server
           → old prod server self-terminates (process.exit) after the proxy switches traffic; proxy owns the new server process
           → old slots accumulate indefinitely as registered git worktrees (enables deep rollback via /admin/rollback)
-      → legacy deploy (local dev, NODE_ENV !== 'production'): git merge in production dir → bun install → worktree remove
+      → faster dev pipeline deploy (NODE_ENV !== 'production'): git merge in production dir → bun install → worktree remove
   → User clicks Reject → POST /api/evolve/manage { action: "reject" }
       → kill dev server, git worktree remove, git branch -D
 ```
@@ -63,7 +63,7 @@ Each evolve session tracks two independent dimensions persisted to SQLite:
 | `fixing-types` | TypeScript or build gate failed on Accept; Claude is auto-fixing compilation errors; session page keeps Available Actions panel visible; server retries Accept when done (client tab does not need to be open) |
 | `ready` | Claude Code finished (or errored); worktree is live and interactive. If an error occurred, the progress log contains an `❌ **Error**:` entry and the Claude Code section heading is styled in red. |
 | `accepting` | User clicked Accept; typecheck/build/deploy pipeline is running asynchronously. No other session can enter `accepting` while this status is set — the manage route returns 409 if a concurrent deploy is attempted (prevents two deploys racing and the second overwriting the first). |
-| `accepted` | Deploy complete; branch is live in production (blue/green) or merged into parent (legacy). |
+| `accepted` | Deploy complete; branch is live in production (blue/green) or merged into parent (faster dev pipeline). |
 | `rejected` | User clicked Reject; worktree and branch discarded without merging |
 
 **Dev server status reference**

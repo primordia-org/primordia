@@ -32,6 +32,7 @@ import {
   appendSessionEvent,
   getSessionNdjsonPath,
 } from '../lib/session-events';
+import { ensurePrimordiaPiModelsJson } from '../lib/pi-custom-models';
 
 // ---------------------------------------------------------------------------
 // LLM backend configuration
@@ -319,7 +320,7 @@ async function main(): Promise<void> {
       process.stderr.write('Using exe.dev LLM gateway\n');
     }
 
-    const modelRegistry = ModelRegistry.create(authStorage);
+    const modelRegistry = ModelRegistry.create(authStorage, ensurePrimordiaPiModelsJson());
 
     // Resolve the model object from the string ID, if provided.
     let model: ReturnType<typeof modelRegistry.find> | undefined;

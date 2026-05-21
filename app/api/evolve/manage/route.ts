@@ -14,7 +14,7 @@
 //                 proxy spawn, main pointer advancement, and mirror push.
 //              3. Write decision event + self-terminate (proxy already switched traffic)
 //
-//            LEGACY (local dev, NODE_ENV !== 'production'):
+//            FASTER DEV PIPELINE (NODE_ENV !== 'production'):
 //              git checkout → stash → merge → stash-pop → bun install → worktree remove
 //
 //   reject — kills the preview dev server, removes the worktree and branch
@@ -212,7 +212,7 @@ async function retryAcceptAfterFix(
     setTimeout(() => process.exit(0), 1000);
 
   } else {
-    // Legacy local-dev path: just record success (the merge already happened
+    // Faster dev pipeline path: just record success (the merge already happened
     // before the type-fix loop; we don't re-merge here).
     await failWithError('❌ Auto-fix retry is only supported in production mode.');
   }
@@ -232,7 +232,7 @@ async function retryAcceptAfterFix(
  *   3. Write the decision event and self-terminate (the proxy has already
  *      switched traffic to the new slot).
  *
- * Legacy path (local dev, NODE_ENV !== 'production'):
+ * Faster dev pipeline path (NODE_ENV !== 'production'):
  *   git merge → bun install (unchanged from before).
  */
 async function runAcceptAsync(
@@ -347,7 +347,7 @@ async function runAcceptAsync(
       setTimeout(() => process.exit(0), 1000);
 
     } else {
-      // ── Legacy path (local dev without systemd) ───────────────────────────
+      // ── Faster dev pipeline path (without systemd / direct merge) ───────────────────────────
       const checkoutResult = await runGit(['checkout', parentBranch], repoRoot);
       let mergeRoot = repoRoot;
       if (checkoutResult.code !== 0) {
@@ -374,7 +374,7 @@ async function runAcceptAsync(
         stashed = stashResult.code === 0 && !stashResult.stdout.includes('No local changes');
       }
 
-      await step('- Merging branch…');
+      await step('- Merging branch…\n');
       const mergeResult = await runGit(
         ['merge', branch, '--no-ff', '-m', `chore: merge ${branch}`],
         mergeRoot,
@@ -399,7 +399,7 @@ async function runAcceptAsync(
         }
       }
 
-      await step('- Installing dependencies…');
+      await step('- Installing dependencies…\n');
       const installResult = await runCmd('bun', ['install', '--frozen-lockfile'], mergeRoot);
       if (installResult.code !== 0) {
         await failWithError(

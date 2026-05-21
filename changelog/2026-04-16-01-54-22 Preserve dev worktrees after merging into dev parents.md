@@ -18,5 +18,5 @@ can be cleaned up manually later.
    'accept' && !isProduction`); it still fires for rejects and production
    accepts.
 3. The three cleanup lines (`git worktree remove`, `git branch -D`,
-   `git config --remove-section`) that ran at the end of the legacy dev merge
+   `git config --remove-section`) that ran at the end of the faster dev pipeline merge
    path have been removed.

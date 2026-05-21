@@ -131,6 +131,7 @@ When implementing changes, follow these principles:
 | Cross-device QR sign-in | ✅ Live | Laptop shows QR code; authenticated phone scans it and approves; laptop gets a session |
 | Credentials management | ✅ Live | Account Settings includes unified Billing sources (`/settings`) and Presets (`/settings/presets`); users can connect Claude.ai credentials and ChatGPT subscription OAuth credentials, store API keys encrypted, and define evolve presets that bundle billing source + harness + model |
 | RBAC (roles) | ✅ Live | Simple role system: `admin` (auto-granted to first user) and `can_evolve`; /admin page lets admin grant/revoke roles; protected pages show informative 403 instead of redirecting |
+| Dependency security (/admin/dependencies-security) | ✅ Live | Admin-only; shows `bun audit` output, daily checks for high/critical vulnerabilities, notification bell alerts, and one-click evolve sessions to update vulnerable packages |
 | Server logs (/admin/logs) | ✅ Live | Admin-only; live tail of production server stdout/stderr via SSE; routes through `/_proxy/prod/logs` in production |
 | Proxy logs (/admin/proxy-logs) | ✅ Live | Admin-only; live tail of `journalctl -u primordia-proxy -f -n 100` via SSE |
 | Deep rollback (/admin/rollback) | ✅ Live | Admin-only; lists all previous production slots from primordia.productionHistory in git config; "Roll back" button for each target; zero-downtime cutover via reverse proxy |
