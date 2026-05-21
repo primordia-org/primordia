@@ -17,6 +17,10 @@ function formatClientTimestamp(timestamp: number, options: Intl.DateTimeFormatOp
   return new Intl.DateTimeFormat(undefined, options).format(new Date(timestamp));
 }
 
+function isEmptyAuditJson(audit: BunAuditResult): boolean {
+  return audit.findings.length === 0 && audit.jsonText.trim() === "{}";
+}
+
 export default function DependenciesSecurityClient({ initialAudit, initialCheckedAt, timestampOptions }: Props) {
   const router = useRouter();
   const [audit, setAudit] = useState<BunAuditResult>(initialAudit);
@@ -149,9 +153,23 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
         <div className="px-4 py-3 bg-gray-800/50 border-b border-gray-700 text-sm font-medium text-gray-200">
           bun audit output
         </div>
-        <pre className="p-4 overflow-x-auto text-xs leading-relaxed text-gray-300 bg-gray-950 max-h-[32rem]">
-          {audit.rawOutput || audit.jsonText || "{}"}
-        </pre>
+        {isEmptyAuditJson(audit) ? (
+          <div className="p-4 bg-gray-950 text-sm text-gray-300 space-y-2">
+            <p>
+              <code className="bg-gray-800 px-1.5 py-0.5 rounded text-green-300">{"{}"}</code>{" "}
+              means Bun returned an empty audit result: no known vulnerable installed packages were found.
+            </p>
+            {audit.rawOutput && (
+              <pre className="overflow-x-auto text-xs leading-relaxed text-gray-500 pt-2 border-t border-gray-800">
+                {audit.rawOutput}
+              </pre>
+            )}
+          </div>
+        ) : (
+          <pre className="p-4 overflow-x-auto text-xs leading-relaxed text-gray-300 bg-gray-950 max-h-[32rem]">
+            {audit.rawOutput || audit.jsonText || "No bun audit output was returned."}
+          </pre>
+        )}
       </div>
     </div>
   );
