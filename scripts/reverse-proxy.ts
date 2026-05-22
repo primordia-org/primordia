@@ -45,6 +45,56 @@ const HOP_BY_HOP = new Set([
   'proxy-connection', 'te', 'trailers',
 ]);
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function logCrashBoundary(label: string, err: unknown): void {
+  console.error(`[proxy] ${label}:`, errorMessage(err));
+}
+
+function safeWrite(res: http.ServerResponse, data: string | Buffer): boolean {
+  if (res.writableEnded || res.destroyed) return false;
+  try {
+    return res.write(data);
+  } catch (err) {
+    logCrashBoundary('response write failed', err);
+    return false;
+  }
+}
+
+function safeEnd(res: http.ServerResponse, data?: string | Buffer): void {
+  if (res.writableEnded || res.destroyed) return;
+  try {
+    res.end(data);
+  } catch (err) {
+    logCrashBoundary('response end failed', err);
+    try { res.destroy(err instanceof Error ? err : undefined); } catch { /* already closed */ }
+  }
+}
+
+function safeWriteHead(
+  res: http.ServerResponse,
+  statusCode: number,
+  headers?: http.OutgoingHttpHeaders,
+): boolean {
+  if (res.headersSent || res.writableEnded || res.destroyed) return false;
+  try {
+    res.writeHead(statusCode, headers);
+    return true;
+  } catch (err) {
+    logCrashBoundary('response writeHead failed', err);
+    try { res.destroy(err instanceof Error ? err : undefined); } catch { /* already closed */ }
+    return false;
+  }
+}
+
+function sendPlainError(res: http.ServerResponse, statusCode: number, message: string): void {
+  if (safeWriteHead(res, statusCode, { 'content-type': 'text/plain' })) {
+    safeEnd(res, `${message}\n`);
+  }
+}
+
 function forwardHeaders(
   incoming: http.IncomingMessage,
   extra: Record<string, string>,
@@ -144,7 +194,9 @@ function appendProdLog(text: string): void {
   if (prodLogBuffer.length > MAX_LOG_BYTES) {
     prodLogBuffer = prodLogBuffer.slice(prodLogBuffer.length - MAX_LOG_BYTES);
   }
-  for (const sub of prodLogSubscribers) sub.write(text);
+  for (const sub of prodLogSubscribers) {
+    try { sub.write(text); } catch (err) { logCrashBoundary('prod log subscriber failed', err); }
+  }
 }
 
 // ─── Preview server registry ─────────────────────────────────────────────────
@@ -155,6 +207,12 @@ const MAX_LOG_BYTES = 50 * 1024;
 let previewInactivityMin = 30;
 /** How long to wait for a preview server to become ready before giving up (2 min). */
 const PREVIEW_START_TIMEOUT_MS = 2 * 60 * 1000;
+/** Maximum request header bytes buffered by the raw TCP classifier before HTTP parsing. */
+const MAX_REQUEST_HEADER_BYTES = 64 * 1024;
+/** Timeout for clients to finish sending request headers to the raw TCP classifier. */
+const REQUEST_HEADER_TIMEOUT_MS = 30_000;
+/** Maximum JSON/body bytes read by proxy management endpoints before forwarding. */
+const MAX_PROXY_BODY_BYTES = 1024 * 1024;
 
 interface LogSubscriber {
   write: (text: string) => void;
@@ -303,7 +361,12 @@ function readAllPorts(): void {
       // another branch in git config nor bound by another process, then
       // persist it so all future reads see a consistent value.
       const taken = new Set(Object.values(branchPort));
-      port = findFreePort(taken, LISTEN_PORT + 1);
+      try {
+        port = findFreePort(taken, LISTEN_PORT + 1);
+      } catch (err) {
+        console.error(`[proxy] could not assign port for '${prodBranch}': ${errorMessage(err)}`);
+        return;
+      }
       try {
         execFileSync('git', ['config', `branch.${prodBranch}.port`, String(port)], {
           cwd: MAIN_REPO,
@@ -325,7 +388,9 @@ function readAllPorts(): void {
     // no /_proxy/prod/spawn call is made — the proxy just sees the git config
     // change via fs.watch and must boot the new server automatically.
     if ((portChanged || prodBranch !== prevProdBranch) && !prodServerEntry) {
-      setTimeout(() => void startProdServerIfNeeded(), 0);
+      setTimeout(() => {
+        startProdServerIfNeeded().catch((err) => logCrashBoundary('startProdServerIfNeeded failed after config reload', err));
+      }, 0);
     }
   }
 
@@ -346,7 +411,9 @@ function readAllPorts(): void {
 
 function watchGitConfig(configPath: string): void {
   try {
-    fs.watch(configPath, () => setTimeout(readAllPorts, 50));
+    fs.watch(configPath, () => setTimeout(() => {
+      try { readAllPorts(); } catch (err) { logCrashBoundary('git config reload failed', err); }
+    }, 50));
   } catch {
     setTimeout(() => watchGitConfig(configPath), 1000);
   }
@@ -485,19 +552,30 @@ async function startPreviewServer(
     return entry;
   }
 
-  const proc = spawn(MISE_COMMAND, ['exec', '-C', info.worktreePath, '--', 'bun', 'run', 'dev'], {
-    cwd: info.worktreePath,
-    env: {
-      ...process.env,
-      NODE_ENV: 'development',
-      PORT: String(info.port),
-      HOSTNAME: '0.0.0.0',
-      NEXT_BASE_PATH: `/preview/${sessionId}`,
-      REVERSE_PROXY_PORT: String(LISTEN_PORT),
-    },
-    detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  let proc: ChildProcess;
+  try {
+    proc = spawn(MISE_COMMAND, ['exec', '-C', info.worktreePath, '--', 'bun', 'run', 'dev'], {
+      cwd: info.worktreePath,
+      env: {
+        ...process.env,
+        NODE_ENV: 'development',
+        PORT: String(info.port),
+        HOSTNAME: '0.0.0.0',
+        NEXT_BASE_PATH: `/preview/${sessionId}`,
+        REVERSE_PROXY_PORT: String(LISTEN_PORT),
+      },
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    entry.status = 'stopped';
+    const spawnErr = new Error(`Preview server spawn failed: ${errorMessage(err)}`);
+    const waiters = entry.startWaiters.splice(0);
+    for (const w of waiters) {
+      try { w.reject(spawnErr); } catch (waiterErr) { logCrashBoundary('preview start waiter reject failed', waiterErr); }
+    }
+    throw spawnErr;
+  }
   proc.unref();
   entry.process = proc;
 
@@ -507,13 +585,15 @@ async function startPreviewServer(
       entry.logBuffer = entry.logBuffer.slice(entry.logBuffer.length - MAX_LOG_BYTES);
     }
     for (const sub of entry.logSubscribers) {
-      sub.write(text);
+      try { sub.write(text); } catch (err) { logCrashBoundary('preview log subscriber failed', err); }
     }
     if (entry.status === 'starting' && text.includes('Ready')) {
       entry.status = 'running';
       console.log(`[proxy] preview server ready for session ${sessionId} on :${info.port}`);
       const waiters = entry.startWaiters.splice(0);
-      for (const w of waiters) w.resolve();
+      for (const w of waiters) {
+        try { w.resolve(); } catch (err) { logCrashBoundary('preview start waiter resolve failed', err); }
+      }
     }
   };
 
@@ -524,13 +604,17 @@ async function startPreviewServer(
     if (entry.status === 'starting') {
       const err = new Error(`Preview server exited before becoming ready (code ${code ?? 'unknown'})`);
       const waiters = entry.startWaiters.splice(0);
-      for (const w of waiters) w.reject(err);
+      for (const w of waiters) {
+        try { w.reject(err); } catch (waiterErr) { logCrashBoundary('preview start waiter reject failed', waiterErr); }
+      }
     }
     entry.status = 'stopped';
     // Keep the entry in the map so the logBuffer remains accessible for crash debugging.
     // startPreviewServer will overwrite it with a fresh entry on restart.
     console.log(`[proxy] preview server stopped for session ${sessionId} (code ${code ?? 'unknown'})`);
-    for (const sub of entry.logSubscribers) sub.close();
+    for (const sub of entry.logSubscribers) {
+      try { sub.close(); } catch (err) { logCrashBoundary('preview log subscriber close failed', err); }
+    }
     entry.logSubscribers.clear();
   });
 
@@ -540,7 +624,9 @@ async function startPreviewServer(
       entry.status = 'stopped';
       const spawnErr = new Error(`Preview server spawn failed: ${err.message}`);
       const waiters = entry.startWaiters.splice(0);
-      for (const w of waiters) w.reject(spawnErr);
+      for (const w of waiters) {
+        try { w.reject(spawnErr); } catch (waiterErr) { logCrashBoundary('preview start waiter reject failed', waiterErr); }
+      }
     }
   });
 
@@ -654,16 +740,26 @@ async function startProdServerIfNeeded(): Promise<void> {
 
   console.log(`[proxy] starting production server (${currentProdBranch}) on :${upstreamPort} in ${prodPath}`);
   await killPortOwner(upstreamPort);
-  const server = spawn(MISE_COMMAND, ['exec', '-C', prodPath, '--', 'bun', 'run', 'start'], {
-    cwd: prodPath,
-    env: { ...process.env, PORT: String(upstreamPort), HOSTNAME: '0.0.0.0' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  let server: ChildProcess;
+  try {
+    server = spawn(MISE_COMMAND, ['exec', '-C', prodPath, '--', 'bun', 'run', 'start'], {
+      cwd: prodPath,
+      env: { ...process.env, PORT: String(upstreamPort), HOSTNAME: '0.0.0.0' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    console.error(`[proxy] production server spawn failed: ${errorMessage(err)}`);
+    return;
+  }
   server.stdout?.on('data', (d: Buffer) => appendProdLog(d.toString()));
   server.stderr?.on('data', (d: Buffer) => appendProdLog(d.toString()));
   const startBranch = currentProdBranch;
   const startPort = upstreamPort;
   prodServerEntry = { process: server, port: startPort, branch: startBranch };
+  server.on('error', (err) => {
+    appendProdLog(`[proxy error] production server spawn failed: ${err.message}\n`);
+    if (prodServerEntry?.process === server) prodServerEntry = null;
+  });
   server.on('exit', (code) => {
     if (prodServerEntry?.process === server) {
       console.log(`[proxy] production server exited (code ${code ?? 'unknown'})`);
@@ -686,7 +782,23 @@ async function handleProdSpawn(
 ): Promise<void> {
   // Read request body.
   const chunks: Buffer[] = [];
-  for await (const chunk of clientReq as AsyncIterable<Buffer>) chunks.push(chunk);
+  let bodyBytes = 0;
+  try {
+    for await (const chunk of clientReq as AsyncIterable<Buffer>) {
+      bodyBytes += chunk.length;
+      if (bodyBytes > MAX_PROXY_BODY_BYTES) {
+        clientRes.writeHead(413, { 'content-type': 'application/json' });
+        clientRes.end(JSON.stringify({ error: 'Request body too large' }));
+        return;
+      }
+      chunks.push(chunk);
+    }
+  } catch (err) {
+    logCrashBoundary('prod spawn body read failed', err);
+    clientRes.writeHead(400, { 'content-type': 'application/json' });
+    clientRes.end(JSON.stringify({ error: 'Request body could not be read' }));
+    return;
+  }
   let body: { branch?: string };
   try {
     body = JSON.parse(Buffer.concat(chunks).toString()) as typeof body;
@@ -717,7 +829,13 @@ async function handleProdSpawn(
     // No port assigned yet — find a free one and persist it.
     readAllPorts(); // refresh cache so findFreePort sees current assignments
     const taken = new Set(Object.values(sessionPortCache));
-    port = findFreePort(taken, LISTEN_PORT + 1);
+    try {
+      port = findFreePort(taken, LISTEN_PORT + 1);
+    } catch (err) {
+      clientRes.writeHead(500, { 'content-type': 'application/json' });
+      clientRes.end(JSON.stringify({ error: `Could not find a free port for branch '${branch}': ${errorMessage(err)}` }));
+      return;
+    }
     try {
       execFileSync('git', ['config', `branch.${branch}.port`, String(port)], {
         cwd: MAIN_REPO,
@@ -762,12 +880,12 @@ async function handleProdSpawn(
   });
 
   const send = (data: object): void => {
-    if (!clientRes.writableEnded) clientRes.write(`data: ${JSON.stringify(data)}\n\n`);
+    safeWrite(clientRes, `data: ${JSON.stringify(data)}\n\n`);
   };
   const sendLog = (text: string): void => send({ type: 'log', text });
   const sendDone = (ok: boolean, error?: string): void => {
     send({ type: 'done', ok, ...(error ? { error } : {}) });
-    if (!clientRes.writableEnded) clientRes.end();
+    safeEnd(clientRes);
   };
 
   // ANSI formatting helpers (same palette as scripts/install.sh).
@@ -782,7 +900,9 @@ async function handleProdSpawn(
     if (_spinTimer) { clearInterval(_spinTimer); _spinTimer = null; }
     let i = 0;
     sendLog(`\\ ${msg}`);
-    _spinTimer = setInterval(() => { sendLog(`\r${SPIN[i++ % 4]} ${msg}`); }, 120);
+    _spinTimer = setInterval(() => {
+      try { sendLog(`\r${SPIN[i++ % 4]} ${msg}`); } catch (err) { logCrashBoundary('deploy spinner failed', err); }
+    }, 120);
   };
   // _done: kill the spinner and overwrite the line with a green ✓.
   const _done = (msg: string) => {
@@ -803,11 +923,18 @@ async function handleProdSpawn(
     await killPortOwner(port);
 
     // Spawn new prod server — proxy owns this process.
-    const newServer = spawn(MISE_COMMAND, ['exec', '-C', path.resolve(worktreePath), '--', 'bun', 'run', 'start'], {
-      cwd: path.resolve(worktreePath),
-      env: { ...process.env, PORT: String(port), HOSTNAME: '0.0.0.0' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    let newServer: ChildProcess;
+    try {
+      newServer = spawn(MISE_COMMAND, ['exec', '-C', path.resolve(worktreePath), '--', 'bun', 'run', 'start'], {
+        cwd: path.resolve(worktreePath),
+        env: { ...process.env, PORT: String(port), HOSTNAME: '0.0.0.0' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (err) {
+      _done('Server failed to start');
+      sendDone(false, `Server spawn failed: ${errorMessage(err)}`);
+      return;
+    }
     newServer.stdout?.on('data', (d: Buffer) => appendProdLog(d.toString()));
     newServer.stderr?.on('data', (d: Buffer) => appendProdLog(d.toString()));
 
@@ -894,12 +1021,18 @@ async function handleProdSpawn(
   }
 }
 
-readAllPorts();
+try {
+  readAllPorts();
+} catch (err) {
+  logCrashBoundary('initial git config load failed', err);
+}
 // Start production server on boot if not already running.
-void startProdServerIfNeeded();
+startProdServerIfNeeded().catch((err) => logCrashBoundary('initial production server start failed', err));
 
 // Safety-net poll every 5 s in case fs.watch misses an event
-setInterval(readAllPorts, 5000);
+setInterval(() => {
+  try { readAllPorts(); } catch (err) { logCrashBoundary('periodic git config reload failed', err); }
+}, 5000);
 
 // ─── Request forwarding ───────────────────────────────────────────────────────
 
@@ -930,16 +1063,43 @@ function forwardToPort(
     }),
   };
 
-  const upstreamReq = http.request(options, (upstreamRes) => {
-    clientRes.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
-    upstreamRes.pipe(clientRes);
+  let upstreamReq: http.ClientRequest;
+  try {
+    upstreamReq = http.request(options, (upstreamRes) => {
+      try {
+        clientRes.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
+        upstreamRes.pipe(clientRes);
+      } catch (err) {
+        logCrashBoundary(`forward response setup failed on port ${port}`, err);
+        upstreamRes.destroy(err instanceof Error ? err : undefined);
+        try { clientRes.destroy(err instanceof Error ? err : undefined); } catch { /* already closed */ }
+      }
+      upstreamRes.on('error', (err) => {
+        logCrashBoundary(`upstream response error on port ${port}`, err);
+        try { clientRes.destroy(err); } catch { /* already closed */ }
+      });
+    });
+  } catch (err) {
+    console.error(`[proxy] could not create upstream request on port ${port}:`, errorMessage(err));
+    sendPlainError(clientRes, 502, 'Bad Gateway - upstream request failed');
+    return;
+  }
+
+  clientReq.on('error', (err) => {
+    logCrashBoundary('client request stream error', err);
+    try { upstreamReq.destroy(err); } catch { /* already closed */ }
+  });
+  clientRes.on('error', (err) => {
+    logCrashBoundary('client response stream error', err);
+    try { upstreamReq.destroy(err); } catch { /* already closed */ }
   });
 
   upstreamReq.on('error', (err) => {
     console.error(`[proxy] upstream error on port ${port}:`, err.message);
     if (!clientRes.headersSent) {
-      clientRes.writeHead(502, { 'content-type': 'text/plain' });
-      clientRes.end('Bad Gateway - upstream server unavailable\n');
+      sendPlainError(clientRes, 502, 'Bad Gateway - upstream server unavailable');
+    } else {
+      try { clientRes.destroy(err); } catch { /* already closed */ }
     }
   });
 
@@ -996,13 +1156,30 @@ async function handlePreviewRequest(
       clientRes.end(`This session's branch is now the production server and cannot be previewed as a dev server.\n`);
       return;
     }
-    entry = await startPreviewServer(sessionId, info);
+    try {
+      entry = await startPreviewServer(sessionId, info);
+    } catch (err) {
+      sendPlainError(clientRes, 503, `Preview server failed to start: ${errorMessage(err)}`);
+      return;
+    }
   }
 
   // Server is 'starting' — buffer the request body and wait.
   const chunks: Buffer[] = [];
-  for await (const chunk of clientReq as AsyncIterable<Buffer>) {
-    chunks.push(chunk);
+  let bodyBytes = 0;
+  try {
+    for await (const chunk of clientReq as AsyncIterable<Buffer>) {
+      bodyBytes += chunk.length;
+      if (bodyBytes > MAX_PROXY_BODY_BYTES) {
+        sendPlainError(clientRes, 413, 'Request body too large while preview server is starting');
+        return;
+      }
+      chunks.push(chunk);
+    }
+  } catch (err) {
+    logCrashBoundary('preview request body read failed', err);
+    sendPlainError(clientRes, 400, 'Request body could not be read');
+    return;
   }
   const bodyBuffer = Buffer.concat(chunks);
 
@@ -1010,7 +1187,7 @@ async function handlePreviewRequest(
     const timeoutId = setTimeout(() => {
       if (!clientRes.headersSent) {
         clientRes.writeHead(503, { 'content-type': 'text/html; charset=utf-8' });
-        clientRes.end(
+        safeEnd(clientRes,
           '<html><head><title>Preview Starting</title></head><body>' +
           '<h2>Preview server is starting…</h2>' +
           '<p>Please wait a moment and refresh.</p>' +
@@ -1031,7 +1208,7 @@ async function handlePreviewRequest(
         clearTimeout(timeoutId);
         if (!clientRes.headersSent) {
           clientRes.writeHead(503, { 'content-type': 'text/plain' });
-          clientRes.end(`Preview server failed to start: ${err.message}\n`);
+          safeEnd(clientRes, `Preview server failed to start: ${err.message}\n`);
         }
         resolve();
       },
@@ -1109,7 +1286,7 @@ function handleProxyApi(
       clientRes.end(JSON.stringify({ error: 'Session is currently the production server; cannot restart as dev server' }));
       return;
     }
-    void startPreviewServer(sessionId, info);
+    startPreviewServer(sessionId, info).catch((err) => logCrashBoundary(`preview restart failed for ${sessionId}`, err));
     clientRes.writeHead(200, { 'content-type': 'application/json' });
     clientRes.end(JSON.stringify({ ok: true }));
     return;
@@ -1135,27 +1312,23 @@ function handleProxyApi(
 
     // Send current log buffer as the first event.
     if (entry?.logBuffer) {
-      clientRes.write(`data: ${JSON.stringify({ text: entry.logBuffer, snapshot: true })}\n\n`);
+      safeWrite(clientRes, `data: ${JSON.stringify({ text: entry.logBuffer, snapshot: true })}\n\n`);
     }
 
     if (!entry || entry.status === 'stopped') {
-      clientRes.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      clientRes.end();
+      safeWrite(clientRes, `data: ${JSON.stringify({ done: true })}\n\n`);
+      safeEnd(clientRes);
       return;
     }
 
     // Subscribe to future log lines.
     const subscriber: LogSubscriber = {
       write: (text) => {
-        if (!clientRes.writableEnded) {
-          clientRes.write(`data: ${JSON.stringify({ text })}\n\n`);
-        }
+        safeWrite(clientRes, `data: ${JSON.stringify({ text })}\n\n`);
       },
       close: () => {
-        if (!clientRes.writableEnded) {
-          clientRes.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-          clientRes.end();
-        }
+        safeWrite(clientRes, `data: ${JSON.stringify({ done: true })}\n\n`);
+        safeEnd(clientRes);
       },
     };
     entry.logSubscribers.add(subscriber);
@@ -1184,10 +1357,11 @@ async function handleRequest(
   clientReq: http.IncomingMessage,
   clientRes: http.ServerResponse,
 ): Promise<void> {
-  const url = clientReq.url ?? '/';
+  try {
+    const url = clientReq.url ?? '/';
 
-  // Proxy management API
-  if (url.startsWith('/_proxy/')) {
+    // Proxy management API
+    if (url.startsWith('/_proxy/')) {
     if (url === '/_proxy/prod/spawn' && clientReq.method === 'POST') {
       await handleProdSpawn(clientReq, clientRes);
       return;
@@ -1201,42 +1375,47 @@ async function handleRequest(
         'connection': 'keep-alive',
       });
       if (!skipSnapshot && prodLogBuffer) {
-        clientRes.write(`data: ${JSON.stringify({ text: prodLogBuffer })}\n\n`);
+        safeWrite(clientRes, `data: ${JSON.stringify({ text: prodLogBuffer })}\n\n`);
       }
       const subscriber: LogSubscriber = {
         write: (text) => {
-          if (!clientRes.writableEnded) clientRes.write(`data: ${JSON.stringify({ text })}\n\n`);
+          safeWrite(clientRes, `data: ${JSON.stringify({ text })}\n\n`);
         },
         close: () => {
-          if (!clientRes.writableEnded) {
-            clientRes.write(`data: ${JSON.stringify({ done: true, exitCode: 0 })}\n\n`);
-            clientRes.end();
-          }
+          safeWrite(clientRes, `data: ${JSON.stringify({ done: true, exitCode: 0 })}\n\n`);
+          safeEnd(clientRes);
         },
       };
       prodLogSubscribers.add(subscriber);
       clientReq.on('close', () => prodLogSubscribers.delete(subscriber));
       return;
     }
-    handleProxyApi(clientReq, clientRes);
-    return;
-  }
+      handleProxyApi(clientReq, clientRes);
+      return;
+    }
 
-  // Preview routing with auto-start
-  const previewMatch = url.match(/^\/preview\/([^/?#]+)/);
-  if (previewMatch) {
-    await handlePreviewRequest(previewMatch[1], clientReq, clientRes);
-    return;
-  }
+    // Preview routing with auto-start
+    const previewMatch = url.match(/^\/preview\/([^/?#]+)/);
+    if (previewMatch) {
+      await handlePreviewRequest(previewMatch[1], clientReq, clientRes);
+      return;
+    }
 
-  // Default: forward to production upstream
-  forwardToPort(resolveUpstreamPort(), clientReq, clientRes);
+    // Default: forward to production upstream
+    forwardToPort(resolveUpstreamPort(), clientReq, clientRes);
+  } catch (err) {
+    logCrashBoundary('request handler failed', err);
+    sendPlainError(clientRes, 500, 'Internal proxy error');
+  }
 }
 
 // Internal HTTP handler. Listens on a random localhost port; the external
 // net.Server forwards non-WebSocket connections to it via loopback.
 const httpHandler = http.createServer((clientReq, clientRes) => {
-  void handleRequest(clientReq, clientRes);
+  handleRequest(clientReq, clientRes).catch((err) => {
+    logCrashBoundary('request handler rejected', err);
+    sendPlainError(clientRes, 500, 'Internal proxy error');
+  });
 });
 
 // Inject x-forwarded-for / x-forwarded-proto into a raw HTTP upgrade request
@@ -1329,36 +1508,74 @@ let httpHandlerPort = 0;
 const server = net.createServer((rawSocket) => {
   rawSocket.pause();
   let buf = Buffer.alloc(0);
+  const headerTimer = setTimeout(() => {
+    if (!rawSocket.destroyed) {
+      rawSocket.write('HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n');
+      rawSocket.destroy();
+    }
+  }, REQUEST_HEADER_TIMEOUT_MS);
+  headerTimer.unref();
+
+  rawSocket.on('error', (err) => {
+    logCrashBoundary('raw client socket error', err);
+  });
+  rawSocket.on('close', () => clearTimeout(headerTimer));
 
   const onData = (chunk: Buffer): void => {
-    buf = Buffer.concat([buf, chunk]);
-    const headerEnd = buf.indexOf('\r\n\r\n');
-    if (headerEnd === -1) {
-      // Headers not yet complete — keep accumulating.
-      rawSocket.resume();
-      return;
-    }
-
-    rawSocket.removeListener('data', onData);
-
-    const isWsUpgrade = /upgrade:\s*websocket/i.test(buf.slice(0, headerEnd).toString('binary'));
-    if (isWsUpgrade) {
-      handleWsUpgrade(rawSocket, buf);
-    } else {
-      // Forward to internal HTTP handler via loopback.
-      const internal = net.createConnection(httpHandlerPort, '127.0.0.1');
-      internal.on('connect', () => {
-        internal.write(buf);
-        rawSocket.pipe(internal);
-        internal.pipe(rawSocket);
-        rawSocket.on('error', () => internal.destroy());
-        internal.on('error', () => rawSocket.destroy());
+    try {
+      buf = Buffer.concat([buf, chunk]);
+      const headerEnd = buf.indexOf('\r\n\r\n');
+      if (headerEnd === -1) {
+        if (buf.length > MAX_REQUEST_HEADER_BYTES) {
+          clearTimeout(headerTimer);
+          rawSocket.removeListener('data', onData);
+          if (!rawSocket.destroyed) {
+            rawSocket.write('HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n');
+            rawSocket.destroy();
+          }
+          return;
+        }
+        // Headers not yet complete — keep accumulating.
         rawSocket.resume();
-      });
-      internal.on('error', (err) => {
-        console.error('[proxy] internal handler connection error:', err.message);
-        if (!rawSocket.destroyed) rawSocket.destroy();
-      });
+        return;
+      }
+      if (headerEnd > MAX_REQUEST_HEADER_BYTES) {
+        clearTimeout(headerTimer);
+        rawSocket.removeListener('data', onData);
+        if (!rawSocket.destroyed) {
+          rawSocket.write('HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n');
+          rawSocket.destroy();
+        }
+        return;
+      }
+
+      clearTimeout(headerTimer);
+      rawSocket.removeListener('data', onData);
+
+      const isWsUpgrade = /upgrade:\s*websocket/i.test(buf.slice(0, headerEnd).toString('binary'));
+      if (isWsUpgrade) {
+        handleWsUpgrade(rawSocket, buf);
+      } else {
+        // Forward to internal HTTP handler via loopback.
+        const internal = net.createConnection(httpHandlerPort, '127.0.0.1');
+        internal.on('connect', () => {
+          internal.write(buf);
+          rawSocket.pipe(internal);
+          internal.pipe(rawSocket);
+          rawSocket.on('error', () => internal.destroy());
+          internal.on('error', () => rawSocket.destroy());
+          rawSocket.resume();
+        });
+        internal.on('error', (err) => {
+          console.error('[proxy] internal handler connection error:', err.message);
+          if (!rawSocket.destroyed) rawSocket.destroy();
+        });
+      }
+    } catch (err) {
+      clearTimeout(headerTimer);
+      rawSocket.removeListener('data', onData);
+      logCrashBoundary('raw request classification failed', err);
+      if (!rawSocket.destroyed) rawSocket.destroy();
     }
   };
 
@@ -1545,8 +1762,20 @@ httpHandler.listen(0, '127.0.0.1', () => {
 });
 
 // Run an initial disk check shortly after startup, then on a fixed interval.
-setTimeout(runDiskCleanup, 30_000).unref();
-setInterval(runDiskCleanup, DISK_CLEANUP_INTERVAL_MS).unref();
+setTimeout(() => {
+  try { runDiskCleanup(); } catch (err) { logCrashBoundary('initial disk cleanup failed', err); }
+}, 30_000).unref();
+setInterval(() => {
+  try { runDiskCleanup(); } catch (err) { logCrashBoundary('periodic disk cleanup failed', err); }
+}, DISK_CLEANUP_INTERVAL_MS).unref();
+
+process.on('unhandledRejection', (reason) => {
+  logCrashBoundary('unhandled promise rejection', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  logCrashBoundary('uncaught exception', err);
+});
 
 process.on('SIGTERM', () => {
   // Stop all preview servers before exiting.
