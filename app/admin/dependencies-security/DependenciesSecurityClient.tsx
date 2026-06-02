@@ -38,6 +38,12 @@ function findingHref(finding: BunAuditResult["findings"][number]): string | unde
   return finding.url || (finding.id.startsWith("http://") || finding.id.startsWith("https://") ? finding.id : undefined);
 }
 
+function nonSevereFindingLabel(findings: BunAuditResult["findings"]): string {
+  const severities = Array.from(new Set(findings.map((finding) => finding.severity.toLowerCase()))).sort();
+  const severityLabel = severities.length === 1 ? severities[0] : severities.join("/");
+  return `${findings.length} ${severityLabel} issue${findings.length === 1 ? "" : "s"} found`;
+}
+
 export default function DependenciesSecurityClient({ initialAudit, initialCheckedAt, timestampOptions }: Props) {
   const router = useRouter();
   const [audit, setAudit] = useState<BunAuditResult>(initialAudit);
@@ -104,7 +110,7 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
               {severeCount > 0
                 ? `${severeCount} high/critical issue${severeCount === 1 ? "" : "s"} found`
                 : hasFindings
-                  ? `${audit.findings.length} lower-severity issue${audit.findings.length === 1 ? "" : "s"} found`
+                  ? nonSevereFindingLabel(audit.findings)
                   : "No known vulnerable dependencies found"}
             </div>
             <p className="text-xs text-gray-500 mt-1">
@@ -146,7 +152,7 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
       {audit.findings.length > 0 && (
         <div className="rounded-xl border border-gray-700 overflow-hidden">
           <div className="px-4 py-3 bg-gray-800/50 border-b border-gray-700 text-sm font-medium text-gray-200">
-            Parsed vulnerability findings
+            Current Vulnerabilities
           </div>
           <div className="divide-y divide-gray-800">
             {audit.findings.map((finding, index) => (
