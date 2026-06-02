@@ -188,9 +188,13 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
               means Bun returned an empty audit result: no known vulnerable installed packages were found.
             </p>
           )}
-          <div className="max-w-full max-h-[32rem] overflow-x-auto overflow-y-auto">
-            <pre className="w-max min-w-full p-4 text-xs leading-relaxed text-gray-300">{formatRawAuditOutput(audit)}</pre>
-          </div>
+          <textarea
+            readOnly
+            aria-label="Raw bun audit output"
+            wrap="off"
+            value={formatRawAuditOutput(audit)}
+            className="block w-full max-w-full h-96 max-h-[32rem] p-4 overflow-x-auto overflow-y-auto resize-y bg-transparent font-mono text-xs leading-relaxed text-gray-300 outline-none"
+          />
         </div>
       </details>
     </div>
