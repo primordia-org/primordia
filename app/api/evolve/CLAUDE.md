@@ -20,8 +20,9 @@ User types change request on /evolve page
   → records parentage in legacy git config (`branch.{branch}.parent`) and writes an empty `[branch marker]` commit with `Branched-From: <parent>` and `Base-Commit: <sha>` trailers so trailer-based parentage can survive pushes/clones
   → bun install in worktree
   → copy .primordia-auth.db + symlink .env.local into worktree
-  → @anthropic-ai/claude-agent-sdk query() in worktree
-      → streams SDKMessage events → formatted progressText appended in memory
+  → selected agent harness runs in worktree
+      → Pi harness installs/loads the required `npm:@agnishc/edb-todo` package and exposes TaskCreate/TaskList/TaskGet/TaskUpdate/TaskOutput/TaskStop for required task tracking
+      → streams structured events → formatted progressText appended in memory
       → progressText flushed to SQLite (throttled, ≤1 write/2s per session)
   → assigns ephemeral port to branch in git config (branch.{branch}.port) — idempotent, stable for branch lifetime
   → spawn: bun run dev in worktree with PORT=branch port and NEXT_BASE_PATH=/preview/{branchName}
