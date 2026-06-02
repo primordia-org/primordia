@@ -87,7 +87,7 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 min-w-0 max-w-full">
       <div>
         <h1 className="text-2xl font-semibold text-gray-100 flex items-center gap-2">
           <ShieldAlert size={24} strokeWidth={2} className={severeCount > 0 ? "text-red-400" : "text-green-400"} />
@@ -177,20 +177,20 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
         </div>
       )}
 
-      <details className="rounded-xl border border-gray-700 overflow-hidden group w-full max-w-full">
+      <details className="rounded-xl border border-gray-700 overflow-hidden group w-full min-w-0 max-w-full">
         <summary className="px-4 py-3 bg-gray-800/50 text-sm font-medium text-gray-200 cursor-pointer hover:bg-gray-800 transition-colors">
           Raw bun audit output
         </summary>
-        <div className="border-t border-gray-700 bg-gray-950">
+        <div className="border-t border-gray-700 bg-gray-950 min-w-0 max-w-full overflow-hidden">
           {isEmptyAuditJson(audit) && (
             <p className="p-4 pb-0 text-sm text-gray-300">
               <code className="bg-gray-800 px-1.5 py-0.5 rounded text-green-300">{"{}"}</code>{" "}
               means Bun returned an empty audit result: no known vulnerable installed packages were found.
             </p>
           )}
-          <pre className="block w-full max-w-full p-4 overflow-x-auto text-xs leading-relaxed text-gray-300 max-h-[32rem]">
-            {formatRawAuditOutput(audit)}
-          </pre>
+          <div className="max-w-full max-h-[32rem] overflow-x-auto overflow-y-auto">
+            <pre className="w-max min-w-full p-4 text-xs leading-relaxed text-gray-300">{formatRawAuditOutput(audit)}</pre>
+          </div>
         </div>
       </details>
     </div>
