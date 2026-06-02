@@ -21,6 +21,19 @@ function isEmptyAuditJson(audit: BunAuditResult): boolean {
   return audit.findings.length === 0 && audit.jsonText.trim() === "{}";
 }
 
+function formatRawAuditOutput(audit: BunAuditResult): string {
+  const jsonText = audit.jsonText.trim();
+  if (jsonText) {
+    try {
+      return JSON.stringify(JSON.parse(jsonText) as unknown, null, 2);
+    } catch {
+      // Fall through to raw text if Bun ever emits non-JSON output here.
+    }
+  }
+
+  return audit.rawOutput || "No bun audit output was returned.";
+}
+
 export default function DependenciesSecurityClient({ initialAudit, initialCheckedAt, timestampOptions }: Props) {
   const router = useRouter();
   const [audit, setAudit] = useState<BunAuditResult>(initialAudit);
@@ -129,7 +142,7 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
       {audit.findings.length > 0 && (
         <div className="rounded-xl border border-gray-700 overflow-hidden">
           <div className="px-4 py-3 bg-gray-800/50 border-b border-gray-700 text-sm font-medium text-gray-200">
-            Structured findings
+            Parsed vulnerability findings
           </div>
           <div className="divide-y divide-gray-800">
             {audit.findings.map((finding, index) => (
@@ -149,28 +162,22 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
         </div>
       )}
 
-      <div className="rounded-xl border border-gray-700 overflow-hidden">
-        <div className="px-4 py-3 bg-gray-800/50 border-b border-gray-700 text-sm font-medium text-gray-200">
-          bun audit output
-        </div>
-        {isEmptyAuditJson(audit) ? (
-          <div className="p-4 bg-gray-950 text-sm text-gray-300 space-y-2">
-            <p>
+      <details className="rounded-xl border border-gray-700 overflow-hidden group">
+        <summary className="px-4 py-3 bg-gray-800/50 text-sm font-medium text-gray-200 cursor-pointer hover:bg-gray-800 transition-colors">
+          Raw bun audit output
+        </summary>
+        <div className="border-t border-gray-700 bg-gray-950">
+          {isEmptyAuditJson(audit) && (
+            <p className="p-4 pb-0 text-sm text-gray-300">
               <code className="bg-gray-800 px-1.5 py-0.5 rounded text-green-300">{"{}"}</code>{" "}
               means Bun returned an empty audit result: no known vulnerable installed packages were found.
             </p>
-            {audit.rawOutput && (
-              <pre className="overflow-x-auto text-xs leading-relaxed text-gray-500 pt-2 border-t border-gray-800">
-                {audit.rawOutput}
-              </pre>
-            )}
-          </div>
-        ) : (
-          <pre className="p-4 overflow-x-auto text-xs leading-relaxed text-gray-300 bg-gray-950 max-h-[32rem]">
-            {audit.rawOutput || audit.jsonText || "No bun audit output was returned."}
+          )}
+          <pre className="p-4 overflow-x-auto text-xs leading-relaxed text-gray-300 max-h-[32rem]">
+            {formatRawAuditOutput(audit)}
           </pre>
-        )}
-      </div>
+        </div>
+      </details>
     </div>
   );
 }
