@@ -34,6 +34,10 @@ function formatRawAuditOutput(audit: BunAuditResult): string {
   return audit.rawOutput || "No bun audit output was returned.";
 }
 
+function findingHref(finding: BunAuditResult["findings"][number]): string | undefined {
+  return finding.url || (finding.id.startsWith("http://") || finding.id.startsWith("https://") ? finding.id : undefined);
+}
+
 export default function DependenciesSecurityClient({ initialAudit, initialCheckedAt, timestampOptions }: Props) {
   const router = useRouter();
   const [audit, setAudit] = useState<BunAuditResult>(initialAudit);
@@ -152,17 +156,22 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
                     {finding.severity}
                   </span>
                   <span className="font-mono text-gray-300">{finding.packageName}</span>
-                  <span className="text-gray-500">{finding.id}</span>
+                  {findingHref(finding) ? (
+                    <a href={findingHref(finding)} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-blue-300 transition-colors">
+                      {finding.id}
+                    </a>
+                  ) : (
+                    <span className="text-gray-500">{finding.id}</span>
+                  )}
                 </div>
                 <p className="text-gray-200 mt-1">{finding.title}</p>
-                {finding.url && <a href={finding.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300">{finding.url}</a>}
               </div>
             ))}
           </div>
         </div>
       )}
 
-      <details className="rounded-xl border border-gray-700 overflow-hidden group">
+      <details className="rounded-xl border border-gray-700 overflow-hidden group w-full max-w-full">
         <summary className="px-4 py-3 bg-gray-800/50 text-sm font-medium text-gray-200 cursor-pointer hover:bg-gray-800 transition-colors">
           Raw bun audit output
         </summary>
@@ -173,7 +182,7 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
               means Bun returned an empty audit result: no known vulnerable installed packages were found.
             </p>
           )}
-          <pre className="p-4 overflow-x-auto text-xs leading-relaxed text-gray-300 max-h-[32rem]">
+          <pre className="block w-full max-w-full p-4 overflow-x-auto text-xs leading-relaxed text-gray-300 max-h-[32rem]">
             {formatRawAuditOutput(audit)}
           </pre>
         </div>
