@@ -315,7 +315,7 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
       ) : (
         <ol className="space-y-1.5">
           {todos.map((todo, index) => (
-            <li key={todo.id ?? `${todo.content}-${index}`} className="flex items-start gap-2 rounded-md bg-gray-900/70 px-3 py-2">
+            <li key={todo.id ?? `${todo.content}-${index}`} className="flex items-start gap-2">
               <span className="mt-0.5 shrink-0">{todoIconForStatus(todo.status)}</span>
               <div className="min-w-0 flex-1">
                 <div className={`text-sm ${todoStatusClass(todo.status)}`}>{todo.content}</div>

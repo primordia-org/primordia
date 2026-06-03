@@ -1,5 +1,5 @@
 # Polish task progress panel
 
-Updated the evolve session task progress panel to use the simpler title “Tasks,” show “completed” once all visible tasks are done, and remove borders from individual task rows.
+Updated the evolve session task progress panel to use the simpler title “Tasks,” show “completed” once all visible tasks are done, and remove the bordered card treatment from individual task rows.
 
-This keeps the task summary wording clearer and makes the task list visually lighter while preserving status icons, spacing, and readability.
+Task rows now avoid their own border, background fill, rounded container, and extra padding so the list reads as a lighter inline checklist while preserving status icons and readability.
