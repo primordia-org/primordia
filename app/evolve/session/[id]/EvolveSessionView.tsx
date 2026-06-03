@@ -153,6 +153,7 @@ interface AgentTodoItem {
   content: string;
   status: string;
   priority?: string;
+  weight?: number;
 }
 
 function TodoItemsDisplay({ todos }: { todos: AgentTodoItem[] }) {
@@ -205,6 +206,33 @@ function firstString(input: Record<string, unknown>, key: string): string | unde
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
+function firstPositiveNumber(input: Record<string, unknown>, key: string): number | undefined {
+  const value = input[key];
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function metadataWeight(input: Record<string, unknown>): number | undefined {
+  const metadata = input.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  return firstPositiveNumber(metadata as Record<string, unknown>, 'weight');
+}
+
+function normalizeTodoWeight(input: Record<string, unknown>): number | undefined {
+  return firstPositiveNumber(input, 'weight') ?? metadataWeight(input);
+}
+
+function taskWeight(todo: AgentTodoItem): number {
+  if (todo.weight != null) return todo.weight;
+  if (todo.priority === 'high') return 3;
+  if (todo.priority === 'low') return 1;
+  return 2;
+}
+
 function normalizeTodoStatus(status: string | undefined): string {
   if (!status) return 'pending';
   return ['pending', 'in_progress', 'completed', 'blocked', 'failed', 'deleted'].includes(status) ? status : 'pending';
@@ -228,6 +256,7 @@ function deriveCurrentTodoList(events: SessionEvent[]): { todos: AgentTodoItem[]
           content: firstString(raw, 'content') ?? 'Untitled to-do',
           status: normalizeTodoStatus(firstString(raw, 'status')),
           priority: firstString(raw, 'priority'),
+          weight: normalizeTodoWeight(raw),
         }))
         .filter((todo) => todo.status !== 'deleted');
       continue;
@@ -241,6 +270,7 @@ function deriveCurrentTodoList(events: SessionEvent[]): { todos: AgentTodoItem[]
           content: firstString(event.input, 'content') ?? 'Untitled to-do',
           status: 'pending',
           priority: firstString(event.input, 'priority'),
+          weight: normalizeTodoWeight(event.input),
         },
       ];
       continue;
@@ -250,6 +280,7 @@ function deriveCurrentTodoList(events: SessionEvent[]): { todos: AgentTodoItem[]
       const id = firstString(event.input, 'id');
       const content = firstString(event.input, 'content');
       const priority = firstString(event.input, 'priority');
+      const weight = normalizeTodoWeight(event.input);
       const statusInput = firstString(event.input, 'status');
       const existingIndex = id ? todos.findIndex((todo) => todo.id === id) : -1;
       const unassignedIndex = id && existingIndex === -1 ? todos.findIndex((todo) => !todo.id) : -1;
@@ -264,6 +295,7 @@ function deriveCurrentTodoList(events: SessionEvent[]): { todos: AgentTodoItem[]
           content: content ?? existing.content,
           status,
           priority: priority ?? existing.priority,
+          weight: weight ?? existing.weight,
         };
         todos = status === 'deleted'
           ? todos.filter((_, index) => index !== targetIndex)
@@ -278,6 +310,7 @@ function deriveCurrentTodoList(events: SessionEvent[]): { todos: AgentTodoItem[]
               content: content ?? (id ? `To-do #${id}` : 'Updated to-do'),
               status,
               priority,
+              weight,
             },
           ];
         }
@@ -301,6 +334,8 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
 
   const completed = todos.filter((todo) => todo.status === 'completed').length;
   const completionLabel = completed === todos.length ? 'completed' : 'complete';
+  const totalWeight = todos.reduce((sum, todo) => sum + taskWeight(todo), 0);
+  const completedWeight = todos.reduce((sum, todo) => sum + (todo.status === 'completed' ? taskWeight(todo) : 0), 0);
   const activeTasks = todos.filter((todo) => todo.status === 'in_progress');
 
   return (
@@ -328,7 +363,7 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
           </ol>
           <div className="mt-4 border-t border-gray-800 pt-3">
             <div className="mb-2 text-xs font-semibold text-gray-300">Progress</div>
-            <ProgressBar value={completed} max={todos.length} label={`${completed}/${todos.length} ${completionLabel}`} />
+            <ProgressBar value={completedWeight} max={totalWeight} label={`${completed}/${todos.length} ${completionLabel}`} />
             <div className="mt-2 text-xs text-gray-500">
               {activeTasks.length > 0 ? (
                 <div className="space-y-1">
