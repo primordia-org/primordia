@@ -154,6 +154,7 @@ interface AgentTodoItem {
   status: string;
   priority?: string;
   weight?: number;
+  activeForm?: string;
 }
 
 function TodoItemsDisplay({ todos }: { todos: AgentTodoItem[] }) {
@@ -268,6 +269,7 @@ function applyTodoToolEvent(todos: AgentTodoItem[], event: Extract<SessionEvent,
         status: normalizeTodoStatus(firstString(raw, 'status')),
         priority: firstString(raw, 'priority'),
         weight: normalizeTodoWeight(raw),
+        activeForm: firstString(raw, 'activeForm'),
       }))
       .filter((todo) => todo.status !== 'deleted');
   }
@@ -281,6 +283,7 @@ function applyTodoToolEvent(todos: AgentTodoItem[], event: Extract<SessionEvent,
         status: 'pending',
         priority: firstString(event.input, 'priority'),
         weight: normalizeTodoWeight(event.input),
+        activeForm: firstString(event.input, 'activeForm'),
       },
     ];
   }
@@ -291,6 +294,7 @@ function applyTodoToolEvent(todos: AgentTodoItem[], event: Extract<SessionEvent,
   const content = firstString(event.input, 'content');
   const priority = firstString(event.input, 'priority');
   const weight = normalizeTodoWeight(event.input);
+  const activeForm = firstString(event.input, 'activeForm');
   const statusInput = firstString(event.input, 'status');
   const existingIndex = id ? todos.findIndex((todo) => todo.id === id) : -1;
   const unassignedIndex = id && existingIndex === -1 ? todos.findIndex((todo) => !todo.id) : -1;
@@ -306,6 +310,7 @@ function applyTodoToolEvent(todos: AgentTodoItem[], event: Extract<SessionEvent,
       status,
       priority: priority ?? existing.priority,
       weight: weight ?? existing.weight,
+      activeForm: activeForm ?? existing.activeForm,
     };
     return status === 'deleted'
       ? todos.filter((_, index) => index !== targetIndex)
@@ -322,6 +327,7 @@ function applyTodoToolEvent(todos: AgentTodoItem[], event: Extract<SessionEvent,
       status,
       priority,
       weight,
+      activeForm,
     },
   ];
 }
@@ -753,9 +759,9 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
       <li key={item.key}>
         <details className="group/task">
           <summary className="flex items-start gap-2 cursor-pointer list-none rounded-md transition-colors hover:bg-gray-800/30 -mx-1 px-1 py-1.5">
-            <span className="mt-0.5 shrink-0">{isSetup ? <Circle className="h-4 w-4 text-gray-600" /> : todoIconForStatus(item.todo.status)}</span>
+            <span className="mt-0.5 shrink-0">{isSetup ? <CheckCircle2 className="h-4 w-4 text-gray-500" /> : todoIconForStatus(item.todo.status)}</span>
             <div className="min-w-0 flex-1">
-              <div className={`text-sm ${isSetup ? 'text-gray-500' : todoStatusClass(item.todo.status)}`}>{item.todo.content}</div>
+              <div className={`text-sm ${isSetup ? 'text-gray-500' : todoStatusClass(item.todo.status)}`}>{item.todo.status === 'in_progress' && item.todo.activeForm ? item.todo.activeForm : item.todo.content}</div>
             </div>
           </summary>
           <div className="grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-300 ease-out group-open/task:grid-rows-[1fr] group-open/task:opacity-100">

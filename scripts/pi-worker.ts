@@ -417,7 +417,7 @@ async function main(): Promise<void> {
           'For every requested change, use TaskCreate to lay out the work as distinct stage tasks instead of creating one broad task, even if the change seems trivial.',
           'Create the initial stage tasks as a batch of TaskCreate tool calls in the same assistant turn before starting work; do not create them one at a time across multiple model/provider round trips.',
           'Prefer stages such as: inspect/read relevant files, edit/implement changes, validate/check work, and wrap up with changelog/commit/preview/final response as applicable.',
-          'Use TaskUpdate to mark each stage in_progress before starting it and completed as soon as it is fully done, then use TaskList to choose remaining work.',
+          'Use TaskUpdate to mark each stage in_progress before starting it and completed as soon as it is fully done; when completing one task and immediately starting the next, issue both TaskUpdate calls in the same assistant turn as a batch of two tool calls, then use TaskList to choose remaining work.',
         ].join(' '),
       ],
       additionalExtensionPaths: [requiredTodoExtensionPath],
