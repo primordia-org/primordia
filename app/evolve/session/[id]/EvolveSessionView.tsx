@@ -5,7 +5,7 @@
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronsUp, ChevronsDown } from "lucide-react";
+import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown } from "lucide-react";
 import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
@@ -345,7 +345,7 @@ function TaskListCaretHandle({ direction, isExpanded, canToggle, onToggle, label
       className="group/handle flex w-full items-center justify-center rounded-md py-0.5 text-gray-600 transition-colors hover:bg-gray-800/40 hover:text-blue-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-600"
     >
       <span className={`transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
-        {direction === 'up' ? <ChevronsUp className="h-4 w-4" /> : <ChevronsDown className="h-4 w-4" />}
+        {direction === 'up' ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
       </span>
     </button>
   );
@@ -400,19 +400,19 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
       ) : (
         <>
           <ProgressBar value={completedWeight} max={totalWeight} />
-          <div className="mt-3 select-text rounded-lg border border-gray-800/80 bg-gray-950/45 px-2 py-1.5 shadow-inner shadow-black/20">
+          <div className="mt-3 select-text">
             <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-              <ol className="min-h-0 overflow-hidden space-y-1.5 px-1">
+              <ol className="min-h-0 overflow-hidden space-y-1.5">
                 {tasksAboveCurrent.map(renderTaskItem)}
               </ol>
             </div>
             <TaskListCaretHandle direction="up" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
-            <ol className="space-y-1.5 px-1 py-1">
+            <ol className="space-y-1.5 py-1">
               {currentTasks.map(renderTaskItem)}
             </ol>
             <TaskListCaretHandle direction="down" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
             <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-              <ol className="min-h-0 overflow-hidden space-y-1.5 px-1">
+              <ol className="min-h-0 overflow-hidden space-y-1.5">
                 {tasksBelowCurrent.map(renderTaskItem)}
               </ol>
             </div>
