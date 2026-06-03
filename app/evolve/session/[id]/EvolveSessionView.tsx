@@ -361,8 +361,14 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
   const completed = todos.filter((todo) => todo.status === 'completed').length;
   const completionLabel = completed === todos.length ? 'completed' : 'complete';
   const completionText = `${completed} of ${todos.length} ${completionLabel}`;
-  const totalWeight = todos.reduce((sum, todo) => sum + taskWeight(todo), 0);
+  const todoWeights = todos.map(taskWeight);
+  const totalWeight = todoWeights.reduce((sum, weight) => sum + weight, 0);
   const completedWeight = todos.reduce((sum, todo) => sum + (todo.status === 'completed' ? taskWeight(todo) : 0), 0);
+  const stepTickMarks = todoWeights.slice(0, -1).reduce<number[]>((marks, weight) => {
+    const previous = marks.at(-1) ?? 0;
+    marks.push(previous + weight);
+    return marks;
+  }, []);
   const currentTasks = activeTasks.length > 0
     ? activeTasks
     : pendingTasks.length > 0
@@ -399,7 +405,7 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
         <p className="text-xs text-gray-500">No to-dos are currently tracked.</p>
       ) : (
         <>
-          <ProgressBar value={completedWeight} max={totalWeight} />
+          <ProgressBar value={completedWeight} max={totalWeight} tickMarks={stepTickMarks} />
           <div className="mt-3 select-text">
             <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
               <ol className="min-h-0 overflow-hidden space-y-1.5">
