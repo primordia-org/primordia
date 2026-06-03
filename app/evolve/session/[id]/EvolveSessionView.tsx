@@ -5,7 +5,7 @@
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { GitBranch, Loader2, FileText, Copy, Check, RotateCw } from "lucide-react";
+import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks } from "lucide-react";
 import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
@@ -139,7 +139,7 @@ function statusIcon(status: string) {
 
 function todoStatusClass(status: string) {
   return status === 'completed'
-    ? 'text-gray-600 line-through'
+    ? 'text-gray-500'
     : status === 'in_progress'
       ? 'text-yellow-400'
       : status === 'blocked' || status === 'failed'
@@ -147,7 +147,14 @@ function todoStatusClass(status: string) {
         : 'text-gray-400';
 }
 
-function TodoItemsDisplay({ todos }: { todos: Array<{ content: string; status: string; priority?: string; id?: string }> }) {
+interface AgentTodoItem {
+  id?: string;
+  content: string;
+  status: string;
+  priority?: string;
+}
+
+function TodoItemsDisplay({ todos }: { todos: AgentTodoItem[] }) {
   return (
     <span className="inline-flex flex-col gap-0.5">
       {todos.map((t, i) => (
@@ -190,6 +197,135 @@ function PiTodoToolDisplay({ name, input }: { name: string; input: Record<string
     return <span className="text-gray-500">Inspect to-do{id ? ` #${id}` : ''}</span>;
   }
   return <span className="text-gray-500">Review to-do list</span>;
+}
+
+function firstString(input: Record<string, unknown>, key: string): string | undefined {
+  const value = input[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function normalizeTodoStatus(status: string | undefined): string {
+  if (!status) return 'pending';
+  return ['pending', 'in_progress', 'completed', 'blocked', 'failed', 'deleted'].includes(status) ? status : 'pending';
+}
+
+function deriveCurrentTodoList(events: SessionEvent[]): { todos: AgentTodoItem[]; hasTodoEvents: boolean } {
+  let todos: AgentTodoItem[] = [];
+  let hasTodoEvents = false;
+
+  for (const event of events) {
+    if (event.type !== 'tool_use' || !isTodoTool(event.name)) continue;
+    hasTodoEvents = true;
+
+    const lname = event.name.toLowerCase();
+    if (lname === 'todowrite') {
+      const rawTodos = Array.isArray(event.input.todos) ? event.input.todos : [];
+      todos = rawTodos
+        .filter((raw): raw is Record<string, unknown> => raw != null && typeof raw === 'object' && !Array.isArray(raw))
+        .map((raw) => ({
+          id: firstString(raw, 'id'),
+          content: firstString(raw, 'content') ?? 'Untitled to-do',
+          status: normalizeTodoStatus(firstString(raw, 'status')),
+          priority: firstString(raw, 'priority'),
+        }))
+        .filter((todo) => todo.status !== 'deleted');
+      continue;
+    }
+
+    if (lname === 'taskcreate') {
+      todos = [
+        ...todos,
+        {
+          id: firstString(event.input, 'id'),
+          content: firstString(event.input, 'content') ?? 'Untitled to-do',
+          status: 'pending',
+          priority: firstString(event.input, 'priority'),
+        },
+      ];
+      continue;
+    }
+
+    if (lname === 'taskupdate') {
+      const id = firstString(event.input, 'id');
+      const content = firstString(event.input, 'content');
+      const priority = firstString(event.input, 'priority');
+      const statusInput = firstString(event.input, 'status');
+      const existingIndex = id ? todos.findIndex((todo) => todo.id === id) : -1;
+      const unassignedIndex = id && existingIndex === -1 ? todos.findIndex((todo) => !todo.id) : -1;
+      const targetIndex = existingIndex >= 0 ? existingIndex : unassignedIndex;
+
+      if (targetIndex >= 0) {
+        const existing = todos[targetIndex];
+        const status = statusInput ? normalizeTodoStatus(statusInput) : existing.status;
+        const updated: AgentTodoItem = {
+          ...existing,
+          id: id ?? existing.id,
+          content: content ?? existing.content,
+          status,
+          priority: priority ?? existing.priority,
+        };
+        todos = status === 'deleted'
+          ? todos.filter((_, index) => index !== targetIndex)
+          : todos.map((todo, index) => index === targetIndex ? updated : todo);
+      } else {
+        const status = normalizeTodoStatus(statusInput);
+        if (status !== 'deleted') {
+          todos = [
+            ...todos,
+            {
+              id,
+              content: content ?? (id ? `To-do #${id}` : 'Updated to-do'),
+              status,
+              priority,
+            },
+          ];
+        }
+      }
+    }
+  }
+
+  return { todos, hasTodoEvents };
+}
+
+function todoIconForStatus(status: string) {
+  if (status === 'completed') return <CheckCircle2 className="h-4 w-4 text-green-400" />;
+  if (status === 'in_progress') return <Clock className="h-4 w-4 text-yellow-400" />;
+  if (status === 'blocked' || status === 'failed') return <AlertCircle className="h-4 w-4 text-orange-400" />;
+  return <Circle className="h-4 w-4 text-gray-500" />;
+}
+
+function TodoListProgress({ events }: { events: SessionEvent[] }) {
+  const { todos, hasTodoEvents } = deriveCurrentTodoList(events);
+  if (!hasTodoEvents) return null;
+
+  const completed = todos.filter((todo) => todo.status === 'completed').length;
+  const completionLabel = completed === todos.length ? 'completed' : 'complete';
+
+  return (
+    <div className="border-t border-gray-800 bg-gray-950/40 px-4 py-3">
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-300">
+        <ListChecks className="h-4 w-4 text-blue-300" />
+        <span>Tasks</span>
+        {todos.length > 0 ? (
+          <span className="ml-auto font-normal text-gray-500">{completed}/{todos.length} {completionLabel}</span>
+        ) : null}
+      </div>
+      {todos.length === 0 ? (
+        <p className="text-xs text-gray-500">No to-dos are currently tracked.</p>
+      ) : (
+        <ol className="space-y-1.5">
+          {todos.map((todo, index) => (
+            <li key={todo.id ?? `${todo.content}-${index}`} className="flex items-start gap-2">
+              <span className="mt-0.5 shrink-0">{todoIconForStatus(todo.status)}</span>
+              <div className="min-w-0 flex-1">
+                <div className={`text-sm ${todoStatusClass(todo.status)}`}>{todo.content}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
 }
 
 function ToolUseDisplay({ event, worktreePath }: { event: Extract<SessionEvent, { type: 'tool_use' }>; worktreePath?: string }) {
@@ -446,6 +582,7 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
           return null;
         })}
       </div>
+      <TodoListProgress events={events} />
       {latestMetrics && (
         <MetricsRow
           hideCost={auth?.source === 'chatgpt-subscription'}
@@ -551,6 +688,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
           <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{convertedMessage}</pre>
         </div>
       )}
+      <TodoListProgress events={events} />
       {metricsEvent && (
         <MetricsRow
           hideCost={auth?.source === 'chatgpt-subscription'}
