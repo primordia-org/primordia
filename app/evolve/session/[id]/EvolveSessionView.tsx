@@ -299,7 +299,6 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
   if (!hasTodoEvents) return null;
 
   const completed = todos.filter((todo) => todo.status === 'completed').length;
-  const active = todos.find((todo) => todo.status === 'in_progress');
 
   return (
     <div className="border-t border-gray-800 bg-gray-950/40 px-4 py-3">
@@ -319,12 +318,6 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
               <span className="mt-0.5 shrink-0">{todoIconForStatus(todo.status)}</span>
               <div className="min-w-0 flex-1">
                 <div className={`text-sm ${todoStatusClass(todo.status)}`}>{todo.content}</div>
-                <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-gray-600">
-                  {todo.id ? <span>#{todo.id}</span> : null}
-                  <span>{todo.status.replace(/_/g, ' ')}</span>
-                  {todo.priority ? <span>{todo.priority} priority</span> : null}
-                  {active === todo ? <span className="text-yellow-500">active now</span> : null}
-                </div>
               </div>
             </li>
           ))}
