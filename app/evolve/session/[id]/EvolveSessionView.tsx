@@ -780,7 +780,7 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
                 toggleTaskDetails(item.key);
               }
             }}
-            className="flex items-start gap-2 cursor-pointer list-none rounded-md transition-colors hover:bg-gray-800/30 -mx-1 px-1 py-1.5"
+            className="flex items-start gap-2 cursor-pointer list-none rounded-md transition-colors hover:bg-gray-800/30 -mx-1 px-1 py-0.5"
           >
             <span className="mt-0.5 shrink-0">{isSetup ? <CheckCircle2 className="h-4 w-4 text-gray-500" /> : todoIconForStatus(item.todo.status)}</span>
             <div className="min-w-0 flex-1">
@@ -788,7 +788,7 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
             </div>
           </div>
           <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-            <div className="min-h-0 overflow-hidden space-y-2 py-2">
+            <div className={`min-h-0 overflow-hidden space-y-2 ${isOpen ? 'py-2' : 'py-0'}`}>
               {item.events.length > 0 ? (
                 <LegacyAgentEvents events={item.events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming && currentTaskItems.includes(item)} expectedTaskId={item.todo.id} />
               ) : (
@@ -818,15 +818,15 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
           <div className="mt-3 select-text">
             <TaskListCaretHandle direction="up" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
             <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-              <ol className="min-h-0 overflow-hidden space-y-2">
+              <ol className="min-h-0 overflow-hidden space-y-1.5">
                 {itemsAboveCurrent.map(renderTaskItem)}
               </ol>
             </div>
-            <ol className="space-y-2 py-1.5">
+            <ol className="space-y-1.5 py-1">
               {currentTaskItems.map(renderTaskItem)}
             </ol>
             <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-              <ol className="min-h-0 overflow-hidden space-y-2">
+              <ol className="min-h-0 overflow-hidden space-y-1.5">
                 {taskItemsBelowCurrent.map(renderTaskItem)}
               </ol>
             </div>
