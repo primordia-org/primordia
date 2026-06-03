@@ -187,6 +187,12 @@ function visibleTaskId(input: Record<string, unknown>, expectedTaskId?: string):
   return id && id !== expectedTaskId ? id : undefined;
 }
 
+function taskToolStatusClass(status: string, input: Record<string, unknown>, expectedTaskId?: string): string {
+  const id = typeof input.id === 'string' ? input.id : undefined;
+  if (status === 'in_progress' && id != null && id === expectedTaskId) return 'text-gray-500';
+  return todoStatusClass(status);
+}
+
 function PiTodoToolDisplay({ name, input, expectedTaskId }: { name: string; input: Record<string, unknown>; expectedTaskId?: string }) {
   const lname = name.toLowerCase();
   if (lname === 'taskcreate') {
@@ -201,7 +207,7 @@ function PiTodoToolDisplay({ name, input, expectedTaskId }: { name: string; inpu
     return (
       <span className="text-gray-500">
         {id ? <span className="text-gray-600">#{id} </span> : null}
-        {status ? <span className={todoStatusClass(status)}>{taskStatusLabel(status)}</span> : 'update'}
+        {status ? <span className={taskToolStatusClass(status, input, expectedTaskId)}>{taskStatusLabel(status)}</span> : 'update'}
         {content ? <> <span className="text-gray-400">{content}</span></> : null}
       </span>
     );
