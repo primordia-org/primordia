@@ -732,12 +732,14 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
               <div className={`text-sm ${isSetup ? 'text-amber-200/90' : todoStatusClass(item.todo.status)}`}>{item.todo.content}</div>
             </div>
           </summary>
-          <div className="mt-2 ml-6 border-l border-gray-800 pl-3 space-y-2">
-            {item.events.length > 0 ? (
-              <LegacyAgentEvents events={item.events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming && currentTaskItems.includes(item)} />
-            ) : (
-              <p className="text-xs text-gray-600 italic">No detailed events for this task yet.</p>
-            )}
+          <div className="grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-300 ease-out group-open/task:grid-rows-[1fr] group-open/task:opacity-100">
+            <div className="min-h-0 overflow-hidden space-y-2">
+              {item.events.length > 0 ? (
+                <LegacyAgentEvents events={item.events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming && currentTaskItems.includes(item)} />
+              ) : (
+                <p className="text-xs text-gray-600 italic">No detailed events for this task yet.</p>
+              )}
+            </div>
           </div>
         </details>
       </li>
@@ -883,7 +885,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
     ? (isAutoCommitSection ? "❌ Auto-commit failed" : isTypeFixSection ? "❌ Auto-fix failed" : "❌")
     : (isAutoCommitSection ? "📦 Unstaged changes committed" : isTypeFixSection ? "🔧 Type errors fixed" : null);
 
-  const { finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
+  const { detailEvents, finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
 
   return (
     <div className={`rounded-lg border ${doneBorderClass} bg-gray-900 text-sm overflow-hidden`}>
@@ -892,8 +894,13 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
         {!isTypeFixSection && !isAutoCommitSection && <AgentIdentityLine authSource={authSource} auth={auth} harness={harness} model={model} className={`font-semibold text-xs ${doneHeadingClass}`} />}
         {!isTypeFixSection && !isAutoCommitSection && <span className="ml-auto text-xs text-gray-500">{hasError ? "errored" : "finished"}</span>}
       </div>
-      {(toolCallCount > 0 || finalEvents.length > 0) && (
-        <TaskAccordionEvents events={events} sessionId={sessionId} worktreePath={worktreePath} legacyClassName="px-4 py-3 space-y-2 border-b border-gray-800" />
+      {toolCallCount > 0 && (
+        <TaskAccordionEvents events={detailEvents} sessionId={sessionId} worktreePath={worktreePath} legacyClassName="px-4 py-3 space-y-2 border-b border-gray-800" />
+      )}
+      {finalEvents.length > 0 && (
+        <div className="px-4 py-3 space-y-2 border-t border-gray-800">
+          <LegacyAgentEvents events={finalEvents} sessionId={sessionId} worktreePath={worktreePath} />
+        </div>
       )}
       {hasError && convertedMessage && (
         <div className="px-4 py-3 border-t border-gray-800">
