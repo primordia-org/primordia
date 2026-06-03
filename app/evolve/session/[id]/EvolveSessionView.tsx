@@ -752,7 +752,7 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
     return (
       <li key={item.key}>
         <details className="group/task">
-          <summary className="flex items-start gap-2 cursor-pointer select-none list-none rounded-md transition-colors hover:bg-gray-800/30 -mx-1 px-1 py-0.5">
+          <summary className="flex items-start gap-2 cursor-pointer list-none rounded-md transition-colors hover:bg-gray-800/30 -mx-1 px-1 py-0.5">
             <span className="mt-0.5 shrink-0">{todoIconForStatus(item.todo.status)}</span>
             <div className="min-w-0 flex-1">
               <div className={`text-sm ${isSetup ? 'text-amber-200/90' : todoStatusClass(item.todo.status)}`}>{item.todo.content}</div>
