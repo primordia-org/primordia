@@ -240,7 +240,10 @@ function buildSections(
     }
   }
 
-  // Recursively build non-terminal children for the active tree.
+  // Recursively build non-terminal children for the active tree. Branches in
+  // `productionChainSet` are ancestors of production, not descendants. They can
+  // otherwise look like active children when `skipAcceptedParents()` collapses a
+  // deployed accepted parent to the current production branch.
   function buildActiveChildren(
     parentName: string,
     visited: Set<string>,
@@ -250,6 +253,7 @@ function buildSections(
       if (
         b.activeParent !== parentName ||
         visited.has(b.name) ||
+        productionChainSet.has(b.name) ||
         TERMINAL_STATUSES.has(b.sessionStatus ?? "")
       )
         continue;
