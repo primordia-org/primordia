@@ -414,7 +414,7 @@ async function main(): Promise<void> {
         `The current working directory is: ${worktreePath}`,
         [
           'EDB todo is required in this evolve pipeline.',
-          'When making non-trivial changes, use TaskCreate to lay out the work as distinct stage tasks instead of creating one broad task.',
+          'For every requested change, use TaskCreate to lay out the work as distinct stage tasks instead of creating one broad task, even if the change seems trivial.',
           'Prefer stages such as: inspect/read relevant files, edit/implement changes, validate/check work, and wrap up with changelog/commit/preview/final response as applicable.',
           'Use TaskUpdate to mark each stage in_progress before starting it and completed as soon as it is fully done, then use TaskList to choose remaining work.',
         ].join(' '),
