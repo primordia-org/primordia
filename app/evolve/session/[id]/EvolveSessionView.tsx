@@ -328,8 +328,32 @@ function todoIconForStatus(status: string) {
   return <Circle className="h-4 w-4 text-gray-500" />;
 }
 
+function TaskListCaretHandle({ direction, isExpanded, canToggle, onToggle, label }: {
+  direction: 'up' | 'down';
+  isExpanded: boolean;
+  canToggle: boolean;
+  onToggle: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={!canToggle}
+      aria-expanded={isExpanded}
+      aria-label={label}
+      className="group/handle flex w-full items-center justify-center rounded-md py-0.5 text-gray-600 transition-colors hover:bg-gray-800/40 hover:text-blue-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-600"
+    >
+      <span className={`text-base leading-none transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
+        {direction === 'up' ? '^' : '⌄'}
+      </span>
+    </button>
+  );
+}
+
 function TodoListProgress({ events }: { events: SessionEvent[] }) {
   const { todos, hasTodoEvents } = deriveCurrentTodoList(events);
+  const [isExpanded, setIsExpanded] = useState(false);
   if (!hasTodoEvents) return null;
 
   const activeTasks = todos.filter((todo) => todo.status === 'in_progress' || todo.status === 'blocked' || todo.status === 'failed');
@@ -339,28 +363,29 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
   const completionText = `${completed} of ${todos.length} ${completionLabel}`;
   const totalWeight = todos.reduce((sum, todo) => sum + taskWeight(todo), 0);
   const completedWeight = todos.reduce((sum, todo) => sum + (todo.status === 'completed' ? taskWeight(todo) : 0), 0);
-  const defaultVisibleTasks = activeTasks.length > 0 ? activeTasks : pendingTasks.slice(0, 1);
-  const hiddenTaskCount = todos.filter((todo) => !defaultVisibleTasks.includes(todo)).length;
+  const currentTasks = activeTasks.length > 0 ? activeTasks : pendingTasks.slice(0, 1);
+  const currentTaskIndexes = currentTasks.map((todo) => todos.indexOf(todo)).filter((index) => index >= 0);
+  const firstCurrentTaskIndex = currentTaskIndexes.length > 0 ? Math.min(...currentTaskIndexes) : 0;
+  const lastCurrentTaskIndex = currentTaskIndexes.length > 0 ? Math.max(...currentTaskIndexes) : -1;
+  const tasksAboveCurrent = currentTaskIndexes.length > 0 ? todos.slice(0, firstCurrentTaskIndex) : [];
+  const tasksBelowCurrent = currentTaskIndexes.length > 0 ? todos.slice(lastCurrentTaskIndex + 1) : todos;
+  const hasHiddenTasks = tasksAboveCurrent.length > 0 || tasksBelowCurrent.length > 0;
   const visibleTaskLabel = activeTasks.length > 0
     ? `Active task${activeTasks.length === 1 ? '' : 's'}`
     : pendingTasks.length > 0
       ? 'Next task'
-      : todos.length > 0
-        ? 'All tasks complete'
-        : 'Tasks';
+      : 'Tasks';
+  const canToggleTasks = hasHiddenTasks || currentTasks.length === 0;
+  const toggleTaskList = () => setIsExpanded((open) => !open);
 
-  const renderTaskItem = (todo: AgentTodoItem, index: number) => {
-    const taskKey = todo.id ?? `${todo.content}-${index}`;
-    const isDefaultVisible = defaultVisibleTasks.includes(todo);
-    return (
-      <li key={taskKey} className={`${isDefaultVisible ? 'flex' : 'hidden group-open/tasks:flex'} items-start gap-2`}>
-        <span className="mt-0.5 shrink-0">{todoIconForStatus(todo.status)}</span>
-        <div className="min-w-0 flex-1">
-          <div className={`text-sm ${todoStatusClass(todo.status)}`}>{todo.content}</div>
-        </div>
-      </li>
-    );
-  };
+  const renderTaskItem = (todo: AgentTodoItem, index: number) => (
+    <li key={todo.id ?? `${todo.content}-${index}`} className="flex items-start gap-2">
+      <span className="mt-0.5 shrink-0">{todoIconForStatus(todo.status)}</span>
+      <div className="min-w-0 flex-1">
+        <div className={`text-sm ${todoStatusClass(todo.status)}`}>{todo.content}</div>
+      </div>
+    </li>
+  );
 
   return (
     <div className="border-t border-gray-800 bg-gray-950/40 px-4 py-3">
@@ -376,26 +401,24 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
       ) : (
         <>
           <ProgressBar value={completedWeight} max={totalWeight} />
-          <details className="group/tasks mt-3">
-            <summary className="-mx-2 list-none rounded-md px-2 py-1 cursor-pointer select-none transition-colors hover:bg-gray-800/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60">
-              <div className="mb-1 flex items-center gap-2 text-xs font-semibold text-gray-500">
-                <span className="text-gray-600 transition-transform group-open/tasks:rotate-90">▶</span>
-                <span>{visibleTaskLabel}</span>
-                {hiddenTaskCount > 0 ? (
-                  <span className="ml-auto font-normal text-gray-600">tap to show all</span>
-                ) : null}
-              </div>
-              <ol className="space-y-1.5">
-                {defaultVisibleTasks.length === 0 ? (
-                  <li className="flex items-start gap-2 group-open/tasks:hidden">
-                    <span className="mt-0.5 shrink-0"><CheckCircle2 className="h-4 w-4 text-green-400" /></span>
-                    <div className="min-w-0 flex-1 text-sm text-green-300">All tracked tasks are complete.</div>
-                  </li>
-                ) : null}
-                {todos.map(renderTaskItem)}
+          <div className="mt-3 select-text rounded-lg border border-gray-800/80 bg-gray-950/45 px-2 py-1.5 shadow-inner shadow-black/20">
+            <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+              <ol className="min-h-0 overflow-hidden space-y-1.5 px-1">
+                {tasksAboveCurrent.map(renderTaskItem)}
               </ol>
-            </summary>
-          </details>
+            </div>
+            <TaskListCaretHandle direction="up" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
+            <ol className="space-y-1.5 px-1 py-1">
+              {currentTasks.length > 0 ? <li className="text-xs font-semibold text-gray-500">{visibleTaskLabel}</li> : null}
+              {currentTasks.map(renderTaskItem)}
+            </ol>
+            <TaskListCaretHandle direction="down" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
+            <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+              <ol className="min-h-0 overflow-hidden space-y-1.5 px-1">
+                {tasksBelowCurrent.map(renderTaskItem)}
+              </ol>
+            </div>
+          </div>
         </>
       )}
     </div>
