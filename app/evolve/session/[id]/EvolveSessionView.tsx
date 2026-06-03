@@ -787,21 +787,21 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
         <>
           <ProgressBar value={completedWeight} max={totalWeight} tickMarks={stepTickMarks} />
           <div className="mt-3 select-text">
+            <TaskListCaretHandle direction="up" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
             <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
               <ol className="min-h-0 overflow-hidden space-y-1.5">
                 {itemsAboveCurrent.map(renderTaskItem)}
               </ol>
             </div>
-            <TaskListCaretHandle direction="up" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
             <ol className="space-y-1.5 py-1">
               {currentTaskItems.map(renderTaskItem)}
             </ol>
-            <TaskListCaretHandle direction="down" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
             <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
               <ol className="min-h-0 overflow-hidden space-y-1.5">
                 {taskItemsBelowCurrent.map(renderTaskItem)}
               </ol>
             </div>
+            <TaskListCaretHandle direction="down" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
           </div>
         </>
       )}
