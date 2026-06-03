@@ -1,6 +1,7 @@
 # Dependencies
 /node_modules
 /.pi/npm/
+/.pi/tasks/
 /.pnp
 .pnp.js
 .yarn/install-state.gz

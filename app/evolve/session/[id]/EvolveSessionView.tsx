@@ -129,18 +129,87 @@ function groupEventsIntoSections(events: SessionEvent[]): SectionGroup[] {
 /** Render a TodoWrite tool call as a structured todo list. */
 function TodoWriteDisplay({ input }: { input: Record<string, unknown> }) {
   const todos = (input.todos as Array<{ content: string; status: string; priority?: string }> | undefined) ?? [];
-  if (!todos.length) return <span className="text-gray-600">Update todo list</span>;
-  const statusIcon = (status: string) =>
-    status === 'completed' ? '✅' : status === 'in_progress' ? '🔄' : '⬜';
+  if (!todos.length) return <span className="text-gray-600">Update to-do list</span>;
+  return <TodoItemsDisplay todos={todos} />;
+}
+
+function statusIcon(status: string) {
+  return status === 'completed' ? '✅' : status === 'in_progress' ? '🔄' : status === 'blocked' ? '⏸️' : status === 'failed' ? '❌' : '⬜';
+}
+
+function todoStatusClass(status: string) {
+  return status === 'completed'
+    ? 'text-gray-600 line-through'
+    : status === 'in_progress'
+      ? 'text-yellow-400'
+      : status === 'blocked' || status === 'failed'
+        ? 'text-orange-400'
+        : 'text-gray-400';
+}
+
+function TodoItemsDisplay({ todos }: { todos: Array<{ content: string; status: string; priority?: string; id?: string }> }) {
   return (
     <span className="inline-flex flex-col gap-0.5">
       {todos.map((t, i) => (
-        <span key={i} className={`flex items-start gap-1 ${t.status === 'completed' ? 'text-gray-600 line-through' : t.status === 'in_progress' ? 'text-yellow-400' : 'text-gray-400'}`}>
+        <span key={t.id ?? i} className={`flex items-start gap-1 ${todoStatusClass(t.status)}`}>
           <span className="shrink-0">{statusIcon(t.status)}</span>
-          <span>{t.content}</span>
+          <span>{t.id ? <span className="text-gray-600">#{t.id} </span> : null}{t.content}</span>
+          {t.priority ? <span className="text-gray-600">({t.priority})</span> : null}
         </span>
       ))}
     </span>
+  );
+}
+
+const PI_TODO_TOOL_NAMES = new Set(['taskcreate', 'tasklist', 'taskget', 'taskupdate']);
+
+function isTodoTool(name: string) {
+  return name.toLowerCase() === 'todowrite' || PI_TODO_TOOL_NAMES.has(name.toLowerCase());
+}
+
+function PiTodoToolDisplay({ name, input }: { name: string; input: Record<string, unknown> }) {
+  const lname = name.toLowerCase();
+  if (lname === 'taskcreate') {
+    const content = typeof input.content === 'string' && input.content.trim() ? input.content : 'Create to-do';
+    const priority = typeof input.priority === 'string' ? input.priority : undefined;
+    return <TodoItemsDisplay todos={[{ content, status: 'pending', priority }]} />;
+  }
+  if (lname === 'taskupdate') {
+    const id = typeof input.id === 'string' ? input.id : undefined;
+    const status = typeof input.status === 'string' ? input.status : 'pending';
+    const content = typeof input.content === 'string' && input.content.trim()
+      ? input.content
+      : id
+        ? `Update to-do #${id}`
+        : 'Update to-do';
+    const priority = typeof input.priority === 'string' ? input.priority : undefined;
+    return <TodoItemsDisplay todos={[{ id, content, status, priority }]} />;
+  }
+  if (lname === 'taskget') {
+    const id = typeof input.id === 'string' ? input.id : undefined;
+    return <span className="text-gray-500">Inspect to-do{id ? ` #${id}` : ''}</span>;
+  }
+  return <span className="text-gray-500">Review to-do list</span>;
+}
+
+function ToolUseDisplay({ event, worktreePath }: { event: Extract<SessionEvent, { type: 'tool_use' }>; worktreePath?: string }) {
+  if (isTodoTool(event.name)) {
+    const isLegacyTodoWrite = event.name.toLowerCase() === 'todowrite';
+    return (
+      <div className="text-xs font-mono">
+        <span className="text-gray-400">📋 To-do</span>
+        {!isLegacyTodoWrite ? <span className="text-gray-600"> {event.name}</span> : null}
+        <div className="mt-1 ml-4">
+          {isLegacyTodoWrite ? <TodoWriteDisplay input={event.input} /> : <PiTodoToolDisplay name={event.name} input={event.input} />}
+        </div>
+      </div>
+    );
+  }
+  const summary = summarizeToolInput(event.name, event.input, worktreePath);
+  return (
+    <p className="text-gray-400 text-xs font-mono">
+      🔧 {event.name}{summary ? <span className="text-gray-600"> {summary}</span> : null}
+    </p>
   );
 }
 
@@ -363,20 +432,7 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
           events.filter((e): e is RenderableEvent => e.type === 'tool_use' || e.type === 'text' || e.type === 'log_line' || e.type === 'thinking')
         ).map((event, i) => {
           if (event.type === 'tool_use') {
-            if (event.name.toLowerCase() === 'todowrite') {
-              return (
-                <div key={i} className="text-xs font-mono">
-                  <span className="text-gray-400">📋 TodoWrite</span>
-                  <div className="mt-1 ml-4"><TodoWriteDisplay input={event.input} /></div>
-                </div>
-              );
-            }
-            const summary = summarizeToolInput(event.name, event.input, worktreePath);
-            return (
-              <p key={i} className="text-gray-400 text-xs font-mono">
-                🔧 {event.name}{summary ? <span className="text-gray-600"> {summary}</span> : null}
-              </p>
-            );
+            return <ToolUseDisplay key={i} event={event} worktreePath={worktreePath} />;
           }
           if (event.type === 'text') {
             return <MarkdownContent key={i} text={event.content} className="[&>*:last-child]:mb-0" attachmentSessionId={sessionId} />;
@@ -463,20 +519,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
           <div className="px-4 py-3 border-t border-gray-800 space-y-2">
             {mergeConsecutiveTextEvents(detailEvents).map((event, i) => {
               if (event.type === 'tool_use') {
-                if (event.name.toLowerCase() === 'todowrite') {
-                  return (
-                    <div key={i} className="text-xs font-mono">
-                      <span className="text-gray-400">📋 TodoWrite</span>
-                      <div className="mt-1 ml-4"><TodoWriteDisplay input={event.input} /></div>
-                    </div>
-                  );
-                }
-                const summary = summarizeToolInput(event.name, event.input, worktreePath);
-                return (
-                  <p key={i} className="text-gray-400 text-xs font-mono">
-                    🔧 {event.name}{summary ? <span className="text-gray-600"> {summary}</span> : null}
-                  </p>
-                );
+                return <ToolUseDisplay key={i} event={event} worktreePath={worktreePath} />;
               }
               if (event.type === 'text') {
                 return <MarkdownContent key={i} text={event.content} className="[&>*:last-child]:mb-0" attachmentSessionId={sessionId} />;
