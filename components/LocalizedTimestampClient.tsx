@@ -20,7 +20,10 @@ export function LocalizedTimestampClient({
   const [text, setText] = useState(serverText);
 
   useEffect(() => {
-    setText(formatTimestamp(timestamp, options));
+    const id = window.setTimeout(() => {
+      setText(formatTimestamp(timestamp, options));
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [timestamp, options]);
 
   return text;

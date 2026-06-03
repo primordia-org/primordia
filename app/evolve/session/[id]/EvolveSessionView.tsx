@@ -5,11 +5,12 @@
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { GitBranch, Loader2, FileText, Copy, Check, RotateCw } from "lucide-react";
+import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown } from "lucide-react";
 import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { NavHeader } from "@/components/NavHeader";
+import { ProgressBar } from "@/components/ProgressBar";
 
 import { FloatingEvolveDialog, EvolveSubmitToast } from "@/components/FloatingEvolveDialog";
 import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
@@ -129,18 +130,323 @@ function groupEventsIntoSections(events: SessionEvent[]): SectionGroup[] {
 /** Render a TodoWrite tool call as a structured todo list. */
 function TodoWriteDisplay({ input }: { input: Record<string, unknown> }) {
   const todos = (input.todos as Array<{ content: string; status: string; priority?: string }> | undefined) ?? [];
-  if (!todos.length) return <span className="text-gray-600">Update todo list</span>;
-  const statusIcon = (status: string) =>
-    status === 'completed' ? '✅' : status === 'in_progress' ? '🔄' : '⬜';
+  if (!todos.length) return <span className="text-gray-600">Update to-do list</span>;
+  return <TodoItemsDisplay todos={todos} />;
+}
+
+function statusIcon(status: string) {
+  return status === 'completed' ? '✅' : status === 'in_progress' ? '🔄' : status === 'blocked' ? '⏸️' : status === 'failed' ? '❌' : '⬜';
+}
+
+function todoStatusClass(status: string) {
+  return status === 'completed'
+    ? 'text-gray-500'
+    : status === 'in_progress'
+      ? 'text-yellow-400'
+      : status === 'blocked' || status === 'failed'
+        ? 'text-orange-400'
+        : 'text-gray-400';
+}
+
+interface AgentTodoItem {
+  id?: string;
+  content: string;
+  status: string;
+  priority?: string;
+  weight?: number;
+}
+
+function TodoItemsDisplay({ todos }: { todos: AgentTodoItem[] }) {
   return (
     <span className="inline-flex flex-col gap-0.5">
       {todos.map((t, i) => (
-        <span key={i} className={`flex items-start gap-1 ${t.status === 'completed' ? 'text-gray-600 line-through' : t.status === 'in_progress' ? 'text-yellow-400' : 'text-gray-400'}`}>
+        <span key={t.id ?? i} className={`flex items-start gap-1 ${todoStatusClass(t.status)}`}>
           <span className="shrink-0">{statusIcon(t.status)}</span>
-          <span>{t.content}</span>
+          <span>{t.id ? <span className="text-gray-600">#{t.id} </span> : null}{t.content}</span>
+          {t.priority ? <span className="text-gray-600">({t.priority})</span> : null}
         </span>
       ))}
     </span>
+  );
+}
+
+const PI_TODO_TOOL_NAMES = new Set(['taskcreate', 'tasklist', 'taskget', 'taskupdate']);
+
+function isTodoTool(name: string) {
+  return name.toLowerCase() === 'todowrite' || PI_TODO_TOOL_NAMES.has(name.toLowerCase());
+}
+
+function PiTodoToolDisplay({ name, input }: { name: string; input: Record<string, unknown> }) {
+  const lname = name.toLowerCase();
+  if (lname === 'taskcreate') {
+    const content = typeof input.content === 'string' && input.content.trim() ? input.content : 'Create to-do';
+    const priority = typeof input.priority === 'string' ? input.priority : undefined;
+    return <TodoItemsDisplay todos={[{ content, status: 'pending', priority }]} />;
+  }
+  if (lname === 'taskupdate') {
+    const id = typeof input.id === 'string' ? input.id : undefined;
+    const status = typeof input.status === 'string' ? input.status : 'pending';
+    const content = typeof input.content === 'string' && input.content.trim()
+      ? input.content
+      : id
+        ? `Update to-do #${id}`
+        : 'Update to-do';
+    const priority = typeof input.priority === 'string' ? input.priority : undefined;
+    return <TodoItemsDisplay todos={[{ id, content, status, priority }]} />;
+  }
+  if (lname === 'taskget') {
+    const id = typeof input.id === 'string' ? input.id : undefined;
+    return <span className="text-gray-500">Inspect to-do{id ? ` #${id}` : ''}</span>;
+  }
+  return <span className="text-gray-500">Review to-do list</span>;
+}
+
+function firstString(input: Record<string, unknown>, key: string): string | undefined {
+  const value = input[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function firstPositiveNumber(input: Record<string, unknown>, key: string): number | undefined {
+  const value = input[key];
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function metadataWeight(input: Record<string, unknown>): number | undefined {
+  const metadata = input.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  return firstPositiveNumber(metadata as Record<string, unknown>, 'weight');
+}
+
+function normalizeTodoWeight(input: Record<string, unknown>): number | undefined {
+  return firstPositiveNumber(input, 'weight') ?? metadataWeight(input);
+}
+
+function taskWeight(todo: AgentTodoItem): number {
+  if (todo.weight != null) return todo.weight;
+  if (todo.priority === 'high') return 3;
+  if (todo.priority === 'low') return 1;
+  return 2;
+}
+
+function normalizeTodoStatus(status: string | undefined): string {
+  if (!status) return 'pending';
+  return ['pending', 'in_progress', 'completed', 'blocked', 'failed', 'deleted'].includes(status) ? status : 'pending';
+}
+
+function deriveCurrentTodoList(events: SessionEvent[]): { todos: AgentTodoItem[]; hasTodoEvents: boolean } {
+  let todos: AgentTodoItem[] = [];
+  let hasTodoEvents = false;
+
+  for (const event of events) {
+    if (event.type !== 'tool_use' || !isTodoTool(event.name)) continue;
+    hasTodoEvents = true;
+
+    const lname = event.name.toLowerCase();
+    if (lname === 'todowrite') {
+      const rawTodos = Array.isArray(event.input.todos) ? event.input.todos : [];
+      todos = rawTodos
+        .filter((raw): raw is Record<string, unknown> => raw != null && typeof raw === 'object' && !Array.isArray(raw))
+        .map((raw) => ({
+          id: firstString(raw, 'id'),
+          content: firstString(raw, 'content') ?? 'Untitled to-do',
+          status: normalizeTodoStatus(firstString(raw, 'status')),
+          priority: firstString(raw, 'priority'),
+          weight: normalizeTodoWeight(raw),
+        }))
+        .filter((todo) => todo.status !== 'deleted');
+      continue;
+    }
+
+    if (lname === 'taskcreate') {
+      todos = [
+        ...todos,
+        {
+          id: firstString(event.input, 'id'),
+          content: firstString(event.input, 'content') ?? 'Untitled to-do',
+          status: 'pending',
+          priority: firstString(event.input, 'priority'),
+          weight: normalizeTodoWeight(event.input),
+        },
+      ];
+      continue;
+    }
+
+    if (lname === 'taskupdate') {
+      const id = firstString(event.input, 'id');
+      const content = firstString(event.input, 'content');
+      const priority = firstString(event.input, 'priority');
+      const weight = normalizeTodoWeight(event.input);
+      const statusInput = firstString(event.input, 'status');
+      const existingIndex = id ? todos.findIndex((todo) => todo.id === id) : -1;
+      const unassignedIndex = id && existingIndex === -1 ? todos.findIndex((todo) => !todo.id) : -1;
+      const targetIndex = existingIndex >= 0 ? existingIndex : unassignedIndex;
+
+      if (targetIndex >= 0) {
+        const existing = todos[targetIndex];
+        const status = statusInput ? normalizeTodoStatus(statusInput) : existing.status;
+        const updated: AgentTodoItem = {
+          ...existing,
+          id: id ?? existing.id,
+          content: content ?? existing.content,
+          status,
+          priority: priority ?? existing.priority,
+          weight: weight ?? existing.weight,
+        };
+        todos = status === 'deleted'
+          ? todos.filter((_, index) => index !== targetIndex)
+          : todos.map((todo, index) => index === targetIndex ? updated : todo);
+      } else {
+        const status = normalizeTodoStatus(statusInput);
+        if (status !== 'deleted') {
+          todos = [
+            ...todos,
+            {
+              id,
+              content: content ?? (id ? `To-do #${id}` : 'Updated to-do'),
+              status,
+              priority,
+              weight,
+            },
+          ];
+        }
+      }
+    }
+  }
+
+  return { todos, hasTodoEvents };
+}
+
+function todoIconForStatus(status: string) {
+  if (status === 'completed') return <CheckCircle2 className="h-4 w-4 text-green-400" />;
+  if (status === 'in_progress') return <Clock className="h-4 w-4 text-yellow-400" />;
+  if (status === 'blocked' || status === 'failed') return <AlertCircle className="h-4 w-4 text-orange-400" />;
+  return <Circle className="h-4 w-4 text-gray-500" />;
+}
+
+function TaskListCaretHandle({ direction, isExpanded, canToggle, onToggle, label }: {
+  direction: 'up' | 'down';
+  isExpanded: boolean;
+  canToggle: boolean;
+  onToggle: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={!canToggle}
+      aria-expanded={isExpanded}
+      aria-label={label}
+      className="group/handle flex w-full items-center justify-center rounded-md py-0.5 text-gray-600 transition-colors hover:bg-gray-800/40 hover:text-blue-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-600"
+    >
+      <span className={`transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
+        {direction === 'up' ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+      </span>
+    </button>
+  );
+}
+
+function TodoListProgress({ events }: { events: SessionEvent[] }) {
+  const { todos, hasTodoEvents } = deriveCurrentTodoList(events);
+  const [isExpanded, setIsExpanded] = useState(false);
+  if (!hasTodoEvents) return null;
+
+  const activeTasks = todos.filter((todo) => todo.status === 'in_progress' || todo.status === 'blocked' || todo.status === 'failed');
+  const pendingTasks = todos.filter((todo) => todo.status === 'pending');
+  const completed = todos.filter((todo) => todo.status === 'completed').length;
+  const completionLabel = completed === todos.length ? 'completed' : 'complete';
+  const completionText = `${completed} of ${todos.length} ${completionLabel}`;
+  const todoWeights = todos.map(taskWeight);
+  const totalWeight = todoWeights.reduce((sum, weight) => sum + weight, 0);
+  const completedWeight = todos.reduce((sum, todo) => sum + (todo.status === 'completed' ? taskWeight(todo) : 0), 0);
+  const stepTickMarks = todoWeights.slice(0, -1).reduce<number[]>((marks, weight) => {
+    const previous = marks.at(-1) ?? 0;
+    marks.push(previous + weight);
+    return marks;
+  }, []);
+  const currentTasks = activeTasks.length > 0
+    ? activeTasks
+    : pendingTasks.length > 0
+      ? pendingTasks.slice(0, 1)
+      : todos.slice(-1);
+  const currentTaskIndexes = currentTasks.map((todo) => todos.indexOf(todo)).filter((index) => index >= 0);
+  const firstCurrentTaskIndex = currentTaskIndexes.length > 0 ? Math.min(...currentTaskIndexes) : 0;
+  const lastCurrentTaskIndex = currentTaskIndexes.length > 0 ? Math.max(...currentTaskIndexes) : -1;
+  const tasksAboveCurrent = currentTaskIndexes.length > 0 ? todos.slice(0, firstCurrentTaskIndex) : [];
+  const tasksBelowCurrent = currentTaskIndexes.length > 0 ? todos.slice(lastCurrentTaskIndex + 1) : todos;
+  const hasHiddenTasks = tasksAboveCurrent.length > 0 || tasksBelowCurrent.length > 0;
+  const canToggleTasks = hasHiddenTasks;
+  const toggleTaskList = () => setIsExpanded((open) => !open);
+
+  const renderTaskItem = (todo: AgentTodoItem, index: number) => (
+    <li key={todo.id ?? `${todo.content}-${index}`} className="flex items-start gap-2">
+      <span className="mt-0.5 shrink-0">{todoIconForStatus(todo.status)}</span>
+      <div className="min-w-0 flex-1">
+        <div className={`text-sm ${todoStatusClass(todo.status)}`}>{todo.content}</div>
+      </div>
+    </li>
+  );
+
+  return (
+    <div className="border-t border-gray-800 bg-gray-950/40 px-4 py-3">
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-300">
+        <ListChecks className="h-4 w-4 text-blue-300" />
+        <span>Progress</span>
+        {todos.length > 0 ? (
+          <span className="ml-auto font-normal text-gray-500">{completionText}</span>
+        ) : null}
+      </div>
+      {todos.length === 0 ? (
+        <p className="text-xs text-gray-500">No to-dos are currently tracked.</p>
+      ) : (
+        <>
+          <ProgressBar value={completedWeight} max={totalWeight} tickMarks={stepTickMarks} />
+          <div className="mt-3 select-text">
+            <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+              <ol className="min-h-0 overflow-hidden space-y-1.5">
+                {tasksAboveCurrent.map(renderTaskItem)}
+              </ol>
+            </div>
+            <TaskListCaretHandle direction="up" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
+            <ol className="space-y-1.5 py-1">
+              {currentTasks.map(renderTaskItem)}
+            </ol>
+            <TaskListCaretHandle direction="down" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
+            <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+              <ol className="min-h-0 overflow-hidden space-y-1.5">
+                {tasksBelowCurrent.map(renderTaskItem)}
+              </ol>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ToolUseDisplay({ event, worktreePath }: { event: Extract<SessionEvent, { type: 'tool_use' }>; worktreePath?: string }) {
+  if (isTodoTool(event.name)) {
+    const isLegacyTodoWrite = event.name.toLowerCase() === 'todowrite';
+    return (
+      <div className="text-xs font-mono">
+        <span className="text-gray-400">📋 To-do</span>
+        {!isLegacyTodoWrite ? <span className="text-gray-600"> {event.name}</span> : null}
+        <div className="mt-1 ml-4">
+          {isLegacyTodoWrite ? <TodoWriteDisplay input={event.input} /> : <PiTodoToolDisplay name={event.name} input={event.input} />}
+        </div>
+      </div>
+    );
+  }
+  const summary = summarizeToolInput(event.name, event.input, worktreePath);
+  return (
+    <p className="text-gray-400 text-xs font-mono">
+      🔧 {event.name}{summary ? <span className="text-gray-600"> {summary}</span> : null}
+    </p>
   );
 }
 
@@ -363,20 +669,7 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
           events.filter((e): e is RenderableEvent => e.type === 'tool_use' || e.type === 'text' || e.type === 'log_line' || e.type === 'thinking')
         ).map((event, i) => {
           if (event.type === 'tool_use') {
-            if (event.name.toLowerCase() === 'todowrite') {
-              return (
-                <div key={i} className="text-xs font-mono">
-                  <span className="text-gray-400">📋 TodoWrite</span>
-                  <div className="mt-1 ml-4"><TodoWriteDisplay input={event.input} /></div>
-                </div>
-              );
-            }
-            const summary = summarizeToolInput(event.name, event.input, worktreePath);
-            return (
-              <p key={i} className="text-gray-400 text-xs font-mono">
-                🔧 {event.name}{summary ? <span className="text-gray-600"> {summary}</span> : null}
-              </p>
-            );
+            return <ToolUseDisplay key={i} event={event} worktreePath={worktreePath} />;
           }
           if (event.type === 'text') {
             return <MarkdownContent key={i} text={event.content} className="[&>*:last-child]:mb-0" attachmentSessionId={sessionId} />;
@@ -390,6 +683,7 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
           return null;
         })}
       </div>
+      <TodoListProgress events={events} />
       {latestMetrics && (
         <MetricsRow
           hideCost={auth?.source === 'chatgpt-subscription'}
@@ -463,20 +757,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
           <div className="px-4 py-3 border-t border-gray-800 space-y-2">
             {mergeConsecutiveTextEvents(detailEvents).map((event, i) => {
               if (event.type === 'tool_use') {
-                if (event.name.toLowerCase() === 'todowrite') {
-                  return (
-                    <div key={i} className="text-xs font-mono">
-                      <span className="text-gray-400">📋 TodoWrite</span>
-                      <div className="mt-1 ml-4"><TodoWriteDisplay input={event.input} /></div>
-                    </div>
-                  );
-                }
-                const summary = summarizeToolInput(event.name, event.input, worktreePath);
-                return (
-                  <p key={i} className="text-gray-400 text-xs font-mono">
-                    🔧 {event.name}{summary ? <span className="text-gray-600"> {summary}</span> : null}
-                  </p>
-                );
+                return <ToolUseDisplay key={i} event={event} worktreePath={worktreePath} />;
               }
               if (event.type === 'text') {
                 return <MarkdownContent key={i} text={event.content} className="[&>*:last-child]:mb-0" attachmentSessionId={sessionId} />;
@@ -508,6 +789,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
           <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{convertedMessage}</pre>
         </div>
       )}
+      <TodoListProgress events={events} />
       {metricsEvent && (
         <MetricsRow
           hideCost={auth?.source === 'chatgpt-subscription'}
