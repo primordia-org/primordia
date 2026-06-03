@@ -644,17 +644,22 @@ function deriveTaskAccordionItems(events: SessionEvent[]): { items: TaskAccordio
   };
 }
 
-function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = false }: {
+function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = false, legacyClassName = "px-4 py-3 space-y-2" }: {
   events: SessionEvent[];
   sessionId: string;
   worktreePath?: string;
   isStreaming?: boolean;
+  legacyClassName?: string;
 }) {
   const { todos, hasTodoEvents } = deriveCurrentTodoList(events);
   const { items, currentKey } = deriveTaskAccordionItems(events);
   if (!hasTodoEvents) {
     const renderableEvents = events.filter((e): e is RenderableEvent => e.type === 'tool_use' || e.type === 'text' || e.type === 'log_line' || e.type === 'thinking');
-    return <LegacyAgentEvents events={renderableEvents} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming} />;
+    return (
+      <div className={legacyClassName}>
+        <LegacyAgentEvents events={renderableEvents} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming} />
+      </div>
+    );
   }
 
   const completed = todos.filter((todo) => todo.status === 'completed').length;
@@ -668,8 +673,8 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
   }, []);
 
   return (
-    <div className="rounded-md border border-gray-800 bg-gray-950/30 overflow-hidden">
-      <div className="px-3 py-2 border-b border-gray-800">
+    <>
+      <div className="px-4 py-2 border-b border-gray-800">
         <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-300">
           <ListChecks className="h-4 w-4 text-blue-300" />
           <span>Task progress</span>
@@ -683,7 +688,7 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
           const eventCount = item.events.filter((event) => event.type !== 'tool_use' || !isTodoTool(event.name)).length;
           return (
             <details key={item.key} className="group/task" open={isCurrent || item.isSetup}>
-              <summary className="flex items-start gap-2 px-3 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none">
+              <summary className="flex items-start gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none">
                 <span className="mt-0.5 text-gray-600 group-open/task:rotate-90 transition-transform text-xs">▶</span>
                 <span className="mt-0.5 shrink-0">{todoIconForStatus(item.todo.status)}</span>
                 <span className="min-w-0 flex-1">
@@ -708,7 +713,7 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
           );
         })}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -758,9 +763,7 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
           </span>
         </span>
       </div>
-      <div className="px-4 py-3 space-y-2">
-        <TaskAccordionEvents events={events} sessionId={sessionId} worktreePath={worktreePath} isStreaming />
-      </div>
+      <TaskAccordionEvents events={events} sessionId={sessionId} worktreePath={worktreePath} isStreaming />
       {latestMetrics && (
         <MetricsRow
           hideCost={auth?.source === 'chatgpt-subscription'}
@@ -826,9 +829,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
         {!isTypeFixSection && !isAutoCommitSection && <span className="ml-auto text-xs text-gray-500">{hasError ? "errored" : "finished"}</span>}
       </div>
       {(toolCallCount > 0 || finalEvents.length > 0) && (
-        <div className="px-4 py-3 space-y-2 border-b border-gray-800">
-          <TaskAccordionEvents events={events} sessionId={sessionId} worktreePath={worktreePath} />
-        </div>
+        <TaskAccordionEvents events={events} sessionId={sessionId} worktreePath={worktreePath} legacyClassName="px-4 py-3 space-y-2 border-b border-gray-800" />
       )}
       {hasError && convertedMessage && (
         <div className="px-4 py-3 border-t border-gray-800">
