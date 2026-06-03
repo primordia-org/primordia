@@ -139,7 +139,7 @@ function statusIcon(status: string) {
 
 function todoStatusClass(status: string) {
   return status === 'completed'
-    ? 'text-gray-600 line-through'
+    ? 'text-gray-500'
     : status === 'in_progress'
       ? 'text-yellow-400'
       : status === 'blocked' || status === 'failed'
