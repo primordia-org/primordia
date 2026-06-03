@@ -694,6 +694,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
           <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{convertedMessage}</pre>
         </div>
       )}
+      <TodoListProgress events={events} />
       {metricsEvent && (
         <MetricsRow
           hideCost={auth?.source === 'chatgpt-subscription'}
