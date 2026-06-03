@@ -1,5 +1,5 @@
 # Combine tasks into progress
 
-The evolve session progress panel now folds task tracking into the Progress section instead of rendering a separate Tasks section. By default it shows the progress bar and the currently active task or next pending task, keeping the session log compact.
+The evolve session progress panel now folds task tracking into the Progress section instead of rendering a separate Tasks section. The progress bar remains at the top of the combined panel, with the task list directly underneath it.
 
-Clicking or tapping the Progress disclosure expands the task details, revealing completed tasks above the summary and pending tasks below it. The disclosure can be collapsed again to return to the focused active-task view.
+By default, the task list focuses on the currently active task or the next pending task, keeping completed and other pending tasks hidden. Clicking or tapping the visible task list toggles the full original task list in place below the progress bar, revealing the hidden completed and pending items while preserving a compact collapsed view.
