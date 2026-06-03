@@ -299,14 +299,15 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
   if (!hasTodoEvents) return null;
 
   const completed = todos.filter((todo) => todo.status === 'completed').length;
+  const completionLabel = completed === todos.length ? 'completed' : 'complete';
 
   return (
     <div className="border-t border-gray-800 bg-gray-950/40 px-4 py-3">
       <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-300">
         <ListChecks className="h-4 w-4 text-blue-300" />
-        <span>Todo List</span>
+        <span>Tasks</span>
         {todos.length > 0 ? (
-          <span className="ml-auto font-normal text-gray-500">{completed}/{todos.length} complete</span>
+          <span className="ml-auto font-normal text-gray-500">{completed}/{todos.length} {completionLabel}</span>
         ) : null}
       </div>
       {todos.length === 0 ? (
@@ -314,7 +315,7 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
       ) : (
         <ol className="space-y-1.5">
           {todos.map((todo, index) => (
-            <li key={todo.id ?? `${todo.content}-${index}`} className="flex items-start gap-2 rounded-md border border-gray-800/70 bg-gray-900/70 px-3 py-2">
+            <li key={todo.id ?? `${todo.content}-${index}`} className="flex items-start gap-2 rounded-md bg-gray-900/70 px-3 py-2">
               <span className="mt-0.5 shrink-0">{todoIconForStatus(todo.status)}</span>
               <div className="min-w-0 flex-1">
                 <div className={`text-sm ${todoStatusClass(todo.status)}`}>{todo.content}</div>
