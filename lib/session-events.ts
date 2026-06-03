@@ -148,7 +148,8 @@ function buildSessionFromWorktreePath(
 
   const { events } = readSessionEvents(ndjsonPath);
   const status = inferStatusFromEvents(events);
-  const previewUrl = status === 'ready' ? `/preview/${id}` : null;
+  const hasExplicitPreviewPath = events.some((event) => event.type === 'preview_path');
+  const previewUrl = status === 'ready' || hasExplicitPreviewPath ? `/preview/${id}` : null;
 
   let request = '';
   let createdAt = 0;

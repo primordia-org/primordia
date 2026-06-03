@@ -1680,9 +1680,9 @@ export default function EvolveSessionView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]); // intentionally omit initialStatus — run once on mount
 
-  // Poll the proxy for the real-time preview server status whenever the session is ready.
+  // Poll the proxy for the real-time preview server status whenever a preview URL is available.
   useEffect(() => {
-    if (status !== "ready") return;
+    if (previewUrl === null) return;
     let cancelled = false;
 
     async function poll() {
@@ -1703,9 +1703,9 @@ export default function EvolveSessionView({
 
     void poll();
     return () => { cancelled = true; };
-  }, [sessionId, status]);
+  }, [sessionId, previewUrl]);
 
-  // Stream server logs from the proxy when the session is ready.
+  // Stream server logs from the proxy when a preview URL is available.
   async function startServerLogsStream() {
     proxyLogsControllerRef.current?.abort();
     const controller = new AbortController();
@@ -1743,12 +1743,12 @@ export default function EvolveSessionView({
   }
 
   useEffect(() => {
-    if (status !== "ready") return;
+    if (previewUrl === null) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void startServerLogsStream();
     return () => { proxyLogsControllerRef.current?.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, status]);
+  }, [sessionId, previewUrl]);
 
   async function handleRestartServer() {
     trackEvent("session/restart-server-clicked/v1", { sessionId });
@@ -1957,8 +1957,11 @@ export default function EvolveSessionView({
    */
   const effectivePreviewUrl = previewUrl ?? `/preview/${sessionId}`;
 
+  /** Whether the preview URL has been selected and can be shown. */
+  const showPreview = previewUrl !== null;
+
   /** Whether to show the preview as a desktop sidebar. */
-  const showPreviewSidebar = status === "ready";
+  const showPreviewSidebar = showPreview;
 
   /**
    * The URL to open in the Web Preview panel when it first becomes available.
@@ -2134,24 +2137,6 @@ export default function EvolveSessionView({
             <p className="text-red-300/80 text-xs mt-1">
               The branch and worktree have been discarded.
             </p>
-          </div>
-        )}
-
-        {/* Web preview card — hidden on desktop when sidebar is active (aside shows it there) */}
-        {status === "ready" && (
-          <div className={showPreviewSidebar ? 'xl:hidden' : ''}>
-            <WebPreviewCard
-              fullHeight={false}
-              previewUrl={smartPreviewUrl}
-              sessionId={sessionId}
-              proxyServerStatus={proxyServerStatus}
-              serverLogs={serverLogs}
-              canEvolve={canEvolve}
-              isRestartingServer={isRestartingServer}
-              restartError={restartError}
-              onRestartServer={handleRestartServer}
-              onElementSelected={handleElementSelected}
-            />
           </div>
         )}
 
@@ -2511,6 +2496,24 @@ export default function EvolveSessionView({
             </div>
           )}
 
+        </div>
+      )}
+
+      {/* Web preview card — hidden on desktop when sidebar is active (aside shows it there). */}
+      {showPreview && (
+        <div className={`mb-6 ${showPreviewSidebar ? 'xl:hidden' : ''}`}>
+          <WebPreviewCard
+            fullHeight={false}
+            previewUrl={smartPreviewUrl}
+            sessionId={sessionId}
+            proxyServerStatus={proxyServerStatus}
+            serverLogs={serverLogs}
+            canEvolve={canEvolve}
+            isRestartingServer={isRestartingServer}
+            restartError={restartError}
+            onRestartServer={handleRestartServer}
+            onElementSelected={handleElementSelected}
+          />
         </div>
       )}
 

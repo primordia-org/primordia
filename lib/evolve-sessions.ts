@@ -24,7 +24,7 @@ function getModelLabel(harnessId: string, modelId: string): string {
 
 const MARKDOWN_SCREENSHOT_INSTRUCTION = `If you capture screenshots or create image files under the worktree's \`attachments/\` folder, you may include them in your final text output using Markdown image syntax like \`![description](attachments/screenshot.png)\`; put the image syntax on its own line/paragraph, not inside a list item or inline code span. The session page renders final text as Markdown and will display those images inline with a figure caption from the alt text.`;
 
-const SET_PREVIEW_URL_INSTRUCTION = `If there is a single most relevant page to open in the preview, run \`bun run set-preview-url /route\` after making changes (example: \`bun run set-preview-url /admin\`). Use \`/\` for the landing page. Do not provide a full URL or filesystem path. Skip this only if all changes are purely server-side or no single page is more relevant than the landing page.`;
+const SET_PREVIEW_URL_INSTRUCTION = `As soon as you are done editing the app files, and before validation/typecheck/build work and before creating or editing the changelog, choose the most relevant preview page: run \`bun run set-preview-url /route\` (example: \`bun run set-preview-url /admin\`). Use \`/\` for the landing page. Do not provide a full URL or filesystem path. Skip this only if all changes are purely server-side or no single page is more relevant than the landing page.`;
 
 export type LocalSessionStatus =
   | 'starting'
@@ -965,10 +965,10 @@ export async function startLocalEvolve(
       `Implement the following change:\n\n` +
       `${taskRequest}${attachmentSection}\n\n` +
       `After making changes:\n` +
-      `1. Create a new changelog file in the \`changelog/\` directory named \`YYYY-MM-DD-HH-MM-SS Description of change.md\` (UTC time, e.g. \`2026-03-16-21-00-00 Fix login bug.md\`). The filename is the short description; the file body is the full "what changed + why" detail in markdown. Do NOT add changelog entries to CLAUDE.md itself.\n` +
-      `2. Commit all changes with a descriptive message.\n` +
-      `3. ${MARKDOWN_SCREENSHOT_INSTRUCTION}\n` +
-      `4. ${SET_PREVIEW_URL_INSTRUCTION}`;
+      `1. ${SET_PREVIEW_URL_INSTRUCTION}\n` +
+      `2. Create a new changelog file in the \`changelog/\` directory named \`YYYY-MM-DD-HH-MM-SS Description of change.md\` (UTC time, e.g. \`2026-03-16-21-00-00 Fix login bug.md\`). The filename is the short description; the file body is the full "what changed + why" detail in markdown. Do NOT add changelog entries to CLAUDE.md itself.\n` +
+      `3. Commit all changes with a descriptive message.\n` +
+      `4. ${MARKDOWN_SCREENSHOT_INSTRUCTION}`;
 
     const workerScript = harnessId === 'pi'
       ? path.join(repoRoot, 'scripts/pi-worker.ts')
@@ -1126,12 +1126,12 @@ export async function runFollowupInWorktree(
     // .primordia-session.ndjson to reconstruct session history — see CLAUDE.md.
     const previewPathInstruction = internalSectionType
       ? ''
-      : `\n\n${MARKDOWN_SCREENSHOT_INSTRUCTION}\n\n${SET_PREVIEW_URL_INSTRUCTION}`;
+      : `\n\n${SET_PREVIEW_URL_INSTRUCTION}\n\n${MARKDOWN_SCREENSHOT_INSTRUCTION}`;
 
     const prompt =
       `Address the following follow-up request:\n\n` +
       `${followupRequest}${attachmentSection}\n\n` +
-      `${changelogInstruction} Commit all changes with a descriptive message.${previewPathInstruction}`;
+      `${previewPathInstruction}\n\n${changelogInstruction} Commit all changes with a descriptive message.`;
 
     const fuWorkerScript = fuHarnessId === 'pi'
       ? path.join(repoRoot, 'scripts/pi-worker.ts')
