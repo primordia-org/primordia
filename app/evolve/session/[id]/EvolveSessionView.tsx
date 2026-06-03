@@ -10,6 +10,7 @@ import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { NavHeader } from "@/components/NavHeader";
+import { ProgressBar } from "@/components/ProgressBar";
 
 import { FloatingEvolveDialog, EvolveSubmitToast } from "@/components/FloatingEvolveDialog";
 import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
@@ -300,6 +301,7 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
 
   const completed = todos.filter((todo) => todo.status === 'completed').length;
   const completionLabel = completed === todos.length ? 'completed' : 'complete';
+  const activeTasks = todos.filter((todo) => todo.status === 'in_progress');
 
   return (
     <div className="border-t border-gray-800 bg-gray-950/40 px-4 py-3">
@@ -313,16 +315,33 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
       {todos.length === 0 ? (
         <p className="text-xs text-gray-500">No to-dos are currently tracked.</p>
       ) : (
-        <ol className="space-y-1.5">
-          {todos.map((todo, index) => (
-            <li key={todo.id ?? `${todo.content}-${index}`} className="flex items-start gap-2">
-              <span className="mt-0.5 shrink-0">{todoIconForStatus(todo.status)}</span>
-              <div className="min-w-0 flex-1">
-                <div className={`text-sm ${todoStatusClass(todo.status)}`}>{todo.content}</div>
-              </div>
-            </li>
-          ))}
-        </ol>
+        <>
+          <ol className="space-y-1.5">
+            {todos.map((todo, index) => (
+              <li key={todo.id ?? `${todo.content}-${index}`} className="flex items-start gap-2">
+                <span className="mt-0.5 shrink-0">{todoIconForStatus(todo.status)}</span>
+                <div className="min-w-0 flex-1">
+                  <div className={`text-sm ${todoStatusClass(todo.status)}`}>{todo.content}</div>
+                </div>
+              </li>
+            ))}
+          </ol>
+          <div className="mt-4 border-t border-gray-800 pt-3">
+            <div className="mb-2 text-xs font-semibold text-gray-300">Progress</div>
+            <ProgressBar value={completed} max={todos.length} label={`${completed}/${todos.length} ${completionLabel}`} />
+            <div className="mt-2 text-xs text-gray-500">
+              {activeTasks.length > 0 ? (
+                <div className="space-y-1">
+                  {activeTasks.map((todo, index) => (
+                    <div key={todo.id ?? `${todo.content}-${index}`} className="text-yellow-300">{todo.content}</div>
+                  ))}
+                </div>
+              ) : (
+                <div>No active tasks.</div>
+              )}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
