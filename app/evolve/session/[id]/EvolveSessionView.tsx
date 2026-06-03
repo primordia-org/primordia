@@ -179,26 +179,27 @@ function isTodoTool(name: string) {
 function PiTodoToolDisplay({ name, input }: { name: string; input: Record<string, unknown> }) {
   const lname = name.toLowerCase();
   if (lname === 'taskcreate') {
-    const content = typeof input.content === 'string' && input.content.trim() ? input.content : 'Create to-do';
+    const content = typeof input.content === 'string' && input.content.trim() ? input.content : 'Create task';
     const priority = typeof input.priority === 'string' ? input.priority : undefined;
-    return <TodoItemsDisplay todos={[{ content, status: 'pending', priority }]} />;
+    return <span className="text-gray-500">Create task: <span className="text-gray-400">{content}</span>{priority ? <span className="text-gray-600"> ({priority})</span> : null}</span>;
   }
   if (lname === 'taskupdate') {
     const id = typeof input.id === 'string' ? input.id : undefined;
-    const status = typeof input.status === 'string' ? input.status : 'pending';
-    const content = typeof input.content === 'string' && input.content.trim()
-      ? input.content
-      : id
-        ? `Update to-do #${id}`
-        : 'Update to-do';
-    const priority = typeof input.priority === 'string' ? input.priority : undefined;
-    return <TodoItemsDisplay todos={[{ id, content, status, priority }]} />;
+    const status = typeof input.status === 'string' ? input.status : undefined;
+    const content = typeof input.content === 'string' && input.content.trim() ? input.content : undefined;
+    return (
+      <span className="text-gray-500">
+        Update task{id ? <span className="text-gray-600"> #{id}</span> : null}
+        {status ? <> → <span className={todoStatusClass(status)}>{status}</span></> : null}
+        {content ? <>: <span className="text-gray-400">{content}</span></> : null}
+      </span>
+    );
   }
   if (lname === 'taskget') {
     const id = typeof input.id === 'string' ? input.id : undefined;
-    return <span className="text-gray-500">Inspect to-do{id ? ` #${id}` : ''}</span>;
+    return <span className="text-gray-500">Inspect task{id ? ` #${id}` : ''}</span>;
   }
-  return <span className="text-gray-500">Review to-do list</span>;
+  return <span className="text-gray-500">Review task list</span>;
 }
 
 function firstString(input: Record<string, unknown>, key: string): string | undefined {
@@ -354,12 +355,19 @@ function TaskListCaretHandle({ direction, isExpanded, canToggle, onToggle, label
 function ToolUseDisplay({ event, worktreePath }: { event: Extract<SessionEvent, { type: 'tool_use' }>; worktreePath?: string }) {
   if (isTodoTool(event.name)) {
     const isLegacyTodoWrite = event.name.toLowerCase() === 'todowrite';
+    if (!isLegacyTodoWrite) {
+      return (
+        <p className="text-xs font-mono">
+          <span className="text-gray-400">📋 {event.name}</span>{' '}
+          <PiTodoToolDisplay name={event.name} input={event.input} />
+        </p>
+      );
+    }
     return (
       <div className="text-xs font-mono">
         <span className="text-gray-400">📋 To-do</span>
-        {!isLegacyTodoWrite ? <span className="text-gray-600"> {event.name}</span> : null}
         <div className="mt-1 ml-4">
-          {isLegacyTodoWrite ? <TodoWriteDisplay input={event.input} /> : <PiTodoToolDisplay name={event.name} input={event.input} />}
+          <TodoWriteDisplay input={event.input} />
         </div>
       </div>
     );
