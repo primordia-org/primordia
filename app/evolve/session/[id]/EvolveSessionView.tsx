@@ -5,7 +5,7 @@
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks } from "lucide-react";
+import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronsUp, ChevronsDown } from "lucide-react";
 import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
@@ -344,8 +344,8 @@ function TaskListCaretHandle({ direction, isExpanded, canToggle, onToggle, label
       aria-label={label}
       className="group/handle flex w-full items-center justify-center rounded-md py-0.5 text-gray-600 transition-colors hover:bg-gray-800/40 hover:text-blue-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-600"
     >
-      <span className={`text-base leading-none transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
-        {direction === 'up' ? '^' : '⌄'}
+      <span className={`transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
+        {direction === 'up' ? <ChevronsUp className="h-4 w-4" /> : <ChevronsDown className="h-4 w-4" />}
       </span>
     </button>
   );
@@ -363,19 +363,18 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
   const completionText = `${completed} of ${todos.length} ${completionLabel}`;
   const totalWeight = todos.reduce((sum, todo) => sum + taskWeight(todo), 0);
   const completedWeight = todos.reduce((sum, todo) => sum + (todo.status === 'completed' ? taskWeight(todo) : 0), 0);
-  const currentTasks = activeTasks.length > 0 ? activeTasks : pendingTasks.slice(0, 1);
+  const currentTasks = activeTasks.length > 0
+    ? activeTasks
+    : pendingTasks.length > 0
+      ? pendingTasks.slice(0, 1)
+      : todos.slice(-1);
   const currentTaskIndexes = currentTasks.map((todo) => todos.indexOf(todo)).filter((index) => index >= 0);
   const firstCurrentTaskIndex = currentTaskIndexes.length > 0 ? Math.min(...currentTaskIndexes) : 0;
   const lastCurrentTaskIndex = currentTaskIndexes.length > 0 ? Math.max(...currentTaskIndexes) : -1;
   const tasksAboveCurrent = currentTaskIndexes.length > 0 ? todos.slice(0, firstCurrentTaskIndex) : [];
   const tasksBelowCurrent = currentTaskIndexes.length > 0 ? todos.slice(lastCurrentTaskIndex + 1) : todos;
   const hasHiddenTasks = tasksAboveCurrent.length > 0 || tasksBelowCurrent.length > 0;
-  const visibleTaskLabel = activeTasks.length > 0
-    ? `Active task${activeTasks.length === 1 ? '' : 's'}`
-    : pendingTasks.length > 0
-      ? 'Next task'
-      : 'Tasks';
-  const canToggleTasks = hasHiddenTasks || currentTasks.length === 0;
+  const canToggleTasks = hasHiddenTasks;
   const toggleTaskList = () => setIsExpanded((open) => !open);
 
   const renderTaskItem = (todo: AgentTodoItem, index: number) => (
@@ -409,7 +408,6 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
             </div>
             <TaskListCaretHandle direction="up" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
             <ol className="space-y-1.5 px-1 py-1">
-              {currentTasks.length > 0 ? <li className="text-xs font-semibold text-gray-500">{visibleTaskLabel}</li> : null}
               {currentTasks.map(renderTaskItem)}
             </ol>
             <TaskListCaretHandle direction="down" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
