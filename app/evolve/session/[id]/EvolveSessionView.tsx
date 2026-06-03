@@ -709,6 +709,7 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
   const { todos, hasTodoEvents } = deriveCurrentTodoList(events);
   const { items } = deriveTaskAccordionItems(events);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [openTaskKeys, setOpenTaskKeys] = useState<Set<string>>(() => new Set());
   if (!hasTodoEvents) {
     const renderableEvents = events.filter((e): e is RenderableEvent => e.type === 'tool_use' || e.type === 'text' || e.type === 'log_line' || e.type === 'thinking');
     return (
@@ -753,18 +754,40 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
   const canToggleTasks = hasHiddenTasks;
   const toggleTaskList = () => setIsExpanded((open) => !open);
 
+  const toggleTaskDetails = (key: string) => {
+    setOpenTaskKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const renderTaskItem = (item: TaskAccordionItem) => {
     const isSetup = item.isSetup === true;
+    const isOpen = openTaskKeys.has(item.key);
     return (
       <li key={item.key}>
-        <details className="group/task">
-          <summary className="flex items-start gap-2 cursor-pointer list-none rounded-md transition-colors hover:bg-gray-800/30 -mx-1 px-1 py-1.5">
+        <div>
+          <div
+            role="button"
+            tabIndex={0}
+            aria-expanded={isOpen}
+            onClick={() => toggleTaskDetails(item.key)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                toggleTaskDetails(item.key);
+              }
+            }}
+            className="flex items-start gap-2 cursor-pointer list-none rounded-md transition-colors hover:bg-gray-800/30 -mx-1 px-1 py-1.5"
+          >
             <span className="mt-0.5 shrink-0">{isSetup ? <CheckCircle2 className="h-4 w-4 text-gray-500" /> : todoIconForStatus(item.todo.status)}</span>
             <div className="min-w-0 flex-1">
               <div className={`text-sm ${isSetup ? 'text-gray-500' : todoStatusClass(item.todo.status)}`}>{item.todo.status === 'in_progress' && item.todo.activeForm ? item.todo.activeForm : item.todo.content}</div>
             </div>
-          </summary>
-          <div className="grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-300 ease-out group-open/task:grid-rows-[1fr] group-open/task:opacity-100">
+          </div>
+          <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
             <div className="min-h-0 overflow-hidden space-y-2 py-2">
               {item.events.length > 0 ? (
                 <LegacyAgentEvents events={item.events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming && currentTaskItems.includes(item)} expectedTaskId={item.todo.id} />
@@ -773,7 +796,7 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
               )}
             </div>
           </div>
-        </details>
+        </div>
       </li>
     );
   };
