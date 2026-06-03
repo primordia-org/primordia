@@ -1680,9 +1680,10 @@ export default function EvolveSessionView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]); // intentionally omit initialStatus — run once on mount
 
-  // Poll the proxy for the real-time preview server status whenever a preview URL is available.
+  // Poll the proxy for the real-time preview server status whenever a preview URL is available,
+  // or once the session is ready even if the agent never selected an explicit preview route.
   useEffect(() => {
-    if (previewUrl === null) return;
+    if (previewUrl === null && status !== "ready") return;
     let cancelled = false;
 
     async function poll() {
@@ -1703,9 +1704,9 @@ export default function EvolveSessionView({
 
     void poll();
     return () => { cancelled = true; };
-  }, [sessionId, previewUrl]);
+  }, [sessionId, previewUrl, status]);
 
-  // Stream server logs from the proxy when a preview URL is available.
+  // Stream server logs from the proxy when a preview URL is available or the session is ready.
   async function startServerLogsStream() {
     proxyLogsControllerRef.current?.abort();
     const controller = new AbortController();
@@ -1743,12 +1744,12 @@ export default function EvolveSessionView({
   }
 
   useEffect(() => {
-    if (previewUrl === null) return;
+    if (previewUrl === null && status !== "ready") return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void startServerLogsStream();
     return () => { proxyLogsControllerRef.current?.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, previewUrl]);
+  }, [sessionId, previewUrl, status]);
 
   async function handleRestartServer() {
     trackEvent("session/restart-server-clicked/v1", { sessionId });
@@ -1957,8 +1958,8 @@ export default function EvolveSessionView({
    */
   const effectivePreviewUrl = previewUrl ?? `/preview/${sessionId}`;
 
-  /** Whether the preview URL has been selected and can be shown. */
-  const showPreview = previewUrl !== null;
+  /** Whether the preview can be shown: either explicitly selected early, or ready with the default route. */
+  const showPreview = previewUrl !== null || status === "ready";
 
   /** Whether to show the preview as a desktop sidebar. */
   const showPreviewSidebar = showPreview;
