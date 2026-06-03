@@ -5,7 +5,7 @@
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks } from "lucide-react";
+import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown } from "lucide-react";
 import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
@@ -326,6 +326,29 @@ function todoIconForStatus(status: string) {
   if (status === 'in_progress') return <Clock className="h-4 w-4 text-yellow-400" />;
   if (status === 'blocked' || status === 'failed') return <AlertCircle className="h-4 w-4 text-orange-400" />;
   return <Circle className="h-4 w-4 text-gray-500" />;
+}
+
+function TaskListCaretHandle({ direction, isExpanded, canToggle, onToggle, label }: {
+  direction: 'up' | 'down';
+  isExpanded: boolean;
+  canToggle: boolean;
+  onToggle: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={!canToggle}
+      aria-expanded={isExpanded}
+      aria-label={label}
+      className="group/handle flex w-full items-center justify-center rounded-md py-0.5 text-gray-600 transition-colors hover:bg-gray-800/40 hover:text-blue-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-600"
+    >
+      <span className={`transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
+        {direction === 'up' ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+      </span>
+    </button>
+  );
 }
 
 function ToolUseDisplay({ event, worktreePath }: { event: Extract<SessionEvent, { type: 'tool_use' }>; worktreePath?: string }) {
@@ -652,7 +675,8 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
   legacyClassName?: string;
 }) {
   const { todos, hasTodoEvents } = deriveCurrentTodoList(events);
-  const { items, currentKey } = deriveTaskAccordionItems(events);
+  const { items } = deriveTaskAccordionItems(events);
+  const [isExpanded, setIsExpanded] = useState(false);
   if (!hasTodoEvents) {
     const renderableEvents = events.filter((e): e is RenderableEvent => e.type === 'tool_use' || e.type === 'text' || e.type === 'log_line' || e.type === 'thinking');
     return (
@@ -662,7 +686,11 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
     );
   }
 
+  const activeTasks = todos.filter((todo) => todo.status === 'in_progress' || todo.status === 'blocked' || todo.status === 'failed');
+  const pendingTasks = todos.filter((todo) => todo.status === 'pending');
   const completed = todos.filter((todo) => todo.status === 'completed').length;
+  const completionLabel = completed === todos.length ? 'completed' : 'complete';
+  const completionText = `${completed} of ${todos.length} ${completionLabel}`;
   const todoWeights = todos.map(taskWeight);
   const totalWeight = todoWeights.reduce((sum, weight) => sum + weight, 0);
   const completedWeight = todos.reduce((sum, todo) => sum + (todo.status === 'completed' ? taskWeight(todo) : 0), 0);
@@ -672,48 +700,84 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
     return marks;
   }, []);
 
+  const setupItem = items.find((item) => item.isSetup);
+  const taskItems = items.filter((item) => !item.isSetup);
+  const activeTaskIndexes = activeTasks.map((todo) => todos.indexOf(todo)).filter((index) => index >= 0);
+  const pendingTaskIndexes = pendingTasks.slice(0, 1).map((todo) => todos.indexOf(todo)).filter((index) => index >= 0);
+  const currentTaskIndexes = activeTaskIndexes.length > 0
+    ? activeTaskIndexes
+    : pendingTaskIndexes.length > 0
+      ? pendingTaskIndexes
+      : todos.length > 0
+        ? [todos.length - 1]
+        : [];
+  const firstCurrentTaskIndex = currentTaskIndexes.length > 0 ? Math.min(...currentTaskIndexes) : 0;
+  const lastCurrentTaskIndex = currentTaskIndexes.length > 0 ? Math.max(...currentTaskIndexes) : -1;
+  const taskItemsAboveCurrent = currentTaskIndexes.length > 0 ? taskItems.slice(0, firstCurrentTaskIndex) : [];
+  const currentTaskItems = currentTaskIndexes.map((index) => taskItems[index]).filter((item): item is TaskAccordionItem => item != null);
+  const taskItemsBelowCurrent = currentTaskIndexes.length > 0 ? taskItems.slice(lastCurrentTaskIndex + 1) : taskItems;
+  const itemsAboveCurrent = setupItem ? [setupItem, ...taskItemsAboveCurrent] : taskItemsAboveCurrent;
+  const hasHiddenTasks = itemsAboveCurrent.length > 0 || taskItemsBelowCurrent.length > 0;
+  const canToggleTasks = hasHiddenTasks;
+  const toggleTaskList = () => setIsExpanded((open) => !open);
+
+  const renderTaskItem = (item: TaskAccordionItem) => {
+    const isSetup = item.isSetup === true;
+    return (
+      <li key={item.key}>
+        <details className="group/task">
+          <summary className="flex items-start gap-2 cursor-pointer select-none list-none rounded-md transition-colors hover:bg-gray-800/30 -mx-1 px-1 py-0.5">
+            <span className="mt-0.5 shrink-0">{todoIconForStatus(item.todo.status)}</span>
+            <div className="min-w-0 flex-1">
+              <div className={`text-sm ${isSetup ? 'text-amber-200/90' : todoStatusClass(item.todo.status)}`}>{item.todo.content}</div>
+            </div>
+          </summary>
+          <div className="mt-2 ml-6 border-l border-gray-800 pl-3 space-y-2">
+            {item.events.length > 0 ? (
+              <LegacyAgentEvents events={item.events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming && currentTaskItems.includes(item)} />
+            ) : (
+              <p className="text-xs text-gray-600 italic">No detailed events for this task yet.</p>
+            )}
+          </div>
+        </details>
+      </li>
+    );
+  };
+
   return (
-    <>
-      <div className="px-4 py-2 border-b border-gray-800">
-        <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-300">
-          <ListChecks className="h-4 w-4 text-blue-300" />
-          <span>Task progress</span>
-          <span className="ml-auto font-normal text-gray-500">{completed} of {todos.length} completed</span>
-        </div>
-        <ProgressBar value={completedWeight} max={totalWeight} tickMarks={stepTickMarks} />
+    <div className="border-t border-gray-800 bg-gray-950/40 px-4 py-3">
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-300">
+        <ListChecks className="h-4 w-4 text-blue-300" />
+        <span>Progress</span>
+        {todos.length > 0 ? (
+          <span className="ml-auto font-normal text-gray-500">{completionText}</span>
+        ) : null}
       </div>
-      <div className="divide-y divide-gray-800">
-        {items.map((item, index) => {
-          const isCurrent = item.key === currentKey;
-          const eventCount = item.events.filter((event) => event.type !== 'tool_use' || !isTodoTool(event.name)).length;
-          return (
-            <details key={item.key} className="group/task" open={isCurrent || item.isSetup}>
-              <summary className="flex items-start gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none">
-                <span className="mt-0.5 text-gray-600 group-open/task:rotate-90 transition-transform text-xs">▶</span>
-                <span className="mt-0.5 shrink-0">{todoIconForStatus(item.todo.status)}</span>
-                <span className="min-w-0 flex-1">
-                  <span className={`block text-sm ${item.isSetup ? 'text-amber-200/90' : todoStatusClass(item.todo.status)}`}>
-                    {item.isSetup ? 'Setup' : item.todo.content}
-                  </span>
-                  <span className="block text-[11px] text-gray-600">
-                    {item.isSetup ? 'Events before the task list was created' : `Task ${index}${item.todo.id ? ` · #${item.todo.id}` : ''}`}
-                    {eventCount > 0 ? ` · ${eventCount} event${eventCount !== 1 ? 's' : ''}` : ''}
-                  </span>
-                </span>
-                {isCurrent ? <span className="mt-0.5 rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] text-blue-300">current</span> : null}
-              </summary>
-              <div className="border-t border-gray-800 px-4 py-3 space-y-2 bg-gray-950/20">
-                {item.events.length > 0 ? (
-                  <LegacyAgentEvents events={item.events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming && isCurrent} />
-                ) : (
-                  <p className="text-xs text-gray-600 italic">No detailed events for this task yet.</p>
-                )}
-              </div>
-            </details>
-          );
-        })}
-      </div>
-    </>
+      {todos.length === 0 ? (
+        <p className="text-xs text-gray-500">No to-dos are currently tracked.</p>
+      ) : (
+        <>
+          <ProgressBar value={completedWeight} max={totalWeight} tickMarks={stepTickMarks} />
+          <div className="mt-3 select-text">
+            <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+              <ol className="min-h-0 overflow-hidden space-y-1.5">
+                {itemsAboveCurrent.map(renderTaskItem)}
+              </ol>
+            </div>
+            <TaskListCaretHandle direction="up" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
+            <ol className="space-y-1.5 py-1">
+              {currentTaskItems.map(renderTaskItem)}
+            </ol>
+            <TaskListCaretHandle direction="down" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
+            <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+              <ol className="min-h-0 overflow-hidden space-y-1.5">
+                {taskItemsBelowCurrent.map(renderTaskItem)}
+              </ol>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
