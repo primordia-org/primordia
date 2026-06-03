@@ -412,7 +412,12 @@ async function main(): Promise<void> {
       agentDir: getAgentDir(),
       appendSystemPrompt: [
         `The current working directory is: ${worktreePath}`,
-        'EDB todo is required in this evolve pipeline. Use TaskCreate to establish a task list before making non-trivial changes, TaskUpdate as work starts/completes, and TaskList to choose remaining work.',
+        [
+          'EDB todo is required in this evolve pipeline.',
+          'When making non-trivial changes, use TaskCreate to lay out the work as distinct stage tasks instead of creating one broad task.',
+          'Prefer stages such as: inspect/read relevant files, edit/implement changes, validate/check work, and wrap up with changelog/commit/preview/final response as applicable.',
+          'Use TaskUpdate to mark each stage in_progress before starting it and completed as soon as it is fully done, then use TaskList to choose remaining work.',
+        ].join(' '),
       ],
       additionalExtensionPaths: [requiredTodoExtensionPath],
       // Disable general extension discovery — only additionalExtensionPaths and
