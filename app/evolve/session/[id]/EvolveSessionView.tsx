@@ -788,7 +788,7 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
             </div>
           </div>
           <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-            <div className={`min-h-0 overflow-hidden space-y-2 ${isOpen ? 'py-2' : 'py-0'}`}>
+            <div className={`min-h-0 overflow-hidden space-y-2 ${isOpen ? 'pt-3 pb-2' : 'py-0'}`}>
               {item.events.length > 0 ? (
                 <LegacyAgentEvents events={item.events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming && currentTaskItems.includes(item)} expectedTaskId={item.todo.id} />
               ) : (
