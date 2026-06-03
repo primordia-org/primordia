@@ -49,6 +49,10 @@ interface BranchData {
   sessionStatus: string | null;
   /** True if an evolve session exists for this branch. */
   hasSession: boolean;
+  /** Short commit hash at this branch tip, for log-style display. */
+  shortSha: string | null;
+  /** First line of the branch tip commit message. */
+  subject: string | null;
 }
 
 interface BranchNode extends BranchData {
@@ -146,6 +150,8 @@ async function getBranchData(parentSource: BranchParentSource): Promise<{
     .map((name) => {
       const parent = getBranchParent(name, cwd, parentSource)?.parentBranch ?? null;
       const session = sessionByBranch.get(name);
+      const shortSha = runGit(["rev-parse", "--short=8", name], cwd);
+      const subject = runGit(["log", "-1", "--format=%s", name], cwd);
       return {
         name,
         isCurrent: name === current,
@@ -155,6 +161,8 @@ async function getBranchData(parentSource: BranchParentSource): Promise<{
         previewUrl: session?.previewUrl ?? null,
         sessionStatus: session?.status ?? null,
         hasSession: session !== undefined,
+        shortSha: shortSha.code === 0 && shortSha.stdout ? shortSha.stdout : null,
+        subject: subject.code === 0 && subject.stdout ? subject.stdout : null,
       };
     });
 
@@ -467,10 +475,8 @@ function BranchRow({
   canCreateSession: boolean;
 }) {
   const isRoot = depth === 0;
-  const connector = isRoot ? "" : isLast ? "└─ " : "├─ ";
-  const childLinePrefix = isRoot
-    ? ""
-    : linePrefix + (isLast ? "   " : "│  ");
+  const graphPrefix = isRoot ? "" : linePrefix + (isLast ? "\\ " : "|\\ ");
+  const childLinePrefix = isRoot ? "" : linePrefix + (isLast ? "  " : "| ");
 
   const url = node.isProduction ? currentServerUrl : node.previewUrl;
   const statusColor = node.sessionStatus
@@ -485,13 +491,12 @@ function BranchRow({
   return (
     <>
       <div className="flex min-w-max items-baseline gap-1.5 whitespace-nowrap font-mono text-sm leading-7">
-        {!isRoot && (
-          <span className="text-gray-600 whitespace-pre select-none shrink-0">
-            {linePrefix + connector}
-          </span>
-        )}
-        <span className={url ? "text-green-400 shrink-0" : "text-gray-600 shrink-0"}>
-          ●
+        <span className="whitespace-pre select-none shrink-0">
+          <span className="text-gray-600">{graphPrefix}</span>
+          <span className={url ? "text-green-400" : "text-gray-500"}>*</span>
+        </span>
+        <span className="text-gray-600 shrink-0">
+          {node.shortSha ?? "────────"}
         </span>
         {node.hasSession ? (
           <Link
@@ -538,6 +543,11 @@ function BranchRow({
         {statusLabel && !node.isProduction && (
           <span className={`text-xs shrink-0 ${statusColor}`}>
             [{statusLabel}]
+          </span>
+        )}
+        {node.subject && (
+          <span className="min-w-0 max-w-sm truncate text-gray-600">
+            — {node.subject}
           </span>
         )}
 
@@ -735,8 +745,9 @@ export default async function BranchesPage() {
       {/* Legend */}
       <div className="mt-8 border-t border-gray-800 pt-4 text-xs text-gray-600 font-mono space-y-1">
         <p>
-          ● green = preview server active · ● dim = no active session · branch name
-          links to session · <span className="text-blue-400"><ExternalLink size={10} className="inline" /></span> = open
+          * green = preview server active · * dim = no active session · short hash
+          and latest commit subject mirror git log output · branch name links to session ·{" "}
+          <span className="text-blue-400"><ExternalLink size={10} className="inline" /></span> = open
           branch · <span className="text-purple-500">+ session</span> = start new
           session on existing branch
         </p>
