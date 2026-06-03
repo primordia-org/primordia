@@ -5,7 +5,7 @@
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown } from "lucide-react";
+import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks } from "lucide-react";
 import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
@@ -238,6 +238,76 @@ function normalizeTodoStatus(status: string | undefined): string {
   return ['pending', 'in_progress', 'completed', 'blocked', 'failed', 'deleted'].includes(status) ? status : 'pending';
 }
 
+function applyTodoToolEvent(todos: AgentTodoItem[], event: Extract<SessionEvent, { type: 'tool_use' }>): AgentTodoItem[] {
+  const lname = event.name.toLowerCase();
+  if (lname === 'todowrite') {
+    const rawTodos = Array.isArray(event.input.todos) ? event.input.todos : [];
+    return rawTodos
+      .filter((raw): raw is Record<string, unknown> => raw != null && typeof raw === 'object' && !Array.isArray(raw))
+      .map((raw) => ({
+        id: firstString(raw, 'id'),
+        content: firstString(raw, 'content') ?? 'Untitled to-do',
+        status: normalizeTodoStatus(firstString(raw, 'status')),
+        priority: firstString(raw, 'priority'),
+        weight: normalizeTodoWeight(raw),
+      }))
+      .filter((todo) => todo.status !== 'deleted');
+  }
+
+  if (lname === 'taskcreate') {
+    return [
+      ...todos,
+      {
+        id: firstString(event.input, 'id'),
+        content: firstString(event.input, 'content') ?? 'Untitled to-do',
+        status: 'pending',
+        priority: firstString(event.input, 'priority'),
+        weight: normalizeTodoWeight(event.input),
+      },
+    ];
+  }
+
+  if (lname !== 'taskupdate') return todos;
+
+  const id = firstString(event.input, 'id');
+  const content = firstString(event.input, 'content');
+  const priority = firstString(event.input, 'priority');
+  const weight = normalizeTodoWeight(event.input);
+  const statusInput = firstString(event.input, 'status');
+  const existingIndex = id ? todos.findIndex((todo) => todo.id === id) : -1;
+  const unassignedIndex = id && existingIndex === -1 ? todos.findIndex((todo) => !todo.id) : -1;
+  const targetIndex = existingIndex >= 0 ? existingIndex : unassignedIndex;
+
+  if (targetIndex >= 0) {
+    const existing = todos[targetIndex];
+    const status = statusInput ? normalizeTodoStatus(statusInput) : existing.status;
+    const updated: AgentTodoItem = {
+      ...existing,
+      id: id ?? existing.id,
+      content: content ?? existing.content,
+      status,
+      priority: priority ?? existing.priority,
+      weight: weight ?? existing.weight,
+    };
+    return status === 'deleted'
+      ? todos.filter((_, index) => index !== targetIndex)
+      : todos.map((todo, index) => index === targetIndex ? updated : todo);
+  }
+
+  const status = normalizeTodoStatus(statusInput);
+  if (status === 'deleted') return todos;
+  return [
+    ...todos,
+    {
+      id,
+      content: content ?? (id ? `To-do #${id}` : 'Updated to-do'),
+      status,
+      priority,
+      weight,
+    },
+  ];
+}
+
 function deriveCurrentTodoList(events: SessionEvent[]): { todos: AgentTodoItem[]; hasTodoEvents: boolean } {
   let todos: AgentTodoItem[] = [];
   let hasTodoEvents = false;
@@ -245,77 +315,7 @@ function deriveCurrentTodoList(events: SessionEvent[]): { todos: AgentTodoItem[]
   for (const event of events) {
     if (event.type !== 'tool_use' || !isTodoTool(event.name)) continue;
     hasTodoEvents = true;
-
-    const lname = event.name.toLowerCase();
-    if (lname === 'todowrite') {
-      const rawTodos = Array.isArray(event.input.todos) ? event.input.todos : [];
-      todos = rawTodos
-        .filter((raw): raw is Record<string, unknown> => raw != null && typeof raw === 'object' && !Array.isArray(raw))
-        .map((raw) => ({
-          id: firstString(raw, 'id'),
-          content: firstString(raw, 'content') ?? 'Untitled to-do',
-          status: normalizeTodoStatus(firstString(raw, 'status')),
-          priority: firstString(raw, 'priority'),
-          weight: normalizeTodoWeight(raw),
-        }))
-        .filter((todo) => todo.status !== 'deleted');
-      continue;
-    }
-
-    if (lname === 'taskcreate') {
-      todos = [
-        ...todos,
-        {
-          id: firstString(event.input, 'id'),
-          content: firstString(event.input, 'content') ?? 'Untitled to-do',
-          status: 'pending',
-          priority: firstString(event.input, 'priority'),
-          weight: normalizeTodoWeight(event.input),
-        },
-      ];
-      continue;
-    }
-
-    if (lname === 'taskupdate') {
-      const id = firstString(event.input, 'id');
-      const content = firstString(event.input, 'content');
-      const priority = firstString(event.input, 'priority');
-      const weight = normalizeTodoWeight(event.input);
-      const statusInput = firstString(event.input, 'status');
-      const existingIndex = id ? todos.findIndex((todo) => todo.id === id) : -1;
-      const unassignedIndex = id && existingIndex === -1 ? todos.findIndex((todo) => !todo.id) : -1;
-      const targetIndex = existingIndex >= 0 ? existingIndex : unassignedIndex;
-
-      if (targetIndex >= 0) {
-        const existing = todos[targetIndex];
-        const status = statusInput ? normalizeTodoStatus(statusInput) : existing.status;
-        const updated: AgentTodoItem = {
-          ...existing,
-          id: id ?? existing.id,
-          content: content ?? existing.content,
-          status,
-          priority: priority ?? existing.priority,
-          weight: weight ?? existing.weight,
-        };
-        todos = status === 'deleted'
-          ? todos.filter((_, index) => index !== targetIndex)
-          : todos.map((todo, index) => index === targetIndex ? updated : todo);
-      } else {
-        const status = normalizeTodoStatus(statusInput);
-        if (status !== 'deleted') {
-          todos = [
-            ...todos,
-            {
-              id,
-              content: content ?? (id ? `To-do #${id}` : 'Updated to-do'),
-              status,
-              priority,
-              weight,
-            },
-          ];
-        }
-      }
-    }
+    todos = applyTodoToolEvent(todos, event);
   }
 
   return { todos, hasTodoEvents };
@@ -326,107 +326,6 @@ function todoIconForStatus(status: string) {
   if (status === 'in_progress') return <Clock className="h-4 w-4 text-yellow-400" />;
   if (status === 'blocked' || status === 'failed') return <AlertCircle className="h-4 w-4 text-orange-400" />;
   return <Circle className="h-4 w-4 text-gray-500" />;
-}
-
-function TaskListCaretHandle({ direction, isExpanded, canToggle, onToggle, label }: {
-  direction: 'up' | 'down';
-  isExpanded: boolean;
-  canToggle: boolean;
-  onToggle: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      disabled={!canToggle}
-      aria-expanded={isExpanded}
-      aria-label={label}
-      className="group/handle flex w-full items-center justify-center rounded-md py-0.5 text-gray-600 transition-colors hover:bg-gray-800/40 hover:text-blue-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-600"
-    >
-      <span className={`transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
-        {direction === 'up' ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-      </span>
-    </button>
-  );
-}
-
-function TodoListProgress({ events }: { events: SessionEvent[] }) {
-  const { todos, hasTodoEvents } = deriveCurrentTodoList(events);
-  const [isExpanded, setIsExpanded] = useState(false);
-  if (!hasTodoEvents) return null;
-
-  const activeTasks = todos.filter((todo) => todo.status === 'in_progress' || todo.status === 'blocked' || todo.status === 'failed');
-  const pendingTasks = todos.filter((todo) => todo.status === 'pending');
-  const completed = todos.filter((todo) => todo.status === 'completed').length;
-  const completionLabel = completed === todos.length ? 'completed' : 'complete';
-  const completionText = `${completed} of ${todos.length} ${completionLabel}`;
-  const todoWeights = todos.map(taskWeight);
-  const totalWeight = todoWeights.reduce((sum, weight) => sum + weight, 0);
-  const completedWeight = todos.reduce((sum, todo) => sum + (todo.status === 'completed' ? taskWeight(todo) : 0), 0);
-  const stepTickMarks = todoWeights.slice(0, -1).reduce<number[]>((marks, weight) => {
-    const previous = marks.at(-1) ?? 0;
-    marks.push(previous + weight);
-    return marks;
-  }, []);
-  const currentTasks = activeTasks.length > 0
-    ? activeTasks
-    : pendingTasks.length > 0
-      ? pendingTasks.slice(0, 1)
-      : todos.slice(-1);
-  const currentTaskIndexes = currentTasks.map((todo) => todos.indexOf(todo)).filter((index) => index >= 0);
-  const firstCurrentTaskIndex = currentTaskIndexes.length > 0 ? Math.min(...currentTaskIndexes) : 0;
-  const lastCurrentTaskIndex = currentTaskIndexes.length > 0 ? Math.max(...currentTaskIndexes) : -1;
-  const tasksAboveCurrent = currentTaskIndexes.length > 0 ? todos.slice(0, firstCurrentTaskIndex) : [];
-  const tasksBelowCurrent = currentTaskIndexes.length > 0 ? todos.slice(lastCurrentTaskIndex + 1) : todos;
-  const hasHiddenTasks = tasksAboveCurrent.length > 0 || tasksBelowCurrent.length > 0;
-  const canToggleTasks = hasHiddenTasks;
-  const toggleTaskList = () => setIsExpanded((open) => !open);
-
-  const renderTaskItem = (todo: AgentTodoItem, index: number) => (
-    <li key={todo.id ?? `${todo.content}-${index}`} className="flex items-start gap-2">
-      <span className="mt-0.5 shrink-0">{todoIconForStatus(todo.status)}</span>
-      <div className="min-w-0 flex-1">
-        <div className={`text-sm ${todoStatusClass(todo.status)}`}>{todo.content}</div>
-      </div>
-    </li>
-  );
-
-  return (
-    <div className="border-t border-gray-800 bg-gray-950/40 px-4 py-3">
-      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-300">
-        <ListChecks className="h-4 w-4 text-blue-300" />
-        <span>Progress</span>
-        {todos.length > 0 ? (
-          <span className="ml-auto font-normal text-gray-500">{completionText}</span>
-        ) : null}
-      </div>
-      {todos.length === 0 ? (
-        <p className="text-xs text-gray-500">No to-dos are currently tracked.</p>
-      ) : (
-        <>
-          <ProgressBar value={completedWeight} max={totalWeight} tickMarks={stepTickMarks} />
-          <div className="mt-3 select-text">
-            <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-              <ol className="min-h-0 overflow-hidden space-y-1.5">
-                {tasksAboveCurrent.map(renderTaskItem)}
-              </ol>
-            </div>
-            <TaskListCaretHandle direction="up" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
-            <ol className="space-y-1.5 py-1">
-              {currentTasks.map(renderTaskItem)}
-            </ol>
-            <TaskListCaretHandle direction="down" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
-            <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-              <ol className="min-h-0 overflow-hidden space-y-1.5">
-                {tasksBelowCurrent.map(renderTaskItem)}
-              </ol>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
 }
 
 function ToolUseDisplay({ event, worktreePath }: { event: Extract<SessionEvent, { type: 'tool_use' }>; worktreePath?: string }) {
@@ -618,6 +517,201 @@ function splitAgentEventsForDisplay(events: SessionEvent[]): {
   };
 }
 
+function renderAgentEvent(event: MergedRenderableEvent, key: number, sessionId: string, worktreePath?: string) {
+  if (event.type === 'tool_use') {
+    return <ToolUseDisplay key={key} event={event} worktreePath={worktreePath} />;
+  }
+  if (event.type === 'text') {
+    return <MarkdownContent key={key} text={event.content} className="[&>*:last-child]:mb-0" attachmentSessionId={sessionId} />;
+  }
+  if (event.type === 'log_line') {
+    return <p key={key} className="text-gray-500 text-xs">{event.content}</p>;
+  }
+  if (event.type === 'thinking') {
+    return <ThinkingBlock key={key} content={event.content} startTs={event.ts} endTs={event.endTs} />;
+  }
+  return null;
+}
+
+function LegacyAgentEvents({ events, sessionId, worktreePath, isStreaming = false }: {
+  events: RenderableEvent[];
+  sessionId: string;
+  worktreePath?: string;
+  isStreaming?: boolean;
+}) {
+  return (
+    <>
+      {mergeConsecutiveTextEvents(events).map((event, i) => {
+        if (event.type === 'thinking' && isStreaming) {
+          return <ThinkingBlock key={i} content={event.content} isStreaming />;
+        }
+        return renderAgentEvent(event, i, sessionId, worktreePath);
+      })}
+    </>
+  );
+}
+
+interface TaskAccordionItem {
+  key: string;
+  todo: AgentTodoItem;
+  isSetup?: boolean;
+  events: RenderableEvent[];
+}
+
+function todoGroupKey(todo: AgentTodoItem, index: number): string {
+  return todo.id ? `id:${todo.id}` : `idx:${index}`;
+}
+
+function currentTodoIndex(todos: AgentTodoItem[]): number {
+  const activeIndex = todos.findIndex((todo) => todo.status === 'in_progress' || todo.status === 'blocked' || todo.status === 'failed');
+  if (activeIndex >= 0) return activeIndex;
+  const pendingIndex = todos.findIndex((todo) => todo.status === 'pending');
+  if (pendingIndex >= 0) return pendingIndex;
+  return todos.length > 0 ? todos.length - 1 : -1;
+}
+
+function deriveTaskAccordionItems(events: SessionEvent[]): { items: TaskAccordionItem[]; hasTodoEvents: boolean; currentKey: string } {
+  let todos: AgentTodoItem[] = [];
+  let hasTodoEvents = false;
+  let currentKey = 'setup';
+  let lastRealTaskKey: string | undefined;
+  const eventsByKey = new Map<string, RenderableEvent[]>();
+  eventsByKey.set('setup', []);
+
+  const getKeyForTodo = (todo: AgentTodoItem, index: number) => todoGroupKey(todo, index);
+  const syncTodoEventBuckets = () => {
+    todos.forEach((todo, index) => {
+      const key = getKeyForTodo(todo, index);
+      if (!eventsByKey.has(key)) eventsByKey.set(key, []);
+    });
+  };
+  const chooseCurrentKey = () => {
+    const index = currentTodoIndex(todos);
+    if (index < 0) return lastRealTaskKey ?? 'setup';
+    const key = getKeyForTodo(todos[index], index);
+    lastRealTaskKey = key;
+    return key;
+  };
+  const pushEvent = (key: string, event: RenderableEvent) => {
+    const bucket = eventsByKey.get(key) ?? [];
+    bucket.push(event);
+    eventsByKey.set(key, bucket);
+  };
+
+  for (const event of events) {
+    const isRenderable = event.type === 'tool_use' || event.type === 'text' || event.type === 'thinking' || event.type === 'log_line';
+    if (!isRenderable) continue;
+
+    if (event.type === 'tool_use' && isTodoTool(event.name)) {
+      const hadTodoEvents = hasTodoEvents;
+      const targetId = firstString(event.input, 'id');
+      todos = applyTodoToolEvent(todos, event);
+      hasTodoEvents = true;
+      syncTodoEventBuckets();
+
+      let eventKey = currentKey;
+      if (!hadTodoEvents) {
+        eventKey = 'setup';
+      } else if (targetId) {
+        const targetIndex = todos.findIndex((todo) => todo.id === targetId);
+        if (targetIndex >= 0) eventKey = getKeyForTodo(todos[targetIndex], targetIndex);
+      } else if (event.name.toLowerCase() === 'taskcreate') {
+        eventKey = 'setup';
+      }
+      pushEvent(eventKey, event);
+      currentKey = chooseCurrentKey();
+      continue;
+    }
+
+    pushEvent(hasTodoEvents ? currentKey : 'setup', event);
+  }
+
+  syncTodoEventBuckets();
+  const taskItems: TaskAccordionItem[] = todos.map((todo, index) => ({
+    key: getKeyForTodo(todo, index),
+    todo,
+    events: eventsByKey.get(getKeyForTodo(todo, index)) ?? [],
+  }));
+  const setupEvents = eventsByKey.get('setup') ?? [];
+  const setupItem: TaskAccordionItem | null = setupEvents.length > 0
+    ? { key: 'setup', isSetup: true, todo: { content: 'Setup', status: todos.length > 0 ? 'completed' : 'in_progress', priority: 'high' }, events: setupEvents }
+    : null;
+
+  return {
+    items: setupItem ? [setupItem, ...taskItems] : taskItems,
+    hasTodoEvents,
+    currentKey: hasTodoEvents ? currentKey : 'setup',
+  };
+}
+
+function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = false }: {
+  events: SessionEvent[];
+  sessionId: string;
+  worktreePath?: string;
+  isStreaming?: boolean;
+}) {
+  const { todos, hasTodoEvents } = deriveCurrentTodoList(events);
+  const { items, currentKey } = deriveTaskAccordionItems(events);
+  if (!hasTodoEvents) {
+    const renderableEvents = events.filter((e): e is RenderableEvent => e.type === 'tool_use' || e.type === 'text' || e.type === 'log_line' || e.type === 'thinking');
+    return <LegacyAgentEvents events={renderableEvents} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming} />;
+  }
+
+  const completed = todos.filter((todo) => todo.status === 'completed').length;
+  const todoWeights = todos.map(taskWeight);
+  const totalWeight = todoWeights.reduce((sum, weight) => sum + weight, 0);
+  const completedWeight = todos.reduce((sum, todo) => sum + (todo.status === 'completed' ? taskWeight(todo) : 0), 0);
+  const stepTickMarks = todoWeights.slice(0, -1).reduce<number[]>((marks, weight) => {
+    const previous = marks.at(-1) ?? 0;
+    marks.push(previous + weight);
+    return marks;
+  }, []);
+
+  return (
+    <div className="rounded-md border border-gray-800 bg-gray-950/30 overflow-hidden">
+      <div className="px-3 py-2 border-b border-gray-800">
+        <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-300">
+          <ListChecks className="h-4 w-4 text-blue-300" />
+          <span>Task progress</span>
+          <span className="ml-auto font-normal text-gray-500">{completed} of {todos.length} completed</span>
+        </div>
+        <ProgressBar value={completedWeight} max={totalWeight} tickMarks={stepTickMarks} />
+      </div>
+      <div className="divide-y divide-gray-800">
+        {items.map((item, index) => {
+          const isCurrent = item.key === currentKey;
+          const eventCount = item.events.filter((event) => event.type !== 'tool_use' || !isTodoTool(event.name)).length;
+          return (
+            <details key={item.key} className="group/task" open={isCurrent || item.isSetup}>
+              <summary className="flex items-start gap-2 px-3 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none">
+                <span className="mt-0.5 text-gray-600 group-open/task:rotate-90 transition-transform text-xs">▶</span>
+                <span className="mt-0.5 shrink-0">{todoIconForStatus(item.todo.status)}</span>
+                <span className="min-w-0 flex-1">
+                  <span className={`block text-sm ${item.isSetup ? 'text-amber-200/90' : todoStatusClass(item.todo.status)}`}>
+                    {item.isSetup ? 'Setup' : item.todo.content}
+                  </span>
+                  <span className="block text-[11px] text-gray-600">
+                    {item.isSetup ? 'Events before the task list was created' : `Task ${index}${item.todo.id ? ` · #${item.todo.id}` : ''}`}
+                    {eventCount > 0 ? ` · ${eventCount} event${eventCount !== 1 ? 's' : ''}` : ''}
+                  </span>
+                </span>
+                {isCurrent ? <span className="mt-0.5 rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] text-blue-300">current</span> : null}
+              </summary>
+              <div className="border-t border-gray-800 px-4 py-3 space-y-2 bg-gray-950/20">
+                {item.events.length > 0 ? (
+                  <LegacyAgentEvents events={item.events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming && isCurrent} />
+                ) : (
+                  <p className="text-xs text-gray-600 italic">No detailed events for this task yet.</p>
+                )}
+              </div>
+            </details>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** Render a running agent/type-fix/auto-commit section (streaming events live). */
 function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, sessionId, worktreePath, harness, model, authSource, auth, startTs }: {
   events: SessionEvent[];
@@ -665,25 +759,8 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
         </span>
       </div>
       <div className="px-4 py-3 space-y-2">
-        {mergeConsecutiveTextEvents(
-          events.filter((e): e is RenderableEvent => e.type === 'tool_use' || e.type === 'text' || e.type === 'log_line' || e.type === 'thinking')
-        ).map((event, i) => {
-          if (event.type === 'tool_use') {
-            return <ToolUseDisplay key={i} event={event} worktreePath={worktreePath} />;
-          }
-          if (event.type === 'text') {
-            return <MarkdownContent key={i} text={event.content} className="[&>*:last-child]:mb-0" attachmentSessionId={sessionId} />;
-          }
-          if (event.type === 'log_line') {
-            return <p key={i} className="text-gray-500 text-xs">{event.content}</p>;
-          }
-          if (event.type === 'thinking') {
-            return <ThinkingBlock key={i} content={event.content} isStreaming />;
-          }
-          return null;
-        })}
+        <TaskAccordionEvents events={events} sessionId={sessionId} worktreePath={worktreePath} isStreaming />
       </div>
-      <TodoListProgress events={events} />
       {latestMetrics && (
         <MetricsRow
           hideCost={auth?.source === 'chatgpt-subscription'}
@@ -739,7 +816,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
     ? (isAutoCommitSection ? "❌ Auto-commit failed" : isTypeFixSection ? "❌ Auto-fix failed" : "❌")
     : (isAutoCommitSection ? "📦 Unstaged changes committed" : isTypeFixSection ? "🔧 Type errors fixed" : null);
 
-  const { detailEvents, finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
+  const { finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
 
   return (
     <div className={`rounded-lg border ${doneBorderClass} bg-gray-900 text-sm overflow-hidden`}>
@@ -748,39 +825,9 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
         {!isTypeFixSection && !isAutoCommitSection && <AgentIdentityLine authSource={authSource} auth={auth} harness={harness} model={model} className={`font-semibold text-xs ${doneHeadingClass}`} />}
         {!isTypeFixSection && !isAutoCommitSection && <span className="ml-auto text-xs text-gray-500">{hasError ? "errored" : "finished"}</span>}
       </div>
-      {toolCallCount > 0 && (
-        <details className="group border-b border-gray-800">
-          <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
-            <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
-            <span className="text-gray-500">🔧 {toolCallCount} tool call{toolCallCount !== 1 ? "s" : ""} made</span>
-          </summary>
-          <div className="px-4 py-3 border-t border-gray-800 space-y-2">
-            {mergeConsecutiveTextEvents(detailEvents).map((event, i) => {
-              if (event.type === 'tool_use') {
-                return <ToolUseDisplay key={i} event={event} worktreePath={worktreePath} />;
-              }
-              if (event.type === 'text') {
-                return <MarkdownContent key={i} text={event.content} className="[&>*:last-child]:mb-0" attachmentSessionId={sessionId} />;
-              }
-              if (event.type === 'thinking') {
-                return <ThinkingBlock key={i} content={event.content} startTs={event.ts} endTs={event.endTs} />;
-              }
-              return null;
-            })}
-          </div>
-        </details>
-      )}
-      {finalEvents.length > 0 && (
-        <div className="px-4 py-3 space-y-2">
-          {mergeConsecutiveTextEvents(finalEvents).map((event, i) => {
-            if (event.type === 'thinking') {
-              return <ThinkingBlock key={i} content={event.content} startTs={event.ts} endTs={event.endTs} />;
-            }
-            if (event.type === 'text') {
-              return <MarkdownContent key={i} text={event.content} attachmentSessionId={sessionId} />;
-            }
-            return null;
-          })}
+      {(toolCallCount > 0 || finalEvents.length > 0) && (
+        <div className="px-4 py-3 space-y-2 border-b border-gray-800">
+          <TaskAccordionEvents events={events} sessionId={sessionId} worktreePath={worktreePath} />
         </div>
       )}
       {hasError && convertedMessage && (
@@ -789,7 +836,6 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
           <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{convertedMessage}</pre>
         </div>
       )}
-      <TodoListProgress events={events} />
       {metricsEvent && (
         <MetricsRow
           hideCost={auth?.source === 'chatgpt-subscription'}
