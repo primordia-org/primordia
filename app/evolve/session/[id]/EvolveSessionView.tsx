@@ -752,14 +752,14 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
     return (
       <li key={item.key}>
         <details className="group/task">
-          <summary className="flex items-start gap-2 cursor-pointer list-none rounded-md transition-colors hover:bg-gray-800/30 -mx-1 px-1 py-0.5">
-            <span className="mt-0.5 shrink-0">{todoIconForStatus(item.todo.status)}</span>
+          <summary className="flex items-start gap-2 cursor-pointer list-none rounded-md transition-colors hover:bg-gray-800/30 -mx-1 px-1 py-1.5">
+            <span className="mt-0.5 shrink-0">{isSetup ? <Circle className="h-4 w-4 text-gray-600" /> : todoIconForStatus(item.todo.status)}</span>
             <div className="min-w-0 flex-1">
-              <div className={`text-sm ${isSetup ? 'text-amber-200/90' : todoStatusClass(item.todo.status)}`}>{item.todo.content}</div>
+              <div className={`text-sm ${isSetup ? 'text-gray-500' : todoStatusClass(item.todo.status)}`}>{item.todo.content}</div>
             </div>
           </summary>
           <div className="grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-300 ease-out group-open/task:grid-rows-[1fr] group-open/task:opacity-100">
-            <div className="min-h-0 overflow-hidden space-y-2">
+            <div className="min-h-0 overflow-hidden space-y-2 py-2">
               {item.events.length > 0 ? (
                 <LegacyAgentEvents events={item.events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming && currentTaskItems.includes(item)} expectedTaskId={item.todo.id} />
               ) : (
@@ -776,7 +776,7 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
     <div className="border-t border-gray-800 bg-gray-950/40 px-4 py-3">
       <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-300">
         <ListChecks className="h-4 w-4 text-blue-300" />
-        <span>Progress</span>
+        <span>Tasks</span>
         {todos.length > 0 ? (
           <span className="ml-auto font-normal text-gray-500">{completionText}</span>
         ) : null}
@@ -789,15 +789,15 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
           <div className="mt-3 select-text">
             <TaskListCaretHandle direction="up" isExpanded={isExpanded} canToggle={canToggleTasks} onToggle={toggleTaskList} label={isExpanded ? 'Collapse task list' : 'Expand task list'} />
             <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-              <ol className="min-h-0 overflow-hidden space-y-1.5">
+              <ol className="min-h-0 overflow-hidden space-y-2">
                 {itemsAboveCurrent.map(renderTaskItem)}
               </ol>
             </div>
-            <ol className="space-y-1.5 py-1">
+            <ol className="space-y-2 py-1.5">
               {currentTaskItems.map(renderTaskItem)}
             </ol>
             <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-              <ol className="min-h-0 overflow-hidden space-y-1.5">
+              <ol className="min-h-0 overflow-hidden space-y-2">
                 {taskItemsBelowCurrent.map(renderTaskItem)}
               </ol>
             </div>
