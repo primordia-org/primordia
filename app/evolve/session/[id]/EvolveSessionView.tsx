@@ -334,6 +334,7 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
 
   const completed = todos.filter((todo) => todo.status === 'completed').length;
   const completionLabel = completed === todos.length ? 'completed' : 'complete';
+  const completionText = `${completed} of ${todos.length} ${completionLabel}`;
   const totalWeight = todos.reduce((sum, todo) => sum + taskWeight(todo), 0);
   const completedWeight = todos.reduce((sum, todo) => sum + (todo.status === 'completed' ? taskWeight(todo) : 0), 0);
   const activeTasks = todos.filter((todo) => todo.status === 'in_progress');
@@ -344,7 +345,7 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
         <ListChecks className="h-4 w-4 text-blue-300" />
         <span>Tasks</span>
         {todos.length > 0 ? (
-          <span className="ml-auto font-normal text-gray-500">{completed}/{todos.length} {completionLabel}</span>
+          <span className="ml-auto font-normal text-gray-500">{completionText}</span>
         ) : null}
       </div>
       {todos.length === 0 ? (
@@ -362,19 +363,18 @@ function TodoListProgress({ events }: { events: SessionEvent[] }) {
             ))}
           </ol>
           <div className="mt-4 border-t border-gray-800 pt-3">
-            <div className="mb-2 text-xs font-semibold text-gray-300">Progress</div>
-            <ProgressBar value={completedWeight} max={totalWeight} label={`${completed}/${todos.length} ${completionLabel}`} />
-            <div className="mt-2 text-xs text-gray-500">
-              {activeTasks.length > 0 ? (
-                <div className="space-y-1">
-                  {activeTasks.map((todo, index) => (
-                    <div key={todo.id ?? `${todo.content}-${index}`} className="text-yellow-300">{todo.content}</div>
-                  ))}
-                </div>
-              ) : (
-                <div>No active tasks.</div>
-              )}
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-300">
+              <span>Progress</span>
+              <span className="ml-auto font-normal text-gray-500">{completionText}</span>
             </div>
+            <ProgressBar value={completedWeight} max={totalWeight} />
+            {activeTasks.length > 0 ? (
+              <div className="mt-2 space-y-1 text-xs">
+                {activeTasks.map((todo, index) => (
+                  <div key={todo.id ?? `${todo.content}-${index}`} className="text-yellow-300">{todo.content}</div>
+                ))}
+              </div>
+            ) : null}
           </div>
         </>
       )}
