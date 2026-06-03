@@ -176,30 +176,41 @@ function isTodoTool(name: string) {
   return name.toLowerCase() === 'todowrite' || PI_TODO_TOOL_NAMES.has(name.toLowerCase());
 }
 
-function PiTodoToolDisplay({ name, input }: { name: string; input: Record<string, unknown> }) {
+function taskStatusLabel(status: string): string {
+  if (status === 'in_progress') return 'in progress';
+  if (status === 'completed') return 'complete';
+  return status.replaceAll('_', ' ');
+}
+
+function visibleTaskId(input: Record<string, unknown>, expectedTaskId?: string): string | undefined {
+  const id = typeof input.id === 'string' ? input.id : undefined;
+  return id && id !== expectedTaskId ? id : undefined;
+}
+
+function PiTodoToolDisplay({ name, input, expectedTaskId }: { name: string; input: Record<string, unknown>; expectedTaskId?: string }) {
   const lname = name.toLowerCase();
   if (lname === 'taskcreate') {
-    const content = typeof input.content === 'string' && input.content.trim() ? input.content : 'Create task';
-    const priority = typeof input.priority === 'string' ? input.priority : undefined;
-    return <span className="text-gray-500">Create task: <span className="text-gray-400">{content}</span>{priority ? <span className="text-gray-600"> ({priority})</span> : null}</span>;
+    const id = visibleTaskId(input, expectedTaskId);
+    const content = typeof input.content === 'string' && input.content.trim() ? input.content : undefined;
+    return <span className="text-gray-500">{id ? <span className="text-gray-600">#{id} </span> : null}{content ? <span className="text-gray-400">{content}</span> : 'create'}</span>;
   }
   if (lname === 'taskupdate') {
-    const id = typeof input.id === 'string' ? input.id : undefined;
+    const id = visibleTaskId(input, expectedTaskId);
     const status = typeof input.status === 'string' ? input.status : undefined;
     const content = typeof input.content === 'string' && input.content.trim() ? input.content : undefined;
     return (
       <span className="text-gray-500">
-        Update task{id ? <span className="text-gray-600"> #{id}</span> : null}
-        {status ? <> → <span className={todoStatusClass(status)}>{status}</span></> : null}
-        {content ? <>: <span className="text-gray-400">{content}</span></> : null}
+        {id ? <span className="text-gray-600">#{id} </span> : null}
+        {status ? <span className={todoStatusClass(status)}>{taskStatusLabel(status)}</span> : 'update'}
+        {content ? <> <span className="text-gray-400">{content}</span></> : null}
       </span>
     );
   }
   if (lname === 'taskget') {
-    const id = typeof input.id === 'string' ? input.id : undefined;
-    return <span className="text-gray-500">Inspect task{id ? ` #${id}` : ''}</span>;
+    const id = visibleTaskId(input, expectedTaskId);
+    return <span className="text-gray-500">{id ? <span className="text-gray-600">#{id} </span> : null}inspect</span>;
   }
-  return <span className="text-gray-500">Review task list</span>;
+  return <span className="text-gray-500">list</span>;
 }
 
 function firstString(input: Record<string, unknown>, key: string): string | undefined {
@@ -352,14 +363,14 @@ function TaskListCaretHandle({ direction, isExpanded, canToggle, onToggle, label
   );
 }
 
-function ToolUseDisplay({ event, worktreePath }: { event: Extract<SessionEvent, { type: 'tool_use' }>; worktreePath?: string }) {
+function ToolUseDisplay({ event, worktreePath, expectedTaskId }: { event: Extract<SessionEvent, { type: 'tool_use' }>; worktreePath?: string; expectedTaskId?: string }) {
   if (isTodoTool(event.name)) {
     const isLegacyTodoWrite = event.name.toLowerCase() === 'todowrite';
     if (!isLegacyTodoWrite) {
       return (
         <p className="text-xs font-mono">
           <span className="text-gray-400">📋 {event.name}</span>{' '}
-          <PiTodoToolDisplay name={event.name} input={event.input} />
+          <PiTodoToolDisplay name={event.name} input={event.input} expectedTaskId={expectedTaskId} />
         </p>
       );
     }
@@ -548,9 +559,9 @@ function splitAgentEventsForDisplay(events: SessionEvent[]): {
   };
 }
 
-function renderAgentEvent(event: MergedRenderableEvent, key: number, sessionId: string, worktreePath?: string) {
+function renderAgentEvent(event: MergedRenderableEvent, key: number, sessionId: string, worktreePath?: string, expectedTaskId?: string) {
   if (event.type === 'tool_use') {
-    return <ToolUseDisplay key={key} event={event} worktreePath={worktreePath} />;
+    return <ToolUseDisplay key={key} event={event} worktreePath={worktreePath} expectedTaskId={expectedTaskId} />;
   }
   if (event.type === 'text') {
     return <MarkdownContent key={key} text={event.content} className="[&>*:last-child]:mb-0" attachmentSessionId={sessionId} />;
@@ -564,11 +575,12 @@ function renderAgentEvent(event: MergedRenderableEvent, key: number, sessionId: 
   return null;
 }
 
-function LegacyAgentEvents({ events, sessionId, worktreePath, isStreaming = false }: {
+function LegacyAgentEvents({ events, sessionId, worktreePath, isStreaming = false, expectedTaskId }: {
   events: RenderableEvent[];
   sessionId: string;
   worktreePath?: string;
   isStreaming?: boolean;
+  expectedTaskId?: string;
 }) {
   return (
     <>
@@ -576,7 +588,7 @@ function LegacyAgentEvents({ events, sessionId, worktreePath, isStreaming = fals
         if (event.type === 'thinking' && isStreaming) {
           return <ThinkingBlock key={i} content={event.content} isStreaming />;
         }
-        return renderAgentEvent(event, i, sessionId, worktreePath);
+        return renderAgentEvent(event, i, sessionId, worktreePath, expectedTaskId);
       })}
     </>
   );
@@ -743,7 +755,7 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
           <div className="grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-300 ease-out group-open/task:grid-rows-[1fr] group-open/task:opacity-100">
             <div className="min-h-0 overflow-hidden space-y-2">
               {item.events.length > 0 ? (
-                <LegacyAgentEvents events={item.events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming && currentTaskItems.includes(item)} />
+                <LegacyAgentEvents events={item.events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming && currentTaskItems.includes(item)} expectedTaskId={item.todo.id} />
               ) : (
                 <p className="text-xs text-gray-600 italic">No detailed events for this task yet.</p>
               )}
