@@ -7,43 +7,77 @@ paths:
 
 ```
 lib/
-├── system-prompt.ts           ← Orphaned: was chat assistant system prompt builder; reads CLAUDE.md + changelog; no longer imported anywhere
-├── auth.ts                    ← Session helpers: createSession, getSessionUser, isAdmin (admin role check), hasEvolvePermission (admin or can_evolve role)
-├── base-path.ts               ← basePath constant + withBasePath() helper; used by all client-side fetch() calls to prefix API routes when NEXT_BASE_PATH is set
-├── branch-parent.ts           ← Branch-marker commit helpers for persistent branch parentage (`Branched-From/Base-Commit` trailers) with legacy git-config fallback
-├── hooks.ts                   ← Shared React hooks: useSessionUser (fetches session on mount, provides logout)
-├── evolve-sessions.ts         ← Shared session state + business logic for local evolve; persists to SQLite
-├── page-title.ts              ← Utility: buildPageTitle() — formats <title> with branch suffix in development mode; clean title in production
-├── sounds.ts                  ← Synthesised UI sound effects via Web Audio API (no audio files — all procedural); useSounds() hook with send/receive/error/accept/reject/click/etc.
-├── llm-client.ts              ← Creates Anthropic client: gateway (default) or direct API with user-supplied key
-├── llm-encryption.ts          ← Server-side RSA-OAEP keypair (ephemeral, per process); getPublicKeyJwk() + decryptApiKey()
-├── secrets-client.ts          ← Unified client-side secret storage: one AES-256-GCM key ('primordia_aes_key'), secrets presence index ('primordia_secrets'), setSecret/clearSecret/hasSecret/encryptSecretForTransmission/encryptCredentialsForTransmission for all SecretType values
-├── api-key-client.ts          ← Compatibility shim: re-exports hasStoredApiKey, setStoredApiKey, encryptStoredApiKey, and OpenRouter equivalents from secrets-client
-├── agent-config.ts            ← Definitions for supported coding agent harnesses and model options; imports MODEL_OPTIONS from lib/models.generated.json
-├── models.generated.json      ← Hard-coded model list (id, label, pricing) for all harnesses; regenerate with `bun run regenerate:model-registry`
-├── auto-canonical.ts          ← On first request, derives and persists canonical URL from request origin if not already set
-├── credentials-client.ts      ← Compatibility shim: re-exports hasStoredCredentials, setStoredCredentials, updateStoredCredentials, encryptStoredCredentials, clearOrphanedCredentialsKey from secrets-client
-├── cross-device-creds.ts      ← ECDH P-256 helpers for credential transfer in pull and push cross-device sign-in flows
-├── pi-model-registry.server.ts ← Builds model option list at runtime from pi ModelRegistry; no longer imported by app code (kept as reference / used by regenerate script logic)
-├── public-origin.ts           ← Utility for deriving public-facing origin from request, respecting x-forwarded-* headers
-├── register-with-parent.ts    ← Posts instance identity to parent's registration endpoint and returns status string
-├── session-events.ts          ← Structured event types for session progress logs stored as NDJSON in worktree
-├── smart-preview-url.ts       ← Infers the most relevant preview page path from LLM text output in session events
-├── update-source-scheduler.ts ← Background scheduler that automatically fetches update sources per frequency settings
-├── dependency-audit.ts        ← Runs `bun audit`, parses findings, and stores severe-audit notification state in git config
-├── dependency-audit-scheduler.ts ← Daily background scheduler that checks `bun audit --audit-level=high` and updates admin notifications
-├── update-sources.ts          ← Manages git-based update sources via git config remote.{id}.* namespace
-├── user-prefs.ts              ← Server-side helpers for reading per-user preferences (harness, model, caveman) from database
-├── events-client.ts           ← Client/server/worker helper: trackEvent() (fire-and-forget) + appendEvent() (async); both POST to /api/events
-├── uuid7.ts                   ← UUID v7 helper (delegates to the `uuid` npm package)
-├── validate-canonical-url.ts  ← Validation for Canonical URL field (HTTPS, non-localhost)
-├── auth-providers/            ← Auth provider system (no registry — auto-discovered by login page)
-│   ├── types.ts               ← AuthPlugin, AuthPluginServerContext, InstalledPlugin, AuthTabProps
-│   ├── passkey/index.ts       ← default export: passkeyPlugin descriptor
-│   ├── exe-dev/index.ts       ← default export: exeDevPlugin (reads X-ExeDev-Email header)
-│   └── cross-device/index.ts  ← default export: crossDevicePlugin
+├── system-prompt.ts             ← Orphaned: was chat assistant system prompt builder; reads CLAUDE.md + changelog; no longer imported anywhere
+├── auth.ts                      ← Session helpers: createSession, getSessionUser, isAdmin, hasEvolvePermission
+├── base-path.ts                 ← basePath constant + withBasePath() helper for client-side fetch() prefixes
+├── branch-graph-layout.ts       ← Branch graph layout utilities used by /branches and export scripts
+├── branch-parent.ts             ← Branch-marker commit helpers for persistent branch parentage with legacy git-config fallback
+├── hooks.ts                     ← Shared React hooks: useSessionUser (fetches session on mount, provides logout)
+├── evolve-sessions.ts           ← Shared local evolve session state, worktree orchestration, workers, previews, accept/reject logic, SQLite persistence
+├── page-title.ts                ← buildPageTitle(): formats <title> with branch suffix in development mode
+├── sounds.ts                    ← Procedural Web Audio UI sound effects and useSounds() hook
+├── llm-client.ts                ← Creates Anthropic client: exe.dev gateway or direct API key
+├── llm-encryption.ts            ← Server-side RSA-OAEP keypair; public-key export + transmitted secret decrypt helpers
+├── secrets-client.ts            ← Unified browser secret storage and hybrid encryption helpers for all SecretType values
+├── api-key-client.ts            ← Compatibility shim re-exporting API-key helpers from secrets-client
+├── credentials-client.ts        ← Compatibility shim re-exporting Claude credentials helpers from secrets-client
+├── preset-credentials-client.ts ← Client helpers for encrypting/decrypting preset-selected credential sources
+├── use-decrypt-effect.ts        ← React hook helper for decrypting encrypted settings data after hydration
+├── agent-config.ts              ← Supported harness/model definitions backed by lib/models.generated.json
+├── models.generated.json        ← Generated model list (id, label, pricing); regenerate with `bun run regenerate:model-registry`
+├── pi-custom-models.ts          ← Writes Primordia-specific pi models.json overlay for newly added provider models
+├── pi-model-registry.server.ts  ← Builds model option list from pi ModelRegistry; kept as reference/regeneration support
+├── preset-options.ts            ← Model/preset option shaping for evolve request/settings UIs
+├── preset-availability.ts       ← Computes whether billing sources/secrets make a preset usable for the current user
+├── presets.ts                   ← Built-in evolve preset definitions and shared preset/auth-source types
+├── auto-canonical.ts            ← Derives and persists canonical URL from request origin on first request
+├── claude-temp-auth.ts          ← Temporary `claude auth login` process/session manager for Claude subscription credential capture
+├── cross-device-creds.ts        ← ECDH P-256 helpers for credential transfer in cross-device sign-in flows
+├── public-origin.ts             ← Derives public-facing origin from request, respecting x-forwarded-* headers
+├── register-with-parent.ts      ← Posts instance identity to parent's registration endpoint and returns status text
+├── session-events.ts            ← Structured event types for session progress logs stored as NDJSON in worktrees
+├── smart-preview-url.ts         ← Infers the most relevant preview page path from agent text/session events
+├── update-source-scheduler.ts   ← Background scheduler that fetches update sources per configured frequency
+├── dependency-audit.ts          ← Runs `bun audit`, parses findings, stores severe-audit notification state in git config
+├── dependency-audit-scheduler.ts ← Daily high/critical dependency audit scheduler and admin notification updater
+├── update-sources.ts            ← Git-based update-source management via git config remote.{id}.* namespace
+├── user-prefs.ts                ← Server-side helpers for per-user evolve preferences (harness, model, caveman)
+├── events-client.ts             ← trackEvent()/appendEvent() helper that POSTs to /api/events
+├── utc-to-local-time.ts         ← UTC timestamp to localized display string helper
+├── uuid7.ts                     ← UUID v7 helper (delegates to the `uuid` npm package)
+├── validate-canonical-url.ts    ← Validation for Canonical URL field (HTTPS, non-localhost)
+├── web-push.ts                  ← VAPID key, subscription, category preference, and send helpers backed by SQLite
+├── auth-providers/              ← Auth provider descriptors and explicit enabled-provider registry
+│   ├── registry.ts              ← ENABLED_PROVIDERS order/gate used by login page and middleware-safe checks
+│   ├── types.ts                 ← AuthPlugin, AuthPluginServerContext, InstalledPlugin, AuthTabProps, AuthPluginMap
+│   ├── passkey/index.ts         ← default export: passkeyPlugin descriptor
+│   ├── exe-dev/index.ts         ← default export: exeDevPlugin (reads X-ExeDev-Email header)
+│   └── cross-device/index.ts    ← default export: crossDevicePlugin
 └── db/
-    ├── index.ts               ← Factory: getDb() → SQLite (always); includes SQLite hotswap reset lock used by preview DB refresh
-    ├── types.ts               ← Shared DB types: User, Passkey, Challenge, Session, CrossDeviceToken, EvolveSession, Role; DbAdapter includes role methods
-    └── sqlite.ts              ← bun:sqlite adapter (roles/user_roles/events/etc. tables; seeds built-in roles on boot; exposes reset hook to close DB before hotswap)
+    ├── index.ts                 ← Factory: getDb() → SQLite; includes SQLite hotswap reset lock
+    ├── types.ts                 ← Shared DB types and DbAdapter interface for users, sessions, roles, secrets, events, presets, web push
+    └── sqlite.ts                ← bun:sqlite adapter; schema migrations/seeding and concrete DbAdapter methods
 ```
+
+## Git Config as Key-Value Store
+
+Primordia uses `.git/config` as a lightweight key-value store for **non-sensitive runtime state** (no secrets — use `.env.local` or encrypted DB storage; no user data — use SQLite). The reverse proxy reads it directly without starting Next.js.
+
+### Established namespaces
+
+| Namespace | Example key | What it stores |
+|---|---|---|
+| `primordia.*` | `primordia.productionBranch` | App-wide settings; proxy reads these live via `fs.watch` on `.git/config` |
+| `primordia.*` | `primordia.productionHistory` | Multi-value list of previous production branch names (written with `--add`) |
+| `primordia.*` | `primordia.previewInactivityMin` | Proxy tuning knobs (see `app/api/admin/proxy-settings/route.ts`) |
+| `branch.{name}.*` | `branch.main.port` | Per-branch ephemeral port; proxy discovers preview servers this way |
+| `branch.{name}.*` | `branch.feature-x.parent` | Legacy parent branch metadata; still written while branch-marker commit trailer tracking is user-toggleable |
+| `remote.{name}.*` | `remote.primordia-official.updateSource` | Update source metadata extending the standard git remote section |
+
+### Output format of `--get-regexp`
+
+Each line is `<key><space><value>` with no `=`. Git **lowercases the section and field names** but **preserves the subsection name's case**. Always split on the first space. Use `[^.]+` (not `.*`) in regexes to avoid greedy matches across dots.
+
+### Code reference
+
+See `lib/update-sources.ts` for the subsection pattern. See `lib/evolve-sessions.ts` (`getOrAssignBranchPort`) for a simple single-key read/write example.

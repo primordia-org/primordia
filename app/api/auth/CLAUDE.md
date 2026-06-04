@@ -29,6 +29,6 @@ Primordia uses a simple role-based access control system stored in SQLite.
 
 ## Auth Provider Plugin Pattern
 
-Auth providers live in `lib/auth-providers/`. There is **no central registry** — the login page auto-discovers providers at runtime via `readdirSync(lib/auth-providers/)`. Each provider directory exports a default descriptor object (`AuthPlugin`) and a corresponding client-side tab component in `components/auth-tabs/`.
+Auth providers live in `lib/auth-providers/`. Enabled providers and their display order are controlled by `lib/auth-providers/registry.ts` (`ENABLED_PROVIDERS`), which is import-safe for middleware/Edge runtime checks. Each provider directory exports a default descriptor object (`AuthPlugin`) and a corresponding client-side tab component in `components/auth-tabs/`.
 
-To add a new provider: create `lib/auth-providers/{name}/index.ts` (server descriptor) and `components/auth-tabs/{name}/index.tsx` (client tab). The login page picks it up automatically.
+To add a new provider: create `lib/auth-providers/{name}/index.ts` (server descriptor), `components/auth-tabs/{name}/index.tsx` (client tab), add the provider id to `ENABLED_PROVIDERS`, then wire the id into the server plugin map in `app/login/page.tsx` and the tab map in `app/login/LoginClient.tsx`. Add any API routes under `app/api/auth/{name}/` as needed.
