@@ -10,7 +10,7 @@ What changed:
 - Added labels for both names when both are present.
 - Included both `data-component` and `data-id` names/selectors in generated markdown attachments.
 - Removed the now-unused `css-selector-generator` dependency.
-- Added explicit `data-component` names to the web preview toolbar controls, URL bar, and follow-up request UI so the component-level highlight has meaningful names there too.
+- Kept existing `data-id` names as the specific picker target for controls that are already sufficiently named that way, without adding redundant `data-component` attributes.
 
 Why:
 

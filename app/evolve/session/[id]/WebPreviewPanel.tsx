@@ -483,7 +483,6 @@ export function WebPreviewPanel({
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-800 bg-gray-950">
         {/* Nav buttons */}
         <button
-          data-component="PreviewBackButton"
           data-id="preview/back"
           type="button"
           onClick={handleBack}
@@ -494,7 +493,6 @@ export function WebPreviewPanel({
           <ArrowLeft size={14} />
         </button>
         <button
-          data-component="PreviewForwardButton"
           data-id="preview/forward"
           type="button"
           onClick={handleForward}
@@ -505,7 +503,6 @@ export function WebPreviewPanel({
           <ArrowRight size={14} />
         </button>
         <button
-          data-component="PreviewRefreshButton"
           data-id="preview/refresh"
           type="button"
           onClick={handleRefresh}
@@ -519,7 +516,6 @@ export function WebPreviewPanel({
         {/* URL bar */}
         <form onSubmit={handleUrlSubmit} className="flex-1 mx-1 min-w-0">
           <input
-            data-component="PreviewUrlBar"
             data-id="preview/url-bar"
             type="text"
             value={urlBarValue}
@@ -535,7 +531,6 @@ export function WebPreviewPanel({
         {/* Element inspector toggle — only shown when a callback is provided */}
         {onElementSelected && (
           <button
-            data-component="PreviewInspectorToggleButton"
             data-id="preview/inspector-toggle"
             type="button"
             onClick={toggleInspector}
@@ -553,7 +548,6 @@ export function WebPreviewPanel({
 
         {/* Open in new tab */}
         <a
-          data-component="PreviewOpenInNewTabLink"
           data-id="preview/open-in-new-tab"
           href={urlBarValue || src}
           target="_blank"
