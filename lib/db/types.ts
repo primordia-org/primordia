@@ -146,6 +146,30 @@ export interface EncryptedCredential {
   updatedAt: number;
 }
 
+export interface WebPushVapidKeys {
+  publicKey: string;
+  privateKey: string;
+  createdAt: number;
+}
+
+export type WebPushCategory = "security-vulnerabilities" | "primordia-updates";
+
+export interface WebPushSubscription {
+  id: string;
+  userId: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WebPushCategorySubscription {
+  userId: string;
+  category: WebPushCategory;
+  createdAt: number;
+}
+
 export interface DbAdapter {
   // Users
   createUser(user: User): Promise<void>;
@@ -200,6 +224,18 @@ export interface DbAdapter {
   appendEvent(event: UserEvent): Promise<number>;
   queryEvents(opts: { limit?: number; offset?: number; event?: string; userId?: string }): Promise<{ id: number; ts: string; userId: string | null; event: string; props: Record<string, unknown> | null }[]>;
   countEvents(opts: { event?: string; userId?: string }): Promise<number>;
+
+  // Web Push notifications
+  getWebPushVapidKeys(): Promise<WebPushVapidKeys | null>;
+  setWebPushVapidKeys(keys: WebPushVapidKeys): Promise<void>;
+  upsertWebPushSubscription(subscription: WebPushSubscription): Promise<void>;
+  deleteWebPushSubscription(userId: string, endpoint: string): Promise<void>;
+  getWebPushSubscriptionsByUser(userId: string): Promise<WebPushSubscription[]>;
+  clearWebPushSubscriptions(): Promise<void>;
+  subscribeWebPushCategory(userId: string, category: WebPushCategory): Promise<void>;
+  unsubscribeWebPushCategory(userId: string, category: WebPushCategory): Promise<void>;
+  getWebPushCategorySubscriptions(userId: string): Promise<WebPushCategorySubscription[]>;
+  getUserIdsSubscribedToWebPushCategory(category: WebPushCategory): Promise<string[]>;
 
   // Instance identity & social graph
   getInstanceConfig(): Promise<InstanceConfig>;

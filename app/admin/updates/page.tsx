@@ -141,9 +141,10 @@ export default async function AdminUpdatesPage() {
   }
 
   const initialSources = buildSourceStatuses();
-  const [sessionUser, evolvePrefs] = await Promise.all([
+  const [sessionUser, evolvePrefs, categoryRows] = await Promise.all([
     Promise.resolve({ id: user.id, username: user.username, isAdmin: true }),
     getEvolvePrefs(user.id),
+    db.getWebPushCategorySubscriptions(user.id),
   ]);
 
   return (
@@ -160,7 +161,10 @@ export default async function AdminUpdatesPage() {
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
         <AdminSubNav currentTab="updates" />
         <div className="flex-1 min-w-0">
-          <UpdatesClient initialSources={initialSources} />
+          <UpdatesClient
+            initialSources={initialSources}
+            initialPushSubscribed={categoryRows.some((row) => row.category === "primordia-updates")}
+          />
         </div>
       </div>
     </main>

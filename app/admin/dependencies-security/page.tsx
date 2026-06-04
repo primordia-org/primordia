@@ -53,7 +53,10 @@ export default async function DependenciesSecurityPage() {
 
   const audit = runBunAudit();
   writeDependencyAuditNotification(process.cwd(), audit);
-  const evolvePrefs = await getEvolvePrefs(user.id);
+  const [evolvePrefs, categoryRows] = await Promise.all([
+    getEvolvePrefs(user.id),
+    db.getWebPushCategorySubscriptions(user.id),
+  ]);
   const sessionUser = { id: user.id, username: user.username, isAdmin: true };
 
   return (
@@ -79,6 +82,7 @@ export default async function DependenciesSecurityPage() {
                 options={auditTimestampOptions}
               />
             )}
+            initialPushSubscribed={categoryRows.some((row) => row.category === "security-vulnerabilities")}
           />
         </div>
       </div>
