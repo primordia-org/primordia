@@ -96,7 +96,7 @@ Each evolve session tracks two independent dimensions persisted to SQLite:
 | `ready` → `rejected` | `POST /api/evolve/manage` { action: "reject" } |
 | devServer `running` → `disconnected` | Dev server `close` event + branch still present (3 s later) |
 | devServer `disconnected` → `starting` | `POST /api/evolve/kill-restart` |
-| session branch behind parent → current code/data | `POST /api/evolve/upstream-sync` merges the parent/prod branch, creates a production DB snapshot via `VACUUM INTO`, then asks the running preview server to close and hot-swap its SQLite DB before reopening on the next DB access |
+| session branch behind parent → current code/data | `POST /api/evolve/upstream-sync` merges the parent/prod branch, runs `bun install` in the updated worktree, creates a production DB snapshot via `VACUUM INTO`, then asks the running preview server to close and hot-swap its SQLite DB before reopening on the next DB access |
 | any → `ready` (with `❌` error in log) | Uncaught exception inside the respective async helper |
 
 ---

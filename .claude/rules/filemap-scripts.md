@@ -7,13 +7,19 @@ paths:
 
 ```
 scripts/
-├── reverse-proxy.ts          ← HTTP reverse proxy for zero-downtime blue/green AND preview servers; listens on REVERSE_PROXY_PORT; reads production branch from git config (primordia.productionBranch); discovers worktrees via $PRIMORDIA_DIR; captures prod server stdout/stderr in a 50 KB ring buffer; exposes POST /_proxy/prod/spawn (SSE) and GET /_proxy/prod/logs (SSE); watches .git/config for instant cutover; routes /preview/{branchName} to session preview servers (no slashes in branch names); installed to ~/primordia-proxy.ts by scripts/install.sh
-├── assign-branch-ports.sh    ← Idempotent migration script: assigns ephemeral ports to all local branches in git config (branch.{name}.port); main gets 3001, others get 3002+
-├── rollback.ts               ← Standalone CLI rollback script: updates primordia.productionBranch to the previous slot (second entry in primordia.productionHistory) and restarts primordia-proxy; use when the server itself is broken and /api/admin/rollback is unreachable
-├── install.sh                ← Primordia setup script; supports two invocation methods; idempotent
-├── claude-worker.ts          ← Standalone Claude Code worker process that handles LLM calls via exe.dev gateway
-├── pi-worker.ts              ← Standalone pi coding agent worker process; spawned as detached child surviving restarts
-├── codex-worker.ts           ← Standalone OpenAI Codex CLI worker process; configures gateway/API-key/ChatGPT auth and streams JSONL progress
-├── regenerate-model-registry.ts ← Reads the pi ModelRegistry and rewrites lib/models.generated.json; run with `bun run regenerate:model-registry` after updating @mariozechner/pi-coding-agent
-└── test-hmr-proxy.ts         ← Integration tests for reverse proxy WebSocket/HMR tunnel
+├── reverse-proxy.ts              ← HTTP reverse proxy for blue/green production and preview servers; watches git config; owns prod spawn/log SSE endpoints; routes /preview/{branchName}
+├── assign-branch-ports.sh        ← Idempotent migration script: assigns ephemeral branch ports in git config; main gets 3001, others 3002+
+├── rollback.ts                   ← Standalone emergency rollback CLI for when the app/admin UI is unavailable
+├── install.sh                    ← Primordia setup/deploy script; idempotent; installs proxy/systemd service and production app
+├── claude-worker.ts              ← Detached Claude Code worker process; configures gateway/API/subscription auth and streams structured progress
+├── pi-worker.ts                  ← Detached pi coding agent worker process; installs/loads edb-todo tools and streams structured progress
+├── codex-worker.ts               ← Detached OpenAI Codex CLI worker process; configures gateway/API-key/ChatGPT auth and streams JSONL progress
+├── claude-auth-pty.py            ← PTY wrapper used by lib/claude-temp-auth.ts to drive `claude auth login`
+├── set-preview-url.ts            ← Evolve-agent helper invoked by `bun run set-preview-url /route`; emits structured preview_path session event
+├── regenerate-model-registry.ts  ← Rewrites lib/models.generated.json from the pi ModelRegistry and Primordia model overlays
+├── export-branch-graph-ascii.ts  ← CLI exporter for the branch graph layout in ASCII text
+├── export-branch-graph-unicode.ts ← CLI exporter for the branch graph layout with Unicode box drawing
+├── export-branch-parentage-mermaid.ts ← CLI exporter for branch parentage as Mermaid graph syntax
+├── git-hooks/reference-transaction ← Git hook helper for branch/ref transaction tracking
+└── test-hmr-proxy.ts             ← Integration tests for reverse proxy WebSocket/HMR tunnel
 ```

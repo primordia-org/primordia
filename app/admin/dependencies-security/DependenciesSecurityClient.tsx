@@ -64,7 +64,9 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
+      
       const data = (await res.json()) as Record<string, unknown> & { error?: string };
+
       if (!res.ok || data.error) throw new Error(data.error ?? "Request failed");
       return data;
     } catch (err) {

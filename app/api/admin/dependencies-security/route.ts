@@ -78,6 +78,7 @@ export async function POST(request: Request) {
     });
 
     const data = (await evolveRes.json()) as { sessionId?: string; error?: string };
+
     if (!evolveRes.ok || !data.sessionId) {
       return Response.json({ error: data.error ?? "Failed to create evolve session" }, { status: evolveRes.status || 500 });
     }
