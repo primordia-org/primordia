@@ -1,6 +1,7 @@
 // instrumentation.ts
 // Next.js instrumentation hook — runs once when the server starts.
-// Used to start background schedulers.
+// Used to start background schedulers and recover evolve workers after a
+// server restart.
 // See: https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
 
 export async function register() {
@@ -12,7 +13,12 @@ export async function register() {
     const { startDependencyAuditScheduler } = await import(
       "./lib/dependency-audit-scheduler"
     );
-    startUpdateSourceScheduler(process.cwd());
-    startDependencyAuditScheduler(process.cwd());
+    const { reconnectRunningWorkers } = await import("./lib/evolve-sessions");
+    const repoRoot = process.cwd();
+    startUpdateSourceScheduler(repoRoot);
+    startDependencyAuditScheduler(repoRoot);
+    void reconnectRunningWorkers(repoRoot).catch((err) => {
+      console.error("[instrumentation] failed to reconnect evolve workers", err);
+    });
   }
 }
