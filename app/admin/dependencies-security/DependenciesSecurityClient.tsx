@@ -64,7 +64,19 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
-      const data = (await res.json()) as Record<string, unknown> & { error?: string };
+      
+      let data: Record<string, unknown> & { error?: string } = {};
+      try {
+        const text = await res.text();
+        if (text) {
+          data = JSON.parse(text);
+        } else {
+          data = { error: `Server returned empty response with status ${res.status}` };
+        }
+      } catch {
+        data = { error: `Server returned non-JSON response with status ${res.status}` };
+      }
+
       if (!res.ok || data.error) throw new Error(data.error ?? "Request failed");
       return data;
     } catch (err) {
