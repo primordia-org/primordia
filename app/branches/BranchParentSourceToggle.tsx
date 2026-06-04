@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ToggleLeft, ToggleRight } from "lucide-react";
-import { withBasePath } from "@/lib/base-path";
+import { apiClient } from "@/lib/api-client";
 import type { BranchParentSource } from "@/lib/branch-parent";
 
 interface BranchParentSourceToggleProps {
@@ -30,14 +30,13 @@ export function BranchParentSourceToggle({
 
     startTransition(async () => {
       try {
-        const res = await fetch(withBasePath("/api/branches/parent-source"), {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ source: nextSource }),
+        const { error, response } = await apiClient.PATCH('/branches/parent-source', {
+          body: { source: nextSource },
         });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(data?.error ?? "Could not save branch parent source");
+        if (error || !response.ok) {
+          throw new Error(
+            (error as { error?: string } | undefined)?.error ?? 'Could not save branch parent source',
+          );
         }
         router.refresh();
       } catch (err) {

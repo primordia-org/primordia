@@ -9,7 +9,7 @@
 
 import { useState, useRef } from "react";
 import { MarkdownContent } from "@/components/MarkdownContent";
-import { withBasePath } from "@/lib/base-path";
+import { apiClient } from "@/lib/api-client";
 
 interface Props {
   filename: string;
@@ -26,9 +26,13 @@ export function ChangelogEntryDetails({ filename, title }: Props) {
     if (!e.currentTarget.open || fetchedRef.current) return;
     fetchedRef.current = true;
     setLoading(true);
-    fetch(withBasePath(`/api/changelog?filename=${encodeURIComponent(filename)}`))
-      .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
-      .then((text) => setContent(text.trim()))
+    apiClient
+      .GET('/changelog', { params: { query: { filename } } })
+      .then(async ({ response }) => {
+        if (!response.ok) throw new Error(String(response.status));
+        const text = await response.text();
+        setContent(text.trim());
+      })
       .catch(() => setContent("*(Failed to load content.)*"))
       .finally(() => setLoading(false));
   }

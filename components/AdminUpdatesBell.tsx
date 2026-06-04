@@ -7,7 +7,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { Bell, ArrowUpCircle, GitBranch, ShieldAlert } from "lucide-react";
-import { withBasePath } from "@/lib/base-path";
+import { apiClient } from "@/lib/api-client";
 import type { SessionUser } from "@/lib/hooks";
 
 interface AdminUpdatesBellProps {
@@ -68,18 +68,18 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [sessionsRes, updatesRes, dependencyRes] = await Promise.all([
-        canEvolve || isAdmin ? fetch(withBasePath("/api/evolve/sessions")) : null,
-        isAdmin ? fetch(withBasePath("/api/admin/updates/has-updates")) : null,
-        isAdmin ? fetch(withBasePath("/api/admin/dependencies-security/has-alert")) : null,
+      const [sessionsResult, updatesResult, dependencyResult] = await Promise.all([
+        canEvolve || isAdmin ? apiClient.GET('/evolve/sessions') : null,
+        isAdmin ? apiClient.GET('/admin/updates/has-updates') : null,
+        isAdmin ? apiClient.GET('/admin/dependencies-security/has-alert') : null,
       ]);
-      const sessions: BellSession[] = sessionsRes?.ok
-        ? (await sessionsRes.json()).sessions ?? []
-        : [];
-      const hasUpdates: boolean = updatesRes?.ok
-        ? (await updatesRes.json()).hasUpdates ?? false
-        : false;
-      const dependencyData = dependencyRes?.ok ? await dependencyRes.json() : null;
+      const sessions: BellSession[] =
+        (sessionsResult?.data as { sessions?: BellSession[] } | undefined)?.sessions ?? [];
+      const hasUpdates: boolean =
+        (updatesResult?.data as { hasUpdates?: boolean } | undefined)?.hasUpdates ?? false;
+      const dependencyData = dependencyResult?.data as
+        | { hasAlert?: boolean; severeCount?: number }
+        | undefined;
       const hasDependencyAlert: boolean = dependencyData?.hasAlert ?? false;
       const dependencySevereCount: number = dependencyData?.severeCount ?? 0;
       setData({ hasUpdates, hasDependencyAlert, dependencySevereCount, sessions });

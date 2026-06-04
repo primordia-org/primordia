@@ -14,6 +14,7 @@ import { useState, useRef, useEffect, useCallback, FormEvent, memo } from "react
 import { Paperclip, Settings, ChevronDown, Crosshair, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { withBasePath } from "../lib/base-path";
+import { apiClient } from "../lib/api-client";
 import { appendCredentialFieldsForAuthSource } from "../lib/preset-credentials-client";
 import {
   DEFAULT_HARNESS,
@@ -181,13 +182,14 @@ export function EvolveRequestForm({
   );
   // ── Available presets ────────────────────────────────────────────────────
   useEffect(() => {
-    fetch(withBasePath('/api/evolve/presets'))
-      .then((r) => r.json())
-      .then((data: { presets?: EvolvePresetWithAvailability[]; selectedPresetId?: string | null }) => {
-        const nextPresets = data.presets ?? [];
+    apiClient
+      .GET('/evolve/presets')
+      .then(({ data }) => {
+        const typedData = data as { presets?: EvolvePresetWithAvailability[]; selectedPresetId?: string | null } | undefined;
+        const nextPresets = typedData?.presets ?? [];
         const firstAvailable = nextPresets.find((preset) => preset.available);
         setPresets(nextPresets);
-        setSelectedPresetId(data.selectedPresetId ?? firstAvailable?.id ?? "");
+        setSelectedPresetId(typedData?.selectedPresetId ?? firstAvailable?.id ?? "");
       })
       .catch(() => { /* fallback object keeps form usable */ });
   }, []);

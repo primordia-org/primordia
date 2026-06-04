@@ -16,6 +16,7 @@ import { FloatingEvolveDialog, EvolveSubmitToast } from "@/components/FloatingEv
 import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
 import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
+import { apiClient } from "@/lib/api-client";
 import { appendCredentialFieldsForAuthSource, getCredentialFieldsForAuthSource } from "@/lib/preset-credentials-client";
 import { useSounds } from "@/lib/sounds";
 import { updateStoredCredentials } from "@/lib/credentials-client";
@@ -1409,9 +1410,9 @@ export default function EvolveSessionView({
 }: EvolveSessionViewProps) {
   const [modelOptionsByHarness, setModelOptionsByHarness] = useState<Record<string, ModelOption[]>>({});
   useEffect(() => {
-    fetch(withBasePath('/api/evolve/models'))
-      .then((r) => r.json())
-      .then((data: Record<string, ModelOption[]>) => setModelOptionsByHarness(data))
+    apiClient
+      .GET('/evolve/models')
+      .then(({ data }) => { if (data) setModelOptionsByHarness(data as Record<string, ModelOption[]>); })
       .catch(() => { /* silently fall back to empty list */ });
   }, []);
 
@@ -1779,17 +1780,11 @@ export default function EvolveSessionView({
     setAbortError(null);
 
     try {
-      const res = await fetch(withBasePath('/api/evolve/abort'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
+      const { data, error } = await apiClient.POST('/evolve/abort', {
+        body: { sessionId },
       });
-
-      if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        throw new Error(data.error ?? `Server error: ${res.status}`);
-      }
-
+      if (error) throw new Error((error as { error?: string }).error ?? 'Server error');
+      void data; // acknowledged
       void startStreaming();
     } catch (err) {
       setAbortError(err instanceof Error ? err.message : String(err));
@@ -1803,13 +1798,11 @@ export default function EvolveSessionView({
     setUpstreamSyncLoading("merge");
     setUpstreamSyncError(null);
     try {
-      const res = await fetch(withBasePath('/api/evolve/upstream-sync'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, action: "merge" }),
+      const { data, error } = await apiClient.POST('/evolve/upstream-sync', {
+        body: { sessionId, action: 'merge' },
       });
-      const data = (await res.json()) as { outcome?: string; log?: string; error?: string };
-      if (!res.ok) throw new Error(data.error ?? `Server error: ${res.status}`);
+      if (error) throw new Error((error as { error?: string }).error ?? 'Server error');
+      void data;
       setRemainingUpstream(0);
       // Restart the SSE stream so any new events written during conflict
       // resolution (or the merge itself) are picked up immediately.
@@ -1830,36 +1823,42 @@ export default function EvolveSessionView({
       // Attach only the credential selected by the session's most recent preset
       // so accept-time agent passes (type-fix, auto-commit) use the same billing
       // source as the evolve/follow-up run they are completing.
-      const acceptBody: Record<string, string> = { action: 'accept', sessionId };
-      if (sessionCredentialAuthSource) acceptBody.authSource = sessionCredentialAuthSource;
-      Object.assign(acceptBody, await getCredentialFieldsForAuthSource(sessionCredentialAuthSource));
-      const res = await fetch(withBasePath('/api/evolve/manage'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(acceptBody),
+      const credentialFields = await getCredentialFieldsForAuthSource(sessionCredentialAuthSource);
+      // The typed body includes the schema-defined credential fields; authSource is an extra
+      // server-side field not in the spec but supported by the route handler.
+      const manageBody = {
+        action: 'accept' as const,
+        sessionId,
+        ...(sessionCredentialAuthSource ? { authSource: sessionCredentialAuthSource } : {}),
+        ...credentialFields,
+      };
+      const { data, error, response } = await apiClient.POST('/evolve/manage', {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        body: manageBody as any,
       });
-      const data = (await res.json()) as { outcome?: string; error?: string; stashWarning?: string; stuckSessionId?: string; stuckSessionBranch?: string };
-      if (!res.ok) {
-        if (res.status === 409 && data.stuckSessionId) {
-          setStuckBlockingSessionId(data.stuckSessionId);
+      const typedData = data as { outcome?: string; error?: string; stashWarning?: string; stuckSessionId?: string; stuckSessionBranch?: string } | undefined;
+      if (error || !response.ok) {
+        const errData = (error ?? typedData) as { error?: string; stuckSessionId?: string } | undefined;
+        if (response.status === 409 && errData?.stuckSessionId) {
+          setStuckBlockingSessionId(errData.stuckSessionId);
         }
-        throw new Error(data.error ?? `API error: ${res.statusText}`);
+        throw new Error(errData?.error ?? `API error: ${response.statusText}`);
       }
       setStuckBlockingSessionId(null);
-      if (data.outcome === 'accepting') {
+      if (typedData?.outcome === 'accepting') {
         sounds.sparkle();
         setStatus('accepting');
         setActiveAction(null);
         void startStreaming();
         return;
       }
-      if (data.outcome === 'auto-fixing-types') {
+      if (typedData?.outcome === 'auto-fixing-types') {
         setStatus('fixing-types');
         setActiveAction(null);
         void startStreaming();
         return;
       }
-      if (data.outcome === 'auto-committing') {
+      if (typedData?.outcome === 'auto-committing') {
         setStatus('running-claude');
         setActiveAction(null);
         void startStreaming();
@@ -1880,13 +1879,13 @@ export default function EvolveSessionView({
     setAcceptRejectLoading(true);
     setAcceptRejectError(null);
     try {
-      const res = await fetch(withBasePath('/api/evolve/manage'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reject', sessionId }),
+      const { error, response } = await apiClient.POST('/evolve/manage', {
+        body: { action: 'reject', sessionId },
       });
-      const data = (await res.json()) as { outcome?: string; error?: string };
-      if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
+      if (error || !response.ok) {
+        const errMsg = (error as { error?: string } | undefined)?.error ?? `API error: ${response.statusText}`;
+        throw new Error(errMsg);
+      }
       sounds.reject();
       setStatus('rejected');
       abortControllerRef.current?.abort();

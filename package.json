@@ -13,6 +13,7 @@
     "rollback": "bun scripts/rollback.ts",
     "proxy": "bun scripts/reverse-proxy.ts",
     "generate-api-docs": "next-openapi-gen generate --config openapi-gen.config.json",
+    "generate:api-types": "bun run scripts/generate-api-types.ts",
     "regenerate:model-registry": "bun run scripts/regenerate-model-registry.ts",
     "set-preview-url": "bun scripts/set-preview-url.ts",
     "export-branch-parentage-mermaid": "bun scripts/export-branch-parentage-mermaid.ts",
@@ -37,6 +38,7 @@
     "mnemonic-id": "^4.1.0",
     "next": "16.2.6",
     "next-openapi-gen": "^1.0.7",
+    "openapi-fetch": "^0.17.0",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -70,6 +72,7 @@
     "autoprefixer": "^10",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "openapi-typescript": "^7.13.0",
     "postcss": "^8.5.14",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"

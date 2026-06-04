@@ -2,7 +2,7 @@
 // Shared React hooks for Primordia client components.
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { withBasePath } from "./base-path";
+import { apiClient } from "./api-client";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -83,14 +83,14 @@ export function useSessionUser() {
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
 
   useEffect(() => {
-    fetch(withBasePath("/api/auth/session"))
-      .then((res) => res.json())
-      .then((data: { user: SessionUser | null }) => setSessionUser(data.user))
+    apiClient
+      .GET('/auth/session')
+      .then(({ data }) => setSessionUser((data as { user: SessionUser | null } | undefined)?.user ?? null))
       .catch(() => {});
   }, []);
 
   async function handleLogout() {
-    await fetch(withBasePath("/api/auth/logout"), { method: "POST" });
+    await apiClient.POST('/auth/logout');
     setSessionUser(null);
   }
 
