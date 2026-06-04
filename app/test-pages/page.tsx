@@ -32,6 +32,13 @@ const TEST_PAGES = [
     description:
       "Soundboard for all Web Audio API sound effects with a live oscilloscope, per-sound diagnostics, and browser AudioContext info.",
   },
+  {
+    href: "/test-pages/web-push-test",
+    emoji: "🔔",
+    title: "Web Push",
+    description:
+      "Registers a browser PushSubscription, stores it in SQLite, and sends a VAPID-authenticated test notification through the service worker.",
+  },
 ];
 
 export default function TestPagesIndex() {
