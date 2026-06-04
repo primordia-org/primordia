@@ -52,10 +52,14 @@ export default function WebPushCategoryButton({
   category,
   initialSubscribed,
   className = "",
+  subscribeLabel = "Subscribe to Push Notifications",
+  unsubscribeLabel = "Unsubscribe from Push Notifications",
 }: {
   category: WebPushCategory;
   initialSubscribed: boolean;
   className?: string;
+  subscribeLabel?: string;
+  unsubscribeLabel?: string;
 }) {
   const [subscribed, setSubscribed] = useState(initialSubscribed);
   const [busy, setBusy] = useState(false);
@@ -103,7 +107,7 @@ export default function WebPushCategoryButton({
         }`}
       >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : subscribed ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
-        {subscribed ? "Unsubscribe from Push Notifications" : "Subscribe to Push Notifications"}
+        {subscribed ? unsubscribeLabel : subscribeLabel}
       </button>
       {error && <p className="mt-2 text-xs text-red-300">{error}</p>}
     </div>

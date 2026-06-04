@@ -69,6 +69,8 @@ export default function PushNotificationsSettingsClient({
                     category={item.category}
                     initialSubscribed={initialSubscribedCategories.includes(item.category)}
                     className="shrink-0"
+                    subscribeLabel="Subscribe"
+                    unsubscribeLabel="Unsubscribe"
                   />
                 )}
               </div>

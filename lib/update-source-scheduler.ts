@@ -45,11 +45,31 @@ function gitSafe(repoRoot: string, args: string[]): { stdout: string; code: numb
   }
 }
 
-function getAheadCount(repoRoot: string, source: UpdateSource): number {
+function getMergeBase(repoRoot: string, source: UpdateSource): string | null {
   const mergeBase = gitSafe(repoRoot, ["merge-base", "main", source.trackingBranch]);
-  if (mergeBase.code !== 0 || !mergeBase.stdout) return 0;
-  const ahead = gitSafe(repoRoot, ["rev-list", "--count", `${mergeBase.stdout}..${source.trackingBranch}`]);
+  return mergeBase.code === 0 && mergeBase.stdout ? mergeBase.stdout : null;
+}
+
+function getAheadCount(repoRoot: string, source: UpdateSource, mergeBase: string): number {
+  const ahead = gitSafe(repoRoot, ["rev-list", "--count", `${mergeBase}..${source.trackingBranch}`]);
   return ahead.code === 0 ? parseInt(ahead.stdout || "0", 10) : 0;
+}
+
+function getUpdateNotificationBody(repoRoot: string, source: UpdateSource, aheadCount: number, mergeBase: string): string {
+  const changelogDiff = gitSafe(repoRoot, [
+    "diff", "--name-only", "--diff-filter=A", `${mergeBase}..${source.trackingBranch}`, "--", "changelog/",
+  ]);
+  const changelogFiles = changelogDiff.code === 0 && changelogDiff.stdout
+    ? changelogDiff.stdout.split("\n").map((line) => line.trim()).filter(Boolean)
+    : [];
+  const changelogTitles = changelogFiles.slice(0, 2).map((file) => {
+    const filename = file.split("/").pop() ?? file;
+    return filename.replace(/^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\s+/, "").replace(/\.md$/, "");
+  });
+  const changelogSummary = changelogTitles.length > 0
+    ? ` Changelog: ${changelogTitles.join("; ")}${changelogFiles.length > changelogTitles.length ? ` +${changelogFiles.length - changelogTitles.length} more` : ""}.`
+    : "";
+  return `${aheadCount} upstream commit${aheadCount === 1 ? "" : "s"} available from ${source.name}.${changelogSummary} Open Updates to review and create a merge session.`;
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -105,12 +125,13 @@ function runSchedulerTick(repoRoot: string): void {
       );
     } else {
       setLastFetchedAt(repoRoot, source.id, now);
-      const aheadCount = getAheadCount(repoRoot, source);
+      const mergeBase = getMergeBase(repoRoot, source);
+      const aheadCount = mergeBase ? getAheadCount(repoRoot, source, mergeBase) : 0;
       console.log(`[update-source-scheduler] Fetched ${source.id} (${source.fetchFrequency})`);
-      if (aheadCount > 0) {
+      if (aheadCount > 0 && mergeBase) {
         void sendWebPushToCategory("primordia-updates", {
           title: "Primordia Updates",
-          body: `${aheadCount} upstream Primordia commit${aheadCount === 1 ? "" : "s"} available from ${source.name}. Open Updates to review the changelog and create a merge session.`,
+          body: getUpdateNotificationBody(repoRoot, source, aheadCount, mergeBase),
           url: "/admin/updates",
         }).catch((pushErr) => console.error(`[update-source-scheduler] Push notification failed: ${pushErr}`));
       }
