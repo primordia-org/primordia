@@ -9,6 +9,7 @@ What changed:
 - Kept a single blue highlight around the selected `data-component` element.
 - Changed generated selectors to use only `data-component` attributes.
 - Removed the now-unused `css-selector-generator` dependency.
+- Added explicit `data-component` names to the web preview toolbar controls, URL bar, and follow-up request UI so they can be targeted by the data-component-only picker.
 
 Why:
 

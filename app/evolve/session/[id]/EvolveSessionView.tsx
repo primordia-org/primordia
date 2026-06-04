@@ -1036,7 +1036,10 @@ function StructuredSection({
     return (
       <>
         {requestEvent && (
-          <div className="px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-x-auto">
+          <div
+            data-component="FollowupRequestSummary"
+            className="px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-x-auto"
+          >
             <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Follow-up request</p>
             <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{requestEvent.request}</p>
             {requestEvent.attachments && requestEvent.attachments.length > 0 && (
@@ -2332,7 +2335,7 @@ export default function EvolveSessionView({
 
           {/* ── Follow-up panel ── */}
           {activeAction === "followup" && (
-            <div className="px-4 py-4 border-t border-gray-700">
+            <div data-component="FollowupRequestPanel" className="px-4 py-4 border-t border-gray-700">
               <p className="text-gray-400 text-xs mb-3">
                 Address feedback on the changes, e.g. &quot;I got this error when using it:&quot; or
                 &quot;please change the design of the button&quot;.
