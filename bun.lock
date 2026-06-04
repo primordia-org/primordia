@@ -14,7 +14,6 @@
         "@simplewebauthn/server": "^13.3.0",
         "@zumer/snapdom": "^2.8.0",
         "clsx": "^2.1.1",
-        "css-selector-generator": "^3.9.1",
         "lucide-react": "^1.8.0",
         "minimatch": "^10.2.5",
         "mnemonic-id": "^4.1.0",
@@ -1005,8 +1004,6 @@
     "crelt": ["crelt@1.0.6", "", {}, "sha512-VQ2MBenTq1fWZUH9DJNGti7kKv6EeAuYr3cLwxUWhIu1baTaXh4Ib5W2CqHVqib4/MqbYGJqiL3Zb8GJZr3l4g=="],
 
     "cross-spawn": ["cross-spawn@7.0.6", "", { "dependencies": { "path-key": "^3.1.0", "shebang-command": "^2.0.0", "which": "^2.0.1" } }, "sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA=="],
-
-    "css-selector-generator": ["css-selector-generator@3.9.2", "", {}, "sha512-VvPJovWN5NC6PdilCV/eq7ezPx8zfVcaGcOjKVQqVYvZ1ooicqB6PkklM9UfxjjkmO9fwQr80idYUoJEowrOPg=="],
 
     "cssesc": ["cssesc@3.0.0", "", { "bin": { "cssesc": "bin/cssesc" } }, "sha512-/Tb/JcjK111nNScGob5MNtsntNM1aCNUDipB/TkwZFhyDrrE47SOx/18wF2bbjgc3ZzCSKW1T5nt5EbFoAz/Vg=="],
 
