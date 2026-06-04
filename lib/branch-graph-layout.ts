@@ -10,6 +10,11 @@ export interface BranchGraphLayoutNode extends BranchGraphInputNode {
   column: number;
 }
 
+export interface BranchGraphMergeEdge {
+  from: string;
+  to: string;
+}
+
 function markerSort(a: BranchGraphInputNode, b: BranchGraphInputNode): number {
   const aTime = a.markerTimestamp ?? Number.POSITIVE_INFINITY;
   const bTime = b.markerTimestamp ?? Number.POSITIVE_INFINITY;
@@ -17,20 +22,16 @@ function markerSort(a: BranchGraphInputNode, b: BranchGraphInputNode): number {
   return a.name.localeCompare(b.name);
 }
 
-function occupiedKey(row: number, column: number): string {
-  return `${row}:${column}`;
-}
-
 /**
  * Computes a simplified git-log-style branch-head layout.
  *
  * Rules:
  * - Current production and its direct parent chain form the column-0 spine.
- * - Non-spine children sit one row above their parent.
- * - A child starts one column to the right of its parent; if that cell is full,
- *   the next open column to the right is used.
- * - Siblings are placed oldest-first by branch-marker timestamp so older
- *   branches stay closer to the spine.
+ * - Each branch gets exactly one row.
+ * - Non-spine children are emitted immediately above their parent.
+ * - Child branches are one column to the right of their parent.
+ * - Siblings are visited oldest-first by branch-marker timestamp so older
+ *   branches stay closer to the spine in deterministic renderers.
  */
 export function computeBranchGraphLayout(
   nodes: BranchGraphInputNode[],
@@ -51,85 +52,145 @@ export function computeBranchGraphLayout(
     siblings.sort(markerSort);
   }
 
-  const layout = new Map<string, BranchGraphLayoutNode>();
-  const occupied = new Set<string>();
-
-  function place(node: BranchGraphInputNode, row: number, preferredColumn: number): BranchGraphLayoutNode {
-    let column = Math.max(0, preferredColumn);
-    while (occupied.has(occupiedKey(row, column))) column += 1;
-    const placed = { ...node, row, column };
-    layout.set(node.name, placed);
-    occupied.add(occupiedKey(row, column));
-    return placed;
-  }
-
-  let spineCursor: BranchGraphInputNode | undefined = byName.get(productionBranch) ?? nodes.find((node) => !node.parent) ?? nodes[0];
-  let spineRow = 0;
+  const productionNode = byName.get(productionBranch) ?? nodes.find((node) => !node.parent) ?? nodes[0]!;
   const spineNames = new Set<string>();
-  while (spineCursor && !spineNames.has(spineCursor.name)) {
-    spineNames.add(spineCursor.name);
-    place(spineCursor, spineRow, 0);
-    spineCursor = spineCursor.parent ? byName.get(spineCursor.parent) : undefined;
-    spineRow += 1;
+  const spine: BranchGraphInputNode[] = [];
+  let cursor: BranchGraphInputNode | undefined = productionNode;
+  while (cursor && !spineNames.has(cursor.name)) {
+    spine.push(cursor);
+    spineNames.add(cursor.name);
+    cursor = cursor.parent ? byName.get(cursor.parent) : undefined;
   }
 
-  function placeChildren(parent: BranchGraphLayoutNode): void {
+  const ordered: Array<{ node: BranchGraphInputNode; column: number }> = [];
+  const emitted = new Set<string>();
+
+  function emitSubtree(node: BranchGraphInputNode, column: number): void {
     const children = childrenByParent
-      .get(parent.name)
-      ?.filter((child) => !layout.has(child.name)) ?? [];
+      .get(node.name)
+      ?.filter((child) => !spineNames.has(child.name) && !emitted.has(child.name)) ?? [];
 
     for (const child of children) {
-      const placed = place(child, parent.row - 1, parent.column + 1);
-      placeChildren(placed);
+      emitSubtree(child, column + 1);
+    }
+
+    if (!emitted.has(node.name)) {
+      ordered.push({ node, column });
+      emitted.add(node.name);
     }
   }
 
-  const spine = [...layout.values()].sort((a, b) => a.row - b.row);
-  for (const spineNode of spine) placeChildren(spineNode);
+  for (const spineNode of spine) {
+    const offSpineChildren = childrenByParent
+      .get(spineNode.name)
+      ?.filter((child) => !spineNames.has(child.name) && !emitted.has(child.name)) ?? [];
 
-  const remaining = nodes
-    .filter((node) => !layout.has(node.name))
-    .sort(markerSort);
-  let rootRow = Math.max(0, ...[...layout.values()].map((node) => node.row)) + 1;
-  for (const root of remaining) {
-    if (layout.has(root.name)) continue;
-    const placed = place(root, rootRow, 0);
-    placeChildren(placed);
-    rootRow += 1;
+    for (const child of offSpineChildren) {
+      emitSubtree(child, 1);
+    }
+
+    if (!emitted.has(spineNode.name)) {
+      ordered.push({ node: spineNode, column: 0 });
+      emitted.add(spineNode.name);
+    }
   }
 
-  return [...layout.values()].sort((a, b) => {
-    if (a.row !== b.row) return a.row - b.row;
-    if (a.column !== b.column) return a.column - b.column;
-    return a.name.localeCompare(b.name);
-  });
+  for (const node of [...nodes].sort(markerSort)) {
+    if (!emitted.has(node.name)) emitSubtree(node, 0);
+  }
+
+  return ordered.map(({ node, column }, row) => ({ ...node, row, column }));
 }
 
 export function renderBranchGraphAscii(layout: BranchGraphLayoutNode[]): string {
   if (layout.length === 0) return "(no branches)\n";
 
-  const byRow = new Map<number, BranchGraphLayoutNode[]>();
-  for (const node of layout) {
-    const row = byRow.get(node.row) ?? [];
-    row.push(node);
-    byRow.set(node.row, row);
-  }
+  const maxColumn = Math.max(...layout.map((node) => node.column));
+  const lines = layout.map((node) => {
+    const cells: string[] = [];
+    for (let column = 0; column <= maxColumn; column += 1) {
+      cells.push(column === node.column ? "*" : " ");
+    }
+    return `${cells.join("   ")}  ${node.name}`.trimEnd();
+  });
 
-  const rows = [...byRow.keys()].sort((a, b) => a - b);
+  return `${lines.join("\n")}\n`;
+}
+
+function unicodeGraphPrefix(node: BranchGraphLayoutNode, maxColumn: number): string {
+  const cells: string[] = [];
+  for (let column = 0; column <= maxColumn; column += 1) {
+    if (column === node.column) cells.push("●");
+    else if (column < node.column) cells.push("│");
+    else cells.push(" ");
+  }
+  return cells.join(" ");
+}
+
+function connectorLine(parentColumn: number, childColumn: number): string {
+  if (parentColumn === childColumn) return "│";
+  const left = Math.min(parentColumn, childColumn) * 2;
+  const right = Math.max(parentColumn, childColumn) * 2;
+  const chars = Array.from({ length: right + 1 }, () => " ");
+  chars[parentColumn * 2] = "├";
+  for (let index = parentColumn * 2 + 1; index < right; index += 1) {
+    chars[index] = "─";
+  }
+  chars[childColumn * 2] = "╯";
+  for (let column = 0; column < parentColumn; column += 1) {
+    chars[column * 2] = "│";
+  }
+  if (left < parentColumn * 2) chars[left] = "│";
+  return chars.join("");
+}
+
+function mergeHintLine(fromColumn: number, toColumn: number, maxColumn: number): string {
+  const cells: string[] = [];
+  const left = Math.min(fromColumn, toColumn);
+  const right = Math.max(fromColumn, toColumn);
+  for (let column = 0; column <= maxColumn; column += 1) {
+    if (column === left) cells.push("│");
+    else if (column > left && column <= right) cells.push("←╮");
+    else cells.push(" ");
+  }
+  return cells.join("");
+}
+
+export function renderBranchGraphUnicode(
+  layout: BranchGraphLayoutNode[],
+  mergeEdges: BranchGraphMergeEdge[] = [],
+  productionBranch?: string,
+): string {
+  if (layout.length === 0) return "(no branches)\n";
+
+  const byName = new Map(layout.map((node) => [node.name, node]));
   const maxColumn = Math.max(...layout.map((node) => node.column));
   const lines: string[] = [];
 
-  for (const rowIndex of rows) {
-    const rowNodes = (byRow.get(rowIndex) ?? []).sort((a, b) => a.column - b.column);
-    const nodeByColumn = new Map(rowNodes.map((node) => [node.column, node]));
-    const cells: string[] = [];
-    for (let column = 0; column <= maxColumn; column += 1) {
-      const node = nodeByColumn.get(column);
-      cells.push(node ? "*" : " ");
+  for (let index = 0; index < layout.length; index += 1) {
+    const node = layout[index]!;
+    const label = node.name === productionBranch ? `${node.name} (production)` : node.name;
+    lines.push(`${unicodeGraphPrefix(node, maxColumn).trimEnd()} ${label}`.trimEnd());
+
+    const next = layout[index + 1];
+    if (!next) continue;
+
+    const nextIsParent = node.parent === next.name;
+    if (nextIsParent) {
+      lines.push(connectorLine(next.column, node.column).trimEnd());
+      continue;
     }
-    const names = rowNodes.map((node) => node.name).join("  ");
-    lines.push(`${cells.join("   ")}  ${names}`.trimEnd());
+
+    const visibleMerge = mergeEdges.find((edge) => edge.to === next.name || edge.to === node.name);
+    if (visibleMerge) {
+      const from = byName.get(visibleMerge.from);
+      const to = byName.get(visibleMerge.to);
+      if (from && to) lines.push(mergeHintLine(from.column, to.column, maxColumn).trimEnd());
+    } else if (next.column === node.column) {
+      lines.push("│");
+    }
   }
 
+  lines.push("┴");
   return `${lines.join("\n")}\n`;
 }
