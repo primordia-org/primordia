@@ -489,9 +489,6 @@ export default async function BranchesPage() {
       {/* ── Connected production graph ── */}
 
       <div className="mt-2">
-        <p className="text-xs text-gray-500 font-mono uppercase tracking-widest mb-2">
-          Branch Graph
-        </p>
         {branches.length > 0 ? (
           <BranchStructureGraph
             branches={branches}
