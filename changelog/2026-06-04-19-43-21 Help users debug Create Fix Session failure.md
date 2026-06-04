@@ -1,10 +1,9 @@
 # Return helpful error on Create Fix Session failure
 
 ## Context
-When clicking the "Create fix session" button on the Dependency Security page (`/admin/dependencies-security`), the button sets up a background task to upgrade packages by calling the `/api/evolve` endpoint. If `/api/evolve` fails with a non-JSON error (such as when a downstream LLM provider has run out of credits, returned an empty response, or failed with standard gateway/gateway timeouts), the `evolveRes.json()` call in `app/api/admin/dependencies-security/route.ts` would fail with an unhelpful `"Unexpected end of JSON input"` error.
+When clicking the "Create fix session" button on the Dependency Security page (`/admin/dependencies-security`), the button sets up a background task to upgrade packages by calling the `/api/evolve` endpoint. If `/api/evolve` fails, we want the underlying error to be returned cleanly in JSON so the user can easily diagnose the problem (for instance, "The usage limit has been reached").
 
-Additionally, on the frontend, `DependenciesSecurityClient` was parsing the overall API response using `res.json()` directly, which would hide the original exception and throw `"Unexpected end of JSON input"` under similar circunstances.
+Previously, if `/api/evolve` threw an uncaught error or timed out, standard error handling might not return a valid JSON error payload, causing JSON-parsing functions to crash with the unhelpful `"Unexpected end of JSON input"` statement.
 
 ## Changes
-- **API route (`app/api/admin/dependencies-security/route.ts`)**: Instead of calling `.json()` directly on the fetch response from `/api/evolve`, we read the body as plain text (`.text()`), parse it inside a `try {} catch {}` block, and handle any parsing failures or empty responses gracefully by exposing the underlying status or error messages.
-- **Client component (`app/admin/dependencies-security/DependenciesSecurityClient.tsx`)**: Safe-guarded JSON parsing when communicating with the back-end middleware using `.text()` and `try {} catch {}`.
+- **API route (`app/api/evolve/route.ts`)**: Structured the `/api/evolve` GET and POST routes so that any uncaught synchronous/asynchronous errors are caught globally in outer `try/catch` wrappers within the route handlers, ensuring we **always** return a valid JSON payload containing `{ error: message }` with appropriate status/error structures, even for unexpected errors.

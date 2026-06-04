@@ -77,17 +77,7 @@ export async function POST(request: Request) {
       }),
     });
 
-    let data: { sessionId?: string; error?: string } = {};
-    try {
-      const text = await evolveRes.text();
-      if (text) {
-        data = JSON.parse(text);
-      } else {
-        data = { error: `Server returned empty response with status ${evolveRes.status}` };
-      }
-    } catch {
-      data = { error: `Server returned non-JSON response with status ${evolveRes.status}` };
-    }
+    const data = (await evolveRes.json()) as { sessionId?: string; error?: string };
 
     if (!evolveRes.ok || !data.sessionId) {
       return Response.json({ error: data.error ?? "Failed to create evolve session" }, { status: evolveRes.status || 500 });

@@ -190,6 +190,15 @@ export interface EvolvePostFormData {
  * @body EvolvePostFormData
  */
 export async function POST(request: Request) {
+  try {
+    return await handlePost(request);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return Response.json({ error: msg }, { status: 500 });
+  }
+}
+
+async function handlePost(request: Request) {
   const user = await getSessionUser();
   if (!user) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
@@ -456,6 +465,15 @@ export async function POST(request: Request) {
  * @tag Evolve
  */
 export async function GET(request: Request) {
+  try {
+    return await handleGet(request);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return Response.json({ error: msg }, { status: 500 });
+  }
+}
+
+async function handleGet(request: Request) {
   const user = await getSessionUser();
   if (!user) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
