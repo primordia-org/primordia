@@ -15,6 +15,10 @@ export interface BranchGraphMergeEdge {
   to: string;
 }
 
+export type BranchGraphUnicodeRow =
+  | { kind: "branch"; graph: string; branchName: string }
+  | { kind: "connector"; graph: string };
+
 function markerSort(a: BranchGraphInputNode, b: BranchGraphInputNode): number {
   const aTime = a.markerTimestamp ?? Number.POSITIVE_INFINITY;
   const bTime = b.markerTimestamp ?? Number.POSITIVE_INFINITY;
@@ -173,21 +177,23 @@ function mergeHintLine(fromColumn: number, toColumn: number): string {
   return chars.join("");
 }
 
-export function renderBranchGraphUnicode(
+export function computeBranchGraphUnicodeRows(
   layout: BranchGraphLayoutNode[],
   mergeEdges: BranchGraphMergeEdge[] = [],
-  productionBranch?: string,
-): string {
-  if (layout.length === 0) return "(no branches)\n";
+): BranchGraphUnicodeRow[] {
+  if (layout.length === 0) return [];
 
   const byName = new Map(layout.map((node) => [node.name, node]));
   const maxColumn = Math.max(...layout.map((node) => node.column));
-  const lines: string[] = [];
+  const rows: BranchGraphUnicodeRow[] = [];
 
   for (let index = 0; index < layout.length; index += 1) {
     const node = layout[index]!;
-    const label = node.name === productionBranch ? `${node.name} (production)` : node.name;
-    lines.push(`${unicodeGraphPrefix(node, maxColumn).trimEnd()} ${label}`.trimEnd());
+    rows.push({
+      kind: "branch",
+      graph: unicodeGraphPrefix(node, maxColumn).trimEnd(),
+      branchName: node.name,
+    });
 
     const next = layout[index + 1];
     if (!next) continue;
@@ -196,12 +202,13 @@ export function renderBranchGraphUnicode(
       .slice(0, index + 1)
       .filter((candidate) => candidate.parent === next.name && candidate.column !== next.column);
     if (precedingChildren.length > 0) {
-      lines.push(
-        connectorLineForChildren(
+      rows.push({
+        kind: "connector",
+        graph: connectorLineForChildren(
           next.column,
           precedingChildren.map((child) => child.column),
         ).trimEnd(),
-      );
+      });
       continue;
     }
 
@@ -209,14 +216,30 @@ export function renderBranchGraphUnicode(
     if (upcomingMerge) {
       const from = byName.get(upcomingMerge.from);
       const to = byName.get(upcomingMerge.to);
-      if (from && to) lines.push(mergeHintLine(from.column, to.column).trimEnd());
+      if (from && to) rows.push({ kind: "connector", graph: mergeHintLine(from.column, to.column).trimEnd() });
     } else if (node.parent && node.parent === next.parent) {
-      lines.push(verticalLineForColumns([0, node.column]).trimEnd());
+      rows.push({ kind: "connector", graph: verticalLineForColumns([0, node.column]).trimEnd() });
     } else if (next.column === node.column) {
-      lines.push("│");
+      rows.push({ kind: "connector", graph: "│" });
     }
   }
 
-  lines.push("┴");
+  rows.push({ kind: "connector", graph: "┴" });
+  return rows;
+}
+
+export function renderBranchGraphUnicode(
+  layout: BranchGraphLayoutNode[],
+  mergeEdges: BranchGraphMergeEdge[] = [],
+  productionBranch?: string,
+): string {
+  const rows = computeBranchGraphUnicodeRows(layout, mergeEdges);
+  if (rows.length === 0) return "(no branches)\n";
+
+  const lines = rows.map((row) => {
+    if (row.kind === "connector") return row.graph;
+    const label = row.branchName === productionBranch ? `${row.branchName} (production)` : row.branchName;
+    return `${row.graph} ${label}`.trimEnd();
+  });
   return `${lines.join("\n")}\n`;
 }

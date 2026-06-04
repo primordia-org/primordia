@@ -17,6 +17,11 @@ import { getSessionUser, isAdmin, hasEvolvePermission } from "@/lib/auth";
 import { getBranchParentSource, getEvolvePrefs } from "@/lib/user-prefs";
 import { withBasePath } from "@/lib/base-path";
 import { getBranchParent, type BranchParentSource } from "@/lib/branch-parent";
+import {
+  computeBranchGraphLayout,
+  computeBranchGraphUnicodeRows,
+  type BranchGraphMergeEdge,
+} from "@/lib/branch-graph-layout";
 import { BranchParentSourceToggle } from "./BranchParentSourceToggle";
 
 export const dynamic = "force-dynamic";
@@ -46,14 +51,12 @@ interface BranchData {
   sessionStatus: string | null;
   /** True if an evolve session exists for this branch. */
   hasSession: boolean;
-  /** Short commit hash at this branch tip, for log-style display. */
-  shortSha: string | null;
-  /** First line of the branch tip commit message. */
-  subject: string | null;
-}
-
-interface BranchNode extends BranchData {
-  children: BranchNode[];
+  /** Full commit hash at this branch tip, for merge-edge detection. */
+  tipSha: string | null;
+  /** Branch marker commit hash, for merge-edge scan ranges. */
+  markerSha: string | null;
+  /** Branch marker unix timestamp, for graph layout ordering. */
+  markerTimestamp: number | null;
 }
 
 interface GitResult {
@@ -141,8 +144,19 @@ async function getBranchData(parentSource: BranchParentSource): Promise<{
     .map((name) => {
       const parent = getBranchParent(name, cwd, parentSource)?.parentBranch ?? null;
       const session = sessionByBranch.get(name);
-      const shortSha = runGit(["rev-parse", "--short=8", name], cwd);
-      const subject = runGit(["log", "-1", "--format=%s", name], cwd);
+      const tipSha = runGit(["rev-parse", name], cwd);
+      const markerInfo = runGit([
+        "log",
+        name,
+        "--first-parent",
+        "--grep",
+        "^Branched-From:",
+        "--format=%ct %H",
+        "-n",
+        "1",
+      ], cwd);
+      const [markerTimestampText, markerSha] = markerInfo.stdout.split(/\s+/, 2);
+      const markerTimestamp = Number.parseInt(markerTimestampText ?? "", 10);
       return {
         name,
         isCurrent: name === current,
@@ -152,8 +166,9 @@ async function getBranchData(parentSource: BranchParentSource): Promise<{
         previewUrl: session?.previewUrl ?? null,
         sessionStatus: session?.status ?? null,
         hasSession: session !== undefined,
-        shortSha: shortSha.code === 0 && shortSha.stdout ? shortSha.stdout : null,
-        subject: subject.code === 0 && subject.stdout ? subject.stdout : null,
+        tipSha: tipSha.code === 0 && tipSha.stdout ? tipSha.stdout : null,
+        markerSha: markerInfo.code === 0 && markerSha ? markerSha : null,
+        markerTimestamp: Number.isNaN(markerTimestamp) ? null : markerTimestamp,
       };
     });
 
@@ -200,92 +215,63 @@ const STATUS_COLOR: Record<string, string> = {
   rejected: "text-gray-600",
 };
 
-// ─── Log graph rendering ───────────────────────────────────────────────────────
+const STATUS_LABEL: Record<string, string> = {
+  ready: "ready",
+  "running-claude": "running agent…",
+  "starting-server": "starting server…",
+  starting: "starting…",
+  error: "error",
+  accepted: "accepted",
+  rejected: "rejected",
+};
 
-function buildBranchForest(
-  branches: BranchData[],
-  productionBranchName: string,
-  cwd: string,
-): BranchNode[] {
-  const nodes = new Map(
-    branches.map((branch) => [branch.name, { ...branch, children: [] as BranchNode[] }]),
+// ─── Unicode graph rendering ───────────────────────────────────────────────────
+
+function buildMergeEdges(branches: BranchData[], cwd: string): BranchGraphMergeEdge[] {
+  const branchByTip = new Map(
+    branches
+      .filter((branch) => branch.tipSha)
+      .map((branch) => [branch.tipSha!, branch.name]),
   );
-  const childNames = new Set<string>();
-  const parentByBranch = new Map<string, string>();
+  const edges: BranchGraphMergeEdge[] = [];
+  const seen = new Set<string>();
 
-  function isGitAncestor(ancestor: string, descendant: string): boolean {
-    if (ancestor === descendant) return false;
-    return runGit(["merge-base", "--is-ancestor", ancestor, descendant], cwd).code === 0;
-  }
+  for (const target of branches) {
+    const range = target.markerSha ? `${target.markerSha}..${target.name}` : target.name;
+    const mergeParents = runGit(
+      ["log", range, "--first-parent", "--merges", "--format=%P"],
+      cwd,
+    );
+    if (mergeParents.code !== 0 || !mergeParents.stdout) continue;
 
-  function nearestAncestor(branchName: string): string | null {
-    let best: { name: string; distance: number } | null = null;
-    for (const candidate of branches) {
-      if (candidate.name === branchName || !isGitAncestor(candidate.name, branchName)) continue;
-      const distanceResult = runGit(["rev-list", `${candidate.name}..${branchName}`, "--count"], cwd);
-      const distance = parseInt(distanceResult.stdout, 10);
-      if (Number.isNaN(distance)) continue;
-      if (!best || distance < best.distance) best = { name: candidate.name, distance };
+    for (const line of mergeParents.stdout.split("\n")) {
+      const parents = line.trim().split(/\s+/).filter(Boolean);
+      for (const mergedParentSha of parents.slice(1)) {
+        const mergedBranch = branchByTip.get(mergedParentSha);
+        if (!mergedBranch || mergedBranch === target.name) continue;
+        const key = `${mergedBranch}\0${target.name}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        edges.push({ from: mergedBranch, to: target.name });
+      }
     }
-    return best?.name ?? null;
   }
 
-  function wouldCreateCycle(branchName: string, parentName: string): boolean {
-    let cursor: string | null = parentName;
-    const visited = new Set<string>([branchName]);
-    while (cursor) {
-      if (visited.has(cursor)) return true;
-      visited.add(cursor);
-      cursor = parentByBranch.get(cursor) ?? null;
-    }
-    return false;
-  }
-
-  for (const branch of branches) {
-    const explicitParent = branch.activeParent ?? branch.parent;
-    const parentName = explicitParent && nodes.has(explicitParent)
-      ? explicitParent
-      : nearestAncestor(branch.name);
-    if (!parentName || !nodes.has(parentName) || wouldCreateCycle(branch.name, parentName)) {
-      continue;
-    }
-    parentByBranch.set(branch.name, parentName);
-    nodes.get(parentName)!.children.push(nodes.get(branch.name)!);
-    childNames.add(branch.name);
-  }
-
-  for (const node of nodes.values()) {
-    node.children.sort((a, b) => {
-      if (a.isCurrent) return -1;
-      if (b.isCurrent) return 1;
-      if (a.isProduction) return 1;
-      if (b.isProduction) return -1;
-      return a.name.localeCompare(b.name);
-    });
-  }
-
-  return [...nodes.values()]
-    .filter((node) => !childNames.has(node.name))
-    .sort((a, b) => {
-      if (a.name === productionBranchName) return 1;
-      if (b.name === productionBranchName) return -1;
-      if (a.isProduction) return 1;
-      if (b.isProduction) return -1;
-      return a.name.localeCompare(b.name);
-    });
+  return edges;
 }
 
 function GraphGlyphs({ graph, isActive }: { graph: string; isActive: boolean }) {
-  const starIndex = graph.indexOf("*");
-  if (starIndex === -1) {
-    return <span className="text-gray-600">{graph}</span>;
-  }
-
   return (
     <span>
-      <span className="text-gray-600">{graph.slice(0, starIndex)}</span>
-      <span className={isActive ? "text-green-400" : "text-gray-500"}>*</span>
-      <span className="text-gray-600">{graph.slice(starIndex + 1)}</span>
+      {Array.from(graph).map((char, index) => (
+        <span
+          // Graph strings are tiny and static per render; index is stable here.
+          key={`${char}-${index}`}
+          className={char === "●" ? (isActive ? "text-green-400" : "text-gray-500") : "text-gray-600"}
+        >
+          {char}
+        </span>
+      ))}
     </span>
   );
 }
@@ -300,6 +286,12 @@ function BranchRef({
   canCreateSession: boolean;
 }) {
   const url = branch.isProduction ? currentServerUrl : branch.previewUrl;
+  const statusColor = branch.sessionStatus
+    ? (STATUS_COLOR[branch.sessionStatus] ?? "text-gray-400")
+    : "";
+  const statusLabel = branch.sessionStatus
+    ? (STATUS_LABEL[branch.sessionStatus] ?? branch.sessionStatus)
+    : null;
   const isTerminal = TERMINAL_STATUSES.has(branch.sessionStatus ?? "");
   const className = branch.isProduction
     ? "text-white font-bold hover:text-gray-200"
@@ -330,6 +322,9 @@ function BranchRef({
       ) : (
         <span className={className.replace(/ hover:[^ ]+/g, "")}>{label}</span>
       )}
+      {statusLabel && !branch.isProduction && (
+        <span className={`text-xs shrink-0 ${statusColor}`}>[{statusLabel}]</span>
+      )}
       {canCreateSession &&
         !branch.hasSession &&
         !branch.isCurrent &&
@@ -350,101 +345,62 @@ function BranchRef({
   );
 }
 
-function BranchGraphLine({
-  branch,
-  graph,
-  currentServerUrl,
-  canCreateSession,
-}: {
-  branch: BranchData;
-  graph: string;
-  currentServerUrl: string;
-  canCreateSession: boolean;
-}) {
-  return (
-    <div className="flex min-w-max items-baseline gap-1.5 whitespace-nowrap leading-7">
-      <span className="whitespace-pre select-none shrink-0">
-        <GraphGlyphs graph={graph} isActive={branch.isProduction || Boolean(branch.previewUrl)} />
-      </span>
-      <BranchRef
-        branch={branch}
-        currentServerUrl={currentServerUrl}
-        canCreateSession={canCreateSession}
-      />
-    </div>
-  );
-}
-
-function BranchGraphNode({
-  node,
-  depth,
-  isLast,
-  linePrefix,
-  currentServerUrl,
-  canCreateSession,
-}: {
-  node: BranchNode;
-  depth: number;
-  isLast: boolean;
-  linePrefix: string;
-  currentServerUrl: string;
-  canCreateSession: boolean;
-}) {
-  const isRoot = depth === 0;
-  const branchGraph = isRoot ? "* " : `${linePrefix}${isLast ? "    " : "|   "}* `;
-  const connectorGraph = isRoot ? "" : `${linePrefix}${isLast ? "   /" : "| /"}`;
-  const childLinePrefix = isRoot ? "" : `${linePrefix}${isLast ? "    " : "|   "}`;
-
-  return (
-    <>
-      {node.children.map((child, index) => (
-        <BranchGraphNode
-          key={child.name}
-          node={child}
-          depth={depth + 1}
-          isLast={index === node.children.length - 1}
-          linePrefix={childLinePrefix}
-          currentServerUrl={currentServerUrl}
-          canCreateSession={canCreateSession}
-        />
-      ))}
-      {!isRoot && (
-        <div className="min-w-max whitespace-pre font-mono text-sm leading-4 text-gray-600 select-none">
-          {connectorGraph}
-        </div>
-      )}
-      <BranchGraphLine
-        branch={node}
-        graph={branchGraph}
-        currentServerUrl={currentServerUrl}
-        canCreateSession={canCreateSession}
-      />
-    </>
-  );
-}
-
 function BranchStructureGraph({
-  roots,
+  branches,
+  productionBranch,
   currentServerUrl,
   canCreateSession,
+  cwd,
 }: {
-  roots: BranchNode[];
+  branches: BranchData[];
+  productionBranch: string;
   currentServerUrl: string;
   canCreateSession: boolean;
+  cwd: string;
 }) {
+  const byName = new Map(branches.map((branch) => [branch.name, branch]));
+  const layout = computeBranchGraphLayout(
+    branches.map((branch) => ({
+      name: branch.name,
+      parent: branch.parent,
+      markerTimestamp: branch.markerTimestamp,
+    })),
+    productionBranch,
+  );
+  const rows = computeBranchGraphUnicodeRows(layout, buildMergeEdges(branches, cwd));
+
   return (
     <div className="overflow-x-auto pb-1 font-mono text-sm">
-      {roots.map((root, index) => (
-        <BranchGraphNode
-          key={root.name}
-          node={root}
-          depth={0}
-          isLast={index === roots.length - 1}
-          linePrefix=""
-          currentServerUrl={currentServerUrl}
-          canCreateSession={canCreateSession}
-        />
-      ))}
+      {rows.map((row, index) => {
+        if (row.kind === "connector") {
+          return (
+            <div
+              key={`connector-${index}-${row.graph}`}
+              className="min-w-max whitespace-pre leading-4 text-gray-600 select-none"
+            >
+              {row.graph}
+            </div>
+          );
+        }
+
+        const branch = byName.get(row.branchName);
+        if (!branch) return null;
+        return (
+          <div
+            key={`branch-${branch.name}`}
+            className="flex min-w-max items-baseline gap-1.5 whitespace-nowrap leading-7"
+          >
+            <span className="whitespace-pre select-none shrink-0">
+              <GraphGlyphs graph={row.graph} isActive={branch.isProduction || Boolean(branch.previewUrl)} />
+            </span>
+            <BranchRef
+              branch={branch}
+              currentServerUrl={currentServerUrl}
+              canCreateSession={canCreateSession}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -499,7 +455,6 @@ export default async function BranchesPage() {
     : [false, false, null, await getBranchParentSource(null)];
 
   const { branches, productionBranch, diag } = await getBranchData(parentSource);
-  const branchRoots = buildBranchForest(branches, productionBranch, diag.cwd);
 
   const [headerStore] = await Promise.all([headers()]);
   const sessionUser = user
@@ -537,11 +492,13 @@ export default async function BranchesPage() {
         <p className="text-xs text-gray-500 font-mono uppercase tracking-widest mb-2">
           Branch Graph
         </p>
-        {branchRoots.length > 0 ? (
+        {branches.length > 0 ? (
           <BranchStructureGraph
-            roots={branchRoots}
+            branches={branches}
+            productionBranch={productionBranch}
             currentServerUrl={currentServerUrl}
             canCreateSession={userCanEvolve}
+            cwd={diag.cwd}
           />
         ) : (
           <p className="text-gray-500 text-sm font-mono">
@@ -553,9 +510,8 @@ export default async function BranchesPage() {
       {/* Legend */}
       <div className="mt-8 border-t border-gray-800 pt-4 text-xs text-gray-600 font-mono space-y-1">
         <p>
-          * green = preview server active · * dim = no active session · branch
-          heads are connected by recorded parentage and git ancestry, with child heads indented to the
-          right of their parent · branch name links to session ·{" "}
+          ● green = preview server active · ● dim = no active session · unicode
+          connectors show branch parentage and merge hints · branch name links to session ·{" "}
           <span className="text-blue-400"><ExternalLink size={10} className="inline" /></span> = open
           branch · <span className="text-purple-500">+ session</span> = start new
           session on existing branch

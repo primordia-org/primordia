@@ -2,7 +2,7 @@
 
 Updated the `/branches` page so branch structure reads like `git log --graph` output instead of a filesystem tree. The page renders every local branch head once, connected by recorded branch parentage with git ancestry as a fallback rather than listing every intermediate commit.
 
-Rows now focus on branch names only: no commit hashes, commit subjects, or status text clutter the graph. Child branch heads are visibly indented to the right of their parent, while branch refs keep the existing production/current labels, preview links, and `+ session` actions where applicable.
+Rows focus on branch names: no commit hashes or commit subjects clutter the graph. The page now uses the Unicode graph layout directly, while preserving branch hyperlinks, production/current labels, `[ready]`-style session status labels, preview-open buttons, and `+ session` actions where applicable.
 
 Added `bun run export-branch-parentage-mermaid`, a small diagnostic tool that exports the conceptual branch-parent DAG as a Mermaid `flowchart`. It defaults to branch-marker parentage, uses readable branch names as node IDs, and adds labeled merge edges for merges between current local branch heads so the parentage model can be inspected independently from the visual branch graph.
 
