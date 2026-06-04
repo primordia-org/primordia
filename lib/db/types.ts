@@ -152,6 +152,8 @@ export interface WebPushVapidKeys {
   createdAt: number;
 }
 
+export type WebPushCategory = "security-vulnerabilities" | "primordia-updates";
+
 export interface WebPushSubscription {
   id: string;
   userId: string;
@@ -160,6 +162,12 @@ export interface WebPushSubscription {
   auth: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface WebPushCategorySubscription {
+  userId: string;
+  category: WebPushCategory;
+  createdAt: number;
 }
 
 export interface DbAdapter {
@@ -223,6 +231,11 @@ export interface DbAdapter {
   upsertWebPushSubscription(subscription: WebPushSubscription): Promise<void>;
   deleteWebPushSubscription(userId: string, endpoint: string): Promise<void>;
   getWebPushSubscriptionsByUser(userId: string): Promise<WebPushSubscription[]>;
+  clearWebPushSubscriptions(): Promise<void>;
+  subscribeWebPushCategory(userId: string, category: WebPushCategory): Promise<void>;
+  unsubscribeWebPushCategory(userId: string, category: WebPushCategory): Promise<void>;
+  getWebPushCategorySubscriptions(userId: string): Promise<WebPushCategorySubscription[]>;
+  getUserIdsSubscribedToWebPushCategory(category: WebPushCategory): Promise<string[]>;
 
   // Instance identity & social graph
   getInstanceConfig(): Promise<InstanceConfig>;

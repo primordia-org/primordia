@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle, Loader, RefreshCw, ShieldAlert, WandSparkles } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
+import WebPushCategoryButton from "@/components/WebPushCategoryButton";
 import type { BunAuditResult } from "@/lib/dependency-audit";
 
 interface Props {
   initialAudit: BunAuditResult;
   initialCheckedAt: ReactNode;
   timestampOptions: Intl.DateTimeFormatOptions;
+  initialPushSubscribed: boolean;
 }
 
 function formatClientTimestamp(timestamp: number, options: Intl.DateTimeFormatOptions): string {
@@ -44,7 +46,7 @@ function nonSevereFindingLabel(findings: BunAuditResult["findings"]): string {
   return `${findings.length} ${severityLabel} issue${findings.length === 1 ? "" : "s"} found`;
 }
 
-export default function DependenciesSecurityClient({ initialAudit, initialCheckedAt, timestampOptions }: Props) {
+export default function DependenciesSecurityClient({ initialAudit, initialCheckedAt, timestampOptions, initialPushSubscribed }: Props) {
   const router = useRouter();
   const [audit, setAudit] = useState<BunAuditResult>(initialAudit);
   const [busy, setBusy] = useState(false);
@@ -96,6 +98,11 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
         <p className="text-sm text-gray-500 mt-1">
           Daily checks run <code className="bg-gray-800 px-1 rounded">bun audit --audit-level=high</code>. This page shows the latest live <code className="bg-gray-800 px-1 rounded">bun audit</code> output.
         </p>
+        <WebPushCategoryButton
+          category="security-vulnerabilities"
+          initialSubscribed={initialPushSubscribed}
+          className="mt-3"
+        />
       </div>
 
       <div className={`rounded-xl border p-4 ${severeCount > 0 ? "border-red-700/50 bg-red-950/20" : hasFindings ? "border-amber-700/50 bg-amber-950/20" : "border-green-700/50 bg-green-950/20"}`}>

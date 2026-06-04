@@ -6,6 +6,7 @@ import {
   runBunAudit,
   writeDependencyAuditNotification,
 } from "./dependency-audit";
+import { sendWebPushToCategory } from "./web-push";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;
@@ -42,6 +43,11 @@ function runSchedulerTick(repoRoot: string): void {
       console.warn(
         `[dependency-audit-scheduler] Found ${result.severeFindings.length} high/critical dependency issue(s)`,
       );
+      void sendWebPushToCategory("security-vulnerabilities", {
+        title: "Security Vulnerabilities",
+        body: `${result.severeFindings.length} high/critical dependency issue${result.severeFindings.length === 1 ? "" : "s"} found. Open Dependency Security to review the audit and start a fix session.`,
+        url: "/admin/dependencies-security",
+      }).catch((pushErr) => console.error(`[dependency-audit-scheduler] Push notification failed: ${pushErr}`));
     } else {
       console.log("[dependency-audit-scheduler] No high/critical dependency issues found");
     }

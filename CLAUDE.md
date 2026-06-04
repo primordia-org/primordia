@@ -138,7 +138,7 @@ When implementing changes, follow these principles:
 | Git mirror (/admin/git-mirror) | ✅ Live | Admin-only; every production deploy auto-pushes to `mirror` remote if it exists |
 | Instance identity & social graph | ✅ Live | Each instance has a fixed UUID v7, editable name+description; serves `/.well-known/primordia.json` with self+peers+edges; `/api/instance/register` lets child instances POST to register; instances installed from another Primordia persist/infer that parent URL and retry registration on first server request; admin panel at `/admin/instance` |
 | User event tracking | ✅ Live | `events` table in SQLite; `POST /api/events` (open, no auth); `GET /api/events` (admin); browser helper in `lib/events-client.ts`; admin viewer at `/admin/events` |
-| Web push notifications | ✅ Infrastructure | SQLite-backed VAPID keys + per-user push subscriptions; `/api/web-push/*` endpoints; service worker at `/primordia-sw.js`; developer test page at `/test-pages/web-push-test` |
+| Web push notifications | ✅ Live | SQLite-backed VAPID keys + per-user push subscriptions + category preferences; `/api/web-push/*` endpoints; service worker at `/primordia-sw.js`; `/settings/notifications` lets evolvers subscribe to Security Vulnerabilities and Primordia Updates; scheduled dependency audits/update fetches send actionable category notifications; developer test page at `/test-pages/web-push-test` can simulate both categories |
 | Read-only git HTTP | ✅ Live | Clone/fetch via `git clone http[s]://<host>/api/git`; proxied through `git http-backend`; push permanently blocked (403) |
 | OpenAPI spec | ✅ Live | Served at `/api/openapi`; generated on first request from `openapi-gen.config.json` |
 

@@ -233,15 +233,15 @@ export default function WebPushTestClient({
     }
   }
 
-  async function sendTest() {
+  async function sendTest(category?: "security-vulnerabilities" | "primordia-updates") {
     setBusy(true);
     setError("");
-    setStatus("Sending test push…");
+    setStatus(category ? "Sending simulated category push…" : "Sending test push…");
     try {
       const res = await fetch(withBasePath("/api/web-push/test"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(category ? { category } : {
           title: "Primordia test notification",
           body: "Web Push infrastructure is connected.",
         }),
@@ -336,12 +336,30 @@ export default function WebPushTestClient({
           </button>
           <button
             type="button"
-            onClick={sendTest}
+            onClick={() => sendTest()}
             disabled={!isSignedIn || subscriptions.length === 0 || busy}
             className="inline-flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-4 py-2 text-sm font-semibold text-gray-100 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />}
             Send test notification
+          </button>
+          <button
+            type="button"
+            onClick={() => sendTest("security-vulnerabilities")}
+            disabled={!isSignedIn || subscriptions.length === 0 || busy}
+            className="inline-flex items-center gap-2 rounded-lg border border-red-800/70 bg-red-950/40 px-4 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />}
+            Simulate Security Vulnerability
+          </button>
+          <button
+            type="button"
+            onClick={() => sendTest("primordia-updates")}
+            disabled={!isSignedIn || subscriptions.length === 0 || busy}
+            className="inline-flex items-center gap-2 rounded-lg border border-blue-800/70 bg-blue-950/40 px-4 py-2 text-sm font-semibold text-blue-100 hover:bg-blue-900/50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />}
+            Simulate Primordia Update
           </button>
           <button
             type="button"

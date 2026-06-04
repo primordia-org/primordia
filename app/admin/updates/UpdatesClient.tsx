@@ -30,11 +30,13 @@ import {
 } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import WebPushCategoryButton from "@/components/WebPushCategoryButton";
 import type { SourceStatus, UpdatesResponse, ChangelogEntry } from "@/app/api/admin/updates/route";
 import type { FetchFrequency } from "@/lib/update-sources";
 
 interface UpdatesClientProps {
   initialSources: SourceStatus[];
+  initialPushSubscribed: boolean;
 }
 
 // ─── Changelog entry card ─────────────────────────────────────────────────────
@@ -506,7 +508,7 @@ function AddSourceForm({ onAdd, busy }: AddSourceFormProps) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function UpdatesClient({ initialSources }: UpdatesClientProps) {
+export default function UpdatesClient({ initialSources, initialPushSubscribed }: UpdatesClientProps) {
   const router = useRouter();
   const [sources, setSources] = useState<SourceStatus[]>(initialSources);
   const [busy, setBusy] = useState(false);
@@ -649,6 +651,7 @@ export default function UpdatesClient({ initialSources }: UpdatesClientProps) {
 
       {/* Top-level actions */}
       <div className="flex flex-wrap items-center gap-3">
+        <WebPushCategoryButton category="primordia-updates" initialSubscribed={initialPushSubscribed} />
         <button
           type="button"
           data-id="updates/fetch-all-btn"

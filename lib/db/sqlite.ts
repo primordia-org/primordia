@@ -2,7 +2,7 @@
 // Uses bun:sqlite which is built into Bun and requires no npm package.
 // Only imported when DATABASE_URL is not set (i.e., local dev without Neon).
 
-import type { DbAdapter, User, Passkey, Challenge, Session, CrossDeviceToken, InstanceConfig, GraphNode, GraphEdge, WebPushSubscription } from "./types";
+import type { DbAdapter, User, Passkey, Challenge, Session, CrossDeviceToken, InstanceConfig, GraphNode, GraphEdge, WebPushSubscription, WebPushCategory } from "./types";
 import { generateUuid7 } from "../uuid7";
 
 let dbInstance: DbAdapter | null = null;
@@ -100,6 +100,13 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user ON web_push_subscriptions(user_id);
+    CREATE TABLE IF NOT EXISTS web_push_category_subscriptions (
+      user_id TEXT NOT NULL REFERENCES users(id),
+      category TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, category)
+    );
+    CREATE INDEX IF NOT EXISTS idx_web_push_category_subscriptions_category ON web_push_category_subscriptions(category);
     CREATE TABLE IF NOT EXISTS instance_config (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -143,6 +150,15 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     db.exec("ALTER TABLE cross_device_tokens ADD COLUMN encrypted_credentials TEXT");
   } catch {
     // Column already exists — ignore
+  }
+
+  // Migration: clear subscriptions created by the experimental no-payload/custom-crypto push sender.
+  const webPushClearKey = "web_push_cleared_experimental_subscriptions_v1";
+  const webPushClearRow = db.prepare("SELECT value FROM instance_config WHERE key = ?").get(webPushClearKey) as { value: string } | null;
+  if (!webPushClearRow) {
+    db.exec("DELETE FROM web_push_subscriptions");
+    db.exec("DELETE FROM web_push_category_subscriptions");
+    db.prepare("INSERT OR REPLACE INTO instance_config (key, value) VALUES (?, ?)").run(webPushClearKey, String(Date.now()));
   }
 
   // Migration: add id and display_name columns to roles (added when roles got UUIDs + customizable names)
@@ -680,6 +696,36 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         createdAt: r.created_at,
         updatedAt: r.updated_at,
       }));
+    },
+
+    async clearWebPushSubscriptions() {
+      db.exec("DELETE FROM web_push_subscriptions");
+      db.exec("DELETE FROM web_push_category_subscriptions");
+    },
+
+    async subscribeWebPushCategory(userId: string, category: WebPushCategory) {
+      db.prepare(
+        `INSERT OR IGNORE INTO web_push_category_subscriptions (user_id, category, created_at)
+         VALUES (?, ?, ?)`
+      ).run(userId, category, Date.now());
+    },
+
+    async unsubscribeWebPushCategory(userId: string, category: WebPushCategory) {
+      db.prepare("DELETE FROM web_push_category_subscriptions WHERE user_id = ? AND category = ?").run(userId, category);
+    },
+
+    async getWebPushCategorySubscriptions(userId: string) {
+      const rows = db
+        .prepare("SELECT user_id, category, created_at FROM web_push_category_subscriptions WHERE user_id = ? ORDER BY category ASC")
+        .all(userId) as Array<{ user_id: string; category: WebPushCategory; created_at: number }>;
+      return rows.map((r) => ({ userId: r.user_id, category: r.category, createdAt: r.created_at }));
+    },
+
+    async getUserIdsSubscribedToWebPushCategory(category: WebPushCategory) {
+      const rows = db
+        .prepare("SELECT user_id FROM web_push_category_subscriptions WHERE category = ? ORDER BY created_at ASC")
+        .all(category) as Array<{ user_id: string }>;
+      return rows.map((r) => r.user_id);
     },
 
     async upsertGraphEdge(edge: GraphEdge) {

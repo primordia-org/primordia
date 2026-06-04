@@ -3,7 +3,7 @@
 
 import * as webpush from "web-push";
 import { getDb } from "./db/index";
-import type { WebPushSubscription, WebPushVapidKeys } from "./db/types";
+import type { WebPushCategory, WebPushSubscription, WebPushVapidKeys } from "./db/types";
 
 interface PushSubscriptionJson {
   endpoint: string;
@@ -20,27 +20,15 @@ export interface SendWebPushOptions {
   url?: string;
 }
 
-function decodeBase64Url(value: string): ArrayBuffer {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-  const bytes = new Uint8Array(Buffer.from(padded, "base64"));
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-}
+export const WEB_PUSH_CATEGORIES = ["security-vulnerabilities", "primordia-updates"] as const satisfies readonly WebPushCategory[];
 
-async function convertPkcs8PrivateKeyToVapidD(privateKey: string): Promise<string | null> {
-  try {
-    const key = await crypto.subtle.importKey(
-      "pkcs8",
-      decodeBase64Url(privateKey),
-      { name: "ECDSA", namedCurve: "P-256" },
-      true,
-      ["sign"]
-    );
-    const jwk = await crypto.subtle.exportKey("jwk", key);
-    return typeof jwk.d === "string" ? jwk.d : null;
-  } catch {
-    return null;
-  }
+export const WEB_PUSH_CATEGORY_LABELS: Record<WebPushCategory, string> = {
+  "security-vulnerabilities": "Security Vulnerabilities",
+  "primordia-updates": "Primordia Updates",
+};
+
+export function isWebPushCategory(value: unknown): value is WebPushCategory {
+  return typeof value === "string" && (WEB_PUSH_CATEGORIES as readonly string[]).includes(value);
 }
 
 function generateVapidKeys(): WebPushVapidKeys {
@@ -52,28 +40,10 @@ function generateVapidKeys(): WebPushVapidKeys {
   };
 }
 
-async function normalizeVapidKeys(keys: WebPushVapidKeys): Promise<WebPushVapidKeys> {
-  // The first local implementation stored PKCS#8 private keys. The `web-push`
-  // package correctly expects the raw P-256 private scalar (`d`). Convert in
-  // place so existing browser subscriptions that used the same public key keep
-  // working instead of forcing users to resubscribe.
-  if (keys.privateKey.length > 80) {
-    const convertedPrivateKey = await convertPkcs8PrivateKeyToVapidD(keys.privateKey);
-    if (convertedPrivateKey) return { ...keys, privateKey: convertedPrivateKey };
-  }
-  return keys;
-}
-
 export async function getOrCreateVapidKeys(): Promise<WebPushVapidKeys> {
   const db = await getDb();
   const existing = await db.getWebPushVapidKeys();
-  if (existing) {
-    const normalized = await normalizeVapidKeys(existing);
-    if (normalized.privateKey !== existing.privateKey) {
-      await db.setWebPushVapidKeys(normalized);
-    }
-    return normalized;
-  }
+  if (existing) return existing;
   const keys = generateVapidKeys();
   await db.setWebPushVapidKeys(keys);
   return keys;
@@ -150,4 +120,28 @@ export async function sendWebPush(subscription: WebPushSubscription, options: Se
       error: webPushError.body || webPushError.message || String(err),
     };
   }
+}
+
+export async function sendWebPushToCategory(
+  category: WebPushCategory,
+  options: SendWebPushOptions
+): Promise<{ attempted: number; delivered: number }> {
+  const db = await getDb();
+  const userIds = await db.getUserIdsSubscribedToWebPushCategory(category);
+  let attempted = 0;
+  let delivered = 0;
+
+  for (const userId of userIds) {
+    const subscriptions = await db.getWebPushSubscriptionsByUser(userId);
+    for (const subscription of subscriptions) {
+      attempted += 1;
+      const result = await sendWebPush(subscription, options);
+      if (result.ok) delivered += 1;
+      if (!result.ok && (result.status === 404 || result.status === 410)) {
+        await db.deleteWebPushSubscription(userId, subscription.endpoint);
+      }
+    }
+  }
+
+  return { attempted, delivered };
 }
