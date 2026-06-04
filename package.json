@@ -16,6 +16,7 @@
     "regenerate:model-registry": "bun run scripts/regenerate-model-registry.ts",
     "set-preview-url": "bun scripts/set-preview-url.ts",
     "export-branch-parentage-mermaid": "bun scripts/export-branch-parentage-mermaid.ts",
+    "export-branch-graph-ascii": "bun scripts/export-branch-graph-ascii.ts",
     "test:unit": "bun test tests/*.test.ts",
     "test:e2e": "bunx playwright test",
     "test:e2e:headed": "bunx playwright test --headed"
