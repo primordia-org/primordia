@@ -1,10 +1,7 @@
 // app/branches/page.tsx
-// Shows branches in two sections:
-//   1. Active — the production branch and any non-terminal (not accepted/rejected)
-//      children/grandchildren. This is the "live" work in progress.
-//   2. Past Sessions — the chain of past production slots (blue-green ancestry),
-//      most recent first, each with any accepted/rejected sibling branches nested
-//      beneath them.
+// Shows local branches as a git log --graph-inspired view. Production history
+// and active branch descendants are rendered as one connected graph, with newer
+// branch tips above their parents so the graph visually grows upward.
 
 import { spawnSync } from "child_process";
 import { headers } from "next/headers";
@@ -20,6 +17,11 @@ import { getSessionUser, isAdmin, hasEvolvePermission } from "@/lib/auth";
 import { getBranchParentSource, getEvolvePrefs } from "@/lib/user-prefs";
 import { withBasePath } from "@/lib/base-path";
 import { getBranchParent, type BranchParentSource } from "@/lib/branch-parent";
+import {
+  computeBranchGraphLayout,
+  computeBranchGraphUnicodeRows,
+  type BranchGraphMergeEdge,
+} from "@/lib/branch-graph-layout";
 import { BranchParentSourceToggle } from "./BranchParentSourceToggle";
 
 export const dynamic = "force-dynamic";
@@ -49,10 +51,12 @@ interface BranchData {
   sessionStatus: string | null;
   /** True if an evolve session exists for this branch. */
   hasSession: boolean;
-}
-
-interface BranchNode extends BranchData {
-  children: BranchNode[];
+  /** Full commit hash at this branch tip, for merge-edge detection. */
+  tipSha: string | null;
+  /** Branch marker commit hash, for merge-edge scan ranges. */
+  markerSha: string | null;
+  /** Branch marker unix timestamp, for graph layout ordering. */
+  markerTimestamp: number | null;
 }
 
 interface GitResult {
@@ -70,12 +74,6 @@ interface DiagnosticInfo {
   currentBranch: GitResult;
   activeSessions: number;
   sessions: EvolveSession[];
-}
-
-interface PastSlot {
-  branch: BranchData;
-  /** Non-chain branches that had this slot as their parent. */
-  children: BranchNode[];
 }
 
 // ─── Git helpers ───────────────────────────────────────────────────────────────
@@ -146,6 +144,19 @@ async function getBranchData(parentSource: BranchParentSource): Promise<{
     .map((name) => {
       const parent = getBranchParent(name, cwd, parentSource)?.parentBranch ?? null;
       const session = sessionByBranch.get(name);
+      const tipSha = runGit(["rev-parse", name], cwd);
+      const markerInfo = runGit([
+        "log",
+        name,
+        "--first-parent",
+        "--grep",
+        "^Branched-From:",
+        "--format=%ct %H",
+        "-n",
+        "1",
+      ], cwd);
+      const [markerTimestampText, markerSha] = markerInfo.stdout.split(/\s+/, 2);
+      const markerTimestamp = Number.parseInt(markerTimestampText ?? "", 10);
       return {
         name,
         isCurrent: name === current,
@@ -155,6 +166,9 @@ async function getBranchData(parentSource: BranchParentSource): Promise<{
         previewUrl: session?.previewUrl ?? null,
         sessionStatus: session?.status ?? null,
         hasSession: session !== undefined,
+        tipSha: tipSha.code === 0 && tipSha.stdout ? tipSha.stdout : null,
+        markerSha: markerInfo.code === 0 && markerSha ? markerSha : null,
+        markerTimestamp: Number.isNaN(markerTimestamp) ? null : markerTimestamp,
       };
     });
 
@@ -187,246 +201,9 @@ async function getBranchData(parentSource: BranchParentSource): Promise<{
   return { branches, productionBranch, diag };
 }
 
-// ─── Section builder ────────────────────────────────────────────────────────────
+// ─── Status display helpers ──────────────────────────────────────────────────────
 
 const TERMINAL_STATUSES = new Set(["accepted", "rejected"]);
-
-/**
- * Builds three sections from the flat branch list:
- *
- * - `activeProd`: the production branch as a tree root, with only non-terminal
- *   (not accepted/rejected) children/grandchildren nested under it.
- *
- * - `pastSlots`: the chain of past production slots (parent → grandparent → …),
- *   ordered most-recent-first. Each slot includes its non-chain sibling branches
- *   (any branch whose parent was that slot, excluding the branch that was
- *   blue-green-promoted to the next slot).
- *
- * - `unattached`: branches with no `parent` config and no connection to the
- *   production chain — e.g. manually created branches/worktrees.
- */
-function buildSections(
-  branches: BranchData[],
-  productionBranchName: string,
-  cwd: string,
-): {
-  activeProd: BranchNode | null;
-  pastSlots: PastSlot[];
-  unattached: BranchNode[];
-} {
-  const byName = new Map<string, BranchData>(
-    branches.map((b) => [b.name, b]),
-  );
-
-  // Walk the parent chain from the production branch to discover past slots.
-  // Result: [parent-of-prod, grandparent-of-prod, …] — most-recent first.
-  const productionChain: string[] = [];
-  const productionChainSet = new Set<string>([productionBranchName]);
-  {
-    // Seed walkVisited with productionBranchName so the walk terminates if
-    // the parent chain contains a cycle back to the production branch (which
-    // can happen when sibling-reparenting creates long circular parent links).
-    const walkVisited = new Set<string>([productionBranchName]);
-    let cursor = byName.get(productionBranchName);
-    while (
-      cursor?.parent &&
-      byName.has(cursor.parent) &&
-      !walkVisited.has(cursor.parent)
-    ) {
-      walkVisited.add(cursor.parent);
-      productionChain.push(cursor.parent);
-      productionChainSet.add(cursor.parent);
-      cursor = byName.get(cursor.parent);
-    }
-  }
-
-  // Recursively build non-terminal children for the active tree. Branches in
-  // `productionChainSet` are ancestors of production, not descendants. They can
-  // otherwise look like active children when `skipAcceptedParents()` collapses a
-  // deployed accepted parent to the current production branch.
-  function buildActiveChildren(
-    parentName: string,
-    visited: Set<string>,
-  ): BranchNode[] {
-    const children: BranchNode[] = [];
-    for (const b of branches) {
-      if (
-        b.activeParent !== parentName ||
-        visited.has(b.name) ||
-        productionChainSet.has(b.name) ||
-        TERMINAL_STATUSES.has(b.sessionStatus ?? "")
-      )
-        continue;
-      const node: BranchNode = {
-        ...b,
-        children: buildActiveChildren(
-          b.name,
-          new Set([...visited, b.name]),
-        ),
-      };
-      children.push(node);
-    }
-    children.sort((a, b) => a.name.localeCompare(b.name));
-    return children;
-  }
-
-  function isGitAncestor(ancestor: string, descendant: string): boolean {
-    if (ancestor === descendant) return false;
-    return runGit(["merge-base", "--is-ancestor", ancestor, descendant], cwd).code === 0;
-  }
-
-  function nearestDescendantParent(branchName: string, candidates: Set<string>): string | null {
-    let best: { name: string; distance: number } | null = null;
-    for (const candidate of candidates) {
-      if (candidate === branchName || !isGitAncestor(candidate, branchName)) continue;
-      const distanceResult = runGit(["rev-list", `${candidate}..${branchName}`, "--count"], cwd);
-      const distance = parseInt(distanceResult.stdout, 10);
-      if (Number.isNaN(distance)) continue;
-      if (!best || distance < best.distance) best = { name: candidate, distance };
-    }
-    return best?.name ?? null;
-  }
-
-  // Recursively build all children for past-slot descendants (no terminal filter).
-  function buildPastChildren(
-    parentName: string,
-    excludeName: string | null,
-    visited: Set<string>,
-  ): BranchNode[] {
-    const children: BranchNode[] = [];
-    for (const b of branches) {
-      if (
-        b.parent !== parentName ||
-        b.name === excludeName ||
-        visited.has(b.name) ||
-        (!TERMINAL_STATUSES.has(b.sessionStatus ?? "") && b.activeParent !== parentName)
-      )
-        continue;
-      const node: BranchNode = {
-        ...b,
-        children: buildPastChildren(
-          b.name,
-          null,
-          new Set([...visited, b.name]),
-        ),
-      };
-      children.push(node);
-    }
-    children.sort((a, b) => a.name.localeCompare(b.name));
-    return children;
-  }
-
-  // Active production subtree.
-  const prodData = byName.get(productionBranchName);
-  const activeProd: BranchNode | null = prodData
-    ? {
-        ...prodData,
-        children: buildActiveChildren(
-          productionBranchName,
-          new Set([productionBranchName]),
-        ),
-      }
-    : null;
-
-  // Past slots — each ancestor with its non-chain sibling children.
-  const pastSlots: PastSlot[] = productionChain.map((slotName, i) => {
-    const slotData = byName.get(slotName)!;
-    // The child of this slot that was promoted to the next production slot.
-    const promotedChild =
-      i === 0 ? productionBranchName : productionChain[i - 1];
-    const children = buildPastChildren(
-      slotName,
-      promotedChild,
-      new Set([slotName]),
-    );
-    return { branch: slotData, children };
-  });
-
-  // Collect all branch names covered by the active and past-slot trees so we
-  // can surface any remaining branches as "unattached" (no connection to the
-  // production chain — typically manually created branches or worktrees).
-  const covered = new Set<string>([productionBranchName, ...productionChain]);
-  // Add all descendants of every covered branch.
-  let frontier = [...covered];
-  while (frontier.length > 0) {
-    const next: string[] = [];
-    for (const b of branches) {
-      if (b.activeParent && covered.has(b.activeParent) && !covered.has(b.name)) {
-        covered.add(b.name);
-        next.push(b.name);
-      }
-    }
-    frontier = next;
-  }
-  function treeContains(node: BranchNode | null, branchName: string): boolean {
-    if (!node) return false;
-    if (node.name === branchName) return true;
-    return node.children.some((child) => treeContains(child, branchName));
-  }
-
-  const unattached: BranchNode[] = [];
-  const currentBranch = branches.find((b) => b.isCurrent);
-  const currentIsVisible = currentBranch
-    ? treeContains(activeProd, currentBranch.name) ||
-      pastSlots.some((slot) => slot.branch.name === currentBranch.name || slot.children.some((child) => treeContains(child, currentBranch.name)))
-    : false;
-  if (currentBranch && !currentIsVisible) {
-    const currentDescendantNames = new Set<string>([currentBranch.name]);
-    for (const b of branches) {
-      if (!covered.has(b.name) && isGitAncestor(currentBranch.name, b.name)) {
-        currentDescendantNames.add(b.name);
-      }
-    }
-
-    const inferredParentByBranch = new Map<string, string>();
-    for (const b of branches) {
-      if (b.name === currentBranch.name || !currentDescendantNames.has(b.name)) continue;
-      const explicitParent = b.activeParent && currentDescendantNames.has(b.activeParent) ? b.activeParent : null;
-      const inferredParent = explicitParent ?? nearestDescendantParent(b.name, currentDescendantNames);
-      if (inferredParent) inferredParentByBranch.set(b.name, inferredParent);
-    }
-
-    function buildCurrentChildren(parentName: string, visited: Set<string>): BranchNode[] {
-      const children: BranchNode[] = [];
-      for (const b of branches) {
-        if (visited.has(b.name) || inferredParentByBranch.get(b.name) !== parentName) continue;
-        const node: BranchNode = {
-          ...b,
-          children: buildCurrentChildren(b.name, new Set([...visited, b.name])),
-        };
-        children.push(node);
-      }
-      children.sort((a, b) => a.name.localeCompare(b.name));
-      return children;
-    }
-
-    const currentNode: BranchNode = {
-      ...currentBranch,
-      children: buildCurrentChildren(
-        currentBranch.name,
-        new Set([currentBranch.name]),
-      ),
-    };
-    unattached.push(currentNode);
-
-    const markCovered = (node: BranchNode) => {
-      covered.add(node.name);
-      for (const child of node.children) markCovered(child);
-    };
-    markCovered(currentNode);
-  }
-
-  unattached.push(
-    ...branches
-      .filter((b) => !covered.has(b.name))
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((b) => ({ ...b, children: [] })),
-  );
-
-  return { activeProd, pastSlots, unattached };
-}
-
-// ─── Status display helpers ──────────────────────────────────────────────────────
 
 const STATUS_COLOR: Record<string, string> = {
   ready: "text-green-400",
@@ -448,131 +225,183 @@ const STATUS_LABEL: Record<string, string> = {
   rejected: "rejected",
 };
 
-// ─── Recursive branch row ───────────────────────────────────────────────────────
+// ─── Unicode graph rendering ───────────────────────────────────────────────────
 
-function BranchRow({
-  node,
-  depth,
-  linePrefix,
-  isLast,
+function buildMergeEdges(branches: BranchData[], cwd: string): BranchGraphMergeEdge[] {
+  const branchByTip = new Map(
+    branches
+      .filter((branch) => branch.tipSha)
+      .map((branch) => [branch.tipSha!, branch.name]),
+  );
+  const edges: BranchGraphMergeEdge[] = [];
+  const seen = new Set<string>();
+
+  for (const target of branches) {
+    const range = target.markerSha ? `${target.markerSha}..${target.name}` : target.name;
+    const mergeParents = runGit(
+      ["log", range, "--first-parent", "--merges", "--format=%P"],
+      cwd,
+    );
+    if (mergeParents.code !== 0 || !mergeParents.stdout) continue;
+
+    for (const line of mergeParents.stdout.split("\n")) {
+      const parents = line.trim().split(/\s+/).filter(Boolean);
+      for (const mergedParentSha of parents.slice(1)) {
+        const mergedBranch = branchByTip.get(mergedParentSha);
+        if (!mergedBranch || mergedBranch === target.name) continue;
+        const key = `${mergedBranch}\0${target.name}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        edges.push({ from: mergedBranch, to: target.name });
+      }
+    }
+  }
+
+  return edges;
+}
+
+function GraphGlyphs({ graph, isActive }: { graph: string; isActive: boolean }) {
+  return (
+    <span>
+      {Array.from(graph).map((char, index) => (
+        <span
+          // Graph strings are tiny and static per render; index is stable here.
+          key={`${char}-${index}`}
+          className={char === "●" ? (isActive ? "text-green-400" : "text-gray-500") : "text-gray-600"}
+        >
+          {char}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function BranchRef({
+  branch,
   currentServerUrl,
   canCreateSession,
 }: {
-  node: BranchNode;
-  depth: number;
-  linePrefix: string;
-  isLast: boolean;
+  branch: BranchData;
   currentServerUrl: string;
-  /** Whether to show the "+ session" button for branches without sessions. */
   canCreateSession: boolean;
 }) {
-  const isRoot = depth === 0;
-  const connector = isRoot ? "" : isLast ? "└─ " : "├─ ";
-  const childLinePrefix = isRoot
-    ? ""
-    : linePrefix + (isLast ? "   " : "│  ");
-
-  const url = node.isProduction ? currentServerUrl : node.previewUrl;
-  const statusColor = node.sessionStatus
-    ? (STATUS_COLOR[node.sessionStatus] ?? "text-gray-400")
+  const url = branch.isProduction ? currentServerUrl : branch.previewUrl;
+  const statusColor = branch.sessionStatus
+    ? (STATUS_COLOR[branch.sessionStatus] ?? "text-gray-400")
     : "";
-  const statusLabel = node.sessionStatus
-    ? (STATUS_LABEL[node.sessionStatus] ?? node.sessionStatus)
+  const statusLabel = branch.sessionStatus
+    ? (STATUS_LABEL[branch.sessionStatus] ?? branch.sessionStatus)
     : null;
+  const isTerminal = TERMINAL_STATUSES.has(branch.sessionStatus ?? "");
+  const className = branch.isProduction
+    ? "text-white font-bold hover:text-gray-200"
+    : branch.isCurrent
+      ? "text-white font-bold hover:text-gray-200"
+      : isTerminal
+        ? "text-gray-600 hover:text-gray-500"
+        : "text-gray-300 hover:text-gray-100";
 
-  const isTerminal = TERMINAL_STATUSES.has(node.sessionStatus ?? "");
+  const label = (
+    <>
+      {branch.name}
+      {branch.isProduction && (
+        <span className="text-blue-400 font-normal ml-1">(production)</span>
+      )}
+      {branch.isCurrent && !branch.isProduction && (
+        <span className="text-gray-500 font-normal ml-1">(current)</span>
+      )}
+    </>
+  );
 
   return (
-    <>
-      <div className="flex min-w-max items-baseline gap-1.5 whitespace-nowrap font-mono text-sm leading-7">
-        {!isRoot && (
-          <span className="text-gray-600 whitespace-pre select-none shrink-0">
-            {linePrefix + connector}
-          </span>
-        )}
-        <span className={url ? "text-green-400 shrink-0" : "text-gray-600 shrink-0"}>
-          ●
-        </span>
-        {node.hasSession ? (
-          <Link
-            href={`/evolve/session/${node.name}`}
-            className={
-              node.isProduction
-                ? "text-white font-bold hover:text-gray-200"
-                : node.isCurrent
-                  ? "text-white font-bold hover:text-gray-200"
-                  : isTerminal
-                    ? "text-gray-600 hover:text-gray-500"
-                    : "text-gray-300 hover:text-gray-100"
-            }
-          >
-            {node.name}
-            {node.isProduction && (
-              <span className="text-blue-400 font-normal ml-1">(production)</span>
-            )}
-            {node.isCurrent && !node.isProduction && (
-              <span className="text-gray-500 font-normal ml-1">(current)</span>
-            )}
-          </Link>
-        ) : (
-          <span
-            className={
-              node.isProduction
-                ? "text-white font-bold"
-                : node.isCurrent
-                  ? "text-white font-bold"
-                  : isTerminal
-                    ? "text-gray-600"
-                    : "text-gray-300"
-            }
-          >
-            {node.name}
-            {node.isProduction && (
-              <span className="text-blue-400 font-normal ml-1">(production)</span>
-            )}
-            {node.isCurrent && !node.isProduction && (
-              <span className="text-gray-500 font-normal ml-1">(current)</span>
-            )}
-          </span>
-        )}
-        {statusLabel && !node.isProduction && (
-          <span className={`text-xs shrink-0 ${statusColor}`}>
-            [{statusLabel}]
-          </span>
-        )}
+    <span className="inline-flex items-baseline gap-1.5">
+      {branch.hasSession ? (
+        <Link href={`/evolve/session/${branch.name}`} className={className}>
+          {label}
+        </Link>
+      ) : (
+        <span className={className.replace(/ hover:[^ ]+/g, "")}>{label}</span>
+      )}
+      {statusLabel && !branch.isProduction && (
+        <span className={`text-xs shrink-0 ${statusColor}`}>[{statusLabel}]</span>
+      )}
+      {canCreateSession &&
+        !branch.hasSession &&
+        !branch.isCurrent &&
+        !branch.isProduction &&
+        !isTerminal && <CreateSessionFromBranchButton branchName={branch.name} />}
+      {url && (
+        <a
+          href={url}
+          target={branch.isCurrent ? "_self" : "_blank"}
+          rel="noopener noreferrer"
+          className="text-blue-400 hover:text-blue-300 shrink-0 inline-flex items-center"
+          title={branch.isProduction ? "View site" : "Open preview"}
+        >
+          <ExternalLink size={13} strokeWidth={2} />
+        </a>
+      )}
+    </span>
+  );
+}
 
-        {/* Show "+ session" only for active (non-terminal) branches without a session */}
-        {canCreateSession &&
-          !node.hasSession &&
-          !node.isCurrent &&
-          !node.isProduction &&
-          !isTerminal && (
-            <CreateSessionFromBranchButton branchName={node.name} />
-          )}
-        {url && (
-          <a
-            href={url}
-            target={node.isCurrent ? "_self" : "_blank"}
-            rel="noopener noreferrer"
-            className="text-blue-400 hover:text-blue-300 ml-1 shrink-0 flex items-center"
-            title={node.isProduction ? "View site" : "Open preview"}
+function BranchStructureGraph({
+  branches,
+  productionBranch,
+  currentServerUrl,
+  canCreateSession,
+  cwd,
+}: {
+  branches: BranchData[];
+  productionBranch: string;
+  currentServerUrl: string;
+  canCreateSession: boolean;
+  cwd: string;
+}) {
+  const byName = new Map(branches.map((branch) => [branch.name, branch]));
+  const layout = computeBranchGraphLayout(
+    branches.map((branch) => ({
+      name: branch.name,
+      parent: branch.parent,
+      markerTimestamp: branch.markerTimestamp,
+    })),
+    productionBranch,
+  );
+  const rows = computeBranchGraphUnicodeRows(layout, buildMergeEdges(branches, cwd));
+
+  return (
+    <div className="overflow-x-auto pb-1 font-mono text-sm">
+      {rows.map((row, index) => {
+        if (row.kind === "connector") {
+          return (
+            <div
+              key={`connector-${index}-${row.graph}`}
+              className="min-w-max whitespace-pre leading-4 text-gray-600 select-none"
+            >
+              {row.graph}
+            </div>
+          );
+        }
+
+        const branch = byName.get(row.branchName);
+        if (!branch) return null;
+        return (
+          <div
+            key={`branch-${branch.name}`}
+            className="flex min-w-max items-baseline gap-1.5 whitespace-nowrap leading-7"
           >
-            <ExternalLink size={13} strokeWidth={2} />
-          </a>
-        )}
-      </div>
-      {node.children.map((child, i) => (
-        <BranchRow
-          key={child.name}
-          node={child}
-          depth={depth + 1}
-          linePrefix={childLinePrefix}
-          isLast={i === node.children.length - 1}
-          currentServerUrl={currentServerUrl}
-          canCreateSession={canCreateSession}
-        />
-      ))}
-    </>
+            <span className="whitespace-pre select-none shrink-0">
+              <GraphGlyphs graph={row.graph} isActive={branch.isProduction || Boolean(branch.previewUrl)} />
+            </span>
+            <BranchRef
+              branch={branch}
+              currentServerUrl={currentServerUrl}
+              canCreateSession={canCreateSession}
+            />
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -626,7 +455,6 @@ export default async function BranchesPage() {
     : [false, false, null, await getBranchParentSource(null)];
 
   const { branches, productionBranch, diag } = await getBranchData(parentSource);
-  const { activeProd, pastSlots, unattached } = buildSections(branches, productionBranch, diag.cwd);
 
   const [headerStore] = await Promise.all([headers()]);
   const sessionUser = user
@@ -658,23 +486,17 @@ export default async function BranchesPage() {
         disabled={!user}
       />
 
-      {/* ── Active section ── */}
+      {/* ── Connected production graph ── */}
 
       <div className="mt-2">
-        <p className="text-xs text-gray-500 font-mono uppercase tracking-widest mb-2">
-          Active
-        </p>
-        {activeProd ? (
-          <div className="space-y-0 overflow-x-auto pb-1">
-            <BranchRow
-              node={activeProd}
-              depth={0}
-              linePrefix=""
-              isLast={true}
-              currentServerUrl={currentServerUrl}
-              canCreateSession={userCanEvolve}
-            />
-          </div>
+        {branches.length > 0 ? (
+          <BranchStructureGraph
+            branches={branches}
+            productionBranch={productionBranch}
+            currentServerUrl={currentServerUrl}
+            canCreateSession={userCanEvolve}
+            cwd={diag.cwd}
+          />
         ) : (
           <p className="text-gray-500 text-sm font-mono">
             No production branch found.
@@ -682,61 +504,12 @@ export default async function BranchesPage() {
         )}
       </div>
 
-      {/* ── Past Sessions section ── */}
-      {pastSlots.length > 0 && (
-        <div className="mt-8">
-          <p className="text-xs text-gray-500 font-mono uppercase tracking-widest mb-2">
-            Past Sessions
-          </p>
-          <div className="space-y-0 overflow-x-auto pb-1">
-            {pastSlots.map((slot) => {
-              const slotNode: BranchNode = {
-                ...slot.branch,
-                children: slot.children,
-              };
-              return (
-                <BranchRow
-                  key={slot.branch.name}
-                  node={slotNode}
-                  depth={0}
-                  linePrefix=""
-                  isLast={true}
-                  currentServerUrl={currentServerUrl}
-                  canCreateSession={false}
-                />
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── Unattached Branches section ── */}
-      {unattached.length > 0 && (
-        <div className="mt-8">
-          <p className="text-xs text-gray-500 font-mono uppercase tracking-widest mb-2">
-            Other Branches
-          </p>
-          <div className="space-y-0 overflow-x-auto pb-1">
-            {unattached.map((node) => (
-              <BranchRow
-                key={node.name}
-                node={node}
-                depth={0}
-                linePrefix=""
-                isLast={true}
-                currentServerUrl={currentServerUrl}
-                canCreateSession={userCanEvolve}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Legend */}
       <div className="mt-8 border-t border-gray-800 pt-4 text-xs text-gray-600 font-mono space-y-1">
         <p>
-          ● green = preview server active · ● dim = no active session · branch name
-          links to session · <span className="text-blue-400"><ExternalLink size={10} className="inline" /></span> = open
+          ● green = preview server active · ● dim = no active session · unicode
+          connectors show branch parentage and merge hints · branch name links to session ·{" "}
+          <span className="text-blue-400"><ExternalLink size={10} className="inline" /></span> = open
           branch · <span className="text-purple-500">+ session</span> = start new
           session on existing branch
         </p>
