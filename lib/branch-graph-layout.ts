@@ -22,6 +22,13 @@ function markerSort(a: BranchGraphInputNode, b: BranchGraphInputNode): number {
   return a.name.localeCompare(b.name);
 }
 
+function newestMarkerSort(a: BranchGraphInputNode, b: BranchGraphInputNode): number {
+  const aTime = a.markerTimestamp ?? Number.NEGATIVE_INFINITY;
+  const bTime = b.markerTimestamp ?? Number.NEGATIVE_INFINITY;
+  if (aTime !== bTime) return bTime - aTime;
+  return a.name.localeCompare(b.name);
+}
+
 /**
  * Computes a simplified git-log-style branch-head layout.
  *
@@ -30,8 +37,8 @@ function markerSort(a: BranchGraphInputNode, b: BranchGraphInputNode): number {
  * - Each branch gets exactly one row.
  * - Non-spine children are emitted immediately above their parent.
  * - Child branches are one column to the right of their parent.
- * - Siblings are visited oldest-first by branch-marker timestamp so older
- *   branches stay closer to the spine in deterministic renderers.
+ * - Unmerged siblings from the same parent are visited newest-first by
+ *   branch-marker timestamp so newer branches sit above and closer to the spine.
  */
 export function computeBranchGraphLayout(
   nodes: BranchGraphInputNode[],
@@ -49,7 +56,7 @@ export function computeBranchGraphLayout(
     childrenByParent.set(node.parent, siblings);
   }
   for (const siblings of childrenByParent.values()) {
-    siblings.sort(markerSort);
+    siblings.sort(newestMarkerSort);
   }
 
   const productionNode = byName.get(productionBranch) ?? nodes.find((node) => !node.parent) ?? nodes[0]!;
@@ -70,9 +77,9 @@ export function computeBranchGraphLayout(
       .get(node.name)
       ?.filter((child) => !spineNames.has(child.name) && !emitted.has(child.name)) ?? [];
 
-    for (const child of children) {
-      emitSubtree(child, column + 1);
-    }
+    children.forEach((child, index) => {
+      emitSubtree(child, column + 1 + index);
+    });
 
     if (!emitted.has(node.name)) {
       ordered.push({ node, column });
@@ -85,9 +92,9 @@ export function computeBranchGraphLayout(
       .get(spineNode.name)
       ?.filter((child) => !spineNames.has(child.name) && !emitted.has(child.name)) ?? [];
 
-    for (const child of offSpineChildren) {
-      emitSubtree(child, 1);
-    }
+    offSpineChildren.forEach((child, index) => {
+      emitSubtree(child, 1 + index);
+    });
 
     if (!emitted.has(spineNode.name)) {
       ordered.push({ node: spineNode, column: 0 });
@@ -127,33 +134,43 @@ function unicodeGraphPrefix(node: BranchGraphLayoutNode, maxColumn: number): str
   return cells.join(" ");
 }
 
-function connectorLine(parentColumn: number, childColumn: number): string {
-  if (parentColumn === childColumn) return "│";
-  const left = Math.min(parentColumn, childColumn) * 2;
-  const right = Math.max(parentColumn, childColumn) * 2;
+function connectorLineForChildren(parentColumn: number, childColumns: number[]): string {
+  const uniqueChildColumns = [...new Set(childColumns)].sort((a, b) => a - b);
+  if (uniqueChildColumns.length === 0) return "│";
+  if (uniqueChildColumns.length === 1 && uniqueChildColumns[0] === parentColumn) return "│";
+
+  const right = Math.max(parentColumn, ...uniqueChildColumns) * 2;
   const chars = Array.from({ length: right + 1 }, () => " ");
   chars[parentColumn * 2] = "├";
   for (let index = parentColumn * 2 + 1; index < right; index += 1) {
     chars[index] = "─";
   }
-  chars[childColumn * 2] = "╯";
   for (let column = 0; column < parentColumn; column += 1) {
     chars[column * 2] = "│";
   }
-  if (left < parentColumn * 2) chars[left] = "│";
+  uniqueChildColumns.forEach((column, index) => {
+    chars[column * 2] = index === uniqueChildColumns.length - 1 ? "╯" : "┴";
+  });
   return chars.join("");
 }
 
-function mergeHintLine(fromColumn: number, toColumn: number, maxColumn: number): string {
-  const cells: string[] = [];
-  const left = Math.min(fromColumn, toColumn);
-  const right = Math.max(fromColumn, toColumn);
-  for (let column = 0; column <= maxColumn; column += 1) {
-    if (column === left) cells.push("│");
-    else if (column > left && column <= right) cells.push("←╮");
-    else cells.push(" ");
-  }
-  return cells.join("");
+function verticalLineForColumns(columns: number[]): string {
+  const uniqueColumns = [...new Set(columns)].sort((a, b) => a - b);
+  const right = Math.max(...uniqueColumns) * 2;
+  const chars = Array.from({ length: right + 1 }, () => " ");
+  for (const column of uniqueColumns) chars[column * 2] = "│";
+  return chars.join("");
+}
+
+function mergeHintLine(fromColumn: number, toColumn: number): string {
+  if (Math.abs(fromColumn - toColumn) === 1) return "│←┐";
+  const left = Math.min(fromColumn, toColumn) * 2;
+  const right = Math.max(fromColumn, toColumn) * 2;
+  const chars = Array.from({ length: right + 2 }, () => " ");
+  chars[left] = "│";
+  chars[right] = "←";
+  chars[right + 1] = "┐";
+  return chars.join("");
 }
 
 export function renderBranchGraphUnicode(
@@ -175,17 +192,26 @@ export function renderBranchGraphUnicode(
     const next = layout[index + 1];
     if (!next) continue;
 
-    const nextIsParent = node.parent === next.name;
-    if (nextIsParent) {
-      lines.push(connectorLine(next.column, node.column).trimEnd());
+    const precedingChildren = layout
+      .slice(0, index + 1)
+      .filter((candidate) => candidate.parent === next.name && candidate.column !== next.column);
+    if (precedingChildren.length > 0) {
+      lines.push(
+        connectorLineForChildren(
+          next.column,
+          precedingChildren.map((child) => child.column),
+        ).trimEnd(),
+      );
       continue;
     }
 
-    const visibleMerge = mergeEdges.find((edge) => edge.to === next.name || edge.to === node.name);
-    if (visibleMerge) {
-      const from = byName.get(visibleMerge.from);
-      const to = byName.get(visibleMerge.to);
-      if (from && to) lines.push(mergeHintLine(from.column, to.column, maxColumn).trimEnd());
+    const upcomingMerge = mergeEdges.find((edge) => edge.from === next.name);
+    if (upcomingMerge) {
+      const from = byName.get(upcomingMerge.from);
+      const to = byName.get(upcomingMerge.to);
+      if (from && to) lines.push(mergeHintLine(from.column, to.column).trimEnd());
+    } else if (node.parent && node.parent === next.parent) {
+      lines.push(verticalLineForColumns([0, node.column]).trimEnd());
     } else if (next.column === node.column) {
       lines.push("│");
     }
