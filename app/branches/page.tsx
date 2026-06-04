@@ -52,6 +52,10 @@ interface BranchData {
   subject: string | null;
 }
 
+interface BranchNode extends BranchData {
+  children: BranchNode[];
+}
+
 interface GitResult {
   stdout: string;
   stderr: string;
@@ -208,47 +212,55 @@ const STATUS_LABEL: Record<string, string> = {
 
 // ─── Log graph rendering ───────────────────────────────────────────────────────
 
-interface GitGraphRow {
-  graph: string;
-  hash: string | null;
-  subject: string | null;
-  branchNames: string[];
-}
-
-function buildGitGraphRows(branches: BranchData[], cwd: string): GitGraphRow[] {
+function buildBranchForest(
+  branches: BranchData[],
+  productionBranchName: string,
+): BranchNode[] {
   const byName = new Map(branches.map((branch) => [branch.name, branch]));
-  const result = runGit(
-    [
-      "log",
-      "--graph",
-      "--date-order",
-      "--simplify-by-decoration",
-      "--decorate-refs=refs/heads",
-      "--branches",
-      "--format=%h%x00%D%x00%s",
-      "--max-count=250",
-    ],
-    cwd,
+  const nodes = new Map(
+    branches.map((branch) => [branch.name, { ...branch, children: [] as BranchNode[] }]),
   );
-  if (result.code !== 0 || !result.stdout) return [];
+  const childNames = new Set<string>();
 
-  return result.stdout
-    .split("\n")
-    .map((line) => {
-      const match = line.match(/^(.*?)([0-9a-f]{7,40})\u0000([^\u0000]*)\u0000(.*)$/);
-      if (!match) {
-        return { graph: line, hash: null, subject: null, branchNames: [] };
-      }
+  function wouldCreateCycle(branchName: string, parentName: string): boolean {
+    let cursor: string | null = parentName;
+    const visited = new Set<string>([branchName]);
+    while (cursor) {
+      if (visited.has(cursor)) return true;
+      visited.add(cursor);
+      cursor = byName.get(cursor)?.activeParent ?? byName.get(cursor)?.parent ?? null;
+    }
+    return false;
+  }
 
-      const [, graph, hash, decorations, subject] = match;
-      const branchNames = decorations
-        .split(",")
-        .map((part) => part.trim().replace(/^HEAD -> /, ""))
-        .filter((name) => byName.has(name));
+  for (const branch of branches) {
+    const parentName = branch.activeParent ?? branch.parent;
+    if (!parentName || !nodes.has(parentName) || wouldCreateCycle(branch.name, parentName)) {
+      continue;
+    }
+    nodes.get(parentName)!.children.push(nodes.get(branch.name)!);
+    childNames.add(branch.name);
+  }
 
-      return { graph, hash, subject, branchNames };
-    })
-    .filter((row) => !row.hash || row.branchNames.length > 0);
+  for (const node of nodes.values()) {
+    node.children.sort((a, b) => {
+      if (a.isCurrent) return -1;
+      if (b.isCurrent) return 1;
+      if (a.isProduction) return 1;
+      if (b.isProduction) return -1;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  return [...nodes.values()]
+    .filter((node) => !childNames.has(node.name))
+    .sort((a, b) => {
+      if (a.name === productionBranchName) return 1;
+      if (b.name === productionBranchName) return -1;
+      if (a.isProduction) return 1;
+      if (b.isProduction) return -1;
+      return a.name.localeCompare(b.name);
+    });
 }
 
 function GraphGlyphs({ graph, isActive }: { graph: string; isActive: boolean }) {
@@ -335,62 +347,107 @@ function BranchRef({
   );
 }
 
-function GitGraph({
-  rows,
-  branches,
+function BranchGraphLine({
+  branch,
+  graph,
   currentServerUrl,
   canCreateSession,
 }: {
-  rows: GitGraphRow[];
-  branches: BranchData[];
+  branch: BranchData;
+  graph: string;
   currentServerUrl: string;
   canCreateSession: boolean;
 }) {
-  const byName = new Map(branches.map((branch) => [branch.name, branch]));
+  return (
+    <div className="flex min-w-max items-baseline gap-1.5 whitespace-nowrap leading-7">
+      <span className="whitespace-pre select-none shrink-0">
+        <GraphGlyphs graph={graph} isActive={branch.isProduction || Boolean(branch.previewUrl)} />
+      </span>
+      <span className="text-gray-600 shrink-0">{branch.shortSha ?? "────────"}</span>
+      <BranchRef
+        branch={branch}
+        currentServerUrl={currentServerUrl}
+        canCreateSession={canCreateSession}
+      />
+      {branch.subject && (
+        <span className="min-w-0 max-w-sm truncate text-gray-600">
+          — {branch.subject}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function BranchGraphNode({
+  node,
+  depth,
+  isLast,
+  linePrefix,
+  currentServerUrl,
+  canCreateSession,
+}: {
+  node: BranchNode;
+  depth: number;
+  isLast: boolean;
+  linePrefix: string;
+  currentServerUrl: string;
+  canCreateSession: boolean;
+}) {
+  const isRoot = depth === 0;
+  const branchGraph = isRoot ? "* " : `${linePrefix}${isLast ? "  " : "| "}* `;
+  const connectorGraph = isRoot ? "" : `${linePrefix}${isLast ? " /" : "|/"}`;
+  const childLinePrefix = isRoot ? "" : `${linePrefix}${isLast ? "  " : "| "}`;
 
   return (
-    <div className="overflow-x-auto pb-1 font-mono text-sm">
-      {rows.map((row, index) => {
-        const rowBranches = row.branchNames
-          .map((name) => byName.get(name))
-          .filter((branch): branch is BranchData => branch !== undefined);
-        const isActive = rowBranches.some((branch) => branch.isProduction || branch.previewUrl);
+    <>
+      {node.children.map((child, index) => (
+        <BranchGraphNode
+          key={child.name}
+          node={child}
+          depth={depth + 1}
+          isLast={index === node.children.length - 1}
+          linePrefix={childLinePrefix}
+          currentServerUrl={currentServerUrl}
+          canCreateSession={canCreateSession}
+        />
+      ))}
+      {!isRoot && (
+        <div className="min-w-max whitespace-pre font-mono text-sm leading-4 text-gray-600 select-none">
+          {connectorGraph}
+        </div>
+      )}
+      <BranchGraphLine
+        branch={node}
+        graph={branchGraph}
+        currentServerUrl={currentServerUrl}
+        canCreateSession={canCreateSession}
+      />
+    </>
+  );
+}
 
-        return (
-          <div
-            key={`${index}-${row.hash ?? row.graph}`}
-            className={row.hash ? "flex min-w-max items-baseline gap-1.5 whitespace-nowrap leading-7" : "min-w-max whitespace-pre leading-4 text-gray-600 select-none"}
-          >
-            <span className="whitespace-pre select-none shrink-0">
-              <GraphGlyphs graph={row.graph} isActive={isActive} />
-            </span>
-            {row.hash && (
-              <>
-                <span className="text-gray-600 shrink-0">{row.hash}</span>
-                {rowBranches.length > 0 ? (
-                  <span className="inline-flex items-baseline gap-2">
-                    {rowBranches.map((branch, branchIndex) => (
-                      <span key={branch.name} className="inline-flex items-baseline gap-2">
-                        {branchIndex > 0 && <span className="text-gray-700">·</span>}
-                        <BranchRef
-                          branch={branch}
-                          currentServerUrl={currentServerUrl}
-                          canCreateSession={canCreateSession}
-                        />
-                      </span>
-                    ))}
-                  </span>
-                ) : null}
-                {row.subject && (
-                  <span className="min-w-0 max-w-sm truncate text-gray-600">
-                    — {row.subject}
-                  </span>
-                )}
-              </>
-            )}
-          </div>
-        );
-      })}
+function BranchStructureGraph({
+  roots,
+  currentServerUrl,
+  canCreateSession,
+}: {
+  roots: BranchNode[];
+  currentServerUrl: string;
+  canCreateSession: boolean;
+}) {
+  return (
+    <div className="overflow-x-auto pb-1 font-mono text-sm">
+      {roots.map((root, index) => (
+        <BranchGraphNode
+          key={root.name}
+          node={root}
+          depth={0}
+          isLast={index === roots.length - 1}
+          linePrefix=""
+          currentServerUrl={currentServerUrl}
+          canCreateSession={canCreateSession}
+        />
+      ))}
     </div>
   );
 }
@@ -445,7 +502,7 @@ export default async function BranchesPage() {
     : [false, false, null, await getBranchParentSource(null)];
 
   const { branches, productionBranch, diag } = await getBranchData(parentSource);
-  const graphRows = buildGitGraphRows(branches, diag.cwd);
+  const branchRoots = buildBranchForest(branches, productionBranch);
 
   const [headerStore] = await Promise.all([headers()]);
   const sessionUser = user
@@ -483,10 +540,9 @@ export default async function BranchesPage() {
         <p className="text-xs text-gray-500 font-mono uppercase tracking-widest mb-2">
           Branch Graph
         </p>
-        {graphRows.length > 0 ? (
-          <GitGraph
-            rows={graphRows}
-            branches={branches}
+        {branchRoots.length > 0 ? (
+          <BranchStructureGraph
+            roots={branchRoots}
             currentServerUrl={currentServerUrl}
             canCreateSession={userCanEvolve}
           />
@@ -500,9 +556,9 @@ export default async function BranchesPage() {
       {/* Legend */}
       <div className="mt-8 border-t border-gray-800 pt-4 text-xs text-gray-600 font-mono space-y-1">
         <p>
-          * green = preview server active · * dim = no active session · graph
-          connectors come from git log --graph · short hash and latest commit subject
-          mirror git log output · branch name links to session ·{" "}
+          * green = preview server active · * dim = no active session · branch
+          heads are connected by recorded parentage, with child heads indented to the
+          right of their parent · short hash and latest commit subject mirror git log output · branch name links to session ·{" "}
           <span className="text-blue-400"><ExternalLink size={10} className="inline" /></span> = open
           branch · <span className="text-purple-500">+ session</span> = start new
           session on existing branch
