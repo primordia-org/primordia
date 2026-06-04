@@ -415,6 +415,7 @@ async function main(): Promise<void> {
         [
           'EDB todo is required in this evolve pipeline.',
           'For every requested change, use TaskCreate to lay out the work as distinct stage tasks instead of creating one broad task, even if the change seems trivial.',
+          'If a task title combines multiple outcomes with words like "and" (for example, "Implement layout utility and ASCII renderer"), split it into separate sub-tasks or smaller sibling tasks instead of tracking the compound item as one task.',
           'Create the initial stage tasks as a batch of TaskCreate tool calls in the same assistant turn before starting work; do not create them one at a time across multiple model/provider round trips.',
           'Prefer stages such as: inspect/read relevant files, edit/implement changes, validate/check work, and wrap up with changelog/commit/preview/final response as applicable.',
           'Use TaskUpdate to mark each stage in_progress before starting it and completed as soon as it is fully done; when completing one task and immediately starting the next, issue both TaskUpdate calls in the same assistant turn as a batch of two tool calls, then use TaskList to choose remaining work.',
