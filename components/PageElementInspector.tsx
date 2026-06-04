@@ -1,10 +1,11 @@
 "use client";
 
 // components/PageElementInspector.tsx
-// Full-screen transparent portal overlay for picking a named DOM component on
-// the current page. The picker intentionally targets only elements annotated
-// with data-component, so captured references use stable app-level names rather
-// than brittle DOM details or React fiber internals.
+// Full-screen transparent portal overlay for picking named DOM targets on the
+// current page. The picker highlights both the nearest data-component (generic
+// app component name) and nearest data-id (specific control/element name) when
+// available, so captured references use stable names rather than brittle DOM or
+// React fiber internals.
 //
 // Mouse: move to highlight, click to select.
 // Touch: drag to highlight, hold 600 ms to select.
@@ -17,19 +18,29 @@ import { snapdom } from "@zumer/snapdom";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface PageElementInfo {
-  /** Nearest data-component label. */
+  /** Nearest data-component label, when available. */
   component: string;
-  /** CSS selector for the nearest data-component element. */
+  /** CSS selector for the nearest data-component element, or data-id fallback. */
   selector: string;
+  /** Nearest data-id label, when available. */
+  dataId?: string | null;
+  /** CSS selector for the nearest data-id element, when available. */
+  dataIdSelector?: string | null;
   /** Raw outerHTML, truncated to 600 characters. */
   html: string;
   /** Visible text content, truncated to 200 characters. */
   text: string;
-  /** The selected data-component DOM element. */
+  /** The selected DOM element, preferring nearest data-id over data-component. */
   element: Element;
 }
 
-// ─── data-component helpers ───────────────────────────────────────────────────
+interface PickTarget {
+  componentEl: Element | null;
+  dataIdEl: Element | null;
+  selectedEl: Element;
+}
+
+// ─── named target helpers ─────────────────────────────────────────────────────
 
 function cssString(value: string): string {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
@@ -38,25 +49,40 @@ function cssString(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-/** Walk DOM ancestors looking for the nearest named data-component element. */
-export function getNearestDataComponentElement(el: Element | null): Element | null {
+function getNearestNamedElement(el: Element | null, attr: "data-component" | "data-id"): Element | null {
   let cur: Element | null = el;
   while (cur && cur !== document.body) {
-    const label = cur.getAttribute("data-component");
+    const label = cur.getAttribute(attr);
     if (label) return cur;
     cur = cur.parentElement;
   }
   return null;
 }
 
-function getDataComponentLabel(el: Element): string | null {
-  return el.getAttribute("data-component");
+export function getNearestDataComponentElement(el: Element | null): Element | null {
+  return getNearestNamedElement(el, "data-component");
 }
 
-/** CSS selector helper constrained to data-component annotations only. */
+export function getNearestDataIdElement(el: Element | null): Element | null {
+  return getNearestNamedElement(el, "data-id");
+}
+
+function getDataComponentLabel(el: Element | null): string | null {
+  return el?.getAttribute("data-component") ?? null;
+}
+
+function getDataIdLabel(el: Element | null): string | null {
+  return el?.getAttribute("data-id") ?? null;
+}
+
+function getAttrSelector(el: Element | null, attr: "data-component" | "data-id"): string | null {
+  const label = el?.getAttribute(attr);
+  return label ? `[${attr}="${cssString(label)}"]` : null;
+}
+
+/** Primary selector helper: data-component when available, data-id fallback. */
 export function getCssSelector(el: Element): string {
-  const label = getDataComponentLabel(el);
-  return label ? `[data-component="${cssString(label)}"]` : "";
+  return getAttrSelector(el, "data-component") ?? getAttrSelector(el, "data-id") ?? "";
 }
 
 /** Walk DOM ancestors looking for a data-source-file attribute. */
@@ -70,6 +96,14 @@ function getDataSourceFile(el: Element): string | null {
   return null;
 }
 
+function resolvePickTarget(rawEl: Element | null): PickTarget | null {
+  if (!rawEl) return null;
+  const componentEl = getNearestDataComponentElement(rawEl);
+  const dataIdEl = getNearestDataIdElement(rawEl);
+  const selectedEl = dataIdEl ?? componentEl;
+  return selectedEl ? { componentEl, dataIdEl, selectedEl } : null;
+}
+
 // ─── File capture ─────────────────────────────────────────────────────────────
 
 function sanitizeLabel(label: string): string {
@@ -77,13 +111,13 @@ function sanitizeLabel(label: string): string {
 }
 
 /**
- * Generate attachment files for a selected page component:
- * 1. A PNG screenshot of the data-component element.
- * 2. A Markdown details file with page URL, component name, data-component
- *    selector, source file when available, outerHTML, and visible text.
+ * Generate attachment files for a selected page target:
+ * 1. A PNG screenshot of the selected named element.
+ * 2. A Markdown details file with page URL, data-component name/selector,
+ *    data-id name/selector, source file when available, outerHTML, and text.
  */
 export async function captureElementFiles(el: Element, info: PageElementInfo): Promise<File[]> {
-  const slug = sanitizeLabel(info.component);
+  const slug = sanitizeLabel(info.dataId ?? info.component);
   const files: File[] = [];
 
   try {
@@ -96,15 +130,24 @@ export async function captureElementFiles(el: Element, info: PageElementInfo): P
   const pageUrl = typeof window !== "undefined" ? window.location.href : "(unknown)";
   const sourceFile = getDataSourceFile(el);
 
+  const componentSelector = info.selector.startsWith("[data-component=") ? info.selector : null;
+
   const md = [
-    `# Inspected Component: <${info.component}>`,
+    `# Inspected Target: ${info.dataId ? `[${info.dataId}] in ` : ""}<${info.component}>`,
     "",
     "## Page",
     pageUrl,
     "",
     ...(sourceFile ? ["## Source File", sourceFile, ""] : []),
-    "## data-component Selector",
-    `\`${info.selector}\``,
+    "## data-component",
+    componentSelector
+      ? `Name: \`${info.component}\`\nSelector: \`${componentSelector}\``
+      : "(none found)",
+    "",
+    "## data-id",
+    info.dataId && info.dataIdSelector
+      ? `Name: \`${info.dataId}\`\nSelector: \`${info.dataIdSelector}\``
+      : "(none found)",
     "",
     "## Visible Text",
     info.text || "(none)",
@@ -136,31 +179,63 @@ async function captureElementScreenshot(el: Element, slug: string): Promise<File
 
 // ─── HoverLabel ───────────────────────────────────────────────────────────────
 
-function HoverLabel({ el, rect }: { el: Element; rect: DOMRect }) {
-  const component = getDataComponentLabel(el) ?? "Unnamed";
+function HoverLabels({ target }: { target: PickTarget }) {
+  const component = getDataComponentLabel(target.componentEl);
+  const dataId = getDataIdLabel(target.dataIdEl);
+  const rect = (target.dataIdEl ?? target.componentEl)?.getBoundingClientRect();
+  if (!rect) return null;
+
   const labelH = 22;
-  let top = rect.top - labelH - 7;
+  const gap = 3;
+  const labelCount = component && dataId ? 2 : 1;
+  let top = rect.top - labelH * labelCount - gap * (labelCount - 1) - 7;
   if (top < 4) top = rect.bottom + 4;
   const left = Math.max(4, Math.min(rect.left, window.innerWidth - 320));
 
   return (
+    <>
+      {component && (
+        <div
+          data-primordia-inspector="label"
+          style={{ position: "fixed", top, left, zIndex: 9999, pointerEvents: "none", maxWidth: "60vw", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          className="px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-mono shadow-lg"
+        >
+          &lt;{component}&gt;
+        </div>
+      )}
+      {dataId && (
+        <div
+          data-primordia-inspector="label"
+          style={{ position: "fixed", top: top + (component ? labelH + gap : 0), left, zIndex: 9999, pointerEvents: "none", maxWidth: "90vw", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          className="px-2 py-0.5 rounded bg-green-700 text-white text-xs font-mono shadow-lg"
+        >
+          [{dataId}]
+        </div>
+      )}
+    </>
+  );
+}
+
+function HighlightBox({ el, kind }: { el: Element | null; kind: "component" | "data-id" }) {
+  if (!el) return null;
+  const rect = el.getBoundingClientRect();
+  const isComponent = kind === "component";
+  return (
     <div
-      data-primordia-inspector="label"
+      data-primordia-inspector={isComponent ? "highlight-component" : "highlight-data-id"}
       style={{
         position: "fixed",
-        top,
-        left,
-        zIndex: 9999,
+        left: rect.left - 2,
+        top: rect.top - 2,
+        width: rect.width + 4,
+        height: rect.height + 4,
+        outline: `2px solid ${isComponent ? "#3b82f6" : "#22c55e"}`,
+        outlineOffset: "0",
+        background: isComponent ? "rgba(59, 130, 246, 0.05)" : "rgba(34, 197, 94, 0.08)",
         pointerEvents: "none",
-        maxWidth: "60vw",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
+        zIndex: isComponent ? 9996 : 9997,
       }}
-      className="px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-mono shadow-lg"
-    >
-      &lt;{component}&gt;
-    </div>
+    />
   );
 }
 
@@ -180,8 +255,8 @@ export function PageElementInspector({
   skipElement?: HTMLElement | null;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
-  const [hoveredEl, setHoveredEl] = useState<Element | null>(null);
-  const hoveredRef = useRef<Element | null>(null);
+  const [hoveredTarget, setHoveredTarget] = useState<PickTarget | null>(null);
+  const hoveredRef = useRef<PickTarget | null>(null);
 
   useEffect(() => {
     const style = document.createElement("style");
@@ -204,54 +279,57 @@ export function PageElementInspector({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [onCancel]);
 
-  const getElementAt = useCallback(
-    (x: number, y: number): Element | null => {
+  const getTargetAt = useCallback(
+    (x: number, y: number): PickTarget | null => {
       const candidates = document.elementsFromPoint(x, y);
       for (const candidate of candidates) {
         if (candidate === overlayRef.current) continue;
         if (candidate instanceof HTMLElement && candidate.hasAttribute("data-primordia-inspector")) continue;
         if (skipElement && (skipElement === candidate || skipElement.contains(candidate))) continue;
-        const componentEl = getNearestDataComponentElement(candidate);
-        if (!componentEl) continue;
-        if (skipElement && (skipElement === componentEl || skipElement.contains(componentEl))) continue;
-        return componentEl;
+        const target = resolvePickTarget(candidate);
+        if (!target) continue;
+        if (skipElement && (skipElement === target.selectedEl || skipElement.contains(target.selectedEl))) continue;
+        return target;
       }
       return null;
     },
     [skipElement],
   );
 
-  function buildInfo(el: Element): PageElementInfo {
-    const component = getDataComponentLabel(el) ?? "Unnamed";
-    const selector = getCssSelector(el);
-    const html = el.outerHTML.slice(0, 600);
-    const text = ((el as HTMLElement).innerText ?? "").slice(0, 200).trim();
-    return { component, selector, html, text, element: el };
+  function buildInfo(target: PickTarget): PageElementInfo {
+    const component = getDataComponentLabel(target.componentEl) ?? "UnnamedComponent";
+    const selector = getAttrSelector(target.componentEl, "data-component") ?? getAttrSelector(target.dataIdEl, "data-id") ?? "";
+    const dataId = getDataIdLabel(target.dataIdEl);
+    const dataIdSelector = getAttrSelector(target.dataIdEl, "data-id");
+    const html = target.selectedEl.outerHTML.slice(0, 600);
+    const text = ((target.selectedEl as HTMLElement).innerText ?? "").slice(0, 200).trim();
+    return { component, selector, dataId, dataIdSelector, html, text, element: target.selectedEl };
+  }
+
+  function setHovered(target: PickTarget | null) {
+    const prev = hoveredRef.current;
+    if (target?.selectedEl === prev?.selectedEl && target?.componentEl === prev?.componentEl && target?.dataIdEl === prev?.dataIdEl) return;
+    hoveredRef.current = target;
+    setHoveredTarget(target);
   }
 
   const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      const el = getElementAt(e.clientX, e.clientY);
-      if (el !== hoveredRef.current) {
-        hoveredRef.current = el;
-        setHoveredEl(el);
-      }
-    },
-    [getElementAt],
+    (e: React.MouseEvent) => setHovered(getTargetAt(e.clientX, e.clientY)),
+    [getTargetAt],
   );
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      const el = getElementAt(e.clientX, e.clientY);
-      if (!el) {
+      const target = getTargetAt(e.clientX, e.clientY);
+      if (!target) {
         onCancel();
         return;
       }
-      onSelect(buildInfo(el));
+      onSelect(buildInfo(target));
     },
-    [getElementAt, onSelect, onCancel],
+    [getTargetAt, onSelect, onCancel],
   );
 
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -271,18 +349,15 @@ export function PageElementInspector({
       e.preventDefault();
       const touch = e.touches[0];
       touchStartRef.current = { x: touch.clientX, y: touch.clientY };
-      const el = getElementAt(touch.clientX, touch.clientY);
-      if (el) {
-        hoveredRef.current = el;
-        setHoveredEl(el);
-      }
+      const target = getTargetAt(touch.clientX, touch.clientY);
+      setHovered(target);
       cancelLongPress();
       longPressTimerRef.current = setTimeout(() => {
         longPressTimerRef.current = null;
         if (hoveredRef.current) onSelect(buildInfo(hoveredRef.current));
       }, LONG_PRESS_MS);
     },
-    [getElementAt, onSelect],
+    [getTargetAt, onSelect],
   );
 
   const handleTouchMove = useCallback(
@@ -294,13 +369,9 @@ export function PageElementInspector({
         const dy = touch.clientY - touchStartRef.current.y;
         if (Math.sqrt(dx * dx + dy * dy) > MOVE_CANCEL_PX) cancelLongPress();
       }
-      const el = getElementAt(touch.clientX, touch.clientY);
-      if (el !== hoveredRef.current) {
-        hoveredRef.current = el;
-        setHoveredEl(el);
-      }
+      setHovered(getTargetAt(touch.clientX, touch.clientY));
     },
-    [getElementAt],
+    [getTargetAt],
   );
 
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
@@ -309,8 +380,6 @@ export function PageElementInspector({
   }, []);
 
   if (typeof document === "undefined") return null;
-
-  const rect = hoveredEl?.getBoundingClientRect() ?? null;
 
   return createPortal(
     <>
@@ -325,32 +394,16 @@ export function PageElementInspector({
         style={{ position: "fixed", inset: 0, zIndex: 9998, background: "transparent", touchAction: "none" }}
       />
 
-      {rect && (
-        <div
-          data-primordia-inspector="highlight-component"
-          style={{
-            position: "fixed",
-            left: rect.left - 2,
-            top: rect.top - 2,
-            width: rect.width + 4,
-            height: rect.height + 4,
-            outline: "2px solid #3b82f6",
-            outlineOffset: "0",
-            background: "rgba(59, 130, 246, 0.05)",
-            pointerEvents: "none",
-            zIndex: 9996,
-          }}
-        />
-      )}
-
-      {hoveredEl && rect && <HoverLabel el={hoveredEl} rect={rect} />}
+      <HighlightBox el={hoveredTarget?.componentEl ?? null} kind="component" />
+      <HighlightBox el={hoveredTarget?.dataIdEl ?? null} kind="data-id" />
+      {hoveredTarget && <HoverLabels target={hoveredTarget} />}
 
       <div
         data-primordia-inspector="banner"
         style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 9999, pointerEvents: "none" }}
         className="px-4 py-2 rounded-lg bg-blue-950 border border-blue-600/60 text-xs text-blue-200 shadow-2xl whitespace-nowrap"
       >
-        Click a named component to attach it to your request · <kbd className="opacity-70">Esc</kbd> to cancel
+        Click a named target to attach it to your request · <kbd className="opacity-70">Esc</kbd> to cancel
         <span className="hidden sm:inline"> · touch: drag to highlight, hold to select</span>
       </div>
     </>,

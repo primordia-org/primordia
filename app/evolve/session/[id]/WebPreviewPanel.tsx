@@ -3,8 +3,8 @@
 // components/WebPreviewPanel.tsx
 // Inline browser-like preview panel for evolve session pages.
 // Shows an iframe with Back, Forward, Refresh buttons and an editable URL bar.
-// Supports an element inspector mode that highlights the nearest data-component
-// element on hover and reports its data-component selector on click.
+// Supports an element inspector mode that highlights nearest data-component
+// and data-id elements on hover and reports both selectors on click.
 
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Crosshair } from "lucide-react";
@@ -21,8 +21,10 @@ const INSPECTOR_SCRIPT = `
   window.__primordiaInspectorActive = true;
 
   var hovered = null;
-  var highlightEl = null;
-  var labelEl = null;
+  var componentHighlightEl = null;
+  var dataIdHighlightEl = null;
+  var labelElComponent = null;
+  var labelElDataId = null;
   var longPressTimer = null;
   var touchStartX = 0;
   var touchStartY = 0;
@@ -40,18 +42,25 @@ const INSPECTOR_SCRIPT = `
     return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   }
 
-  function nearestDataComponent(el) {
+  function nearestNamed(el, attr) {
     var cur = el;
     while (cur && cur !== document.body) {
-      if (cur.getAttribute && cur.getAttribute('data-component')) return cur;
+      if (cur.getAttribute && cur.getAttribute(attr)) return cur;
       cur = cur.parentElement;
     }
     return null;
   }
 
-  function getCssSelector(el) {
-    var component = el && el.getAttribute && el.getAttribute('data-component');
-    return component ? '[data-component="' + cssString(component) + '"]' : '';
+  function resolveTarget(rawEl) {
+    var componentEl = nearestNamed(rawEl, 'data-component');
+    var dataIdEl = nearestNamed(rawEl, 'data-id');
+    var selectedEl = dataIdEl || componentEl;
+    return selectedEl ? { componentEl: componentEl, dataIdEl: dataIdEl, selectedEl: selectedEl } : null;
+  }
+
+  function attrSelector(el, attr) {
+    var value = el && el.getAttribute && el.getAttribute(attr);
+    return value ? '[' + attr + '="' + cssString(value) + '"]' : null;
   }
 
   function getDataSourceFile(el) {
@@ -64,12 +73,12 @@ const INSPECTOR_SCRIPT = `
     return null;
   }
 
-  function makeLabel() {
+  function makeLabel(bgColor) {
     var lbl = document.createElement('div');
     lbl.style.cssText = [
       'position:fixed',
       'z-index:2147483647',
-      'background:#3b82f6',
+      'background:' + bgColor,
       'color:#fff',
       'font:bold 11px/1.6 monospace',
       'padding:1px 6px',
@@ -85,35 +94,54 @@ const INSPECTOR_SCRIPT = `
     return lbl;
   }
 
-  function updateLabel(el) {
-    if (!labelEl) labelEl = makeLabel();
-    labelEl.textContent = '<' + el.getAttribute('data-component') + '>';
-    var rect = el.getBoundingClientRect();
-    var lblH = labelEl.offsetHeight || 18;
-    var top = rect.top - lblH - 7;
+  function updateLabels(target) {
+    var component = target.componentEl && target.componentEl.getAttribute('data-component');
+    var dataId = target.dataIdEl && target.dataIdEl.getAttribute('data-id');
+    var anchorEl = target.dataIdEl || target.componentEl;
+    var rect = anchorEl.getBoundingClientRect();
+    var labelCount = component && dataId ? 2 : 1;
+    if (component && !labelElComponent) labelElComponent = makeLabel('#3b82f6');
+    if (dataId && !labelElDataId) labelElDataId = makeLabel('#16a34a');
+    if (labelElComponent) labelElComponent.textContent = '<' + component + '>';
+    if (labelElDataId) labelElDataId.textContent = '[' + dataId + ']';
+    var lblH = (labelElComponent || labelElDataId).offsetHeight || 18;
+    var gap = 3;
+    var top = rect.top - lblH * labelCount - gap * (labelCount - 1) - 4;
     if (top < 2) top = rect.bottom + 3;
-    var left = Math.max(2, Math.min(rect.left, window.innerWidth - 200));
-    labelEl.style.top = top + 'px';
-    labelEl.style.left = left + 'px';
+    var left = Math.max(2, Math.min(rect.left, window.innerWidth - 240));
+    if (labelElComponent) {
+      labelElComponent.style.top = top + 'px';
+      labelElComponent.style.left = left + 'px';
+    }
+    if (labelElDataId) {
+      labelElDataId.style.top = (top + (component ? lblH + gap : 0)) + 'px';
+      labelElDataId.style.left = left + 'px';
+    }
   }
 
-  function removeLabel() {
-    if (labelEl) { labelEl.remove(); labelEl = null; }
+  function removeLabels() {
+    if (labelElComponent) { labelElComponent.remove(); labelElComponent = null; }
+    if (labelElDataId) { labelElDataId.remove(); labelElDataId = null; }
   }
 
-  function updateHighlight(el) {
+  function updateHighlight(el, kind) {
+    if (!el) return;
     var rect = el.getBoundingClientRect();
+    var isComponent = kind === 'component';
+    var highlightEl = isComponent ? componentHighlightEl : dataIdHighlightEl;
     if (!highlightEl) {
       highlightEl = document.createElement('div');
-      highlightEl.id = 'primordia-inspector-comp-highlight';
+      highlightEl.id = isComponent ? 'primordia-inspector-comp-highlight' : 'primordia-inspector-data-id-highlight';
       highlightEl.style.cssText = [
         'position:fixed',
-        'z-index:2147483644',
+        'z-index:' + (isComponent ? '2147483644' : '2147483645'),
         'pointer-events:none',
-        'border:2px solid #3b82f6',
-        'background:rgba(59,130,246,0.05)',
+        'border:2px solid ' + (isComponent ? '#3b82f6' : '#22c55e'),
+        'background:' + (isComponent ? 'rgba(59,130,246,0.05)' : 'rgba(34,197,94,0.08)'),
       ].join(';');
       document.body.appendChild(highlightEl);
+      if (isComponent) componentHighlightEl = highlightEl;
+      else dataIdHighlightEl = highlightEl;
     }
     highlightEl.style.left = (rect.left - 2) + 'px';
     highlightEl.style.top = (rect.top - 2) + 'px';
@@ -121,37 +149,47 @@ const INSPECTOR_SCRIPT = `
     highlightEl.style.height = (rect.height + 4) + 'px';
   }
 
-  function removeHighlight() {
-    if (highlightEl) { highlightEl.remove(); highlightEl = null; }
+  function removeHighlights() {
+    if (componentHighlightEl) { componentHighlightEl.remove(); componentHighlightEl = null; }
+    if (dataIdHighlightEl) { dataIdHighlightEl.remove(); dataIdHighlightEl = null; }
+  }
+
+  function sameTarget(a, b) {
+    return a && b && a.selectedEl === b.selectedEl && a.componentEl === b.componentEl && a.dataIdEl === b.dataIdEl;
   }
 
   function setHighlight(rawEl) {
-    var el = nearestDataComponent(rawEl);
-    if (el === hovered) return;
+    var target = resolveTarget(rawEl);
+    if (sameTarget(target, hovered)) return;
     clearHighlight();
-    hovered = el;
+    hovered = target;
     if (hovered) {
-      updateHighlight(hovered);
-      updateLabel(hovered);
+      updateHighlight(hovered.componentEl, 'component');
+      updateHighlight(hovered.dataIdEl, 'data-id');
+      updateLabels(hovered);
     }
   }
 
   function clearHighlight() {
     hovered = null;
-    removeLabel();
-    removeHighlight();
+    removeLabels();
+    removeHighlights();
   }
 
   function selectElement(rawEl) {
-    var el = nearestDataComponent(rawEl);
-    if (!el) return;
-    var component = el.getAttribute('data-component');
-    var selector = getCssSelector(el);
-    var sourceFile = getDataSourceFile(el);
+    var target = resolveTarget(rawEl);
+    if (!target) return;
+    var component = target.componentEl && target.componentEl.getAttribute('data-component');
+    var dataId = target.dataIdEl && target.dataIdEl.getAttribute('data-id');
+    var selector = attrSelector(target.componentEl, 'data-component') || attrSelector(target.dataIdEl, 'data-id') || '';
+    var dataIdSelector = attrSelector(target.dataIdEl, 'data-id');
+    var sourceFile = getDataSourceFile(target.selectedEl);
     window.parent.postMessage({
       type: 'primordia-element-selected',
-      component: component,
+      component: component || 'UnnamedComponent',
       selector: selector,
+      dataId: dataId || null,
+      dataIdSelector: dataIdSelector || null,
       sourceFile: sourceFile || null,
     }, '*');
     deactivate();
@@ -190,7 +228,7 @@ const INSPECTOR_SCRIPT = `
     cancelLongPress();
     longPressTimer = setTimeout(function() {
       longPressTimer = null;
-      if (hovered) selectElement(hovered);
+      if (hovered) selectElement(hovered.selectedEl);
     }, LONG_PRESS_MS);
   }
 
@@ -245,6 +283,10 @@ const INSPECTOR_SCRIPT = `
 export interface ElementSelection {
   component: string;
   selector: string;
+  /** Nearest data-id label, when available. */
+  dataId?: string | null;
+  /** CSS selector for the nearest data-id element, when available. */
+  dataIdSelector?: string | null;
   /** Source filename from data-source-file attribute, if available. */
   sourceFile?: string | null;
 }
@@ -268,7 +310,7 @@ interface WebPreviewPanelProps {
   offlineContent?: React.ReactNode;
   /**
    * Called when the user selects an element via the inspector tool.
-   * Receives the nearest data-component name and data-component selector.
+   * Receives nearest data-component and data-id names/selectors.
    */
   onElementSelected?: (info: ElementSelection) => void;
 }
@@ -412,6 +454,8 @@ export function WebPreviewPanel({
         onElementSelected?.({
           component: e.data.component,
           selector: e.data.selector,
+          dataId: e.data.dataId ?? null,
+          dataIdSelector: e.data.dataIdSelector ?? null,
           sourceFile: e.data.sourceFile ?? null,
         });
       }

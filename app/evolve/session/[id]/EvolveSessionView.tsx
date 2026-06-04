@@ -1944,7 +1944,7 @@ export default function EvolveSessionView({
 
   // Called by WebPreviewPanel when the user picks an element with the inspector tool.
   const handleElementSelected = useCallback((info: ElementSelection) => {
-    trackEvent("session/preview-element-selected/v1", { sessionId, component: info.component, selector: info.selector });
+    trackEvent("session/preview-element-selected/v1", { sessionId, component: info.component, selector: info.selector, dataId: info.dataId ?? null, dataIdSelector: info.dataIdSelector ?? null });
     setActiveAction('followup');
     setElementContext(info);
   }, [sessionId]);
@@ -2343,8 +2343,10 @@ export default function EvolveSessionView({
               {/* Element context chip — populated by the WebPreviewPanel inspector */}
               {elementContext && (
                 <div className="mb-3 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-blue-950/40 border border-blue-700/40 text-xs text-blue-300">
-                  <span className="font-semibold text-blue-200 flex-shrink-0">&lt;{elementContext.component}&gt;</span>
-                  <span className="font-mono text-blue-400 truncate">{elementContext.selector}</span>
+                  <span className="font-semibold text-blue-200 flex-shrink-0">
+                    {elementContext.dataId ? `[${elementContext.dataId}] in ` : ''}&lt;{elementContext.component}&gt;
+                  </span>
+                  <span className="font-mono text-blue-400 truncate">{[elementContext.selector, elementContext.dataIdSelector].filter(Boolean).join(' · ')}</span>
                   <button
                     data-id="session/clear-element-context"
                     type="button"
@@ -2370,7 +2372,8 @@ export default function EvolveSessionView({
                   let fullRequest = request;
                   if (elementContext) {
                     const sourceFilePart = elementContext.sourceFile ? ` (${elementContext.sourceFile})` : '';
-                    fullRequest = `Re: <${elementContext.component}>${sourceFilePart} ${elementContext.selector}\n\n${request}`;
+                    const dataIdPart = elementContext.dataId ? ` [${elementContext.dataId}] ${elementContext.dataIdSelector ?? ''}` : '';
+                    fullRequest = `Re: <${elementContext.component}>${sourceFilePart} ${elementContext.selector}${dataIdPart}\n\n${request}`;
                   }
                   const formData = new FormData();
                   formData.append('sessionId', sessionId);
