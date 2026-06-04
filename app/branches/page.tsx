@@ -222,6 +222,8 @@ function buildGitGraphRows(branches: BranchData[], cwd: string): GitGraphRow[] {
       "log",
       "--graph",
       "--date-order",
+      "--simplify-by-decoration",
+      "--decorate-refs=refs/heads",
       "--branches",
       "--format=%h%x00%D%x00%s",
       "--max-count=250",
@@ -230,20 +232,23 @@ function buildGitGraphRows(branches: BranchData[], cwd: string): GitGraphRow[] {
   );
   if (result.code !== 0 || !result.stdout) return [];
 
-  return result.stdout.split("\n").map((line) => {
-    const match = line.match(/^(.*?)([0-9a-f]{7,40})\u0000([^\u0000]*)\u0000(.*)$/);
-    if (!match) {
-      return { graph: line, hash: null, subject: null, branchNames: [] };
-    }
+  return result.stdout
+    .split("\n")
+    .map((line) => {
+      const match = line.match(/^(.*?)([0-9a-f]{7,40})\u0000([^\u0000]*)\u0000(.*)$/);
+      if (!match) {
+        return { graph: line, hash: null, subject: null, branchNames: [] };
+      }
 
-    const [, graph, hash, decorations, subject] = match;
-    const branchNames = decorations
-      .split(",")
-      .map((part) => part.trim().replace(/^HEAD -> /, ""))
-      .filter((name) => byName.has(name));
+      const [, graph, hash, decorations, subject] = match;
+      const branchNames = decorations
+        .split(",")
+        .map((part) => part.trim().replace(/^HEAD -> /, ""))
+        .filter((name) => byName.has(name));
 
-    return { graph, hash, subject, branchNames };
-  });
+      return { graph, hash, subject, branchNames };
+    })
+    .filter((row) => !row.hash || row.branchNames.length > 0);
 }
 
 function GraphGlyphs({ graph, isActive }: { graph: string; isActive: boolean }) {
@@ -375,9 +380,7 @@ function GitGraph({
                       </span>
                     ))}
                   </span>
-                ) : (
-                  <span className="text-gray-700">commit</span>
-                )}
+                ) : null}
                 {row.subject && (
                   <span className="min-w-0 max-w-sm truncate text-gray-600">
                     — {row.subject}
