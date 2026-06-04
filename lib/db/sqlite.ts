@@ -2,7 +2,7 @@
 // Uses bun:sqlite which is built into Bun and requires no npm package.
 // Only imported when DATABASE_URL is not set (i.e., local dev without Neon).
 
-import type { DbAdapter, User, Passkey, Challenge, Session, CrossDeviceToken, InstanceConfig, GraphNode, GraphEdge } from "./types";
+import type { DbAdapter, User, Passkey, Challenge, Session, CrossDeviceToken, InstanceConfig, GraphNode, GraphEdge, WebPushSubscription } from "./types";
 import { generateUuid7 } from "../uuid7";
 
 let dbInstance: DbAdapter | null = null;
@@ -84,6 +84,22 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       updated_at INTEGER NOT NULL,
       PRIMARY KEY (user_id, auth_source)
     );
+    CREATE TABLE IF NOT EXISTS web_push_vapid_keys (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      public_key TEXT NOT NULL,
+      private_key TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user ON web_push_subscriptions(user_id);
     CREATE TABLE IF NOT EXISTS instance_config (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -610,6 +626,60 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       if (wheres.length) sql += ` WHERE ` + wheres.join(` AND `);
       const row = db.prepare(sql).get(...params) as { n: number };
       return row.n;
+    },
+
+    // ── Web Push notifications ────────────────────────────────────────────────
+
+    async getWebPushVapidKeys() {
+      const row = db
+        .prepare("SELECT public_key, private_key, created_at FROM web_push_vapid_keys WHERE id = 1")
+        .get() as { public_key: string; private_key: string; created_at: number } | null;
+      if (!row) return null;
+      return { publicKey: row.public_key, privateKey: row.private_key, createdAt: row.created_at };
+    },
+
+    async setWebPushVapidKeys(keys) {
+      db.prepare(
+        `INSERT INTO web_push_vapid_keys (id, public_key, private_key, created_at)
+         VALUES (1, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET public_key = excluded.public_key, private_key = excluded.private_key`
+      ).run(keys.publicKey, keys.privateKey, keys.createdAt);
+    },
+
+    async upsertWebPushSubscription(subscription: WebPushSubscription) {
+      db.prepare(
+        `INSERT INTO web_push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id,
+           p256dh = excluded.p256dh, auth = excluded.auth, updated_at = excluded.updated_at`
+      ).run(
+        subscription.id,
+        subscription.userId,
+        subscription.endpoint,
+        subscription.p256dh,
+        subscription.auth,
+        subscription.createdAt,
+        subscription.updatedAt
+      );
+    },
+
+    async deleteWebPushSubscription(userId: string, endpoint: string) {
+      db.prepare("DELETE FROM web_push_subscriptions WHERE user_id = ? AND endpoint = ?").run(userId, endpoint);
+    },
+
+    async getWebPushSubscriptionsByUser(userId: string) {
+      const rows = db
+        .prepare("SELECT id, user_id, endpoint, p256dh, auth, created_at, updated_at FROM web_push_subscriptions WHERE user_id = ? ORDER BY updated_at DESC")
+        .all(userId) as Array<{ id: string; user_id: string; endpoint: string; p256dh: string; auth: string; created_at: number; updated_at: number }>;
+      return rows.map((r) => ({
+        id: r.id,
+        userId: r.user_id,
+        endpoint: r.endpoint,
+        p256dh: r.p256dh,
+        auth: r.auth,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      }));
     },
 
     async upsertGraphEdge(edge: GraphEdge) {
