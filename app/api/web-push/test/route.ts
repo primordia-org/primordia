@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { getDb } from "@/lib/db/index";
-import { isWebPushCategory, sendWebPush, WEB_PUSH_CATEGORY_LABELS } from "@/lib/web-push";
+import { isWebPushCategory, sendWebPush, WEB_PUSH_CATEGORY_LABELS, WEB_PUSH_CATEGORY_TAGS } from "@/lib/web-push";
 
 /**
  * Send a no-payload test push to the current user's stored subscriptions.
@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
     : category === "primordia-updates"
       ? "/admin/updates"
       : "/test-pages/web-push-test";
+  const tag = category ? WEB_PUSH_CATEGORY_TAGS[category] : `primordia-web-push-test-${Date.now()}`;
 
   const db = await getDb();
   const subscriptions = await db.getWebPushSubscriptionsByUser(user.id);
@@ -39,11 +40,11 @@ export async function POST(req: NextRequest) {
 
   const results = await Promise.all(
     subscriptions.map(async (subscription) => {
-      const result = await sendWebPush(subscription, { title, body: message, url });
+      const result = await sendWebPush(subscription, { title, body: message, url, tag });
       if (!result.ok && (result.status === 404 || result.status === 410)) {
         await db.deleteWebPushSubscription(user.id, subscription.endpoint);
       }
-      return { endpoint: subscription.endpoint, ...result };
+      return { endpoint: subscription.endpoint, tag, ...result };
     })
   );
 

@@ -46,6 +46,7 @@ interface SendResult {
   endpoint: string;
   ok: boolean;
   status: number;
+  tag?: string;
   contentEncoding?: string;
   payloadBytes?: number;
   error?: string;
@@ -447,6 +448,7 @@ export default function WebPushTestClient({
                         {result.ok ? "accepted" : "failed"} · HTTP {result.status}
                         {result.contentEncoding ? ` · ${result.contentEncoding}` : ""}
                         {result.payloadBytes ? ` · ${result.payloadBytes} bytes` : ""}
+                        {result.tag ? ` · tag: ${result.tag}` : ""}
                         {result.error ? ` · ${result.error.slice(0, 180)}` : ""}
                       </p>
                     </li>

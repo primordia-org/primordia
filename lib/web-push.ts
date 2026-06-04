@@ -18,6 +18,8 @@ export interface SendWebPushOptions {
   title: string;
   body: string;
   url?: string;
+  /** Stable notification tag. Notifications with the same tag supersede each other. */
+  tag?: string;
 }
 
 export const WEB_PUSH_CATEGORIES = ["security-vulnerabilities", "primordia-updates"] as const satisfies readonly WebPushCategory[];
@@ -25,6 +27,11 @@ export const WEB_PUSH_CATEGORIES = ["security-vulnerabilities", "primordia-updat
 export const WEB_PUSH_CATEGORY_LABELS: Record<WebPushCategory, string> = {
   "security-vulnerabilities": "Security Vulnerabilities",
   "primordia-updates": "Primordia Updates",
+};
+
+export const WEB_PUSH_CATEGORY_TAGS: Record<WebPushCategory, string> = {
+  "security-vulnerabilities": "primordia-security-vulnerabilities",
+  "primordia-updates": "primordia-updates",
 };
 
 export function isWebPushCategory(value: unknown): value is WebPushCategory {
@@ -79,7 +86,7 @@ export async function sendWebPush(subscription: WebPushSubscription, options: Se
     title: options.title,
     body: options.body,
     url: options.url,
-    tag: "primordia-web-push-test",
+    tag: options.tag ?? "primordia-web-push-test",
   });
 
   try {
@@ -135,7 +142,10 @@ export async function sendWebPushToCategory(
     const subscriptions = await db.getWebPushSubscriptionsByUser(userId);
     for (const subscription of subscriptions) {
       attempted += 1;
-      const result = await sendWebPush(subscription, options);
+      const result = await sendWebPush(subscription, {
+        ...options,
+        tag: options.tag ?? WEB_PUSH_CATEGORY_TAGS[category],
+      });
       if (result.ok) delivered += 1;
       if (!result.ok && (result.status === 404 || result.status === 410)) {
         await db.deleteWebPushSubscription(userId, subscription.endpoint);
