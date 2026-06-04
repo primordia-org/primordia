@@ -1,10 +1,7 @@
 // app/branches/page.tsx
-// Shows branches in two sections:
-//   1. Active — the production branch and any non-terminal (not accepted/rejected)
-//      children/grandchildren. This is the "live" work in progress.
-//   2. Past Sessions — the chain of past production slots (blue-green ancestry),
-//      most recent first, each with any accepted/rejected sibling branches nested
-//      beneath them.
+// Shows local branches as a git log --graph-inspired view. Production history
+// and active branch descendants are rendered as one connected graph, with newer
+// branch tips above their parents so the graph visually grows upward.
 
 import { spawnSync } from "child_process";
 import { headers } from "next/headers";
@@ -456,9 +453,139 @@ const STATUS_LABEL: Record<string, string> = {
   rejected: "rejected",
 };
 
-// ─── Recursive branch row ───────────────────────────────────────────────────────
+// ─── Log graph rendering ───────────────────────────────────────────────────────
 
-function BranchRow({
+function buildConnectedGraph(
+  activeProd: BranchNode | null,
+  pastSlots: PastSlot[],
+): BranchNode | null {
+  if (!activeProd) return null;
+
+  return pastSlots.reduce<BranchNode>((promotedChild, slot) => {
+    const children = [promotedChild, ...slot.children].sort((a, b) => {
+      if (a.name === promotedChild.name) return -1;
+      if (b.name === promotedChild.name) return 1;
+      return a.name.localeCompare(b.name);
+    });
+    return { ...slot.branch, children };
+  }, activeProd);
+}
+
+function BranchLine({
+  node,
+  graphPrefix,
+  currentServerUrl,
+  canCreateSession,
+}: {
+  node: BranchNode;
+  graphPrefix: string;
+  currentServerUrl: string;
+  /** Whether to show the "+ session" button for branches without sessions. */
+  canCreateSession: boolean;
+}) {
+  const url = node.isProduction ? currentServerUrl : node.previewUrl;
+  const statusColor = node.sessionStatus
+    ? (STATUS_COLOR[node.sessionStatus] ?? "text-gray-400")
+    : "";
+  const statusLabel = node.sessionStatus
+    ? (STATUS_LABEL[node.sessionStatus] ?? node.sessionStatus)
+    : null;
+
+  const isTerminal = TERMINAL_STATUSES.has(node.sessionStatus ?? "");
+
+  return (
+    <div className="flex min-w-max items-baseline gap-1.5 whitespace-nowrap font-mono text-sm leading-7">
+      <span className="whitespace-pre select-none shrink-0">
+        <span className="text-gray-600">{graphPrefix}</span>
+        <span className={url ? "text-green-400" : "text-gray-500"}>*</span>
+      </span>
+      <span className="text-gray-600 shrink-0">
+        {node.shortSha ?? "────────"}
+      </span>
+      {node.hasSession ? (
+        <Link
+          href={`/evolve/session/${node.name}`}
+          className={
+            node.isProduction
+              ? "text-white font-bold hover:text-gray-200"
+              : node.isCurrent
+                ? "text-white font-bold hover:text-gray-200"
+                : isTerminal
+                  ? "text-gray-600 hover:text-gray-500"
+                  : "text-gray-300 hover:text-gray-100"
+          }
+        >
+          {node.name}
+          {node.isProduction && (
+            <span className="text-blue-400 font-normal ml-1">(production)</span>
+          )}
+          {node.isCurrent && !node.isProduction && (
+            <span className="text-gray-500 font-normal ml-1">(current)</span>
+          )}
+        </Link>
+      ) : (
+        <span
+          className={
+            node.isProduction
+              ? "text-white font-bold"
+              : node.isCurrent
+                ? "text-white font-bold"
+                : isTerminal
+                  ? "text-gray-600"
+                  : "text-gray-300"
+          }
+        >
+          {node.name}
+          {node.isProduction && (
+            <span className="text-blue-400 font-normal ml-1">(production)</span>
+          )}
+          {node.isCurrent && !node.isProduction && (
+            <span className="text-gray-500 font-normal ml-1">(current)</span>
+          )}
+        </span>
+      )}
+      {statusLabel && !node.isProduction && (
+        <span className={`text-xs shrink-0 ${statusColor}`}>
+          [{statusLabel}]
+        </span>
+      )}
+      {node.subject && (
+        <span className="min-w-0 max-w-sm truncate text-gray-600">
+          — {node.subject}
+        </span>
+      )}
+
+      {canCreateSession &&
+        !node.hasSession &&
+        !node.isCurrent &&
+        !node.isProduction &&
+        !isTerminal && (
+          <CreateSessionFromBranchButton branchName={node.name} />
+        )}
+      {url && (
+        <a
+          href={url}
+          target={node.isCurrent ? "_self" : "_blank"}
+          rel="noopener noreferrer"
+          className="text-blue-400 hover:text-blue-300 ml-1 shrink-0 flex items-center"
+          title={node.isProduction ? "View site" : "Open preview"}
+        >
+          <ExternalLink size={13} strokeWidth={2} />
+        </a>
+      )}
+    </div>
+  );
+}
+
+function ConnectorLine({ prefix }: { prefix: string }) {
+  return (
+    <div className="min-w-max whitespace-pre font-mono text-sm leading-4 text-gray-600 select-none">
+      {prefix}
+    </div>
+  );
+}
+
+function BranchGraph({
   node,
   depth,
   linePrefix,
@@ -471,108 +598,17 @@ function BranchRow({
   linePrefix: string;
   isLast: boolean;
   currentServerUrl: string;
-  /** Whether to show the "+ session" button for branches without sessions. */
   canCreateSession: boolean;
 }) {
   const isRoot = depth === 0;
-  const graphPrefix = isRoot ? "" : linePrefix + (isLast ? "\\ " : "|\\ ");
+  const graphPrefix = isRoot ? "" : linePrefix + (isLast ? "  " : "| ");
   const childLinePrefix = isRoot ? "" : linePrefix + (isLast ? "  " : "| ");
-
-  const url = node.isProduction ? currentServerUrl : node.previewUrl;
-  const statusColor = node.sessionStatus
-    ? (STATUS_COLOR[node.sessionStatus] ?? "text-gray-400")
-    : "";
-  const statusLabel = node.sessionStatus
-    ? (STATUS_LABEL[node.sessionStatus] ?? node.sessionStatus)
-    : null;
-
-  const isTerminal = TERMINAL_STATUSES.has(node.sessionStatus ?? "");
+  const connectorPrefix = isRoot ? "" : linePrefix + (isLast ? "/ " : "|/ ");
 
   return (
     <>
-      <div className="flex min-w-max items-baseline gap-1.5 whitespace-nowrap font-mono text-sm leading-7">
-        <span className="whitespace-pre select-none shrink-0">
-          <span className="text-gray-600">{graphPrefix}</span>
-          <span className={url ? "text-green-400" : "text-gray-500"}>*</span>
-        </span>
-        <span className="text-gray-600 shrink-0">
-          {node.shortSha ?? "────────"}
-        </span>
-        {node.hasSession ? (
-          <Link
-            href={`/evolve/session/${node.name}`}
-            className={
-              node.isProduction
-                ? "text-white font-bold hover:text-gray-200"
-                : node.isCurrent
-                  ? "text-white font-bold hover:text-gray-200"
-                  : isTerminal
-                    ? "text-gray-600 hover:text-gray-500"
-                    : "text-gray-300 hover:text-gray-100"
-            }
-          >
-            {node.name}
-            {node.isProduction && (
-              <span className="text-blue-400 font-normal ml-1">(production)</span>
-            )}
-            {node.isCurrent && !node.isProduction && (
-              <span className="text-gray-500 font-normal ml-1">(current)</span>
-            )}
-          </Link>
-        ) : (
-          <span
-            className={
-              node.isProduction
-                ? "text-white font-bold"
-                : node.isCurrent
-                  ? "text-white font-bold"
-                  : isTerminal
-                    ? "text-gray-600"
-                    : "text-gray-300"
-            }
-          >
-            {node.name}
-            {node.isProduction && (
-              <span className="text-blue-400 font-normal ml-1">(production)</span>
-            )}
-            {node.isCurrent && !node.isProduction && (
-              <span className="text-gray-500 font-normal ml-1">(current)</span>
-            )}
-          </span>
-        )}
-        {statusLabel && !node.isProduction && (
-          <span className={`text-xs shrink-0 ${statusColor}`}>
-            [{statusLabel}]
-          </span>
-        )}
-        {node.subject && (
-          <span className="min-w-0 max-w-sm truncate text-gray-600">
-            — {node.subject}
-          </span>
-        )}
-
-        {/* Show "+ session" only for active (non-terminal) branches without a session */}
-        {canCreateSession &&
-          !node.hasSession &&
-          !node.isCurrent &&
-          !node.isProduction &&
-          !isTerminal && (
-            <CreateSessionFromBranchButton branchName={node.name} />
-          )}
-        {url && (
-          <a
-            href={url}
-            target={node.isCurrent ? "_self" : "_blank"}
-            rel="noopener noreferrer"
-            className="text-blue-400 hover:text-blue-300 ml-1 shrink-0 flex items-center"
-            title={node.isProduction ? "View site" : "Open preview"}
-          >
-            <ExternalLink size={13} strokeWidth={2} />
-          </a>
-        )}
-      </div>
       {node.children.map((child, i) => (
-        <BranchRow
+        <BranchGraph
           key={child.name}
           node={child}
           depth={depth + 1}
@@ -582,6 +618,13 @@ function BranchRow({
           canCreateSession={canCreateSession}
         />
       ))}
+      {!isRoot && <ConnectorLine prefix={connectorPrefix} />}
+      <BranchLine
+        node={node}
+        graphPrefix={graphPrefix}
+        currentServerUrl={currentServerUrl}
+        canCreateSession={canCreateSession}
+      />
     </>
   );
 }
@@ -637,6 +680,7 @@ export default async function BranchesPage() {
 
   const { branches, productionBranch, diag } = await getBranchData(parentSource);
   const { activeProd, pastSlots, unattached } = buildSections(branches, productionBranch, diag.cwd);
+  const connectedGraph = buildConnectedGraph(activeProd, pastSlots);
 
   const [headerStore] = await Promise.all([headers()]);
   const sessionUser = user
@@ -668,16 +712,16 @@ export default async function BranchesPage() {
         disabled={!user}
       />
 
-      {/* ── Active section ── */}
+      {/* ── Connected production graph ── */}
 
       <div className="mt-2">
         <p className="text-xs text-gray-500 font-mono uppercase tracking-widest mb-2">
-          Active
+          Branch Graph
         </p>
-        {activeProd ? (
+        {connectedGraph ? (
           <div className="space-y-0 overflow-x-auto pb-1">
-            <BranchRow
-              node={activeProd}
+            <BranchGraph
+              node={connectedGraph}
               depth={0}
               linePrefix=""
               isLast={true}
@@ -692,34 +736,6 @@ export default async function BranchesPage() {
         )}
       </div>
 
-      {/* ── Past Sessions section ── */}
-      {pastSlots.length > 0 && (
-        <div className="mt-8">
-          <p className="text-xs text-gray-500 font-mono uppercase tracking-widest mb-2">
-            Past Sessions
-          </p>
-          <div className="space-y-0 overflow-x-auto pb-1">
-            {pastSlots.map((slot) => {
-              const slotNode: BranchNode = {
-                ...slot.branch,
-                children: slot.children,
-              };
-              return (
-                <BranchRow
-                  key={slot.branch.name}
-                  node={slotNode}
-                  depth={0}
-                  linePrefix=""
-                  isLast={true}
-                  currentServerUrl={currentServerUrl}
-                  canCreateSession={false}
-                />
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* ── Unattached Branches section ── */}
       {unattached.length > 0 && (
         <div className="mt-8">
@@ -728,7 +744,7 @@ export default async function BranchesPage() {
           </p>
           <div className="space-y-0 overflow-x-auto pb-1">
             {unattached.map((node) => (
-              <BranchRow
+              <BranchGraph
                 key={node.name}
                 node={node}
                 depth={0}
@@ -745,8 +761,9 @@ export default async function BranchesPage() {
       {/* Legend */}
       <div className="mt-8 border-t border-gray-800 pt-4 text-xs text-gray-600 font-mono space-y-1">
         <p>
-          * green = preview server active · * dim = no active session · short hash
-          and latest commit subject mirror git log output · branch name links to session ·{" "}
+          * green = preview server active · * dim = no active session · / and |
+          connector rows show newer branches growing upward from older parents · short
+          hash and latest commit subject mirror git log output · branch name links to session ·{" "}
           <span className="text-blue-400"><ExternalLink size={10} className="inline" /></span> = open
           branch · <span className="text-purple-500">+ session</span> = start new
           session on existing branch
