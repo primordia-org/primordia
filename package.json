@@ -32,7 +32,6 @@
     "@simplewebauthn/server": "^13.3.0",
     "@zumer/snapdom": "^2.8.0",
     "clsx": "^2.1.1",
-    "css-selector-generator": "^3.9.1",
     "lucide-react": "^1.8.0",
     "minimatch": "^10.2.5",
     "mnemonic-id": "^4.1.0",

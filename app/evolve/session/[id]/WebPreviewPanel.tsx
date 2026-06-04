@@ -3,8 +3,8 @@
 // components/WebPreviewPanel.tsx
 // Inline browser-like preview panel for evolve session pages.
 // Shows an iframe with Back, Forward, Refresh buttons and an editable URL bar.
-// Supports an element inspector mode that highlights elements on hover,
-// detects the React component name, and reports a CSS selector on click.
+// Supports an element inspector mode that highlights nearest data-component
+// and data-id elements on hover and reports both selectors on click.
 
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Crosshair } from "lucide-react";
@@ -21,135 +21,48 @@ const INSPECTOR_SCRIPT = `
   window.__primordiaInspectorActive = true;
 
   var hovered = null;
+  var componentHighlightEl = null;
+  var dataIdHighlightEl = null;
+  var labelElComponent = null;
+  var labelElDataId = null;
   var longPressTimer = null;
   var touchStartX = 0;
   var touchStartY = 0;
   var LONG_PRESS_MS = 600;
-  var MOVE_CANCEL_PX = 12; // cancel long-press if finger drifts more than this
+  var MOVE_CANCEL_PX = 12;
 
-  // Inject crosshair cursor style
   var styleEl = document.createElement('style');
   styleEl.id = 'primordia-inspector-style';
   styleEl.textContent = 'body.primordia-inspecting, body.primordia-inspecting * { cursor: crosshair !important; }';
   document.head.appendChild(styleEl);
   document.body.classList.add('primordia-inspecting');
 
-  function getCssSelector(el) {
-    if (!(el instanceof Element)) return '';
-    // If the element itself has a data-id, use it directly — stable and maps to JSX source.
-    var elDataId = el.getAttribute('data-id');
-    if (elDataId) return '[data-id="' + elDataId + '"]';
-    var path = [];
-    var current = el;
-    while (current && current.tagName && current.tagName !== 'HTML' && current.tagName !== 'BODY') {
-      var part = current.tagName.toLowerCase();
-      var dataId = current.getAttribute('data-id');
-      if (dataId) {
-        path.unshift('[data-id="' + dataId + '"]');
-        break;
-      }
-      if (current.id) {
-        path.unshift('#' + current.id);
-        break;
-      }
-      var classes = [];
-      for (var i = 0; i < current.classList.length && classes.length < 2; i++) {
-        var c = current.classList[i];
-        // Skip Tailwind utility classes (contain special chars or are too long) and pseudo-variants
-        if (c.length < 25 && !c.includes(':') && !c.includes('/') && !c.includes('[') && !c.includes(']')) {
-          classes.push(c);
-        }
-      }
-      if (classes.length > 0) {
-        part += '.' + classes.join('.');
-      }
-      var siblings = current.parentElement
-        ? Array.from(current.parentElement.children).filter(function(s) { return s.tagName === current.tagName; })
-        : [];
-      if (siblings.length > 1) {
-        part += ':nth-of-type(' + (siblings.indexOf(current) + 1) + ')';
-      }
-      path.unshift(part);
-      if (path.length >= 5) break;
-      current = current.parentElement;
-    }
-    return path.join(' > ');
+  function cssString(value) {
+    if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(value);
+    return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   }
 
-  function getReactComponentName(el) {
-    var keys = Object.keys(el);
-    var fiberKey = null;
-    for (var i = 0; i < keys.length; i++) {
-      if (keys[i].startsWith('__reactFiber$') || keys[i].startsWith('__reactInternalInstance$')) {
-        fiberKey = keys[i];
-        break;
-      }
-    }
-    if (!fiberKey) return null;
-    var fiber = el[fiberKey];
-    var limit = 60;
-    while (fiber && limit-- > 0) {
-      var type = fiber.type;
-      if (type && typeof type === 'function') {
-        var name = type.displayName || type.name;
-        if (name && /^[A-Z]/.test(name) && name.length > 1) return name;
-      }
-      if (type && typeof type === 'object') {
-        var name = type.displayName;
-        if (!name && type.render) name = type.render.displayName || type.render.name;
-        if (!name && type.type) name = type.type.displayName || type.type.name;
-        if (name && /^[A-Z]/.test(name) && name.length > 1) return name;
-      }
-      fiber = fiber.return;
+  function nearestNamed(el, attr) {
+    var cur = el;
+    while (cur && cur !== document.body) {
+      if (cur.getAttribute && cur.getAttribute(attr)) return cur;
+      cur = cur.parentElement;
     }
     return null;
   }
 
-  // Walk fiber tree up to nearest named component, then down to first DOM node.
-  function getComponentRootDomEl(el) {
-    var keys = Object.keys(el);
-    var fiberKey = null;
-    for (var i = 0; i < keys.length; i++) {
-      if (keys[i].startsWith('__reactFiber$') || keys[i].startsWith('__reactInternalInstance$')) {
-        fiberKey = keys[i];
-        break;
-      }
-    }
-    if (!fiberKey) return null;
-    var fiber = el[fiberKey];
-    // Walk UP to nearest named component fiber
-    var componentFiber = null;
-    var cur = fiber.return;
-    var limit = 60;
-    while (cur && limit-- > 0) {
-      var type = cur.type;
-      var name = null;
-      if (type && typeof type === 'function') {
-        name = type.displayName || type.name;
-      } else if (type && typeof type === 'object') {
-        name = type.displayName;
-        if (!name && type.render) name = type.render.displayName || type.render.name;
-        if (!name && type.type) name = type.type.displayName || type.type.name;
-      }
-      if (name && /^[A-Z]/.test(name) && name.length > 1) {
-        componentFiber = cur;
-        break;
-      }
-      cur = cur.return;
-    }
-    if (!componentFiber) return null;
-    // Walk DOWN from componentFiber to first DOM stateNode
-    function findFirstDom(f) {
-      if (!f) return null;
-      if (typeof f.type === 'string' && f.stateNode && f.stateNode.nodeType === 1) return f.stateNode;
-      var result = findFirstDom(f.child);
-      if (result) return result;
-      return null;
-    }
-    return findFirstDom(componentFiber.child || componentFiber);
+  function resolveTarget(rawEl) {
+    var componentEl = nearestNamed(rawEl, 'data-component');
+    var dataIdEl = nearestNamed(rawEl, 'data-id');
+    var selectedEl = dataIdEl || componentEl;
+    return selectedEl ? { componentEl: componentEl, dataIdEl: dataIdEl, selectedEl: selectedEl } : null;
   }
 
-  // Walk DOM ancestors looking for data-source-file attribute.
+  function attrSelector(el, attr) {
+    var value = el && el.getAttribute && el.getAttribute(attr);
+    return value ? '[' + attr + '="' + cssString(value) + '"]' : null;
+  }
+
   function getDataSourceFile(el) {
     var cur = el;
     while (cur && cur !== document.body) {
@@ -159,12 +72,6 @@ const INSPECTOR_SCRIPT = `
     }
     return null;
   }
-
-  // ── Labels ────────────────────────────────────────────────────────────────────
-  // Blue label: component name. Green label: element CSS path.
-
-  var labelElComponent = null;
-  var labelElElement = null;
 
   function makeLabel(bgColor) {
     var lbl = document.createElement('div');
@@ -187,100 +94,106 @@ const INSPECTOR_SCRIPT = `
     return lbl;
   }
 
-  function positionLabels(el) {
-    var component = getReactComponentName(el) || 'Unknown';
-    var selector = getCssSelector(el);
-    if (!labelElComponent) labelElComponent = makeLabel('#3b82f6');
-    if (!labelElElement) labelElElement = makeLabel('#16a34a');
-    labelElComponent.textContent = '<' + component + '>';
-    labelElElement.textContent = selector;
-    var rect = el.getBoundingClientRect();
-    var lblH = labelElComponent.offsetHeight || 18;
+  function updateLabels(target) {
+    var component = target.componentEl && target.componentEl.getAttribute('data-component');
+    var dataId = target.dataIdEl && target.dataIdEl.getAttribute('data-id');
+    var anchorEl = target.dataIdEl || target.componentEl;
+    var rect = anchorEl.getBoundingClientRect();
+    var labelCount = component && dataId ? 2 : 1;
+    if (component && !labelElComponent) labelElComponent = makeLabel('#3b82f6');
+    if (dataId && !labelElDataId) labelElDataId = makeLabel('#16a34a');
+    if (labelElComponent) labelElComponent.textContent = '<' + component + '>';
+    if (labelElDataId) labelElDataId.textContent = '[' + dataId + ']';
+    var lblH = (labelElComponent || labelElDataId).offsetHeight || 18;
     var gap = 3;
-    var top = rect.top - lblH * 2 - gap * 2 - 4;
+    var top = rect.top - lblH * labelCount - gap * (labelCount - 1) - 4;
     if (top < 2) top = rect.bottom + 3;
-    var left = Math.max(2, Math.min(rect.left, window.innerWidth - 200));
-    labelElComponent.style.top = top + 'px';
-    labelElComponent.style.left = left + 'px';
-    labelElElement.style.top = (top + lblH + gap) + 'px';
-    labelElElement.style.left = left + 'px';
+    var left = Math.max(2, Math.min(rect.left, window.innerWidth - 240));
+    if (labelElComponent) {
+      labelElComponent.style.top = top + 'px';
+      labelElComponent.style.left = left + 'px';
+    }
+    if (labelElDataId) {
+      labelElDataId.style.top = (top + (component ? lblH + gap : 0)) + 'px';
+      labelElDataId.style.left = left + 'px';
+    }
   }
 
   function removeLabels() {
     if (labelElComponent) { labelElComponent.remove(); labelElComponent = null; }
-    if (labelElElement) { labelElElement.remove(); labelElElement = null; }
+    if (labelElDataId) { labelElDataId.remove(); labelElDataId = null; }
   }
 
-  // ── Component highlight overlay ────────────────────────────────────────────
-  // Blue overlay box covering the nearest React component root element.
-
-  var componentHighlightEl = null;
-
-  function updateComponentHighlight(el) {
-    var compEl = getComponentRootDomEl(el);
-    // Always show blue component outline (even same element as hovered — creates nested look).
-    if (!compEl) { removeComponentHighlight(); return; }
-    var rect = compEl.getBoundingClientRect();
-    if (!componentHighlightEl) {
-      componentHighlightEl = document.createElement('div');
-      componentHighlightEl.id = 'primordia-inspector-comp-highlight';
-      componentHighlightEl.style.cssText = [
+  function updateHighlight(el, kind) {
+    if (!el) return;
+    var rect = el.getBoundingClientRect();
+    var isComponent = kind === 'component';
+    var highlightEl = isComponent ? componentHighlightEl : dataIdHighlightEl;
+    if (!highlightEl) {
+      highlightEl = document.createElement('div');
+      highlightEl.id = isComponent ? 'primordia-inspector-comp-highlight' : 'primordia-inspector-data-id-highlight';
+      highlightEl.style.cssText = [
         'position:fixed',
-        'z-index:2147483644',
+        'z-index:' + (isComponent ? '2147483644' : '2147483645'),
         'pointer-events:none',
-        'border:2px solid #3b82f6',
-        'background:rgba(59,130,246,0.05)',
+        'border:2px solid ' + (isComponent ? '#3b82f6' : '#22c55e'),
+        'background:' + (isComponent ? 'rgba(59,130,246,0.05)' : 'rgba(34,197,94,0.08)'),
       ].join(';');
-      document.body.appendChild(componentHighlightEl);
+      document.body.appendChild(highlightEl);
+      if (isComponent) componentHighlightEl = highlightEl;
+      else dataIdHighlightEl = highlightEl;
     }
-    componentHighlightEl.style.left = (rect.left - 2) + 'px';
-    componentHighlightEl.style.top  = (rect.top  - 2) + 'px';
-    componentHighlightEl.style.width  = (rect.width  + 4) + 'px';
-    componentHighlightEl.style.height = (rect.height + 4) + 'px';
+    highlightEl.style.left = (rect.left - 2) + 'px';
+    highlightEl.style.top = (rect.top - 2) + 'px';
+    highlightEl.style.width = (rect.width + 4) + 'px';
+    highlightEl.style.height = (rect.height + 4) + 'px';
   }
 
-  function removeComponentHighlight() {
+  function removeHighlights() {
     if (componentHighlightEl) { componentHighlightEl.remove(); componentHighlightEl = null; }
+    if (dataIdHighlightEl) { dataIdHighlightEl.remove(); dataIdHighlightEl = null; }
   }
 
-  // ── Highlight ────────────────────────────────────────────────────────────────
+  function sameTarget(a, b) {
+    return a && b && a.selectedEl === b.selectedEl && a.componentEl === b.componentEl && a.dataIdEl === b.dataIdEl;
+  }
 
-  function setHighlight(el) {
-    if (el === hovered) return;
+  function setHighlight(rawEl) {
+    var target = resolveTarget(rawEl);
+    if (sameTarget(target, hovered)) return;
     clearHighlight();
-    hovered = el;
-    if (hovered && hovered.style) {
-      hovered.style.outline = '2px solid #22c55e';  // green for the element
-      hovered.style.outlineOffset = '1px';
-      updateComponentHighlight(hovered);
-      positionLabels(hovered);
+    hovered = target;
+    if (hovered) {
+      updateHighlight(hovered.componentEl, 'component');
+      updateHighlight(hovered.dataIdEl, 'data-id');
+      updateLabels(hovered);
     }
   }
 
   function clearHighlight() {
-    if (hovered && hovered.style) {
-      hovered.style.outline = '';
-      hovered.style.outlineOffset = '';
-    }
     hovered = null;
     removeLabels();
-    removeComponentHighlight();
+    removeHighlights();
   }
 
-  function selectElement(el) {
-    var component = getReactComponentName(el) || 'Unknown';
-    var selector = getCssSelector(el);
-    var sourceFile = getDataSourceFile(el);
+  function selectElement(rawEl) {
+    var target = resolveTarget(rawEl);
+    if (!target) return;
+    var component = target.componentEl && target.componentEl.getAttribute('data-component');
+    var dataId = target.dataIdEl && target.dataIdEl.getAttribute('data-id');
+    var selector = attrSelector(target.componentEl, 'data-component') || attrSelector(target.dataIdEl, 'data-id') || '';
+    var dataIdSelector = attrSelector(target.dataIdEl, 'data-id');
+    var sourceFile = getDataSourceFile(target.selectedEl);
     window.parent.postMessage({
       type: 'primordia-element-selected',
-      component: component,
+      component: component || 'UnnamedComponent',
       selector: selector,
+      dataId: dataId || null,
+      dataIdSelector: dataIdSelector || null,
       sourceFile: sourceFile || null,
     }, '*');
     deactivate();
   }
-
-  // ── Mouse handlers ──────────────────────────────────────────────────────────
 
   function onMouseOver(e) {
     setHighlight(e.target);
@@ -298,9 +211,6 @@ const INSPECTOR_SCRIPT = `
     selectElement(e.target);
   }
 
-  // ── Touch handlers ──────────────────────────────────────────────────────────
-  // Drag finger to highlight; hold still for LONG_PRESS_MS to select.
-
   function cancelLongPress() {
     if (longPressTimer) {
       clearTimeout(longPressTimer);
@@ -309,7 +219,7 @@ const INSPECTOR_SCRIPT = `
   }
 
   function onTouchStart(e) {
-    e.preventDefault(); // prevent scroll + default tap while in inspector mode
+    e.preventDefault();
     var touch = e.touches[0];
     touchStartX = touch.clientX;
     touchStartY = touch.clientY;
@@ -318,19 +228,16 @@ const INSPECTOR_SCRIPT = `
     cancelLongPress();
     longPressTimer = setTimeout(function() {
       longPressTimer = null;
-      if (hovered) selectElement(hovered);
+      if (hovered) selectElement(hovered.selectedEl);
     }, LONG_PRESS_MS);
   }
 
   function onTouchMove(e) {
     e.preventDefault();
     var touch = e.touches[0];
-    // Cancel long-press if finger drifted enough (user is scanning, not holding)
     var dx = touch.clientX - touchStartX;
     var dy = touch.clientY - touchStartY;
-    if (Math.sqrt(dx * dx + dy * dy) > MOVE_CANCEL_PX) {
-      cancelLongPress();
-    }
+    if (Math.sqrt(dx * dx + dy * dy) > MOVE_CANCEL_PX) cancelLongPress();
     var el = document.elementFromPoint(touch.clientX, touch.clientY);
     if (el) setHighlight(el);
   }
@@ -340,8 +247,6 @@ const INSPECTOR_SCRIPT = `
     cancelLongPress();
   }
 
-  // ── Deactivate ──────────────────────────────────────────────────────────────
-
   function deactivate() {
     document.removeEventListener('mouseover', onMouseOver, true);
     document.removeEventListener('mouseout', onMouseOut, true);
@@ -350,12 +255,10 @@ const INSPECTOR_SCRIPT = `
     document.removeEventListener('touchmove', onTouchMove, true);
     document.removeEventListener('touchend', onTouchEnd, true);
     cancelLongPress();
-    clearHighlight(); // also calls removeLabels() + removeComponentHighlight()
+    clearHighlight();
     document.body.classList.remove('primordia-inspecting');
     var s = document.getElementById('primordia-inspector-style');
     if (s) s.remove();
-    var ch = document.getElementById('primordia-inspector-comp-highlight');
-    if (ch) ch.remove();
     window.__primordiaInspectorActive = false;
   }
 
@@ -369,7 +272,6 @@ const INSPECTOR_SCRIPT = `
   document.addEventListener('mouseover', onMouseOver, true);
   document.addEventListener('mouseout', onMouseOut, true);
   document.addEventListener('click', onClick, true);
-  // passive: false required so preventDefault() works on touch events
   document.addEventListener('touchstart', onTouchStart, { capture: true, passive: false });
   document.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
   document.addEventListener('touchend', onTouchEnd, { capture: true, passive: false });
@@ -381,6 +283,10 @@ const INSPECTOR_SCRIPT = `
 export interface ElementSelection {
   component: string;
   selector: string;
+  /** Nearest data-id label, when available. */
+  dataId?: string | null;
+  /** CSS selector for the nearest data-id element, when available. */
+  dataIdSelector?: string | null;
   /** Source filename from data-source-file attribute, if available. */
   sourceFile?: string | null;
 }
@@ -404,7 +310,7 @@ interface WebPreviewPanelProps {
   offlineContent?: React.ReactNode;
   /**
    * Called when the user selects an element via the inspector tool.
-   * Receives the nearest React component name and a CSS path selector.
+   * Receives nearest data-component and data-id names/selectors.
    */
   onElementSelected?: (info: ElementSelection) => void;
 }
@@ -548,6 +454,8 @@ export function WebPreviewPanel({
         onElementSelected?.({
           component: e.data.component,
           selector: e.data.selector,
+          dataId: e.data.dataId ?? null,
+          dataIdSelector: e.data.dataIdSelector ?? null,
           sourceFile: e.data.sourceFile ?? null,
         });
       }

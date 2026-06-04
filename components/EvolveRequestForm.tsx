@@ -35,9 +35,9 @@ import { AgentIdentityLine } from "@/components/AgentIdentity";
 /** One element selection that the user has "attached" to their request. */
 interface ElementAttachmentDraft {
   id: string;
-  /** Display label, e.g. "<NavHeader>" */
+  /** Display label, e.g. "[evolve/submit-request] in <EvolveRequestForm>" */
   label: string;
-  /** CSS selector shown in tooltip */
+  /** CSS selectors shown in tooltip */
   selector: string;
   status: "generating" | "ready" | "failed";
   /** Generated files (screenshot PNG + details Markdown) */
@@ -203,13 +203,14 @@ export function EvolveRequestForm({
   async function handleElementSelected(info: PageElementInfo) {
     setInspectorActive(false);
     const id = `elem-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const label = `<${info.component}>`;
-    trackEvent("evolve-form/element-picked/v1", { component: info.component, selector: info.selector });
+    const label = info.dataId ? `[${info.dataId}] in <${info.component}>` : `<${info.component}>`;
+    const selector = [info.selector, info.dataIdSelector].filter(Boolean).join("\n");
+    trackEvent("evolve-form/element-picked/v1", { component: info.component, selector: info.selector, dataId: info.dataId ?? null, dataIdSelector: info.dataIdSelector ?? null });
 
     // Show "generating" chip immediately so the user gets instant feedback.
     setElementAttachments((prev) => [
       ...prev,
-      { id, label, selector: info.selector, status: "generating", files: [] },
+      { id, label, selector, status: "generating", files: [] },
     ]);
 
     try {
