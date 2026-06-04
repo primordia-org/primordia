@@ -15,6 +15,8 @@ async function requireEvolver() {
 /**
  * List the current user's Web Push category subscriptions.
  * @description Requires evolve access.
+ * @tag WebPush
+ * @response { categories: { category: string; subscribed: boolean }[] }
  */
 export async function GET() {
   const auth = await requireEvolver();
@@ -31,8 +33,10 @@ export async function GET() {
 }
 
 /**
- * Subscribe the current user to a Web Push category.
- * @description Body: { category } where category is security-vulnerabilities or primordia-updates.
+ * Subscribe to a Web Push category.
+ * @description Body: `{ category }` where category is `security-vulnerabilities` or `primordia-updates`. Requires evolve access.
+ * @tag WebPush
+ * @response { ok: boolean }
  */
 export async function POST(req: NextRequest) {
   const auth = await requireEvolver();
@@ -49,8 +53,10 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * Unsubscribe the current user from a Web Push category.
- * @description Body: { category } where category is security-vulnerabilities or primordia-updates.
+ * Unsubscribe from a Web Push category.
+ * @description Body: `{ category }` where category is `security-vulnerabilities` or `primordia-updates`. Requires evolve access.
+ * @tag WebPush
+ * @response { ok: boolean }
  */
 export async function DELETE(req: NextRequest) {
   const auth = await requireEvolver();

@@ -20,6 +20,7 @@ import {
  * Finish passkey login
  * @description Verifies the WebAuthn `AuthenticationResponseJSON`, updates the credential counter, and sets a session cookie.
  * @tag Auth
+ * @response { ok: boolean; username: string }
  */
 export async function POST(request: NextRequest) {
   try {

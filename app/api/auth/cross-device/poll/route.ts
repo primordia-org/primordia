@@ -16,6 +16,7 @@ import type { EncryptedCredBundle } from "@/lib/cross-device-creds";
  * Poll cross-device sign-in status
  * @description Polled by the requesting device every 2 seconds. Returns `{ status }`. When status is `approved`, the session cookie is set and the device is signed in. If encryptedCredentials is present, the requester should decrypt it using its ephemeral ECDH private key.
  * @tag Auth
+ * @response { status: string; username?: string; encryptedCredentials?: object }
  */
 export async function GET(request: NextRequest) {
   try {

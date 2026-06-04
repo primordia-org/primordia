@@ -18,6 +18,7 @@ import { generateId, CHALLENGE_COOKIE, getSessionUser } from "@/lib/auth";
  * Start passkey registration
  * @description Generates WebAuthn registration options. Call this before `navigator.credentials.create()`. Pass `{ username }` in the body for a new account, or omit when already signed in to add a passkey to an existing account.
  * @tag Auth
+ * @response { options: object }
  */
 export async function POST(request: NextRequest) {
   try {

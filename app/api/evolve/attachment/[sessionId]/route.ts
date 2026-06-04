@@ -37,10 +37,18 @@ function mimeType(filename: string): string {
   return map[ext] ?? 'application/octet-stream';
 }
 
+/** Path parameter for attachment routes. */
+export interface AttachmentSessionParams {
+  /** The session ID (git branch name). */
+  sessionId: string;
+}
+
 /**
  * Serve a session attachment file
  * @description Streams an uploaded attachment from the session worktree. Pass `file` (filename) as a query parameter. Images and text files are served inline; others as downloads.
  * @tag Evolve
+ * @pathParams AttachmentSessionParams
+ * @response { description: "Binary or text file content" }
  */
 export async function GET(
   request: NextRequest,

@@ -25,6 +25,8 @@ const SSE_HEADERS = {
  * Stream proxy service logs
  * @description SSE stream of the `primordia-proxy` systemd journal (`journalctl -f -n 100`). Admin only. Returns an informational message on non-Linux platforms.
  * @tag Admin
+ * @responseContentType text/event-stream
+ * @response { description: "SSE stream of proxy log lines" }
  */
 export async function GET(req: NextRequest) {
   const user = await getSessionUser();

@@ -25,6 +25,12 @@ function responseForAudit(result: BunAuditResult) {
   };
 }
 
+/**
+ * Get dependency security audit
+ * @description Runs `bun audit` and returns structured vulnerability findings. Admin only.
+ * @tag Admin
+ * @response { audit: { ok: boolean; rawOutput: string; findings: object[]; severeFindings: object[]; checkedAt: number } }
+ */
 export async function GET() {
   const { error } = await requireAdmin();
   if (error) return error;
@@ -34,6 +40,12 @@ export async function GET() {
   return Response.json(responseForAudit(result));
 }
 
+/**
+ * Refresh audit or create evolve session for vulnerable packages
+ * @description Accepts `{ action: "refresh" }` to re-run `bun audit`, or `{ action: "create-session" }` to open an evolve session to update vulnerable packages. Admin only.
+ * @tag Admin
+ * @response { audit?: object; sessionId?: string }
+ */
 export async function POST(request: Request) {
   const { user, error } = await requireAdmin();
   if (error) return error;

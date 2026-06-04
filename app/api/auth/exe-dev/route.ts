@@ -20,6 +20,7 @@ import { getPublicOrigin } from "@/lib/public-origin";
  * exe.dev SSO login
  * @description Reads injected `X-ExeDev-Email` header from the exe.dev proxy to find or create a user and issue a session. Redirects to `/__exe.dev/login` if the header is absent.
  * @tag Auth
+ * @response 302: { description: "Redirect to login page or target path" }
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;

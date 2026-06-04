@@ -189,6 +189,7 @@ async function requireAdmin() {
  * List update sources
  * @description Returns all configured update sources with their current fetch status. Admin only.
  * @tag Admin
+ * @response UpdatesResponse
  */
 export async function GET() {
   const { error } = await requireAdmin();
@@ -203,6 +204,7 @@ export async function GET() {
  * Manage update sources
  * @description Add, remove, enable, disable, or fetch update sources. Admin only.
  * @tag Admin
+ * @response { sources?: object[]; sessionId?: string; ok?: boolean }
  */
 export async function POST(request: Request) {
   const { user, error } = await requireAdmin();

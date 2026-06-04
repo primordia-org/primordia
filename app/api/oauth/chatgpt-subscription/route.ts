@@ -46,6 +46,7 @@ export interface ChatGptSubscriptionBody {
  * @description Starts the ChatGPT device authorization flow, or polls once for completion and returns ordinary OAuth credentials when authorized. The route does not spawn a CLI process.
  * @tag OAuth
  * @body ChatGptSubscriptionBody
+ * @response { deviceAuthId?: string; userCode?: string; verificationUri?: string; expiresIn?: number; credentials?: object }
  */
 export async function POST(req: Request) {
   const user = await requireUser();

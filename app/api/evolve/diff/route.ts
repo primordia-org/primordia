@@ -16,6 +16,8 @@ import { getBranchParentSource } from "@/lib/user-prefs";
  * Get raw diff for a single file
  * @description Returns the unified diff for one file in the session branch vs its parent. Pass `sessionId` and `file` (relative path) as query parameters.
  * @tag Evolve
+ * @responseContentType text/plain
+ * @response { description: "Unified diff text" }
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;

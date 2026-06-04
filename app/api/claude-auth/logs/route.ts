@@ -8,6 +8,13 @@ import { subscribeToLogs, type LogLine } from '@/lib/claude-temp-auth';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Stream Claude auth session logs
+ * @description SSE stream of stdout/stderr/system log lines from a `claude auth login` helper session. Pass `sessionId` as a query parameter. Closes when the process exits.
+ * @tag Auth
+ * @responseContentType text/event-stream
+ * @response { description: "SSE stream of log lines" }
+ */
 export async function GET(req: NextRequest) {
   const sessionId = req.nextUrl.searchParams.get('sessionId') ?? '';
 

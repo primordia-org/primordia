@@ -46,8 +46,10 @@ next-env.d.ts
 # PID files (worker, warmup build, etc.)
 *.pid
 
-# Generated OpenAPI spec — run `bun run generate-api-docs` to rebuild
+# Generated OpenAPI spec and types — run `bun run generate:api-types` to rebuild
 /public/openapi.json
+/lib/api-types.ts
+/.openapi-gen/
 
 # Structured session event log written to each worktree during Claude sessions
 .primordia-session.ndjson

@@ -30,6 +30,8 @@ function isTerminal(status: string): boolean {
  * Stream evolve session progress
  * @description SSE stream of live session progress. Pass `sessionId` and optional `offset` (number of events already received). Emits JSON events with `events`, `status`, `devServerStatus`, and `previewUrl`. Final event includes `done: true`.
  * @tag Evolve
+ * @responseContentType text/event-stream
+ * @response { description: "SSE stream of session events" }
  */
 export async function GET(request: Request) {
   const user = await getSessionUser();

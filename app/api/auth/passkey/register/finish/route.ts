@@ -18,6 +18,7 @@ import {
  * Finish passkey registration
  * @description Verifies the WebAuthn `RegistrationResponseJSON` from the browser, creates the user and passkey record, and sets a session cookie.
  * @tag Auth
+ * @response { ok: boolean; username: string }
  */
 export async function POST(request: NextRequest) {
   try {

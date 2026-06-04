@@ -13,6 +13,8 @@ import { basePath } from "@/lib/base-path";
  * Get QR code for cross-device sign-in
  * @description Returns an SVG QR code encoding the approval URL for the given `tokenId`. Scan with an already-authenticated device.
  * @tag Auth
+ * @responseContentType image/svg+xml
+ * @response { description: "SVG image" }
  */
 export async function GET(request: NextRequest) {
   try {

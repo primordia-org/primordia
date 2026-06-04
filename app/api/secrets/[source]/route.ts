@@ -22,10 +22,18 @@ function resolveSource(params: { source: string }): SecretAuthSource | null {
   return isSecretAuthSource(params.source) ? params.source : null;
 }
 
+/** Path parameter for per-source secret endpoints. */
+export interface SecretSourceParams {
+  /** The secret source identifier (e.g. anthropic-api-key, openai-api-key, claude-subscription). */
+  source: string;
+}
+
 /**
  * Get stored encrypted secret
  * @description Returns the stored AES-GCM encrypted ciphertext for the given secret source, or `null` if none is set.
  * @tag Secrets
+ * @pathParams SecretSourceParams
+ * @response { ciphertext: string | null }
  */
 export async function GET(
   _req: Request,
@@ -54,7 +62,9 @@ export interface StoreSecretBody {
  * Store an encrypted secret
  * @description Stores an AES-GCM encrypted secret for the authenticated user. The server never sees the AES decryption key — only the ciphertext is persisted.
  * @tag Secrets
+ * @pathParams SecretSourceParams
  * @body StoreSecretBody
+ * @response { ok: boolean }
  */
 export async function POST(
   req: Request,
@@ -94,6 +104,8 @@ export async function POST(
  * Delete stored encrypted secret
  * @description Removes the stored encrypted secret for the authenticated user.
  * @tag Secrets
+ * @pathParams SecretSourceParams
+ * @response { ok: boolean }
  */
 export async function DELETE(
   _req: Request,
