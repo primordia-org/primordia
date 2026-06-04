@@ -16,6 +16,15 @@ export interface EvolveUpstreamSyncBody {
   action: 'merge'; // The sync strategy. Currently only 'merge' is supported.
 }
 
+async function runBunInstallAfterMerge(worktreePath: string): Promise<string> {
+  const installResult = await runCommand('bun', ['install'], worktreePath);
+  const installLog = installResult.stdout + installResult.stderr;
+  if (installResult.code !== 0) {
+    throw new Error(`bun install failed after merge:\n${installLog || `exit code ${installResult.code}`}`);
+  }
+  return installLog;
+}
+
 /**
  * Merge parent branch into a session
  * @description Merges the session's parent branch into the session worktree to pick up upstream changes. Auto-resolves conflicts via Claude if needed.
@@ -67,8 +76,7 @@ export async function POST(request: Request) {
           { status: 500 },
         );
       }
-      const installResult = await runCommand('bun', ['install'], worktreePath);
-      const installLog = installResult.stdout + installResult.stderr;
+      const installLog = await runBunInstallAfterMerge(worktreePath);
       const dbCopy = await hotswapProductionDbIntoWorktree(repoRoot, worktreePath, session.port);
       const dbCopyLog = dbCopy.copied
         ? '\nHot-swapped a production DB snapshot into this branch.'
@@ -80,8 +88,7 @@ export async function POST(request: Request) {
         log: result.stdout + result.stderr + '\n\n' + resolution.log + (installLog ? '\n' + installLog : '') + dbCopyLog,
       });
     }
-    const installResult = await runCommand('bun', ['install'], worktreePath);
-    const installLog = installResult.stdout + installResult.stderr;
+    const installLog = await runBunInstallAfterMerge(worktreePath);
     const dbCopy = await hotswapProductionDbIntoWorktree(repoRoot, worktreePath, session.port);
     const dbCopyLog = dbCopy.copied
       ? '\nHot-swapped a production DB snapshot into this branch.'
