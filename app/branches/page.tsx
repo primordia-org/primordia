@@ -200,27 +200,35 @@ const STATUS_COLOR: Record<string, string> = {
   rejected: "text-gray-600",
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  ready: "ready",
-  "running-claude": "running agent…",
-  "starting-server": "starting server…",
-  starting: "starting…",
-  error: "error",
-  accepted: "accepted",
-  rejected: "rejected",
-};
-
 // ─── Log graph rendering ───────────────────────────────────────────────────────
 
 function buildBranchForest(
   branches: BranchData[],
   productionBranchName: string,
+  cwd: string,
 ): BranchNode[] {
-  const byName = new Map(branches.map((branch) => [branch.name, branch]));
   const nodes = new Map(
     branches.map((branch) => [branch.name, { ...branch, children: [] as BranchNode[] }]),
   );
   const childNames = new Set<string>();
+  const parentByBranch = new Map<string, string>();
+
+  function isGitAncestor(ancestor: string, descendant: string): boolean {
+    if (ancestor === descendant) return false;
+    return runGit(["merge-base", "--is-ancestor", ancestor, descendant], cwd).code === 0;
+  }
+
+  function nearestAncestor(branchName: string): string | null {
+    let best: { name: string; distance: number } | null = null;
+    for (const candidate of branches) {
+      if (candidate.name === branchName || !isGitAncestor(candidate.name, branchName)) continue;
+      const distanceResult = runGit(["rev-list", `${candidate.name}..${branchName}`, "--count"], cwd);
+      const distance = parseInt(distanceResult.stdout, 10);
+      if (Number.isNaN(distance)) continue;
+      if (!best || distance < best.distance) best = { name: candidate.name, distance };
+    }
+    return best?.name ?? null;
+  }
 
   function wouldCreateCycle(branchName: string, parentName: string): boolean {
     let cursor: string | null = parentName;
@@ -228,16 +236,20 @@ function buildBranchForest(
     while (cursor) {
       if (visited.has(cursor)) return true;
       visited.add(cursor);
-      cursor = byName.get(cursor)?.activeParent ?? byName.get(cursor)?.parent ?? null;
+      cursor = parentByBranch.get(cursor) ?? null;
     }
     return false;
   }
 
   for (const branch of branches) {
-    const parentName = branch.activeParent ?? branch.parent;
+    const explicitParent = branch.activeParent ?? branch.parent;
+    const parentName = explicitParent && nodes.has(explicitParent)
+      ? explicitParent
+      : nearestAncestor(branch.name);
     if (!parentName || !nodes.has(parentName) || wouldCreateCycle(branch.name, parentName)) {
       continue;
     }
+    parentByBranch.set(branch.name, parentName);
     nodes.get(parentName)!.children.push(nodes.get(branch.name)!);
     childNames.add(branch.name);
   }
@@ -288,12 +300,6 @@ function BranchRef({
   canCreateSession: boolean;
 }) {
   const url = branch.isProduction ? currentServerUrl : branch.previewUrl;
-  const statusColor = branch.sessionStatus
-    ? (STATUS_COLOR[branch.sessionStatus] ?? "text-gray-400")
-    : "";
-  const statusLabel = branch.sessionStatus
-    ? (STATUS_LABEL[branch.sessionStatus] ?? branch.sessionStatus)
-    : null;
   const isTerminal = TERMINAL_STATUSES.has(branch.sessionStatus ?? "");
   const className = branch.isProduction
     ? "text-white font-bold hover:text-gray-200"
@@ -323,9 +329,6 @@ function BranchRef({
         </Link>
       ) : (
         <span className={className.replace(/ hover:[^ ]+/g, "")}>{label}</span>
-      )}
-      {statusLabel && !branch.isProduction && (
-        <span className={`text-xs shrink-0 ${statusColor}`}>[{statusLabel}]</span>
       )}
       {canCreateSession &&
         !branch.hasSession &&
@@ -363,17 +366,11 @@ function BranchGraphLine({
       <span className="whitespace-pre select-none shrink-0">
         <GraphGlyphs graph={graph} isActive={branch.isProduction || Boolean(branch.previewUrl)} />
       </span>
-      <span className="text-gray-600 shrink-0">{branch.shortSha ?? "────────"}</span>
       <BranchRef
         branch={branch}
         currentServerUrl={currentServerUrl}
         canCreateSession={canCreateSession}
       />
-      {branch.subject && (
-        <span className="min-w-0 max-w-sm truncate text-gray-600">
-          — {branch.subject}
-        </span>
-      )}
     </div>
   );
 }
@@ -394,9 +391,9 @@ function BranchGraphNode({
   canCreateSession: boolean;
 }) {
   const isRoot = depth === 0;
-  const branchGraph = isRoot ? "* " : `${linePrefix}${isLast ? "  " : "| "}* `;
-  const connectorGraph = isRoot ? "" : `${linePrefix}${isLast ? " /" : "|/"}`;
-  const childLinePrefix = isRoot ? "" : `${linePrefix}${isLast ? "  " : "| "}`;
+  const branchGraph = isRoot ? "* " : `${linePrefix}${isLast ? "    " : "|   "}* `;
+  const connectorGraph = isRoot ? "" : `${linePrefix}${isLast ? "   /" : "| /"}`;
+  const childLinePrefix = isRoot ? "" : `${linePrefix}${isLast ? "    " : "|   "}`;
 
   return (
     <>
@@ -502,7 +499,7 @@ export default async function BranchesPage() {
     : [false, false, null, await getBranchParentSource(null)];
 
   const { branches, productionBranch, diag } = await getBranchData(parentSource);
-  const branchRoots = buildBranchForest(branches, productionBranch);
+  const branchRoots = buildBranchForest(branches, productionBranch, diag.cwd);
 
   const [headerStore] = await Promise.all([headers()]);
   const sessionUser = user
@@ -557,8 +554,8 @@ export default async function BranchesPage() {
       <div className="mt-8 border-t border-gray-800 pt-4 text-xs text-gray-600 font-mono space-y-1">
         <p>
           * green = preview server active · * dim = no active session · branch
-          heads are connected by recorded parentage, with child heads indented to the
-          right of their parent · short hash and latest commit subject mirror git log output · branch name links to session ·{" "}
+          heads are connected by recorded parentage and git ancestry, with child heads indented to the
+          right of their parent · branch name links to session ·{" "}
           <span className="text-blue-400"><ExternalLink size={10} className="inline" /></span> = open
           branch · <span className="text-purple-500">+ session</span> = start new
           session on existing branch
