@@ -50,13 +50,14 @@
     "basic-ftp": "^6.0.1",
     "fast-uri": "^3.1.2",
     "fast-xml-builder": "^1.2.0",
-    "hono": "^4.12.19",
+    "hono": "^4.12.21",
     "ip-address": "^10.2.0",
     "mermaid": "^11.15.0",
     "postcss": "^8.5.14",
     "protobufjs": "^8.3.0",
     "uuid": "^11.1.1",
-    "ws": "^8.20.1"
+    "ws": "^8.20.1",
+    "qs": "^6.15.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
