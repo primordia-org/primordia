@@ -25,20 +25,42 @@ function responseForAudit(result: BunAuditResult) {
   };
 }
 
-export async function GET() {
-  const { error } = await requireAdmin();
-  if (error) return error;
+function errorResponse(err: unknown): Response {
+  const message = err instanceof Error ? err.message : String(err);
+  return Response.json({ error: message || "Dependency security request failed" }, { status: 500 });
+}
 
-  const result = runBunAudit();
-  writeDependencyAuditNotification(process.cwd(), result);
-  return Response.json(responseForAudit(result));
+export async function GET() {
+  try {
+    const { error } = await requireAdmin();
+    if (error) return error;
+
+    const result = runBunAudit();
+    writeDependencyAuditNotification(process.cwd(), result);
+    return Response.json(responseForAudit(result));
+  } catch (err) {
+    return errorResponse(err);
+  }
 }
 
 export async function POST(request: Request) {
+  try {
+    return await handlePost(request);
+  } catch (err) {
+    return errorResponse(err);
+  }
+}
+
+async function handlePost(request: Request) {
   const { user, error } = await requireAdmin();
   if (error) return error;
 
-  const body = (await request.json()) as Record<string, unknown>;
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return Response.json({ error: "Request body must be valid JSON." }, { status: 400 });
+  }
   const action = typeof body.action === "string" ? body.action : "";
 
   if (action === "refresh") {
