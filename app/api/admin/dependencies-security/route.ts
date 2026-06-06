@@ -80,24 +80,29 @@ async function handlePost(request: Request) {
       ? result.findings.map((f) => `- ${f.packageName}: ${f.severity} — ${f.title} (${f.id})`).join("\n")
       : "bun audit did not return structured findings. Inspect the raw output below.";
 
-    const evolveRes = await fetch(new URL("/api/evolve", request.url), {
+    const evolveRequestText =
+      `Update vulnerable dependencies reported by bun audit.\n\n` +
+      `Goals:\n` +
+      `1. Upgrade or patch the vulnerable packages with the smallest safe dependency changes.\n` +
+      `2. Preserve existing functionality and avoid unrelated dependency churn.\n` +
+      `3. Run \`bun install\`, \`bun audit\`, \`bun run typecheck\`, and \`bun run build\`.\n` +
+      `4. If a vulnerable transitive package cannot be updated directly, update the parent dependency or document why it remains.\n\n` +
+      `Structured findings:\n${issueList}\n\n` +
+      `Raw bun audit output:\n\n\`\`\`json\n${result.jsonText || result.rawOutput}\n\`\`\``;
+
+    // Call the evolve route handler directly instead of making a server-side
+    // HTTP request back to this instance. In production the public URL can be
+    // unreachable from the server itself, which made "Create fix session" fail
+    // with a vague "Unable to connect" error even though the app was healthy.
+    const { POST: startEvolveSession } = await import("@/app/api/evolve/route");
+    const evolveRes = await startEvolveSession(new Request(new URL("/api/evolve", request.url), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Cookie: request.headers.get("cookie") ?? "",
       },
-      body: JSON.stringify({
-        request:
-          `Update vulnerable dependencies reported by bun audit.\n\n` +
-          `Goals:\n` +
-          `1. Upgrade or patch the vulnerable packages with the smallest safe dependency changes.\n` +
-          `2. Preserve existing functionality and avoid unrelated dependency churn.\n` +
-          `3. Run \`bun install\`, \`bun audit\`, \`bun run typecheck\`, and \`bun run build\`.\n` +
-          `4. If a vulnerable transitive package cannot be updated directly, update the parent dependency or document why it remains.\n\n` +
-          `Structured findings:\n${issueList}\n\n` +
-          `Raw bun audit output:\n\n\`\`\`json\n${result.jsonText || result.rawOutput}\n\`\`\``,
-      }),
-    });
+      body: JSON.stringify({ request: evolveRequestText }),
+    }));
 
     let data: { sessionId?: string; error?: string } = {};
     try {
