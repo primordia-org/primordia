@@ -214,7 +214,25 @@ function toolEventFromItem(item: Record<string, unknown>, ts: number): SessionEv
   return [];
 }
 
-function eventsFromCodexEvent(event: Record<string, unknown>, emittedToolItemIds: Set<string>): SessionEvent[] {
+interface CodexRunState {
+  sawTurnCompleted: boolean;
+  sawTerminalFailure: boolean;
+  sawBenignWebSocketCloseAfterSuccess: boolean;
+}
+
+function codexEventMessage(event: Record<string, unknown>): string {
+  const message = event.message ?? event.error;
+  if (typeof message === 'string') return message;
+  if (isRecord(message) && typeof message.message === 'string') return message.message;
+  return stringify(message ?? '');
+}
+
+function isBenignCodexWebSocketCloseMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes('websocket closed 1006') && normalized.includes('connection ended');
+}
+
+function eventsFromCodexEvent(event: Record<string, unknown>, emittedToolItemIds: Set<string>, state: CodexRunState): SessionEvent[] {
   const ts = Date.now();
   const type = event.type;
   if (type === 'item.started' || type === 'item.updated') {
@@ -249,6 +267,7 @@ function eventsFromCodexEvent(event: Record<string, unknown>, emittedToolItemIds
     return [{ type: 'text', content: event.message, ts }];
   }
   if (type === 'turn.completed') {
+    state.sawTurnCompleted = true;
     const usage = isRecord(event.usage) ? event.usage : null;
     if (usage) {
       const input = typeof usage.input_tokens === 'number'
@@ -269,11 +288,18 @@ function eventsFromCodexEvent(event: Record<string, unknown>, emittedToolItemIds
     }
   }
   if (type === 'turn.failed') {
+    state.sawTerminalFailure = true;
     const error = isRecord(event.error) ? event.error : {};
     return [{ type: 'text', content: `\n\n❌ **Codex failed**: ${stringify(error.message ?? 'Unknown Codex error')}\n`, ts }];
   }
   if (type === 'error' || type === 'stream_error') {
-    return [{ type: 'text', content: `\n\n❌ **Codex error**: ${stringify(event.message ?? event.error ?? 'Unknown Codex error')}\n`, ts }];
+    const message = codexEventMessage(event);
+    if (state.sawTurnCompleted && isBenignCodexWebSocketCloseMessage(message)) {
+      state.sawBenignWebSocketCloseAfterSuccess = true;
+      return [];
+    }
+    state.sawTerminalFailure = true;
+    return [{ type: 'text', content: `\n\n❌ **Codex error**: ${message || 'Unknown Codex error'}\n`, ts }];
   }
   return [];
 }
@@ -329,6 +355,11 @@ async function main(): Promise<void> {
       child.stdin?.end(prompt);
       let stdoutBuf = '';
       const emittedToolItemIds = new Set<string>();
+      const runState: CodexRunState = {
+        sawTurnCompleted: false,
+        sawTerminalFailure: false,
+        sawBenignWebSocketCloseAfterSuccess: false,
+      };
       child.stdout?.on('data', (data: Buffer) => {
         const text = data.toString('utf8');
         process.stdout.write(text);
@@ -339,7 +370,7 @@ async function main(): Promise<void> {
           if (!line.trim()) continue;
           try {
             const event = JSON.parse(line) as Record<string, unknown>;
-            for (const sessionEvent of eventsFromCodexEvent(event, emittedToolItemIds)) {
+            for (const sessionEvent of eventsFromCodexEvent(event, emittedToolItemIds, runState)) {
               appendSessionEvent(ndjsonPath, sessionEvent);
             }
           } catch {
@@ -350,14 +381,21 @@ async function main(): Promise<void> {
       child.stderr?.on('data', (data: Buffer) => {
         const text = data.toString('utf8');
         process.stderr.write(text);
-        if (text.trim()) appendSessionEvent(ndjsonPath, { type: 'text', content: text, ts: Date.now() });
+        const isBenignShutdownText = runState.sawTurnCompleted && isBenignCodexWebSocketCloseMessage(text);
+        if (isBenignShutdownText) runState.sawBenignWebSocketCloseAfterSuccess = true;
+        if (text.trim() && !isBenignShutdownText) appendSessionEvent(ndjsonPath, { type: 'text', content: text, ts: Date.now() });
       });
       child.on('error', reject);
       child.on('exit', (code, signal) => {
         if (timedOut) reject(new Error(`Codex timed out after ${Math.round(timeoutMs / 1000)}s`));
         else if (signal === 'SIGTERM') reject(new Error('Codex run was aborted'));
-        else if (code !== 0) reject(new Error(`Codex exited with code ${code}`));
-        else resolve();
+        else if (code !== 0) {
+          if (runState.sawTurnCompleted && runState.sawBenignWebSocketCloseAfterSuccess && !runState.sawTerminalFailure) {
+            resolve();
+          } else {
+            reject(new Error(`Codex exited with code ${code}`));
+          }
+        } else resolve();
       });
     });
 
