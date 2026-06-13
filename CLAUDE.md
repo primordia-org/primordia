@@ -113,7 +113,7 @@ When implementing changes, follow these principles:
 
 | Feature | Status | Notes |
 |---|---|---|
-| Evolve mode | ✅ Live | "Propose a change" in the hamburger opens a draggable/dockable floating dialog; `/evolve` page also exists as standalone |
+| Evolve mode | ✅ Live | "Propose a change" in the hamburger opens a draggable/dockable floating dialog; `/evolve` page also exists as standalone; before any evolve worktree is deleted, its `.primordia-session.ndjson` log is saved as a gzip archive under `PRIMORDIA_DIR/past-sessions` when present |
 | Local evolve pipeline | ✅ Live | git worktree → Claude Agent SDK → local preview → accept/reject |
 | Evolve follow-up requests | ✅ Live | Chain multiple Claude passes on the same branch; form appears when session is ready; draft text persists across refreshes per session |
 | Explicit preview target selection | ✅ Live | Agents set the session preview panel route by running `bun run set-preview-url /route` after app file edits and before validation/changelog work; the session page renders the preview as soon as that structured `preview_path` event appears instead of waiting for the agent run to finish or relying on ambiguous final-message path parsing |

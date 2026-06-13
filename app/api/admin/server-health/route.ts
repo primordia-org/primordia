@@ -7,6 +7,7 @@
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import { getSessionUser, isAdmin } from '@/lib/auth';
+import { archiveSessionNdjsonLog } from '@/lib/session-archive';
 
 interface WorktreeInfo {
   path: string;
@@ -179,6 +180,13 @@ export async function POST() {
       });
     }
   } catch { /* best-effort */ }
+
+  // Archive the session log before removing the worktree (if this is an evolve session).
+  try {
+    archiveSessionNdjsonLog(target.path, { sessionId: target.branch, primordiaDir: process.env.PRIMORDIA_DIR || repoRoot });
+  } catch (err) {
+    console.warn(`[server-health] failed to archive session log for ${target.branch}:`, err);
+  }
 
   // Remove the worktree
   const removeResult = spawnSync(

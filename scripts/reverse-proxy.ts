@@ -38,6 +38,7 @@ import * as net from 'net';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync, spawn, ChildProcess } from 'child_process';
+import { gzipSync } from 'zlib';
 
 // Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
 const HOP_BY_HOP = new Set([
@@ -165,6 +166,31 @@ const MISE_COMMAND = 'mise';
 const PRIMORDIA_ROOT = path.dirname(__filename);
 const WORKTREES_DIR = path.join(PRIMORDIA_ROOT, 'worktrees');
 const MAIN_REPO = path.join(PRIMORDIA_ROOT, 'source.git');
+
+function safeArchiveFilenamePart(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'session';
+}
+
+function archiveSessionNdjsonLogBeforeCleanup(worktreePath: string, sessionId: string): void {
+  const ndjsonPath = path.join(worktreePath, '.primordia-session.ndjson');
+  if (!fs.existsSync(ndjsonPath)) return;
+
+  const content = fs.readFileSync(ndjsonPath);
+  if (content.length === 0) return;
+
+  const archiveDir = path.join(process.env.PRIMORDIA_DIR || PRIMORDIA_ROOT, 'past-sessions');
+  fs.mkdirSync(archiveDir, { recursive: true });
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const safeSessionId = safeArchiveFilenamePart(sessionId || path.basename(worktreePath));
+  const baseName = `${timestamp}-${safeSessionId}.ndjson.gz`;
+  let archivePath = path.join(archiveDir, baseName);
+  for (let i = 2; fs.existsSync(archivePath); i++) {
+    archivePath = path.join(archiveDir, `${timestamp}-${safeSessionId}-${i}.ndjson.gz`);
+  }
+
+  fs.writeFileSync(archivePath, gzipSync(content));
+}
 
 /** Disk usage percent above which automatic worktree cleanup is triggered (configurable via git config primordia.diskCleanupThresholdPct). */
 let diskCleanupThresholdPct = 90;
@@ -1679,6 +1705,13 @@ function deleteWorktreeForCleanup(repoRoot: string, target: CleanupWorktreeTarge
       });
     }
   } catch { /* best-effort */ }
+
+  // Archive the session log before removing the worktree (if this is an evolve session).
+  try {
+    archiveSessionNdjsonLogBeforeCleanup(target.path, target.branch);
+  } catch (err) {
+    console.warn(`[disk-cleanup] failed to archive session log for ${target.branch}: ${errorMessage(err)}`);
+  }
 
   // Remove the worktree.
   try {

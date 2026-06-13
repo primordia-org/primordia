@@ -40,6 +40,7 @@ import {
 } from '../../../../lib/session-events';
 import { getParentBranch } from '../../../../lib/branch-parent';
 import { getBranchParentSource } from '../../../../lib/user-prefs';
+import { archiveSessionNdjsonLog } from '../../../../lib/session-archive';
 
 /** Run an arbitrary command; resolves with stdout, stderr, and exit code. */
 function runCmd(
@@ -649,6 +650,7 @@ export async function POST(request: Request) {
 
     // action === 'reject'
     await logDecision('reject');
+    archiveSessionNdjsonLog(worktreePath, { sessionId: branch, primordiaDir: process.env.PRIMORDIA_DIR || repoRoot });
     await runGit(['worktree', 'remove', '--force', worktreePath], repoRoot);
     await runGit(['branch', '-D', branch], repoRoot);
     await runGit(['config', '--remove-section', `branch.${branch}`], repoRoot);
