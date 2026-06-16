@@ -126,10 +126,14 @@ export default async function EvolveSessionPage({
     initialLineCount = result.totalLines;
   }
 
+  const firstInitialRequest = initialEvents.find(
+    (event): event is Extract<SessionEvent, { type: "initial_request" }> => event.type === "initial_request",
+  )?.request;
+
   return (
     <EvolveSessionView
       sessionId={session.id}
-      initialRequest={session.request}
+      initialRequest={firstInitialRequest ?? session.request}
       initialEvents={initialEvents}
       initialLineCount={initialLineCount}
       initialStatus={session.status}
