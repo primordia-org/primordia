@@ -5,7 +5,7 @@
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown } from "lucide-react";
+import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown, ExternalLink } from "lucide-react";
 import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
@@ -19,6 +19,7 @@ import { withBasePath } from "@/lib/base-path";
 import { appendCredentialFieldsForAuthSource, getCredentialFieldsForAuthSource } from "@/lib/preset-credentials-client";
 import { useSounds } from "@/lib/sounds";
 import { updateStoredCredentials } from "@/lib/credentials-client";
+import { setSecret } from "@/lib/secrets-client";
 import { EvolveRequestForm } from "@/components/EvolveRequestForm";
 import Link from "next/link";
 import type { DiffFileSummary } from "./page";
@@ -77,6 +78,182 @@ function MetricsRow({ metrics, hideCost = false }: { metrics: SectionMetrics; hi
           </span>
         </span>
       )}
+    </div>
+  );
+}
+
+interface ChatGptDeviceFlowState {
+  verificationUrl: string;
+  userCode: string;
+  deviceAuthId: string;
+  interval: number;
+}
+
+function detectChatGptReloginReason(events: SessionEvent[], resultMessage?: string): string | null {
+  const text = [
+    resultMessage ?? '',
+    ...events.flatMap((event) => {
+      if (event.type === 'text' || event.type === 'log_line' || event.type === 'thinking') return [event.content];
+      if (event.type === 'result') return [event.message];
+      return [];
+    }),
+  ].join('\n');
+  const normalized = text.toLowerCase();
+
+  if (normalized.includes('no api key for provider: openai-codex')) {
+    return 'This ChatGPT subscription run could not start because the OpenAI Codex provider credentials were unavailable. Reconnect ChatGPT, then retry the session.';
+  }
+  if (
+    normalized.includes('access token could not be refreshed') ||
+    normalized.includes('provided authentication token is expired') ||
+    normalized.includes('please try signing in again') ||
+    normalized.includes('please sign in again') ||
+    normalized.includes('token_expired') ||
+    (normalized.includes('401 unauthorized') && normalized.includes('chatgpt.com/backend-api/codex'))
+  ) {
+    return 'Your ChatGPT session expired or was replaced by another sign-in. Reconnect ChatGPT, then retry the session.';
+  }
+  return null;
+}
+
+function ChatGptReloginInline({ reason }: { reason: string }) {
+  const [deviceFlow, setDeviceFlow] = useState<ChatGptDeviceFlowState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pollTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollTimer.current) window.clearTimeout(pollTimer.current);
+    };
+  }, []);
+
+  async function pollChatGpt(flow: ChatGptDeviceFlowState) {
+    try {
+      const res = await fetch(withBasePath('/api/oauth/chatgpt-subscription'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'complete', deviceAuthId: flow.deviceAuthId, userCode: flow.userCode }),
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'connected') {
+        await setSecret('chatgpt-subscription', JSON.stringify(data.credentials));
+        setConnected(true);
+        setDeviceFlow(null);
+        setCodeCopied(false);
+        trackEvent('evolve/session/chatgpt-relogin-connected/v1', {});
+        return;
+      }
+      if (!res.ok) throw new Error(data.error ?? 'ChatGPT authentication failed.');
+      pollTimer.current = window.setTimeout(() => void pollChatGpt(flow), Math.max(flow.interval, 3) * 1000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ChatGPT authentication failed.');
+      setDeviceFlow(null);
+      setCodeCopied(false);
+    }
+  }
+
+  async function startAuth() {
+    setBusy(true);
+    setError(null);
+    setConnected(false);
+    setDeviceFlow(null);
+    setCodeCopied(false);
+    if (pollTimer.current) window.clearTimeout(pollTimer.current);
+    try {
+      const res = await fetch(withBasePath('/api/oauth/chatgpt-subscription'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to start ChatGPT authentication.');
+      const next: ChatGptDeviceFlowState = {
+        verificationUrl: data.verificationUrl,
+        userCode: data.userCode,
+        deviceAuthId: data.deviceAuthId,
+        interval: data.interval,
+      };
+      setDeviceFlow(next);
+      trackEvent('evolve/session/chatgpt-relogin-started/v1', {});
+      void pollChatGpt(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start ChatGPT authentication.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyUserCode() {
+    if (!deviceFlow) return;
+    try {
+      await navigator.clipboard.writeText(deviceFlow.userCode);
+      setCodeCopied(true);
+      window.setTimeout(() => setCodeCopied(false), 2000);
+    } catch {
+      setError('Could not copy the code. Please copy it manually.');
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-sky-700/60 bg-sky-950/30 p-4 text-sm text-sky-100">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="font-semibold text-sky-200">Sign in to ChatGPT again</p>
+          <p className="mt-1 text-xs leading-relaxed text-sky-100/80">{reason}</p>
+        </div>
+        {!deviceFlow && !connected && (
+          <button
+            type="button"
+            data-id="evolve-session/chatgpt-relogin/start-auth"
+            onClick={() => void startAuth()}
+            disabled={busy}
+            className="shrink-0 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-sky-900"
+          >
+            {busy ? 'Starting…' : 'Re-login to ChatGPT'}
+          </button>
+        )}
+      </div>
+
+      {deviceFlow && (
+        <div className="mt-4 grid gap-3 rounded-lg border border-sky-800/60 bg-gray-950/40 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+          <div>
+            <p className="mb-1 text-xs font-medium text-sky-200">One-time code</p>
+            <div className="rounded-md border border-sky-800/70 bg-gray-950 px-3 py-2 font-mono text-lg font-semibold tracking-widest text-white">
+              {deviceFlow.userCode}
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 sm:min-w-44">
+            <button
+              type="button"
+              data-id="evolve-session/chatgpt-relogin/copy-code"
+              onClick={() => void copyUserCode()}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-800 bg-gray-950/60 px-3 py-2 text-xs font-medium text-sky-100 transition-colors hover:border-sky-500 hover:text-white"
+            >
+              {codeCopied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+              {codeCopied ? 'Copied' : 'Copy code'}
+            </button>
+            <a
+              href={deviceFlow.verificationUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sky-500"
+            >
+              Open ChatGPT
+              <ExternalLink size={14} aria-hidden="true" />
+            </a>
+          </div>
+        </div>
+      )}
+
+      {connected && (
+        <p className="mt-3 rounded-lg border border-emerald-800/60 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200">
+          ChatGPT is connected again. Retry this evolve session when you are ready.
+        </p>
+      )}
+      {error && <p className="mt-3 text-xs text-red-300">{error}</p>}
     </div>
   );
 }
@@ -941,6 +1118,8 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
     : (isAutoCommitSection ? "📦 Unstaged changes committed" : isTypeFixSection ? "🔧 Type errors fixed" : null);
 
   const { detailEvents, finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
+  const chatGptReloginReason = hasError ? detectChatGptReloginReason(events, resultEvent?.message) : null;
+  const showRawFinalEvents = finalEvents.length > 0 && !chatGptReloginReason;
 
   return (
     <div className={`rounded-lg border ${doneBorderClass} bg-gray-900 text-sm overflow-hidden`}>
@@ -952,12 +1131,17 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
       {toolCallCount > 0 && (
         <TaskAccordionEvents events={detailEvents} sessionId={sessionId} worktreePath={worktreePath} legacyClassName="px-4 py-3 space-y-2 border-b border-gray-800" />
       )}
-      {finalEvents.length > 0 && (
+      {showRawFinalEvents && (
         <div className="px-4 py-3 space-y-2 border-t border-gray-800">
           <LegacyAgentEvents events={finalEvents} sessionId={sessionId} worktreePath={worktreePath} />
         </div>
       )}
-      {hasError && convertedMessage && (
+      {chatGptReloginReason && (
+        <div className="px-4 py-3 border-t border-gray-800">
+          <ChatGptReloginInline reason={chatGptReloginReason} />
+        </div>
+      )}
+      {hasError && convertedMessage && !chatGptReloginReason && (
         <div className="px-4 py-3 border-t border-gray-800">
           <p className="text-xs font-semibold text-red-400 mb-1">Error details</p>
           <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{convertedMessage}</pre>
