@@ -90,19 +90,15 @@ async function handlePost(request: Request) {
       `Initial structured findings:\n${issueList}\n\n` +
       `Do not rely on this summary alone; run \`bun audit\` in the worktree for the full current report before editing dependencies.`;
 
-    // Call the evolve route handler directly instead of making a server-side
-    // HTTP request back to this instance. In production the public URL can be
-    // unreachable from the server itself, which made "Create fix session" fail
-    // with a vague "Unable to connect" error even though the app was healthy.
-    const { POST: startEvolveSession } = await import("@/app/api/evolve/route");
-    const evolveRes = await startEvolveSession(new Request(new URL("/api/evolve", request.url), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Cookie: request.headers.get("cookie") ?? "",
-      },
-      body: JSON.stringify({ request: evolveRequestText }),
-    }));
+    // Call the evolve session creation helper directly instead of wrapping the
+    // prompt in a synthetic Request for the evolve route to parse again. This
+    // avoids loopback networking issues and preserves the generated prompt
+    // exactly as constructed, including the beginning of long audit prompts.
+    const { createEvolveSessionFromText } = await import("@/app/api/evolve/route");
+    const evolveRes = await createEvolveSessionFromText({
+      userId: user!.id,
+      requestText: evolveRequestText,
+    });
 
     let data: { sessionId?: string; error?: string } = {};
     try {

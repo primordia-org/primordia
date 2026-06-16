@@ -286,6 +286,51 @@ async function handlePost(request: Request) {
     if (body.encryptedChatGptOAuth) encryptedChatGptOAuth = body.encryptedChatGptOAuth;
   }
 
+  return createEvolveSessionFromText({
+    userId: user.id,
+    requestText,
+    harness,
+    model,
+    cavemanMode,
+    cavemanIntensity,
+    presetId,
+    authSource,
+    encryptedApiKey,
+    encryptedCredentials,
+    encryptedChatGptOAuth,
+    savedAttachmentPaths,
+  });
+}
+
+export interface CreateEvolveSessionFromTextOptions {
+  userId: string;
+  requestText: string;
+  harness?: string;
+  model?: string;
+  cavemanMode?: boolean;
+  cavemanIntensity?: CavemanIntensity;
+  presetId?: string | null;
+  authSource?: PresetAuthSource | null;
+  encryptedApiKey?: string | null;
+  encryptedCredentials?: string | null;
+  encryptedChatGptOAuth?: string | null;
+  savedAttachmentPaths?: string[];
+}
+
+export async function createEvolveSessionFromText({
+  userId,
+  requestText,
+  harness = DEFAULT_HARNESS,
+  model = DEFAULT_MODEL,
+  cavemanMode = false,
+  cavemanIntensity = DEFAULT_CAVEMAN_INTENSITY,
+  presetId = null,
+  authSource = null,
+  encryptedApiKey = null,
+  encryptedCredentials = null,
+  encryptedChatGptOAuth = null,
+  savedAttachmentPaths = [],
+}: CreateEvolveSessionFromTextOptions): Promise<Response> {
   if (authSource === 'exe-dev-gateway') {
     encryptedApiKey = null;
     encryptedCredentials = null;
@@ -426,7 +471,7 @@ async function handlePost(request: Request) {
     credentials: decryptedCredentials,
     chatGptOAuth: decryptedChatGptOAuth,
     authSource,
-    userId: user.id,
+    userId: userId,
   };
   // Clear decrypted secrets from this scope immediately after assigning them to
   // the session object (the worker consumes them via env vars then deletes them).
@@ -446,7 +491,7 @@ async function handlePost(request: Request) {
   void (async () => {
     try {
       const db = await getDb();
-      await db.setUserPreferences(user.id, {
+      await db.setUserPreferences(userId, {
         [PREF_HARNESS]: harness,
         [PREF_MODEL]: model,
         ...(presetId ? { [PREF_PRESET]: presetId } : {}),
