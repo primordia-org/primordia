@@ -228,7 +228,9 @@ function PiTodoToolDisplay({ name, input, expectedTaskId }: { name: string; inpu
   if (lname === 'taskcreate') {
     const id = visibleTaskId(input, expectedTaskId);
     const content = typeof input.content === 'string' && input.content.trim() ? input.content : undefined;
-    return <span className="text-gray-500">{id ? <span className="text-gray-600">#{id} </span> : null}{content ? <span className="text-gray-400">{content}</span> : 'create'}</span>;
+    const tasks = Array.isArray(input.tasks) ? input.tasks.filter((task) => task != null && typeof task === 'object' && !Array.isArray(task)) : [];
+    const batchLabel = tasks.length > 0 ? `create ${tasks.length} tasks` : undefined;
+    return <span className="text-gray-500">{id ? <span className="text-gray-600">#{id} </span> : null}{content ? <span className="text-gray-400">{content}</span> : batchLabel ?? 'create'}</span>;
   }
   if (lname === 'taskupdate') {
     const id = visibleTaskId(input, expectedTaskId);
@@ -286,6 +288,25 @@ function normalizeTodoStatus(status: string | undefined): string {
   return ['pending', 'in_progress', 'completed', 'blocked', 'failed', 'deleted'].includes(status) ? status : 'pending';
 }
 
+function nextSyntheticTaskId(todos: AgentTodoItem[], offset = 0): string {
+  const maxId = todos.reduce((max, todo) => {
+    const match = todo.id?.match(/^t(\d+)$/);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  return `t${maxId + offset + 1}`;
+}
+
+function todoFromTaskCreateInput(input: Record<string, unknown>, id: string): AgentTodoItem {
+  return {
+    id: firstString(input, 'id') ?? id,
+    content: firstString(input, 'content') ?? 'Untitled to-do',
+    status: 'pending',
+    priority: firstString(input, 'priority'),
+    weight: normalizeTodoWeight(input),
+    activeForm: firstString(input, 'activeForm'),
+  };
+}
+
 function applyTodoToolEvent(todos: AgentTodoItem[], event: Extract<SessionEvent, { type: 'tool_use' }>): AgentTodoItem[] {
   const lname = event.name.toLowerCase();
   if (lname === 'todowrite') {
@@ -304,16 +325,17 @@ function applyTodoToolEvent(todos: AgentTodoItem[], event: Extract<SessionEvent,
   }
 
   if (lname === 'taskcreate') {
+    const rawTasks = Array.isArray(event.input.tasks) ? event.input.tasks : [];
+    const batchTasks = rawTasks.filter((raw): raw is Record<string, unknown> => raw != null && typeof raw === 'object' && !Array.isArray(raw));
+    if (batchTasks.length > 0) {
+      return [
+        ...todos,
+        ...batchTasks.map((task, index) => todoFromTaskCreateInput(task, nextSyntheticTaskId(todos, index))),
+      ];
+    }
     return [
       ...todos,
-      {
-        id: firstString(event.input, 'id'),
-        content: firstString(event.input, 'content') ?? 'Untitled to-do',
-        status: 'pending',
-        priority: firstString(event.input, 'priority'),
-        weight: normalizeTodoWeight(event.input),
-        activeForm: firstString(event.input, 'activeForm'),
-      },
+      todoFromTaskCreateInput(event.input, nextSyntheticTaskId(todos)),
     ];
   }
 
