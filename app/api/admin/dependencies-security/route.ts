@@ -95,27 +95,15 @@ async function handlePost(request: Request) {
     // prompt in a synthetic Request for the evolve route to parse again. This
     // avoids loopback networking issues and preserves the generated prompt
     // exactly as constructed, including the beginning of long audit prompts.
-    const evolveRes = await createEvolveSessionFromText({
+    const evolveResult = await createEvolveSessionFromText({
       userId: user!.id,
       requestText: evolveRequestText,
     });
 
-    let data: { sessionId?: string; error?: string } = {};
-    try {
-      const text = await evolveRes.text();
-      if (text) {
-        data = JSON.parse(text);
-      } else {
-        data = { error: `Server returned empty response with status ${evolveRes.status}` };
-      }
-    } catch {
-      data = { error: `Server returned non-JSON response with status ${evolveRes.status}` };
+    if (!evolveResult.ok) {
+      return Response.json({ error: evolveResult.error }, { status: evolveResult.status });
     }
-
-    if (!evolveRes.ok || !data.sessionId) {
-      return Response.json({ error: data.error ?? "Failed to create evolve session" }, { status: evolveRes.status || 500 });
-    }
-    return Response.json({ sessionId: data.sessionId });
+    return Response.json({ sessionId: evolveResult.sessionId });
   }
 
   return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });
