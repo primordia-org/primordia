@@ -286,7 +286,7 @@ async function handlePost(request: Request) {
     if (body.encryptedChatGptOAuth) encryptedChatGptOAuth = body.encryptedChatGptOAuth;
   }
 
-  const result = await createEvolveSessionFromText({
+  return createEvolveSessionFromText({
     userId: user.id,
     requestText,
     harness,
@@ -300,7 +300,6 @@ async function handlePost(request: Request) {
     encryptedChatGptOAuth,
     savedAttachmentPaths,
   });
-  return responseForCreateEvolveSessionResult(result);
 }
 
 export interface CreateEvolveSessionFromTextOptions {
@@ -318,15 +317,6 @@ export interface CreateEvolveSessionFromTextOptions {
   savedAttachmentPaths?: string[];
 }
 
-export type CreateEvolveSessionFromTextResult =
-  | { ok: true; sessionId: string }
-  | { ok: false; status: number; error: string };
-
-export function responseForCreateEvolveSessionResult(result: CreateEvolveSessionFromTextResult): Response {
-  if (result.ok) return Response.json({ sessionId: result.sessionId });
-  return Response.json({ error: result.error }, { status: result.status });
-}
-
 export async function createEvolveSessionFromText({
   userId,
   requestText,
@@ -340,7 +330,7 @@ export async function createEvolveSessionFromText({
   encryptedCredentials = null,
   encryptedChatGptOAuth = null,
   savedAttachmentPaths = [],
-}: CreateEvolveSessionFromTextOptions): Promise<CreateEvolveSessionFromTextResult> {
+}: CreateEvolveSessionFromTextOptions): Promise<Response> {
   if (authSource === 'exe-dev-gateway') {
     encryptedApiKey = null;
     encryptedCredentials = null;
@@ -364,7 +354,7 @@ export async function createEvolveSessionFromText({
     try {
       decryptedApiKey = await decryptApiKey(encryptedApiKey);
     } catch {
-      return { ok: false, status: 400, error: 'Could not decrypt API key. Please try submitting again.' };
+      return Response.json({ error: 'Could not decrypt API key. Please try submitting again.' }, { status: 400 });
     }
     encryptedApiKey = null; // clear ciphertext from memory
   }
@@ -376,13 +366,16 @@ export async function createEvolveSessionFromText({
       const payload = JSON.parse(encryptedCredentials) as { wrappedKey: string; iv: string; ciphertext: string };
       decryptedCredentials = await decryptHybridCredentials(payload);
     } catch {
-      return { ok: false, status: 400, error: 'Could not decrypt credentials. Please try submitting again.' };
+      return Response.json({ error: 'Could not decrypt credentials. Please try submitting again.' }, { status: 400 });
     }
     encryptedCredentials = null; // clear ciphertext from memory
   }
 
   if (authSource === 'chatgpt-subscription' && !encryptedChatGptOAuth) {
-    return { ok: false, status: 400, error: 'ChatGPT subscription preset selected, but no ChatGPT credentials were sent. Reconnect ChatGPT in Settings → Billing sources, then try again.' };
+    return Response.json(
+      { error: 'ChatGPT subscription preset selected, but no ChatGPT credentials were sent. Reconnect ChatGPT in Settings → Billing sources, then try again.' },
+      { status: 400 },
+    );
   }
 
   // Decrypt the user's ChatGPT subscription OAuth credentials (if provided).
@@ -392,7 +385,7 @@ export async function createEvolveSessionFromText({
       const payload = JSON.parse(encryptedChatGptOAuth) as { wrappedKey: string; iv: string; ciphertext: string };
       decryptedChatGptOAuth = await decryptHybridCredentials(payload);
     } catch {
-      return { ok: false, status: 400, error: 'Could not decrypt ChatGPT credentials. Please try submitting again.' };
+      return Response.json({ error: 'Could not decrypt ChatGPT credentials. Please try submitting again.' }, { status: 400 });
     }
     encryptedChatGptOAuth = null;
   }
@@ -425,7 +418,7 @@ export async function createEvolveSessionFromText({
   const parentBranch = parentBranchResult.stdout.trim() || 'main';
   const parentShaResult = await runGit(['rev-parse', parentBranch], repoRoot);
   if (parentShaResult.code !== 0) {
-    return { ok: false, status: 500, error: `Failed to resolve parent branch ${parentBranch}: ${parentShaResult.stderr}` };
+    return Response.json({ error: `Failed to resolve parent branch ${parentBranch}: ${parentShaResult.stderr}` }, { status: 500 });
   }
   const parentSha = parentShaResult.stdout.trim();
 
@@ -433,19 +426,19 @@ export async function createEvolveSessionFromText({
   // is immediately reachable when the client navigates to it after the redirect.
   const wtResult = await runGit(['worktree', 'add', worktreePath, '-b', branch], repoRoot);
   if (wtResult.code !== 0) {
-    return { ok: false, status: 500, error: `Failed to create session worktree: ${wtResult.stderr}` };
+    return Response.json({ error: `Failed to create session worktree: ${wtResult.stderr}` }, { status: 500 });
   }
 
   const parentConfigResult = await runGit(['config', `branch.${branch}.parent`, parentBranch], repoRoot);
   if (parentConfigResult.code !== 0) {
-    return { ok: false, status: 500, error: `Failed to record parent branch metadata: ${parentConfigResult.stderr}` };
+    return Response.json({ error: `Failed to record parent branch metadata: ${parentConfigResult.stderr}` }, { status: 500 });
   }
 
   try {
     writeBranchMarker(worktreePath, parentBranch, parentSha);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, status: 500, error: msg };
+    return Response.json({ error: msg }, { status: 500 });
   }
 
   // Write the initial_request event synchronously so getSessionFromFilesystem()
@@ -508,7 +501,7 @@ export async function createEvolveSessionFromText({
     } catch { /* ignore */ }
   })();
 
-  return { ok: true, sessionId };
+  return Response.json({ sessionId });
 }
 
 /**
