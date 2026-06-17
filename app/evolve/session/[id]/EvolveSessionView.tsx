@@ -97,6 +97,7 @@ function detectChatGptReloginReason(events: SessionEvent[], resultMessage?: stri
     return 'This ChatGPT subscription run could not start because the OpenAI Codex provider credentials were unavailable. Reconnect ChatGPT, then retry the session.';
   }
   if (
+    normalized.includes('chatgpt session expired') ||
     normalized.includes('access token could not be refreshed') ||
     normalized.includes('provided authentication token is expired') ||
     normalized.includes('please try signing in again') ||

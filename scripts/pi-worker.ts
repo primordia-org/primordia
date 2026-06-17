@@ -68,6 +68,8 @@ delete process.env.PRIMORDIA_CHATGPT_OAUTH;
 const _requiredAuthSource = process.env.PRIMORDIA_REQUIRED_AUTH_SOURCE;
 delete process.env.PRIMORDIA_REQUIRED_AUTH_SOURCE;
 
+const CHATGPT_RELOGIN_ERROR = 'ChatGPT session expired. Reconnect ChatGPT in Settings → Billing sources, then retry this evolve session.';
+
 interface WorkerConfig {
   sessionId: string;
   worktreePath: string;
@@ -123,6 +125,13 @@ function getRequiredPiTodoExtensionPath(worktreePath: string): string {
  * .pi/settings.json so interactive Pi also installs it, but the headless evolve
  * worker enforces the dependency before creating a session.
  */
+async function ensureUsableChatGptOAuth(authStorage: AuthStorage): Promise<void> {
+  const apiKey = await authStorage.getApiKey('openai-codex', { includeFallback: false });
+  if (!apiKey) {
+    throw new Error(CHATGPT_RELOGIN_ERROR);
+  }
+}
+
 function ensureRequiredPiTodoPackage(worktreePath: string): string {
   const extensionPath = getRequiredPiTodoExtensionPath(worktreePath);
   if (fs.existsSync(extensionPath)) return extensionPath;
@@ -350,6 +359,7 @@ async function main(): Promise<void> {
         expires: stored.tokens?.accessTokenExpiresAt ?? 0,
         accountId: stored.tokens?.accountId ?? undefined,
       });
+      await ensureUsableChatGptOAuth(authStorage);
       process.stderr.write('Using ChatGPT subscription OAuth for openai-codex\n');
     } else if (_userApiKey) {
       authStorage.setRuntimeApiKey(modelProvider, _userApiKey);
@@ -379,12 +389,14 @@ async function main(): Promise<void> {
       ? SessionManager.continueRecent(worktreePath)
       : SessionManager.create(worktreePath);
 
-    // Register the gateway as the Anthropic provider base URL via an inline
-    // extension factory — only when NOT using a direct user API key.
+    // Register the gateway provider base URLs via an inline extension factory
+    // only when the selected auth source is allowed to use the gateway. Direct
+    // API key and ChatGPT OAuth runs must not silently fall back to gateway
+    // routing because billing-provider errors should surface directly.
     // extensionFactories are always applied even when noExtensions is true
     // (which only disables file-based extension discovery).
-    const extensionFactories: ExtensionFactory[] = _userApiKey
-      ? [] // direct provider API — no custom baseUrl needed
+    const extensionFactories: ExtensionFactory[] = _userApiKey || _requiredAuthSource === 'chatgpt-subscription'
+      ? [] // direct provider API or ChatGPT OAuth — no gateway fallback/baseUrl needed
       : [
           (pi: Parameters<ExtensionFactory>[0]) => {
             // Route all supported providers through the exe.dev LLM gateway.
