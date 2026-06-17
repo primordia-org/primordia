@@ -25,7 +25,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.141",
     "@anthropic-ai/sdk": "^0.96.0",
-    "@mariozechner/pi-coding-agent": "0.73.1",
+    "@earendil-works/pi-coding-agent": "0.79.4",
     "@openai/codex": "0.130.0",
     "@scalar/api-reference-react": "^0.9.38",
     "@simplewebauthn/browser": "^13.3.0",

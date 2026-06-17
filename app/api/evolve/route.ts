@@ -11,7 +11,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import { AuthStorage, ModelRegistry } from '@mariozechner/pi-coding-agent';
+import { AuthStorage, ModelRegistry } from '@earendil-works/pi-coding-agent';
 import { complete, type UserMessage } from '@mariozechner/pi-ai';
 import { decryptApiKey, decryptHybridCredentials } from '../../../lib/llm-encryption';
 import {

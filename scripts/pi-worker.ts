@@ -24,7 +24,7 @@ import {
   DefaultResourceLoader,
   getAgentDir,
   type ExtensionFactory,
-} from '@mariozechner/pi-coding-agent';
+} from '@earendil-works/pi-coding-agent';
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';

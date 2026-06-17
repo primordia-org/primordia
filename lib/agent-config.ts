@@ -2,7 +2,7 @@
 // Definitions for supported coding agent harnesses, models, and global defaults.
 //
 // The model list lives in lib/models.generated.json so both server and client
-// components can import it without pulling in @mariozechner/pi-coding-agent.
+// components can import it without pulling in @earendil-works/pi-coding-agent.
 // Regenerate it with: bun run regenerate:model-registry
 
 export interface HarnessOption {

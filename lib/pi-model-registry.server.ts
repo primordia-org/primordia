@@ -10,7 +10,7 @@ import 'server-only';
 //   claude-code  →  anthropic only (the Claude Code SDK is Anthropic-only)
 //   pi           →  anthropic + openai (gateway) + openai-codex (ChatGPT OAuth) + openrouter (user API key required)
 
-import { ModelRegistry, AuthStorage } from '@mariozechner/pi-coding-agent';
+import { ModelRegistry, AuthStorage } from '@earendil-works/pi-coding-agent';
 import type { ModelOption } from './agent-config';
 
 // Providers surfaced in the model picker per harness.
