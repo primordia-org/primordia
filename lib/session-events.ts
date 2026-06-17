@@ -161,10 +161,7 @@ function buildSessionFromWorktreePath(
   for (const event of events) {
     if (!createdAt && 'ts' in event) createdAt = (event as { ts: number }).ts;
     if (event.type === 'initial_request') {
-      // The first initial_request event is the canonical user prompt. Recovery
-      // or older worker paths may append duplicate initial_request events later;
-      // those should not replace the original text shown on the session page.
-      if (!request) request = event.request;
+      request = event.request;
     } else if (event.type === 'metrics') {
       // Sum across all metrics events (each records incremental cost/tokens for
       // one agent run; follow-ups write a delta rather than a cumulative total).
