@@ -40,17 +40,17 @@ const nextConfig: NextConfig = {
   // Tell Next.js not to bundle the pi coding agent SDK. It uses native modules
   // (e.g. @mariozechner/clipboard) that can't be processed by Turbopack/webpack.
   // Keeping it external means it runs in the Node.js server process as-is.
-  // All @mariozechner/* packages must be listed here so Turbopack treats every
+  // All @earendil-works/* packages must be listed here so Turbopack treats every
   // package in the namespace as a Node.js external rather than trying to bundle
   // them.  Omitting sub-packages (pi-tui, pi-agent-core, jiti, the native
   // clipboard binaries) causes Turbopack to generate content-hashed chunk IDs
   // for them that the runtime then cannot resolve.
   serverExternalPackages: [
-    '@mariozechner/pi-coding-agent',
-    '@mariozechner/pi-ai',
-    '@mariozechner/pi-tui',
-    '@mariozechner/pi-agent-core',
-    '@mariozechner/jiti',
+    '@earendil-works/pi-coding-agent',
+    '@earendil-works/pi-ai',
+    '@earendil-works/pi-tui',
+    '@earendil-works/pi-agent-core',
+    'jiti',
     '@mariozechner/clipboard',
     '@mariozechner/clipboard-linux-x64-gnu',
     '@mariozechner/clipboard-linux-x64-musl',

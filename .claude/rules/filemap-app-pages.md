@@ -41,6 +41,7 @@ app/                             ← Next.js App Router
 ├── globals.css                  ← Tailwind base imports only
 ├── icon.png                     ← App favicon
 ├── ChangelogNewsticker.tsx      ← Server component: renders recent changelog entries as an animated newsticker
+├── ChatGptSubscriptionAuthCard.tsx ← Shared client card for ChatGPT subscription device-code login, credential display, and reconnect flows
 ├── CopyButton.tsx               ← Client button: copies text to clipboard with visual feedback
 ├── InstallBlock.tsx             ← Interactive install UI block with SSH command and live VM name input
 ├── LandingNav.tsx               ← Floating hamburger menu in top-right of landing page with lazy-loaded evolve dialog

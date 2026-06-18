@@ -25,7 +25,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.141",
     "@anthropic-ai/sdk": "^0.96.0",
-    "@mariozechner/pi-coding-agent": "0.73.1",
+    "@earendil-works/pi-coding-agent": "0.79.4",
     "@openai/codex": "0.130.0",
     "@scalar/api-reference-react": "^0.9.38",
     "@simplewebauthn/browser": "^13.3.0",
@@ -47,16 +47,19 @@
     "web-push": "^3.6.7"
   },
   "overrides": {
+    "@babel/core": "^7.29.1",
     "basic-ftp": "^6.0.1",
+    "dompurify": "^3.4.9",
     "fast-uri": "^3.1.2",
     "fast-xml-builder": "^1.2.0",
-    "hono": "^4.12.21",
+    "hono": "^4.12.25",
     "ip-address": "^10.2.0",
+    "js-yaml": "^4.2.0",
     "mermaid": "^11.15.0",
     "postcss": "^8.5.14",
-    "protobufjs": "^8.3.0",
+    "protobufjs": "^8.5.1",
     "uuid": "^11.1.1",
-    "ws": "^8.20.1",
+    "ws": "^8.21.0",
     "qs": "^6.15.2"
   },
   "devDependencies": {

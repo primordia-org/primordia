@@ -1,6 +1,7 @@
 // app/api/admin/dependencies-security/route.ts
 // Runs `bun audit` for admins and creates evolve sessions to update vulnerable packages.
 
+import { createEvolveSessionFromText } from "@/app/api/evolve/route";
 import { getSessionUser, isAdmin, hasEvolvePermission } from "@/lib/auth";
 import { runBunAudit, writeDependencyAuditNotification, type BunAuditResult } from "@/lib/dependency-audit";
 
@@ -78,7 +79,7 @@ async function handlePost(request: Request) {
     writeDependencyAuditNotification(process.cwd(), result);
     const issueList = result.findings.length > 0
       ? result.findings.map((f) => `- ${f.packageName}: ${f.severity} — ${f.title} (${f.id})`).join("\n")
-      : "bun audit did not return structured findings. Inspect the raw output below.";
+      : "- No structured findings were returned by the initial audit run. Run `bun audit` to inspect the current dependency report.";
 
     const evolveRequestText =
       `Update vulnerable dependencies reported by bun audit.\n\n` +
@@ -87,22 +88,17 @@ async function handlePost(request: Request) {
       `2. Preserve existing functionality and avoid unrelated dependency churn.\n` +
       `3. Run \`bun install\`, \`bun audit\`, \`bun run typecheck\`, and \`bun run build\`.\n` +
       `4. If a vulnerable transitive package cannot be updated directly, update the parent dependency or document why it remains.\n\n` +
-      `Structured findings:\n${issueList}\n\n` +
-      `Raw bun audit output:\n\n\`\`\`json\n${result.jsonText || result.rawOutput}\n\`\`\``;
+      `Initial structured findings:\n${issueList}\n\n` +
+      `Do not rely on this summary alone; run \`bun audit\` in the worktree for the full current report before editing dependencies.`;
 
-    // Call the evolve route handler directly instead of making a server-side
-    // HTTP request back to this instance. In production the public URL can be
-    // unreachable from the server itself, which made "Create fix session" fail
-    // with a vague "Unable to connect" error even though the app was healthy.
-    const { POST: startEvolveSession } = await import("@/app/api/evolve/route");
-    const evolveRes = await startEvolveSession(new Request(new URL("/api/evolve", request.url), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Cookie: request.headers.get("cookie") ?? "",
-      },
-      body: JSON.stringify({ request: evolveRequestText }),
-    }));
+    // Call the evolve session creation helper directly instead of wrapping the
+    // prompt in a synthetic Request for the evolve route to parse again. This
+    // avoids loopback networking issues and preserves the generated prompt
+    // exactly as constructed, including the beginning of long audit prompts.
+    const evolveRes = await createEvolveSessionFromText({
+      userId: user!.id,
+      requestText: evolveRequestText,
+    });
 
     let data: { sessionId?: string; error?: string } = {};
     try {

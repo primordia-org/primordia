@@ -1,6 +1,6 @@
 // lib/pi-custom-models.ts
 // Custom pi model entries Primordia needs before they are available in the
-// bundled @mariozechner/pi-coding-agent registry.
+// bundled @earendil-works/pi-coding-agent registry.
 
 import { writeFileSync } from 'fs';
 import { join } from 'path';

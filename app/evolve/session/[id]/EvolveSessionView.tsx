@@ -19,6 +19,7 @@ import { withBasePath } from "@/lib/base-path";
 import { appendCredentialFieldsForAuthSource, getCredentialFieldsForAuthSource } from "@/lib/preset-credentials-client";
 import { useSounds } from "@/lib/sounds";
 import { updateStoredCredentials } from "@/lib/credentials-client";
+import { ChatGptSubscriptionAuthCard } from "@/components/ChatGptSubscriptionAuthCard";
 import { EvolveRequestForm } from "@/components/EvolveRequestForm";
 import Link from "next/link";
 import type { DiffFileSummary } from "./page";
@@ -79,6 +80,34 @@ function MetricsRow({ metrics, hideCost = false }: { metrics: SectionMetrics; hi
       )}
     </div>
   );
+}
+
+function detectChatGptReloginReason(events: SessionEvent[], resultMessage?: string): string | null {
+  const text = [
+    resultMessage ?? '',
+    ...events.flatMap((event) => {
+      if (event.type === 'text' || event.type === 'log_line' || event.type === 'thinking') return [event.content];
+      if (event.type === 'result') return [event.message];
+      return [];
+    }),
+  ].join('\n');
+  const normalized = text.toLowerCase();
+
+  if (normalized.includes('no api key for provider: openai-codex')) {
+    return 'This ChatGPT subscription run could not start because the OpenAI Codex provider credentials were unavailable. Reconnect ChatGPT, then retry the session.';
+  }
+  if (
+    normalized.includes('chatgpt session expired') ||
+    normalized.includes('access token could not be refreshed') ||
+    normalized.includes('provided authentication token is expired') ||
+    normalized.includes('please try signing in again') ||
+    normalized.includes('please sign in again') ||
+    normalized.includes('token_expired') ||
+    (normalized.includes('401 unauthorized') && normalized.includes('chatgpt.com/backend-api/codex'))
+  ) {
+    return 'Your ChatGPT session expired or was replaced by another sign-in. Reconnect ChatGPT, then retry the session.';
+  }
+  return null;
 }
 
 // ─── Structured event rendering ───────────────────────────────────────────────
@@ -199,7 +228,9 @@ function PiTodoToolDisplay({ name, input, expectedTaskId }: { name: string; inpu
   if (lname === 'taskcreate') {
     const id = visibleTaskId(input, expectedTaskId);
     const content = typeof input.content === 'string' && input.content.trim() ? input.content : undefined;
-    return <span className="text-gray-500">{id ? <span className="text-gray-600">#{id} </span> : null}{content ? <span className="text-gray-400">{content}</span> : 'create'}</span>;
+    const tasks = Array.isArray(input.tasks) ? input.tasks.filter((task) => task != null && typeof task === 'object' && !Array.isArray(task)) : [];
+    const batchLabel = tasks.length > 0 ? `create ${tasks.length} tasks` : undefined;
+    return <span className="text-gray-500">{id ? <span className="text-gray-600">#{id} </span> : null}{content ? <span className="text-gray-400">{content}</span> : batchLabel ?? 'create'}</span>;
   }
   if (lname === 'taskupdate') {
     const id = visibleTaskId(input, expectedTaskId);
@@ -257,6 +288,25 @@ function normalizeTodoStatus(status: string | undefined): string {
   return ['pending', 'in_progress', 'completed', 'blocked', 'failed', 'deleted'].includes(status) ? status : 'pending';
 }
 
+function nextSyntheticTaskId(todos: AgentTodoItem[], offset = 0): string {
+  const maxId = todos.reduce((max, todo) => {
+    const match = todo.id?.match(/^t(\d+)$/);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  return `t${maxId + offset + 1}`;
+}
+
+function todoFromTaskCreateInput(input: Record<string, unknown>, id: string): AgentTodoItem {
+  return {
+    id: firstString(input, 'id') ?? id,
+    content: firstString(input, 'content') ?? 'Untitled to-do',
+    status: 'pending',
+    priority: firstString(input, 'priority'),
+    weight: normalizeTodoWeight(input),
+    activeForm: firstString(input, 'activeForm'),
+  };
+}
+
 function applyTodoToolEvent(todos: AgentTodoItem[], event: Extract<SessionEvent, { type: 'tool_use' }>): AgentTodoItem[] {
   const lname = event.name.toLowerCase();
   if (lname === 'todowrite') {
@@ -275,16 +325,17 @@ function applyTodoToolEvent(todos: AgentTodoItem[], event: Extract<SessionEvent,
   }
 
   if (lname === 'taskcreate') {
+    const rawTasks = Array.isArray(event.input.tasks) ? event.input.tasks : [];
+    const batchTasks = rawTasks.filter((raw): raw is Record<string, unknown> => raw != null && typeof raw === 'object' && !Array.isArray(raw));
+    if (batchTasks.length > 0) {
+      return [
+        ...todos,
+        ...batchTasks.map((task, index) => todoFromTaskCreateInput(task, nextSyntheticTaskId(todos, index))),
+      ];
+    }
     return [
       ...todos,
-      {
-        id: firstString(event.input, 'id'),
-        content: firstString(event.input, 'content') ?? 'Untitled to-do',
-        status: 'pending',
-        priority: firstString(event.input, 'priority'),
-        weight: normalizeTodoWeight(event.input),
-        activeForm: firstString(event.input, 'activeForm'),
-      },
+      todoFromTaskCreateInput(event.input, nextSyntheticTaskId(todos)),
     ];
   }
 
@@ -941,6 +992,8 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
     : (isAutoCommitSection ? "📦 Unstaged changes committed" : isTypeFixSection ? "🔧 Type errors fixed" : null);
 
   const { detailEvents, finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
+  const chatGptReloginReason = hasError ? detectChatGptReloginReason(events, resultEvent?.message) : null;
+  const showRawFinalEvents = finalEvents.length > 0 && !chatGptReloginReason;
 
   return (
     <div className={`rounded-lg border ${doneBorderClass} bg-gray-900 text-sm overflow-hidden`}>
@@ -952,12 +1005,27 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
       {toolCallCount > 0 && (
         <TaskAccordionEvents events={detailEvents} sessionId={sessionId} worktreePath={worktreePath} legacyClassName="px-4 py-3 space-y-2 border-b border-gray-800" />
       )}
-      {finalEvents.length > 0 && (
+      {showRawFinalEvents && (
         <div className="px-4 py-3 space-y-2 border-t border-gray-800">
           <LegacyAgentEvents events={finalEvents} sessionId={sessionId} worktreePath={worktreePath} />
         </div>
       )}
-      {hasError && convertedMessage && (
+      {chatGptReloginReason && (
+        <div className="px-4 py-3 border-t border-gray-800">
+          <ChatGptSubscriptionAuthCard
+            title="Sign in to ChatGPT again"
+            description={chatGptReloginReason}
+            connectedMessage="ChatGPT is connected again. Retry this evolve session when you are ready."
+            reconnectButtonLabel="Re-login to ChatGPT"
+            startButtonLabel="Re-login to ChatGPT"
+            showStoredCredentials={false}
+            allowDisconnect={false}
+            dataIdPrefix="evolve-session/chatgpt-relogin"
+            eventPrefix="evolve/session/chatgpt-relogin"
+          />
+        </div>
+      )}
+      {hasError && convertedMessage && !chatGptReloginReason && (
         <div className="px-4 py-3 border-t border-gray-800">
           <p className="text-xs font-semibold text-red-400 mb-1">Error details</p>
           <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{convertedMessage}</pre>
