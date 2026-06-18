@@ -5,6 +5,7 @@ import {
   progressSummary,
   validateProgressSteps,
   shouldRenderAgentProgressPanel,
+  shouldRenderFinalSummaryOutsideProgress,
   type ProgressState,
 } from '../lib/progress-monitor';
 
@@ -106,6 +107,12 @@ describe('dead simple progress monitor reducer', () => {
     expect(shouldRenderAgentProgressPanel({ isAgentSection: false, hasProgressEvents: true, toolCallCount: 0 })).toBe(true);
     expect(shouldRenderAgentProgressPanel({ isAgentSection: false, hasProgressEvents: false, toolCallCount: 2 })).toBe(true);
     expect(shouldRenderAgentProgressPanel({ isAgentSection: false, hasProgressEvents: false, toolCallCount: 0 })).toBe(false);
+  });
+
+  test('final summaries render outside the progress panel', () => {
+    expect(shouldRenderFinalSummaryOutsideProgress({ finalEventCount: 1, hasReloginReason: false })).toBe(true);
+    expect(shouldRenderFinalSummaryOutsideProgress({ finalEventCount: 0, hasReloginReason: false })).toBe(false);
+    expect(shouldRenderFinalSummaryOutsideProgress({ finalEventCount: 1, hasReloginReason: true })).toBe(false);
   });
 
   test('validation rejects bad step JSON shape', () => {
