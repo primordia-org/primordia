@@ -4,6 +4,7 @@ import {
   reduceProgressEvent,
   progressSummary,
   validateProgressSteps,
+  shouldRenderAgentProgressPanel,
   type ProgressState,
 } from '../lib/progress-monitor';
 
@@ -98,6 +99,13 @@ describe('dead simple progress monitor reducer', () => {
     ]);
     expect(progressSummary(state).completeSteps).toBe(1);
     expect(state.steps.filter((step) => step.status === 'active')).toHaveLength(1);
+  });
+
+  test('terminal agent sections still render a progress panel without tool calls', () => {
+    expect(shouldRenderAgentProgressPanel({ isAgentSection: true, hasProgressEvents: false, toolCallCount: 0 })).toBe(true);
+    expect(shouldRenderAgentProgressPanel({ isAgentSection: false, hasProgressEvents: true, toolCallCount: 0 })).toBe(true);
+    expect(shouldRenderAgentProgressPanel({ isAgentSection: false, hasProgressEvents: false, toolCallCount: 2 })).toBe(true);
+    expect(shouldRenderAgentProgressPanel({ isAgentSection: false, hasProgressEvents: false, toolCallCount: 0 })).toBe(false);
   });
 
   test('validation rejects bad step JSON shape', () => {

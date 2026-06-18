@@ -27,7 +27,7 @@ import { DiffFileExpander } from "./DiffFileExpander";
 import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
 import type { SessionEvent, AgentAuthInfo, ProgressStepStatus } from "@/lib/session-events";
-import { initialProgressState, progressSummary, progressTickMarks, reduceProgressEvent, type ProgressStateStep } from "@/lib/progress-monitor";
+import { initialProgressState, progressSummary, progressTickMarks, reduceProgressEvent, shouldRenderAgentProgressPanel, type ProgressStateStep } from "@/lib/progress-monitor";
 import { convertUtcTimeToLocal } from "@/lib/utc-to-local-time";
 import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
 import { normalizeAuthSource, type PresetAuthSource } from "@/lib/presets";
@@ -1164,9 +1164,15 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
     ? (isAutoCommitSection ? "❌ Auto-commit failed" : isTypeFixSection ? "❌ Auto-fix failed" : "❌")
     : (isAutoCommitSection ? "📦 Unstaged changes committed" : isTypeFixSection ? "🔧 Type errors fixed" : null);
 
-  const { detailEvents, finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
+  const { finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
+  const hasProgressEvents = events.some((event) => event.type === 'progress_plan' || event.type === 'progress_step');
+  const showProgressPanel = shouldRenderAgentProgressPanel({
+    isAgentSection: !isTypeFixSection && !isAutoCommitSection,
+    hasProgressEvents,
+    toolCallCount,
+  });
   const chatGptReloginReason = hasError ? detectChatGptReloginReason(events, resultEvent?.message) : null;
-  const showRawFinalEvents = finalEvents.length > 0 && !chatGptReloginReason;
+  const showRawFinalEvents = finalEvents.length > 0 && !showProgressPanel && !chatGptReloginReason;
 
   return (
     <div className={`rounded-lg border ${doneBorderClass} bg-gray-900 text-sm overflow-hidden`}>
@@ -1175,8 +1181,8 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
         {!isTypeFixSection && !isAutoCommitSection && <AgentIdentityLine authSource={authSource} auth={auth} harness={harness} model={model} className={`font-semibold text-xs ${doneHeadingClass}`} />}
         {!isTypeFixSection && !isAutoCommitSection && <span className="ml-auto text-xs text-gray-500">{hasError ? "errored" : "finished"}</span>}
       </div>
-      {toolCallCount > 0 && (
-        <TaskAccordionEvents events={detailEvents} sessionId={sessionId} worktreePath={worktreePath} legacyClassName="px-4 py-3 space-y-2 border-b border-gray-800" />
+      {showProgressPanel && (
+        <TaskAccordionEvents events={events} sessionId={sessionId} worktreePath={worktreePath} legacyClassName="px-4 py-3 space-y-2 border-b border-gray-800" />
       )}
       {showRawFinalEvents && (
         <div className="px-4 py-3 space-y-2 border-t border-gray-800">

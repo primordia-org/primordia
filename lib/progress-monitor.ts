@@ -19,6 +19,12 @@ export interface ProgressSummary {
   weightedPercent: number;
 }
 
+export interface ProgressPanelVisibilityInput {
+  isAgentSection: boolean;
+  hasProgressEvents: boolean;
+  toolCallCount: number;
+}
+
 export type ProgressStepValidation =
   | { ok: true; steps: ProgressPlanStep[] }
   | { ok: false; error: string };
@@ -94,6 +100,10 @@ export function progressSummary(state: ProgressState): ProgressSummary {
     totalWeight,
     weightedPercent: totalWeight > 0 ? Math.round((completeWeight / totalWeight) * 100) : 0,
   };
+}
+
+export function shouldRenderAgentProgressPanel(input: ProgressPanelVisibilityInput): boolean {
+  return input.isAgentSection || input.hasProgressEvents || input.toolCallCount > 0;
 }
 
 export function progressTickMarks(state: ProgressState): number[] {
