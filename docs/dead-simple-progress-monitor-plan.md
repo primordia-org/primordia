@@ -35,7 +35,7 @@ For each agent run, the session page should render one simple progress panel:
 The agent should only need to send three kinds of progress signals:
 
 1. `plan` — declare the short list of visible steps.
-2. `step` — move the run to a new current step or finish the current step. The protocol must make multiple active steps impossible.
+2. `step` — move the run to a new current step, or finish the current step and optionally activate the next step in the same command. The protocol must make multiple active steps impossible.
 3. `note` — optional short user-facing status text.
 
 Everything else should be inferred by Primordia:
@@ -88,6 +88,7 @@ export type SessionEvent =
       label?: string;      // optional replacement visible text
       detail?: string;     // optional one-line status/detail
       weight?: number;     // optional correction, positive integer
+      activateNextId?: string | null; // atomic next active step chosen by the writer
       ts: number;
     }
   | {
@@ -119,8 +120,10 @@ The script appends validated events to `.primordia-session.ndjson` in the curren
 bun run progress plan '[{"id":"inspect","label":"Inspect relevant files","weight":1},{"id":"implement","label":"Implement changes","weight":4},{"id":"validate","label":"Validate changes","weight":2}]'
 
 bun run progress step inspect active
+# Marks inspect done and activates the next pending step by plan order.
 bun run progress step inspect done
-bun run progress step implement active --detail "Editing session progress rendering"
+# Or choose the next step explicitly when skipping/reordering.
+bun run progress step implement done --next validate
 bun run progress note "Running typecheck"
 ```
 
@@ -130,10 +133,44 @@ Rules:
 - Refuse to run if the file does not exist, so the command cannot accidentally create unrelated logs.
 - Validate all JSON, enum values, step IDs, and positive integer weights.
 - Keep the script dependency-free.
-- Append exactly one JSON object per invocation.
-- Exit non-zero with a short message on invalid input.
+- Append exactly one JSON object per invocation, even when a terminal step also activates the next step.
+- Exit non-zero with a short, contextual message on invalid input.
 
 This makes the progress monitor usable by every harness because every harness can run shell commands.
+
+### Command output contract
+
+Every command should print one concise line that helps the agent decide what to do next. This reduces follow-up shell calls and makes incorrect usage self-correcting.
+
+Success examples:
+
+```text
+plan saved: 3 steps, total weight 7. next step 'inspect'.
+step 'inspect' active. 0/3 complete, active step 'inspect'.
+step 'inspect' done. step 'implement' active. 1/3 complete, 14% weighted.
+step 'implement' done. step 'validate' active. 2/3 complete, 71% weighted.
+note saved. active step 'validate'.
+```
+
+More success/edge examples:
+
+```text
+step 'inspect' done. no next pending step. 3/3 complete, 100% weighted.
+```
+
+Error examples:
+
+```text
+step 'verify' not found. active step is 'validate'. available steps: inspect, implement, validate.
+status 'finished' is invalid. use one of: active, done, blocked, failed, skipped.
+no progress plan found. run: bun run progress plan '[{"id":"inspect","label":"Inspect","weight":1}]'
+step 'implement' is already done. active step is 'validate'. use --force to rewrite terminal status.
+--next step 'verify' not found. active step remains 'implement'. available steps: inspect, implement, validate.
+plan JSON is invalid: expected an array of steps with id, label, and optional positive integer weight.
+usage: bun run progress step <id> <active|done|blocked|failed|skipped> [--next <id>|--no-next] [--detail <text>]
+```
+
+The output is for the agent, not the UI. It should not be appended as `text` to the session log. Invalid commands must not append anything to `.primordia-session.ndjson`. Incorrect usage should be handled as data, not stack traces: unknown commands, missing arguments, invalid JSON, invalid statuses, duplicate IDs, bad weights, unknown step IDs, invalid `--next` targets, and terminal-step rewrites should all produce actionable one-line messages.
 
 ### State model: exactly one active step
 
@@ -157,17 +194,18 @@ Reducer rules:
 1. `progress_plan` resets the run's progress state. All steps start as `pending`, all weights default to `1`, and `currentStepId` becomes `null`.
 2. `progress_step(id, 'active')` first demotes any previously active step back to `pending`, then marks `id` as `active` and sets `currentStepId = id`.
 3. `progress_step(id, 'done' | 'blocked' | 'failed' | 'skipped')` marks `id` terminal. If `id` was current, set `currentStepId = null`.
-4. If a non-current step is marked terminal, the current step remains current. This lets an agent skip a future step without disturbing grouping.
-5. The writer should reject `pending` as a `progress_step` status. Pending is only the initial state from the plan, not an action.
-6. The UI must group all subsequent text/thinking/tool events under `currentStepId`; if `currentStepId` is null, group them under the virtual `Setup` or `Wrap-up` bucket depending on whether a plan exists and whether terminal result has arrived.
+4. If that terminal event has `activateNextId`, the reducer immediately demotes any active step, marks `activateNextId` as `active`, and sets `currentStepId = activateNextId` as part of the same event. This gives one-command `done → next active` transitions without ever representing two active steps.
+5. If a non-current step is marked terminal without `activateNextId`, the current step remains current. This lets an agent skip a future step without disturbing grouping.
+6. The writer should reject `pending` as a `progress_step` status. Pending is only the initial state from the plan, not an action.
+7. The UI must group all subsequent text/thinking/tool events under `currentStepId`; if `currentStepId` is null, group them under the virtual `Setup` or `Wrap-up` bucket depending on whether a plan exists and whether terminal result has arrived.
 
-These rules make undesirable states impossible in the rendered model even if an agent emits redundant events.
+These rules make undesirable states impossible in the rendered model even if an agent emits redundant events. The writer should choose `activateNextId` automatically for terminal statuses by selecting the next non-terminal step in plan order, unless the agent passes `--next <id>` or `--no-next`.
 
 ## Agent prompt contract
 
 Inject the same progress instructions into Pi, Claude Code, and Codex worker prompts:
 
-> Primordia shows users a simple progress panel. Use `bun run progress` to keep it current. At the beginning of every requested change, declare 4–7 user-visible steps with `bun run progress plan '[...]'`. Include small positive integer weights from day one: use `1` for tiny steps, `2` for normal steps, and `3–5` for large steps. Do not create a detailed task tree. Mark exactly one step `active` before working on it; activating a new step automatically makes it the only active step. Mark the active step `done` as soon as it is complete. Use `blocked` or `failed` only when the user needs to know work cannot proceed. Labels must be short, imperative, and user-facing. Do not expose internal IDs. Prefer stages such as inspect, implement, set preview, validate, changelog, commit, final.
+> Primordia shows users a simple progress panel. Use `bun run progress` to keep it current. At the beginning of every requested change, declare 4–7 user-visible steps with `bun run progress plan '[...]'`. Include small positive integer weights from day one: use `1` for tiny steps, `2` for normal steps, and `3–5` for large steps. Do not create a detailed task tree. Mark exactly one step `active` before working on it; activating a new step automatically makes it the only active step. When a step is complete, run `bun run progress step <id> done`; the command will activate the next pending step and print that next step, so do not spend a second tool call just to activate the next step. Use `--next <id>` when intentionally reordering and `--no-next` when there is no next step. Use `blocked` or `failed` only when the user needs to know work cannot proceed. Labels must be short, imperative, and user-facing. Do not expose internal IDs. Prefer stages such as inspect, implement, set preview, validate, changelog, commit, final.
 
 Additional prompt rules:
 
@@ -181,8 +219,8 @@ Additional prompt rules:
 Update `EvolveSessionView` to derive progress from `progress_*` events first:
 
 1. Find the latest `progress_plan` in the current agent section.
-2. Apply later `progress_step` events with the single-active-step reducer above.
-3. Never infer a second active step. If there is no current step and not all steps are terminal, the UI may highlight the first incomplete step as "up next," but it must not group actions under it until an `active` event arrives.
+2. Apply later `progress_step` events with the single-active-step reducer above, including atomic terminal-plus-`activateNextId` transitions.
+3. Never infer a second active step. If there is no current step and not all steps are terminal, the UI may highlight the first incomplete step as "up next," but it must not group actions under it until an `active` event or `activateNextId` arrives.
 4. Group text/thinking/tool events under `currentStepId` by event order.
 5. Render old TodoWrite/Pi task events only as a backward-compatible fallback for historical sessions.
 
@@ -199,7 +237,7 @@ Progress math:
 ### Phase 1 — Add protocol beside existing Todo support
 
 - Add `progress_*` event types, including v1 step weights.
-- Add `scripts/progress-monitor.ts` and `bun run progress` with single-active-step validation/reducer helpers.
+- Add `scripts/progress-monitor.ts` and `bun run progress` with single-active-step validation/reducer helpers, automatic next-step activation, and contextual stdout/stderr messages.
 - Teach the session UI to prefer `progress_*` events.
 - Keep current Todo rendering for historical sessions and as a temporary fallback.
 
@@ -228,6 +266,8 @@ Progress math:
 - New sessions from Pi, Claude Code, and Codex can all produce the same progress panel with only shell access.
 - New sessions support weighted steps immediately, and the progress bar uses those weights.
 - The reduced progress state can never contain more than one active step.
+- Marking a step terminal can activate the next step in the same command/event, so agents do not need two shell calls for a normal transition.
+- Every successful or failed command returns concise context about the current/next active step and available corrective action.
 - No new npm package is required for progress tracking.
 - The UI never shows synthetic task labels like `To-do #t26` for new sessions.
 - A malformed progress command fails safely without corrupting `.primordia-session.ndjson`.
@@ -240,4 +280,5 @@ Progress math:
 2. Should step IDs be user-provided or generated by the script? Recommendation: allow explicit IDs so agents can update steps reliably, but validate them as lowercase slugs.
 3. Should the command support batch updates? Recommendation: no for v1. One event per invocation keeps the script and parser obvious.
 4. Should activation auto-complete the previous step instead of demoting it to pending? Recommendation: no. Auto-completion hides mistakes; agents should explicitly mark work done before activating the next step.
-5. Should this become an MCP/tool API later? Recommendation: only if shell commands prove insufficient across harnesses.
+5. Should `done` always activate the next step? Recommendation: by default yes, because it saves a shell call; support `--no-next` for the final step or unusual pauses.
+6. Should this become an MCP/tool API later? Recommendation: only if shell commands prove insufficient across harnesses.
