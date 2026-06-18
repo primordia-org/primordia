@@ -1,6 +1,4 @@
 {
   "npmCommand": ["bun", "x", "npm"],
-  "packages": [
-    "npm:@agnishc/edb-todo"
-  ]
+  "packages": []
 }
