@@ -2,7 +2,7 @@
 // GET — returns the available model options for each coding agent harness.
 //
 // The list is hard-coded in lib/agent-config.ts so this route never imports
-// @mariozechner/pi-coding-agent (an ESM-only package that caused Turbopack
+// @earendil-works/pi-coding-agent (an ESM-only package that caused Turbopack
 // external-module resolution failures in fresh worktrees).
 //
 // Response shape: Record<harnessId, ModelOption[]>

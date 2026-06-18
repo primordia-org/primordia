@@ -9,7 +9,7 @@
 
 import { writeFileSync } from 'fs';
 import { join } from 'path';
-import { ModelRegistry, AuthStorage } from '@mariozechner/pi-coding-agent';
+import { ModelRegistry, AuthStorage } from '@earendil-works/pi-coding-agent';
 import type { ModelOption } from '../lib/agent-config';
 import { GEMINI_3_5_FLASH_MODEL_ID, OPENROUTER_GEMINI_3_5_FLASH_MODEL_ID } from '../lib/pi-custom-models';
 
