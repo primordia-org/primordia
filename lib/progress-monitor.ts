@@ -25,6 +25,11 @@ export interface ProgressPanelVisibilityInput {
   toolCallCount: number;
 }
 
+export interface FinalSummaryVisibilityInput {
+  finalEventCount: number;
+  hasReloginReason: boolean;
+}
+
 export type ProgressStepValidation =
   | { ok: true; steps: ProgressPlanStep[] }
   | { ok: false; error: string };
@@ -104,6 +109,10 @@ export function progressSummary(state: ProgressState): ProgressSummary {
 
 export function shouldRenderAgentProgressPanel(input: ProgressPanelVisibilityInput): boolean {
   return input.isAgentSection || input.hasProgressEvents || input.toolCallCount > 0;
+}
+
+export function shouldRenderFinalSummaryOutsideProgress(input: FinalSummaryVisibilityInput): boolean {
+  return input.finalEventCount > 0 && !input.hasReloginReason;
 }
 
 export function progressTickMarks(state: ProgressState): number[] {

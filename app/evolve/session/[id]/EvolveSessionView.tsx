@@ -27,7 +27,7 @@ import { DiffFileExpander } from "./DiffFileExpander";
 import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
 import type { SessionEvent, AgentAuthInfo, ProgressStepStatus } from "@/lib/session-events";
-import { initialProgressState, progressSummary, progressTickMarks, reduceProgressEvent, shouldRenderAgentProgressPanel, type ProgressStateStep } from "@/lib/progress-monitor";
+import { initialProgressState, progressSummary, progressTickMarks, reduceProgressEvent, shouldRenderAgentProgressPanel, shouldRenderFinalSummaryOutsideProgress, type ProgressStateStep } from "@/lib/progress-monitor";
 import { convertUtcTimeToLocal } from "@/lib/utc-to-local-time";
 import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
 import { normalizeAuthSource, type PresetAuthSource } from "@/lib/presets";
@@ -1171,8 +1171,13 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
     hasProgressEvents,
     toolCallCount,
   });
+  const finalEventSet = new Set<RenderableEvent>(finalEvents);
+  const progressPanelEvents = events.filter((event) => !finalEventSet.has(event as RenderableEvent));
   const chatGptReloginReason = hasError ? detectChatGptReloginReason(events, resultEvent?.message) : null;
-  const showRawFinalEvents = finalEvents.length > 0 && !showProgressPanel && !chatGptReloginReason;
+  const showRawFinalEvents = shouldRenderFinalSummaryOutsideProgress({
+    finalEventCount: finalEvents.length,
+    hasReloginReason: chatGptReloginReason != null,
+  });
 
   return (
     <div className={`rounded-lg border ${doneBorderClass} bg-gray-900 text-sm overflow-hidden`}>
@@ -1182,7 +1187,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
         {!isTypeFixSection && !isAutoCommitSection && <span className="ml-auto text-xs text-gray-500">{hasError ? "errored" : "finished"}</span>}
       </div>
       {showProgressPanel && (
-        <TaskAccordionEvents events={events} sessionId={sessionId} worktreePath={worktreePath} legacyClassName="px-4 py-3 space-y-2 border-b border-gray-800" />
+        <TaskAccordionEvents events={progressPanelEvents} sessionId={sessionId} worktreePath={worktreePath} legacyClassName="px-4 py-3 space-y-2 border-b border-gray-800" />
       )}
       {showRawFinalEvents && (
         <div className="px-4 py-3 space-y-2 border-t border-gray-800">
