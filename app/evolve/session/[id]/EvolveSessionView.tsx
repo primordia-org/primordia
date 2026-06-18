@@ -26,7 +26,8 @@ import type { DiffFileSummary } from "./page";
 import { DiffFileExpander } from "./DiffFileExpander";
 import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
-import type { SessionEvent, AgentAuthInfo } from "@/lib/session-events";
+import type { SessionEvent, AgentAuthInfo, ProgressStepStatus } from "@/lib/session-events";
+import { initialProgressState, progressSummary, progressTickMarks, reduceProgressEvent, type ProgressStateStep } from "@/lib/progress-monitor";
 import { convertUtcTimeToLocal } from "@/lib/utc-to-local-time";
 import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
 import { normalizeAuthSource, type PresetAuthSource } from "@/lib/presets";
@@ -750,7 +751,173 @@ function deriveTaskAccordionItems(events: SessionEvent[]): { items: TaskAccordio
   };
 }
 
-function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = false, legacyClassName = "px-4 py-3 space-y-2" }: {
+interface ProgressAccordionItem {
+  key: string;
+  step: ProgressStateStep;
+  events: RenderableEvent[];
+}
+
+function progressStatusClass(status: ProgressStepStatus) {
+  if (status === 'done') return 'text-gray-500';
+  if (status === 'active') return 'text-yellow-400';
+  if (status === 'failed') return 'text-orange-400';
+  return 'text-gray-400';
+}
+
+function progressIconForStatus(status: ProgressStepStatus) {
+  if (status === 'done') return <CheckCircle2 className="h-4 w-4 text-green-400" />;
+  if (status === 'active') return <Clock className="h-4 w-4 text-yellow-400" />;
+  if (status === 'failed') return <AlertCircle className="h-4 w-4 text-orange-400" />;
+  return <Circle className="h-4 w-4 text-gray-500" />;
+}
+
+function progressStepKey(step: ProgressStateStep, index: number): string {
+  return `${index}:${step.label}`;
+}
+
+function deriveProgressAccordionItems(events: SessionEvent[]): { items: ProgressAccordionItem[]; stateSteps: ProgressStateStep[]; currentKey: string | null } {
+  let state = initialProgressState();
+  const eventsByKey = new Map<string, RenderableEvent[]>();
+  eventsByKey.set(progressStepKey(state.steps[0], 0), []);
+  eventsByKey.set('wrap-up', []);
+
+  const syncBuckets = () => {
+    state.steps.forEach((step, index) => {
+      const key = progressStepKey(step, index);
+      if (!eventsByKey.has(key)) eventsByKey.set(key, []);
+    });
+  };
+  const activeKey = () => state.currentIndex == null ? 'wrap-up' : progressStepKey(state.steps[state.currentIndex], state.currentIndex);
+  const pushEvent = (event: RenderableEvent) => {
+    const key = activeKey();
+    const bucket = eventsByKey.get(key) ?? [];
+    bucket.push(event);
+    eventsByKey.set(key, bucket);
+  };
+
+  for (const event of events) {
+    if (event.type === 'progress_plan' || event.type === 'progress_step') {
+      state = reduceProgressEvent(state, event);
+      syncBuckets();
+      continue;
+    }
+    if (event.type === 'tool_use' || event.type === 'text' || event.type === 'thinking' || event.type === 'log_line') {
+      pushEvent(event);
+    }
+  }
+
+  syncBuckets();
+  const items = state.steps.map((step, index) => ({
+    key: progressStepKey(step, index),
+    step,
+    events: eventsByKey.get(progressStepKey(step, index)) ?? [],
+  }));
+  const wrapUpEvents = eventsByKey.get('wrap-up') ?? [];
+  if (wrapUpEvents.length > 0) {
+    items.push({
+      key: 'wrap-up',
+      step: { label: 'Wrap-up', weight: 1, status: 'done' },
+      events: wrapUpEvents,
+    });
+  }
+  return { items, stateSteps: state.steps, currentKey: activeKey() };
+}
+
+function ProgressAccordionEvents({ events, sessionId, worktreePath, isStreaming = false }: {
+  events: SessionEvent[];
+  sessionId: string;
+  worktreePath?: string;
+  isStreaming?: boolean;
+}) {
+  const { items, stateSteps, currentKey } = deriveProgressAccordionItems(events);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [openStepKeys, setOpenStepKeys] = useState<Set<string>>(() => new Set());
+  const summary = progressSummary({ steps: stateSteps, currentIndex: stateSteps.findIndex((step) => step.status === 'active') >= 0 ? stateSteps.findIndex((step) => step.status === 'active') : null });
+  const completionLabel = summary.completeSteps === summary.totalSteps ? 'completed' : 'complete';
+  const currentIndex = currentKey == null ? -1 : items.findIndex((item) => item.key === currentKey);
+  const safeCurrentIndex = currentIndex >= 0 ? currentIndex : items.length - 1;
+  const itemsAboveCurrent = safeCurrentIndex > 0 ? items.slice(0, safeCurrentIndex) : [];
+  const currentItems = safeCurrentIndex >= 0 && items[safeCurrentIndex] ? [items[safeCurrentIndex]] : [];
+  const itemsBelowCurrent = safeCurrentIndex >= 0 ? items.slice(safeCurrentIndex + 1) : [];
+  const canToggleSteps = itemsAboveCurrent.length > 0 || itemsBelowCurrent.length > 0;
+
+  const toggleStepDetails = (key: string) => {
+    setOpenStepKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const renderStepItem = (item: ProgressAccordionItem) => {
+    const isOpen = openStepKeys.has(item.key);
+    const isCurrent = item.key === currentKey;
+    return (
+      <li key={item.key}>
+        <div>
+          <div
+            role="button"
+            tabIndex={0}
+            aria-expanded={isOpen}
+            onClick={() => toggleStepDetails(item.key)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                toggleStepDetails(item.key);
+              }
+            }}
+            className="flex items-start gap-2 cursor-pointer list-none rounded-md transition-colors hover:bg-gray-800/30 -mx-1 px-1 py-0.5"
+          >
+            <span className="mt-0.5 shrink-0">{progressIconForStatus(item.step.status)}</span>
+            <div className="min-w-0 flex-1">
+              <div className={`text-sm ${progressStatusClass(item.step.status)}`}>{item.step.label}</div>
+            </div>
+          </div>
+          <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+            <div className={`min-h-0 overflow-hidden space-y-2 ${isOpen ? 'pt-3 pb-2' : 'py-0'}`}>
+              {item.events.length > 0 ? (
+                <LegacyAgentEvents events={item.events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming && isCurrent} />
+              ) : (
+                <p className="text-xs text-gray-600 italic">No detailed events for this step yet.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </li>
+    );
+  };
+
+  return (
+    <div className="border-t border-gray-800 bg-gray-950/40 px-4 py-3">
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-300">
+        <ListChecks className="h-4 w-4 text-blue-300" />
+        <span>Progress</span>
+        <span className="ml-auto font-normal text-gray-500">{summary.completeSteps} of {summary.totalSteps} {completionLabel}</span>
+      </div>
+      <ProgressBar value={summary.completeWeight} max={summary.totalWeight} tickMarks={progressTickMarks({ steps: stateSteps, currentIndex: null })} />
+      <div className="mt-3 select-text">
+        <TaskListCaretHandle direction="up" isExpanded={isExpanded} canToggle={canToggleSteps} onToggle={() => setIsExpanded((open) => !open)} label={isExpanded ? 'Collapse progress list' : 'Expand progress list'} />
+        <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+          <ol className="min-h-0 overflow-hidden space-y-1.5">
+            {itemsAboveCurrent.map(renderStepItem)}
+          </ol>
+        </div>
+        <ol className="space-y-1.5 py-1">
+          {currentItems.map(renderStepItem)}
+        </ol>
+        <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+          <ol className="min-h-0 overflow-hidden space-y-1.5">
+            {itemsBelowCurrent.map(renderStepItem)}
+          </ol>
+        </div>
+        <TaskListCaretHandle direction="down" isExpanded={isExpanded} canToggle={canToggleSteps} onToggle={() => setIsExpanded((open) => !open)} label={isExpanded ? 'Collapse progress list' : 'Expand progress list'} />
+      </div>
+    </div>
+  );
+}
+
+function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = false }: {
   events: SessionEvent[];
   sessionId: string;
   worktreePath?: string;
@@ -758,17 +925,23 @@ function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = fa
   legacyClassName?: string;
 }) {
   const { todos, hasTodoEvents } = deriveCurrentTodoList(events);
+  const hasProgressEvents = events.some((event) => event.type === 'progress_plan' || event.type === 'progress_step');
+  if (hasProgressEvents || !hasTodoEvents) {
+    return <ProgressAccordionEvents events={events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming} />;
+  }
+  return <LegacyTaskAccordionEvents events={events} todos={todos} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming} />;
+}
+
+function LegacyTaskAccordionEvents({ events, todos, sessionId, worktreePath, isStreaming = false }: {
+  events: SessionEvent[];
+  todos: AgentTodoItem[];
+  sessionId: string;
+  worktreePath?: string;
+  isStreaming?: boolean;
+}) {
   const { items } = deriveTaskAccordionItems(events);
   const [isExpanded, setIsExpanded] = useState(false);
   const [openTaskKeys, setOpenTaskKeys] = useState<Set<string>>(() => new Set());
-  if (!hasTodoEvents) {
-    const renderableEvents = events.filter((e): e is RenderableEvent => e.type === 'tool_use' || e.type === 'text' || e.type === 'log_line' || e.type === 'thinking');
-    return (
-      <div className={legacyClassName}>
-        <LegacyAgentEvents events={renderableEvents} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming} />
-      </div>
-    );
-  }
 
   const activeTasks = todos.filter((todo) => todo.status === 'in_progress' || todo.status === 'blocked' || todo.status === 'failed');
   const pendingTasks = todos.filter((todo) => todo.status === 'pending');

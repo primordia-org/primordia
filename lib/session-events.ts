@@ -29,6 +29,13 @@ export interface AgentAuthInfo {
   // Future fields (e.g. model provider, gateway region, etc.) go here.
 }
 
+export type ProgressStepStatus = 'pending' | 'active' | 'done' | 'failed';
+
+export type ProgressPlanStep = {
+  label: string;
+  weight?: number;
+};
+
 export type SessionEvent =
   | { type: 'section_start'; sectionType: 'setup' | 'type_fix' | 'auto_commit' | 'followup' | 'deploy' | 'conflict_resolution'; label: string; ts: number }
   | { type: 'section_start'; sectionType: 'agent'; harness: string; model: string; harnessId?: string; modelId?: string; label: string;
@@ -49,6 +56,8 @@ export type SessionEvent =
   | { type: 'thinking'; content: string; ts: number }
   | { type: 'initial_request'; request: string; attachments?: string[]; presetId?: string; authSource?: string; harness?: string; model?: string; ts: number }
   | { type: 'followup_request'; request: string; attachments?: string[]; presetId?: string; authSource?: string; harness?: string; model?: string; ts: number }
+  | { type: 'progress_plan'; mode: 'insert' | 'replace_future'; steps: ProgressPlanStep[]; ts: number }
+  | { type: 'progress_step'; status: 'done' | 'failed'; activatedNextLabel?: string | null; ts: number }
   | { type: 'preview_path'; path: string; ts: number }
   | { type: 'decision'; action: 'accepted' | 'rejected'; detail: string; ts: number };
 

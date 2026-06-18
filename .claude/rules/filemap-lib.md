@@ -35,6 +35,8 @@ lib/
 ├── cross-device-creds.ts        ← ECDH P-256 helpers for credential transfer in cross-device sign-in flows
 ├── public-origin.ts             ← Derives public-facing origin from request, respecting x-forwarded-* headers
 ├── register-with-parent.ts      ← Posts instance identity to parent's registration endpoint and returns status text
+├── progress-monitor.ts          ← Shared reducer, validation, summary, and tick-mark math for `progress_*` session events
+├── progress-prompt.ts           ← Shared harness prompt explaining `bun run progress` usage to agents
 ├── session-events.ts            ← Structured event types for session progress logs stored as NDJSON in worktrees
 ├── smart-preview-url.ts         ← Infers the most relevant preview page path from agent text/session events
 ├── update-source-scheduler.ts   ← Background scheduler that fetches update sources per configured frequency

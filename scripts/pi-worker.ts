@@ -27,13 +27,13 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawnSync } from 'child_process';
 import { minimatch } from 'minimatch';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
 } from '../lib/session-events';
 import { ensurePrimordiaPiModelsJson } from '../lib/pi-custom-models';
+import { PROGRESS_MONITOR_PROMPT } from '../lib/progress-prompt';
 
 // ---------------------------------------------------------------------------
 // LLM backend configuration
@@ -41,8 +41,6 @@ import { ensurePrimordiaPiModelsJson } from '../lib/pi-custom-models';
 
 const ANTHROPIC_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai';
-const REQUIRED_PI_TODO_NPM_PACKAGE = '@agnishc/edb-todo';
-const REQUIRED_PI_TODO_TOOLS = ['TaskCreate', 'TaskList', 'TaskGet', 'TaskUpdate', 'TaskOutput', 'TaskStop'];
 
 /** Infer the pi provider and strip any Primordia-only model ID namespace. */
 function normalizeModelSelection(modelId: string | undefined): { provider: 'anthropic' | 'openai' | 'openai-codex' | 'openrouter' | 'google'; modelId: string | undefined } {
@@ -115,50 +113,11 @@ function parseRulesPaths(content: string): string[] | null {
  *    at least one file that exists in the worktree — "RAG-ified" file map
  *    entries that only load when relevant.
  */
-function getRequiredPiTodoExtensionPath(worktreePath: string): string {
-  return path.join(worktreePath, '.pi', 'npm', 'node_modules', '@agnishc', 'edb-todo', 'src', 'index.ts');
-}
-
-/**
- * Ensure the required EDB todo Pi package is installed in the project-scoped
- * .pi/npm directory for this worktree. The package is committed in
- * .pi/settings.json so interactive Pi also installs it, but the headless evolve
- * worker enforces the dependency before creating a session.
- */
 async function ensureUsableChatGptOAuth(authStorage: AuthStorage): Promise<void> {
   const apiKey = await authStorage.getApiKey('openai-codex', { includeFallback: false });
   if (!apiKey) {
     throw new Error(CHATGPT_RELOGIN_ERROR);
   }
-}
-
-function ensureRequiredPiTodoPackage(worktreePath: string): string {
-  const extensionPath = getRequiredPiTodoExtensionPath(worktreePath);
-  if (fs.existsSync(extensionPath)) return extensionPath;
-
-  const piDir = path.join(worktreePath, '.pi');
-  const npmInstallRoot = path.join(piDir, 'npm');
-  fs.mkdirSync(npmInstallRoot, { recursive: true });
-
-  const result = spawnSync(process.execPath, ['x', 'npm', 'install', REQUIRED_PI_TODO_NPM_PACKAGE, '--prefix', npmInstallRoot], {
-    cwd: worktreePath,
-    encoding: 'utf8',
-    maxBuffer: 1024 * 1024 * 8,
-  });
-
-  if (result.error) {
-    throw new Error(`Failed to install required Pi todo package: ${result.error.message}`);
-  }
-  if (result.status !== 0) {
-    throw new Error(
-      `Failed to install required Pi todo package (exit ${result.status}).\n` +
-      `${result.stdout ?? ''}${result.stderr ?? ''}`,
-    );
-  }
-  if (!fs.existsSync(extensionPath)) {
-    throw new Error(`Required Pi todo extension was installed but not found at ${extensionPath}`);
-  }
-  return extensionPath;
 }
 
 function collectExtraContextFiles(worktreePath: string): Array<{ path: string; content: string }> {
@@ -410,32 +369,18 @@ async function main(): Promise<void> {
     // working-directory line. Skills are discovered from .pi/skills/ which
     // is symlinked to .claude/skills/ — no code changes needed for either.
     //
-    // The EDB todo extension is required for headless evolve runs. Keep general
-    // extension discovery disabled, but explicitly load this installed package
-    // as an additional extension path so no other global/project extensions can
-    // affect the non-interactive pipeline.
-    //
     // agentsFilesOverride injects nested CLAUDE.md files and path-scoped
     // .claude/rules/*.md files, mirroring Claude Code's own behaviour.
-    const requiredTodoExtensionPath = ensureRequiredPiTodoPackage(worktreePath);
     const extraContextFiles = collectExtraContextFiles(worktreePath);
     const loader = new DefaultResourceLoader({
       cwd: worktreePath,
       agentDir: getAgentDir(),
       appendSystemPrompt: [
         `The current working directory is: ${worktreePath}`,
-        [
-          'EDB todo is required in this evolve pipeline.',
-          'For every requested change, use TaskCreate to lay out the work as distinct stage tasks instead of creating one broad task, even if the change seems trivial.',
-          'If a task title combines multiple outcomes with words like "and" (for example, "Implement layout utility and ASCII renderer"), split it into separate sub-tasks or smaller sibling tasks instead of tracking the compound item as one task.',
-          'Create the initial stage tasks as a batch of TaskCreate tool calls in the same assistant turn before starting work; do not create them one at a time across multiple model/provider round trips.',
-          'Prefer stages such as: inspect/read relevant files, edit/implement changes, validate/check work, and wrap up with changelog/commit/preview/final response as applicable.',
-          'Use TaskUpdate to mark each stage in_progress before starting it and completed as soon as it is fully done; when completing one task and immediately starting the next, issue both TaskUpdate calls in the same assistant turn as a batch of two tool calls, then use TaskList to choose remaining work.',
-        ].join(' '),
+        PROGRESS_MONITOR_PROMPT,
       ],
-      additionalExtensionPaths: [requiredTodoExtensionPath],
-      // Disable general extension discovery — only additionalExtensionPaths and
-      // inline extensionFactories are loaded for headless runs.
+      // Disable general extension discovery; headless evolve runs should only
+      // use built-in file/shell tools plus explicit inline provider routing.
       noExtensions: true,
       extensionFactories,
       agentsFilesOverride: (current) => ({
@@ -458,7 +403,7 @@ async function main(): Promise<void> {
       modelRegistry,
       resourceLoader: loader,
       sessionManager: sessionMgr,
-      tools: ["read", "bash", "edit", "write", ...REQUIRED_PI_TODO_TOOLS],
+      tools: ["read", "bash", "edit", "write"],
     });
 
     activeSession = session;

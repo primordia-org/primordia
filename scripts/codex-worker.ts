@@ -6,6 +6,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { appendSessionEvent, getSessionNdjsonPath, type SessionEvent } from '../lib/session-events';
+import { PROGRESS_MONITOR_PROMPT } from '../lib/progress-prompt';
 
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai/v1';
 
@@ -352,7 +353,7 @@ async function main(): Promise<void> {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
-      child.stdin?.end(prompt);
+      child.stdin?.end(`${PROGRESS_MONITOR_PROMPT}\n\n${prompt}`);
       let stdoutBuf = '';
       const emittedToolItemIds = new Set<string>();
       const runState: CodexRunState = {

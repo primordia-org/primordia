@@ -65,6 +65,7 @@ import {
   appendSessionEvent,
   getSessionNdjsonPath,
 } from '../lib/session-events';
+import { PROGRESS_MONITOR_PROMPT } from '../lib/progress-prompt';
 
 interface WorkerConfig {
   sessionId: string;
@@ -240,7 +241,7 @@ async function main(): Promise<void> {
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
-          append: `The current working directory is: ${worktreePath}`,
+          append: `The current working directory is: ${worktreePath}\n\n${PROGRESS_MONITOR_PROMPT}`,
         },
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,

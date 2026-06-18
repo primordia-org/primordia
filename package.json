@@ -15,6 +15,7 @@
     "generate-api-docs": "next-openapi-gen generate --config openapi-gen.config.json",
     "regenerate:model-registry": "bun run scripts/regenerate-model-registry.ts",
     "set-preview-url": "bun scripts/set-preview-url.ts",
+    "progress": "bun scripts/progress-monitor.ts",
     "export-branch-parentage-mermaid": "bun scripts/export-branch-parentage-mermaid.ts",
     "export-branch-graph-ascii": "bun scripts/export-branch-graph-ascii.ts",
     "export-branch-graph-unicode": "bun scripts/export-branch-graph-unicode.ts",
