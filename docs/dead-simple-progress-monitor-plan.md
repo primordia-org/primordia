@@ -16,9 +16,9 @@ For each agent run, the session page should render one simple progress panel:
    - Harness icon/name, model name, and status: `starting`, `running…`, `blocked`, `failed`, `done`.
    - Optional live dot/spinner.
 2. **Progress summary**
-   - `N of M complete`.
-   - A segmented progress bar with one segment per step.
-   - Weighted steps are optional later; the first version should treat each step equally.
+   - `N of M complete` for the step list.
+   - A weighted progress percentage for the bar.
+   - A segmented progress bar where each segment width comes from the step weight from day one.
 3. **Step list**
    - Small, human-readable labels only.
    - States: `pending`, `active`, `done`, `blocked`, `failed`, `skipped`.
@@ -35,13 +35,14 @@ For each agent run, the session page should render one simple progress panel:
 The agent should only need to send three kinds of progress signals:
 
 1. `plan` — declare the short list of visible steps.
-2. `step` — mark exactly one step active/done/blocked/failed/skipped.
+2. `step` — move the run to a new current step or finish the current step. The protocol must make multiple active steps impossible.
 3. `note` — optional short user-facing status text.
 
 Everything else should be inferred by Primordia:
 
 - Completion count from step states.
-- Active step from the latest `step` event.
+- Weighted progress from step weights.
+- Active step from the single `currentStepId` state derived by the reducer.
 - Tool/text grouping from event order.
 - Terminal state from the existing `result` event.
 - Metrics from the existing `metrics` event.
@@ -76,15 +77,17 @@ export type SessionEvent =
       steps: Array<{
         id: string;        // stable slug, not shown by default
         label: string;     // short visible row text
+        weight?: number;   // positive integer, defaults to 1
       }>;
       ts: number;
     }
   | {
       type: 'progress_step';
       id: string;
-      status: ProgressStepStatus;
+      status: Exclude<ProgressStepStatus, 'pending'>;
       label?: string;      // optional replacement visible text
       detail?: string;     // optional one-line status/detail
+      weight?: number;     // optional correction, positive integer
       ts: number;
     }
   | {
@@ -95,6 +98,8 @@ export type SessionEvent =
 ```
 
 Recommended generated step IDs are boring slugs: `inspect`, `implement`, `preview`, `validate`, `changelog`, `commit`, `final`. The UI may keep them internally for grouping, but it should render labels, not IDs.
+
+Weights are part of v1 because the current UI already supports weighted progress. Use small positive integers where `1` means tiny, `2` means normal, and `3–5` means larger work. If omitted, a step weight is `1`. Agents should not overthink weights; they exist so `Implement changes` can count more than `Set preview route`.
 
 ### Minimal file writer
 
@@ -111,7 +116,7 @@ Create a tiny script, for example `scripts/progress-monitor.ts`, and expose it v
 The script appends validated events to `.primordia-session.ndjson` in the current worktree:
 
 ```bash
-bun run progress plan '[{"id":"inspect","label":"Inspect relevant files"},{"id":"implement","label":"Implement changes"},{"id":"validate","label":"Validate changes"}]'
+bun run progress plan '[{"id":"inspect","label":"Inspect relevant files","weight":1},{"id":"implement","label":"Implement changes","weight":4},{"id":"validate","label":"Validate changes","weight":2}]'
 
 bun run progress step inspect active
 bun run progress step inspect done
@@ -123,18 +128,46 @@ Rules:
 
 - Resolve the NDJSON path as `process.cwd()/.primordia-session.ndjson`.
 - Refuse to run if the file does not exist, so the command cannot accidentally create unrelated logs.
-- Validate all JSON and enum values.
+- Validate all JSON, enum values, step IDs, and positive integer weights.
 - Keep the script dependency-free.
 - Append exactly one JSON object per invocation.
 - Exit non-zero with a short message on invalid input.
 
 This makes the progress monitor usable by every harness because every harness can run shell commands.
 
+### State model: exactly one active step
+
+The progress monitor should store append-only events, but the reader should reduce them into a state where only one step can be active:
+
+```ts
+interface ProgressState {
+  steps: Array<{
+    id: string;
+    label: string;
+    weight: number;
+    status: ProgressStepStatus;
+    detail?: string;
+  }>;
+  currentStepId: string | null;
+}
+```
+
+Reducer rules:
+
+1. `progress_plan` resets the run's progress state. All steps start as `pending`, all weights default to `1`, and `currentStepId` becomes `null`.
+2. `progress_step(id, 'active')` first demotes any previously active step back to `pending`, then marks `id` as `active` and sets `currentStepId = id`.
+3. `progress_step(id, 'done' | 'blocked' | 'failed' | 'skipped')` marks `id` terminal. If `id` was current, set `currentStepId = null`.
+4. If a non-current step is marked terminal, the current step remains current. This lets an agent skip a future step without disturbing grouping.
+5. The writer should reject `pending` as a `progress_step` status. Pending is only the initial state from the plan, not an action.
+6. The UI must group all subsequent text/thinking/tool events under `currentStepId`; if `currentStepId` is null, group them under the virtual `Setup` or `Wrap-up` bucket depending on whether a plan exists and whether terminal result has arrived.
+
+These rules make undesirable states impossible in the rendered model even if an agent emits redundant events.
+
 ## Agent prompt contract
 
 Inject the same progress instructions into Pi, Claude Code, and Codex worker prompts:
 
-> Primordia shows users a simple progress panel. Use `bun run progress` to keep it current. At the beginning of every requested change, declare 4–7 user-visible steps with `bun run progress plan '[...]'`. Do not create a detailed task tree. Mark a step `active` before working on it and `done` as soon as it is complete. Use `blocked` or `failed` only when the user needs to know work cannot proceed. Labels must be short, imperative, and user-facing. Do not expose internal IDs. Prefer stages such as inspect, implement, set preview, validate, changelog, commit, final.
+> Primordia shows users a simple progress panel. Use `bun run progress` to keep it current. At the beginning of every requested change, declare 4–7 user-visible steps with `bun run progress plan '[...]'`. Include small positive integer weights from day one: use `1` for tiny steps, `2` for normal steps, and `3–5` for large steps. Do not create a detailed task tree. Mark exactly one step `active` before working on it; activating a new step automatically makes it the only active step. Mark the active step `done` as soon as it is complete. Use `blocked` or `failed` only when the user needs to know work cannot proceed. Labels must be short, imperative, and user-facing. Do not expose internal IDs. Prefer stages such as inspect, implement, set preview, validate, changelog, commit, final.
 
 Additional prompt rules:
 
@@ -148,15 +181,16 @@ Additional prompt rules:
 Update `EvolveSessionView` to derive progress from `progress_*` events first:
 
 1. Find the latest `progress_plan` in the current agent section.
-2. Apply later `progress_step` events by ID.
-3. If there is no active step and not all steps are terminal, mark the first incomplete step as visually current.
-4. Group text/thinking/tool events under the latest active step by event order.
+2. Apply later `progress_step` events with the single-active-step reducer above.
+3. Never infer a second active step. If there is no current step and not all steps are terminal, the UI may highlight the first incomplete step as "up next," but it must not group actions under it until an `active` event arrives.
+4. Group text/thinking/tool events under `currentStepId` by event order.
 5. Render old TodoWrite/Pi task events only as a backward-compatible fallback for historical sessions.
 
 Progress math:
 
-- `complete = count(done | skipped)`.
-- `total = steps.length`.
+- Step count: `completeSteps = count(done | skipped)` and `totalSteps = steps.length`.
+- Weighted bar: `completeWeight = sum(weight for done | skipped)` and `totalWeight = sum(weight for all steps)`.
+- The active step may optionally contribute a small animated in-progress fill inside its own segment, but only terminal states count toward completed weight.
 - `failed` and `blocked` do not count as complete.
 - If there is no plan, keep the existing virtual Setup/current log fallback.
 
@@ -164,8 +198,8 @@ Progress math:
 
 ### Phase 1 — Add protocol beside existing Todo support
 
-- Add `progress_*` event types.
-- Add `scripts/progress-monitor.ts` and `bun run progress`.
+- Add `progress_*` event types, including v1 step weights.
+- Add `scripts/progress-monitor.ts` and `bun run progress` with single-active-step validation/reducer helpers.
 - Teach the session UI to prefer `progress_*` events.
 - Keep current Todo rendering for historical sessions and as a temporary fallback.
 
@@ -192,6 +226,8 @@ Progress math:
 ## Acceptance criteria
 
 - New sessions from Pi, Claude Code, and Codex can all produce the same progress panel with only shell access.
+- New sessions support weighted steps immediately, and the progress bar uses those weights.
+- The reduced progress state can never contain more than one active step.
 - No new npm package is required for progress tracking.
 - The UI never shows synthetic task labels like `To-do #t26` for new sessions.
 - A malformed progress command fails safely without corrupting `.primordia-session.ndjson`.
@@ -203,4 +239,5 @@ Progress math:
 1. Should `bun run progress plan` replace the current plan or only the current agent-section plan? Recommendation: latest plan within the current `section_start` wins.
 2. Should step IDs be user-provided or generated by the script? Recommendation: allow explicit IDs so agents can update steps reliably, but validate them as lowercase slugs.
 3. Should the command support batch updates? Recommendation: no for v1. One event per invocation keeps the script and parser obvious.
-4. Should this become an MCP/tool API later? Recommendation: only if shell commands prove insufficient across harnesses.
+4. Should activation auto-complete the previous step instead of demoting it to pending? Recommendation: no. Auto-completion hides mistakes; agents should explicitly mark work done before activating the next step.
+5. Should this become an MCP/tool API later? Recommendation: only if shell commands prove insufficient across harnesses.
