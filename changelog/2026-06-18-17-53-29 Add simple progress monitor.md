@@ -9,6 +9,7 @@ Implemented the dead simple Evolve progress monitor protocol so agent runs can r
 - Updated the Evolve session UI to render progress panels with weighted bars, step lists, grouped details, and legacy todo fallback support.
 - Injected the progress monitor instructions into Claude Code, Pi, and Codex workers.
 - Removed the headless Pi worker dependency on the `@agnishc/edb-todo` extension and its task tools for new runs.
+- Removed the project-level Pi package declaration for `@agnishc/edb-todo` so preview sessions no longer try to install the old extension before starting.
 - Added red/green unit coverage for the progress reducer and validation behavior.
 
 ## Why
