@@ -19,9 +19,14 @@ function sessionLogPath(): string | null {
   return fs.existsSync(candidate) ? candidate : null;
 }
 
+function currentRunEvents(events: SessionEvent[]): SessionEvent[] {
+  const lastSectionStartIndex = events.findLastIndex((event) => event.type === 'section_start');
+  return lastSectionStartIndex >= 0 ? events.slice(lastSectionStartIndex + 1) : events;
+}
+
 function currentProgress(ndjsonPath: string) {
   const { events } = readSessionEvents(ndjsonPath);
-  return reduceProgressEvents(events);
+  return reduceProgressEvents(currentRunEvents(events));
 }
 
 function ensureActive(ndjsonPath: string) {
@@ -64,7 +69,7 @@ if (family === 'step') {
   const { state, currentIndex } = ensureActive(ndjsonPath);
   const currentLabel = state.steps[currentIndex].label;
   const previewEvent: SessionEvent = { type: 'progress_step', status: action, ts: Date.now() };
-  const nextState = reduceProgressEvents([...readSessionEvents(ndjsonPath).events, previewEvent]);
+  const nextState = reduceProgressEvents([...currentRunEvents(readSessionEvents(ndjsonPath).events), previewEvent]);
   const nextLabel = nextState.currentIndex == null ? null : nextState.steps[nextState.currentIndex]?.label ?? null;
   appendSessionEvent(ndjsonPath, { ...previewEvent, activatedNextLabel: nextLabel });
   const summary = progressSummary(nextState);
