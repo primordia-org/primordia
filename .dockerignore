@@ -1,0 +1,14 @@
+node_modules
+.next
+.primordia-auth.db
+.primordia-auth.db-*
+.primordia-session.ndjson
+.env.local
+attachments
+past-sessions
+worktrees
+node_modules/.cache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store

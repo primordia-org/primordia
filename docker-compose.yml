@@ -1,0 +1,28 @@
+services:
+  primordia:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: primordia:local
+    container_name: primordia
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      REVERSE_PROXY_PORT: "3000"
+      PRIMORDIA_DIR: /data
+      # Set to 1 after editing the persisted tree manually and wanting a rebuild on boot.
+      PRIMORDIA_DOCKER_REBUILD_ON_START: "0"
+    volumes:
+      - primordia-data:/data
+      # Optional: let Primordia fetch/push private git remotes using your host SSH keys.
+      # - ~/.ssh:/root/.ssh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+volumes:
+  primordia-data:

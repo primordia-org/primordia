@@ -9,10 +9,10 @@
 //
 //            PRODUCTION (NODE_ENV === 'production'):
 //              1. TypeScript gate — auto-fix via Claude if it fails
-//              2. Run scripts/install.sh from the session worktree with REPORT_STYLE=ansi,
-//                 streaming its output as log_line events. install.sh handles build, DB copy,
-//                 proxy spawn, main pointer advancement, and mirror push.
-//              3. Write decision event + self-terminate (proxy already switched traffic)
+//              2. Deploy either via scripts/install.sh on systemd hosts or an
+//                 in-process Docker cutover path when PRIMORDIA_DOCKER=1.
+//              3. Write decision event + self-terminate when the proxy already
+//                 switched traffic to a new production process
 //
 //            FASTER DEV PIPELINE (NODE_ENV !== 'production'):
 //              git checkout → stash → merge → stash-pop → bun install → worktree remove
@@ -138,6 +138,124 @@ function runInstallSh(
  * the install continues through build → deploy. If it fails again the session
  * goes to error instead of looping.
  */
+function parseWorktreeForBranch(worktreeList: string, branchName: string): string | null {
+  let currentPath = '';
+  let currentBranch = '';
+  for (const line of `${worktreeList}\n`.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      currentPath = line.slice('worktree '.length).trim();
+      currentBranch = '';
+    } else if (line.startsWith('branch ')) {
+      currentBranch = line.slice('branch refs/heads/'.length).trim();
+    } else if (!line.trim() && currentPath && currentBranch === branchName) {
+      return currentPath;
+    }
+  }
+  return currentPath && currentBranch === branchName ? currentPath : null;
+}
+
+async function copyProductionDbForDockerDeploy(sessionId: string, repoRoot: string, worktreePath: string, branch: string): Promise<void> {
+  const oldProd = (await runGit(['config', '--get', 'primordia.productionBranch'], repoRoot)).stdout.trim();
+  if (!oldProd || oldProd === branch) return;
+
+  const worktrees = await runGit(['worktree', 'list', '--porcelain'], repoRoot);
+  if (worktrees.code !== 0) return;
+
+  const oldSlot = parseWorktreeForBranch(worktrees.stdout, oldProd);
+  if (!oldSlot) return;
+
+  const dbName = '.primordia-auth.db';
+  const oldDb = path.join(oldSlot, dbName);
+  if (!fs.existsSync(oldDb)) return;
+
+  await appendLogLine(sessionId, '- Copying production database…\n');
+  const newDb = path.join(worktreePath, dbName);
+  fs.rmSync(newDb, { force: true });
+  fs.rmSync(`${newDb}-wal`, { force: true });
+  fs.rmSync(`${newDb}-shm`, { force: true });
+
+  const { Database } = await import('bun:sqlite');
+  const db = new Database(oldDb, { readonly: true });
+  try {
+    db.prepare('VACUUM INTO ?').run(newDb);
+  } finally {
+    db.close();
+  }
+}
+
+async function advanceMainAndPushForDocker(sessionId: string, repoRoot: string, branch: string): Promise<void> {
+  const branchSha = (await runGit(['rev-parse', branch], repoRoot)).stdout.trim();
+  if (!branchSha) return;
+
+  const worktrees = await runGit(['worktree', 'list', '--porcelain'], repoRoot);
+  const mainWorktree = worktrees.code === 0 ? parseWorktreeForBranch(worktrees.stdout, 'main') : null;
+  if (mainWorktree) {
+    await runGit(['reset', '--hard', branchSha], mainWorktree);
+  } else {
+    await runGit(['update-ref', 'refs/heads/main', branchSha], repoRoot);
+  }
+
+  const mirror = await runGit(['config', '--get', 'remote.mirror.url'], repoRoot);
+  if (mirror.stdout.trim()) {
+    const push = await runGit(['push', 'mirror'], repoRoot);
+    if (push.code !== 0) {
+      await appendLogLine(sessionId, `⚠️ Mirror push failed (non-fatal):\n\`\`\`\n${(push.stdout + push.stderr).trim()}\n\`\`\`\n`);
+    }
+  }
+}
+
+async function runDockerDeploy(sessionId: string, worktreePath: string, branch: string, repoRoot: string): Promise<number> {
+  await appendLogLine(sessionId, '- Running TypeScript checks…\n');
+  const typecheck = await runCmd('bun', ['run', 'typecheck'], worktreePath);
+  if (typecheck.code !== 0) {
+    fs.writeFileSync(path.join(worktreePath, '.primordia-typecheck-errors.txt'), typecheck.stdout + typecheck.stderr);
+    await appendLogLine(sessionId, `❌ Typecheck failed. Starting auto-fix…\n\`\`\`\n${(typecheck.stdout + typecheck.stderr).trim()}\n\`\`\`\n`);
+    return INSTALL_EXIT_TYPECHECK;
+  }
+
+  await appendLogLine(sessionId, '- Installing dependencies…\n');
+  const install = await runCmd('bun', ['install', '--frozen-lockfile'], worktreePath);
+  if (install.code !== 0) {
+    await appendLogLine(sessionId, `❌ Dependency install failed:\n\`\`\`\n${(install.stdout + install.stderr).trim()}\n\`\`\`\n`);
+    return install.code;
+  }
+
+  await appendLogLine(sessionId, '- Building production app…\n');
+  fs.rmSync(path.join(worktreePath, '.next'), { recursive: true, force: true });
+  const build = await runCmd('bun', ['run', 'build'], worktreePath);
+  if (build.code !== 0) {
+    await appendLogLine(sessionId, `❌ Build failed:\n\`\`\`\n${(build.stdout + build.stderr).trim()}\n\`\`\`\n`);
+    return build.code;
+  }
+
+  await copyProductionDbForDockerDeploy(sessionId, repoRoot, worktreePath, branch);
+
+  await appendLogLine(sessionId, '- Starting new production slot…\n');
+  const response = await fetch(`http://127.0.0.1:${process.env.REVERSE_PROXY_PORT!}/_proxy/prod/spawn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ branch }),
+  });
+  const spawnText = await response.text();
+  for (const line of spawnText.split('\n')) {
+    if (!line.startsWith('data: ')) continue;
+    try {
+      const evt = JSON.parse(line.slice('data: '.length)) as { text?: string; error?: string };
+      if (evt.text) await appendLogLine(sessionId, evt.text);
+      if (evt.error) await appendLogLine(sessionId, `❌ ${evt.error}\n`);
+    } catch {
+      // Ignore malformed SSE fragments.
+    }
+  }
+  if (!response.ok || !spawnText.includes('"ok":true')) {
+    await appendLogLine(sessionId, '❌ Docker deploy failed while spawning the new production slot.\n');
+    return 1;
+  }
+
+  await advanceMainAndPushForDocker(sessionId, repoRoot, branch);
+  return 0;
+}
+
 async function retryAcceptAfterFix(
   sessionId: string,
   repoRoot: string,
@@ -163,6 +281,7 @@ async function retryAcceptAfterFix(
   // Emit a fresh deploy section so post-fix logs appear under the deploy
   // heading rather than being buried in the type_fix section.
   const isProduction = process.env.NODE_ENV === 'production';
+  const isDocker = process.env.PRIMORDIA_DOCKER === '1';
   {
     const ndjsonPath = getSessionNdjsonPath(worktreePath);
     if (fs.existsSync(ndjsonPath)) {
@@ -184,10 +303,15 @@ async function retryAcceptAfterFix(
   } catch { /* proxy not running — preview server may already be gone */ }
 
   if (isProduction) {
-    const exitCode = await runInstallSh(sessionId, worktreePath, branch).catch((err) => {
-      void failWithError(`❌ Auto-fix failed (install.sh spawn error): ${err instanceof Error ? err.message : String(err)}`);
-      return -1;
-    });
+    const exitCode = isDocker
+      ? await runDockerDeploy(sessionId, worktreePath, branch, repoRoot).catch((err) => {
+          void failWithError(`❌ Auto-fix failed (Docker deploy error): ${err instanceof Error ? err.message : String(err)}`);
+          return -1;
+        })
+      : await runInstallSh(sessionId, worktreePath, branch).catch((err) => {
+          void failWithError(`❌ Auto-fix failed (install.sh spawn error): ${err instanceof Error ? err.message : String(err)}`);
+          return -1;
+        });
     if (exitCode === -1) return;
 
     if (exitCode === INSTALL_EXIT_TYPECHECK) {
@@ -201,16 +325,16 @@ async function retryAcceptAfterFix(
     }
 
     if (exitCode !== 0) {
-      await failWithError(`❌ Auto-fix failed: install.sh exited with code ${exitCode}.`);
+      await failWithError(`❌ Auto-fix failed: deploy exited with code ${exitCode}.`);
       return;
     }
 
-    // install.sh completed successfully — it has already deployed.
+    // Deploy completed successfully.
     const ndjsonPath = getSessionNdjsonPath(worktreePath);
     if (fs.existsSync(ndjsonPath)) {
       appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: 'deployed to production', ts: Date.now() });
     }
-    setTimeout(() => process.exit(0), 1000);
+    if (!isDocker) setTimeout(() => process.exit(0), 1000);
 
   } else {
     // Faster dev pipeline path: just record success (the merge already happened
@@ -224,10 +348,10 @@ async function retryAcceptAfterFix(
  * immediately and the client can stream progress via the existing SSE endpoint.
  *
  * Production path:
- *   1. Run install.sh from the session worktree with REPORT_STYLE=ansi,
- *      streaming its output as log_line events. install.sh handles typecheck
- *      (exit 2 on failure), build, DB copy, proxy spawn,
- *      main advancement, and mirror push.
+ *   1. Run the deploy gate from the session worktree, streaming output as
+ *      log_line events. systemd hosts use install.sh; Docker hosts use an
+ *      in-process equivalent. Both perform typecheck (exit 2 on failure),
+ *      install, build, DB copy, proxy spawn, main advancement, and mirror push.
  *   2. On exit code 2: read .primordia-typecheck-errors.txt and trigger the
  *      auto-fix Claude session (fixing-types → retryAcceptAfterFix).
  *   3. Write the decision event and self-terminate (the proxy has already
@@ -260,6 +384,7 @@ async function runAcceptAsync(
 
   try {
     const isProduction = process.env.NODE_ENV === 'production';
+    const isDocker = process.env.PRIMORDIA_DOCKER === '1';
 
     if (isProduction) {
       // ── Kill preview dev server + any background warmup build ─────────────
@@ -292,10 +417,12 @@ async function runAcceptAsync(
       // Brief pause so the dev server and warmup build can release the lock.
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
-      // ── Production: run install.sh from the session worktree ─────────────
-      // install.sh handles: typecheck (exits 2 on failure), bun install, build,
-      // DB copy, proxy spawn, main pointer advancement, and mirror push.
-      const exitCode = await runInstallSh(sessionId, worktreePath, branch);
+      // ── Production deploy ───────────────────────────────────────────────
+      // systemd hosts use install.sh; Docker hosts use an in-process cutover
+      // that avoids systemd while preserving typecheck/build/proxy-spawn gates.
+      const exitCode = isDocker
+        ? await runDockerDeploy(sessionId, worktreePath, branch, repoRoot)
+        : await runInstallSh(sessionId, worktreePath, branch);
 
       if (exitCode === INSTALL_EXIT_TYPECHECK) {
         // ── TypeScript gate failed: trigger the auto-fix Claude session ───────
@@ -344,8 +471,9 @@ async function runAcceptAsync(
         appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: 'deployed to production', ts: Date.now() });
       }
 
-      // Self-terminate: the proxy has already switched traffic to the new slot.
-      setTimeout(() => process.exit(0), 1000);
+      // Self-terminate on systemd hosts: the proxy has already switched traffic
+      // to the new slot. Docker keeps the parent proxy process alive.
+      if (!isDocker) setTimeout(() => process.exit(0), 1000);
 
     } else {
       // ── Faster dev pipeline path (without systemd / direct merge) ───────────────────────────

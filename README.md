@@ -34,7 +34,7 @@ You can attach images or files to any request. Follow-up requests on the same br
 | AI (chat) | Anthropic SDK via SSE |
 | AI (code gen) | Anthropic Agent SDK — `query()` in git worktrees |
 | Database | bun:sqlite — passkey auth + evolve session persistence |
-| Hosting | exe.dev (remote dev server) or local `bun run dev` |
+| Hosting | Docker self-hosting, exe.dev, or local `bun run dev` |
 
 ## Setup
 
@@ -55,6 +55,16 @@ bun run dev
 Open [http://localhost:3000](http://localhost:3000).
 
 The first user to register is automatically granted the `admin` role.
+
+### Self-host with Docker (including Raspberry Pi)
+
+```bash
+docker compose up -d --build
+```
+
+Open [http://localhost:3000](http://localhost:3000), or `http://<raspberry-pi-ip>:3000` from another device on your network. The Docker image is multi-arch and stores the mutable Primordia checkout, SQLite database, evolve worktrees, and session archives in the `primordia-data` Docker volume.
+
+See [docs/raspberry-pi-docker.md](./docs/raspberry-pi-docker.md) for Raspberry Pi requirements, backup notes, and port configuration.
 
 ### Deploy to exe.dev
 
@@ -98,6 +108,7 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 | Variable | Required | Description |
 |---|---|---|
 | `REVERSE_PROXY_PORT` | Yes | Port the reverse proxy listens on (e.g. `3000`). Required for blue/green deploys and preview routing. |
+| `PRIMORDIA_DIR` | Docker/production helper | Root directory for persistent runtime state. Docker sets this to `/data`. |
 
 ## Features
 
@@ -111,6 +122,7 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 | Passkey authentication (WebAuthn) | ✅ Live |
 | Cross-device QR sign-in | ✅ Live |
 | RBAC — `admin` and `can_evolve` roles | ✅ Live |
+| Docker/Raspberry Pi self-hosting | ✅ Live |
 | exe.dev one-command deploy | ✅ Live |
 | Dark theme | ✅ Live |
 
