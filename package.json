@@ -50,7 +50,8 @@
   "overrides": {
     "@babel/core": "^7.29.1",
     "basic-ftp": "^6.0.1",
-    "dompurify": "^3.4.9",
+    "dompurify": "^3.4.11",
+    "undici": "^8.5.0",
     "fast-uri": "^3.1.2",
     "fast-xml-builder": "^1.2.0",
     "hono": "^4.12.25",
