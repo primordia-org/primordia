@@ -1,6 +1,6 @@
 # Self-host Primordia on a Raspberry Pi with Docker
 
-Primordia can run as a single Docker Compose service on a Raspberry Pi or any other Linux machine supported by Docker. The image is intentionally lightweight: it seeds the source code, then runs Primordia's normal `scripts/install.sh` flow inside the persistent volume. Runtime management still goes through `mise`, and Primordia keeps its usual autonomy to install dependencies, rebuild itself, accept evolve sessions, and apply security fixes from inside the container.
+Primordia can run as a single Docker Compose service on a Raspberry Pi or any other Linux machine supported by Docker. The image is intentionally lightweight: its entrypoint just runs Primordia's normal `scripts/install.sh` flow against the seeded source inside the persistent volume, then starts the same reverse proxy command a systemd service would run. Runtime management still goes through `mise`, and Primordia keeps its usual autonomy to install dependencies, rebuild itself, accept evolve sessions, and apply security fixes from inside the container.
 
 ## Requirements
 
@@ -62,6 +62,6 @@ Keep `REVERSE_PROXY_PORT` at `3000` inside the container unless you also change 
 ## Notes for Raspberry Pi
 
 - Build on a 64-bit OS. The Debian base image, mise-managed Bun runtime, and native packages used by Primordia are multi-arch, but 32-bit Raspberry Pi OS is not supported.
-- First boot can take several minutes on Pi hardware because the installer downloads mise/Bun, installs dependencies, and builds the app in the persistent volume.
+- First boot can take several minutes on Pi hardware because the normal installer downloads mise/Bun, installs dependencies, and builds the app in the persistent volume.
 - Evolve sessions may be CPU and memory intensive; close unused previews from the admin health page if disk space gets tight.
 - The Docker image does not include a custom Bun runtime or deploy path. It relies on mise and `scripts/install.sh`, just like non-Docker Primordia installs.

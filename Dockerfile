@@ -20,7 +20,6 @@ RUN apt-get update \
     openssh-client \
     procps \
     python3 \
-    rsync \
     sqlite3 \
     tini \
     unzip \

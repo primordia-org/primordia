@@ -6,9 +6,9 @@ Primordia can now be started as a single Docker Compose service for Raspberry Pi
 
 - Added a lightweight multi-arch Debian `Dockerfile` that seeds the Primordia source but does not bake in Bun dependencies or a production build.
 - Added `docker-compose.yml` with a persistent `primordia-data` volume for the mutable git repository, production/evolve worktrees, SQLite database, and archived session logs.
-- Added a Docker entrypoint that initializes `/data/source.git`, creates the boot worktree, writes `.env.local`, runs `scripts/install.sh`, then starts the existing reverse proxy through `mise exec`.
+- Added a minimal Docker entrypoint that runs `scripts/install.sh` against the seeded source and then starts the existing reverse proxy through `mise exec`, keeping setup responsibility in the installer rather than duplicating it in Docker.
 - Kept runtime ownership with `mise` and the normal installer instead of adding a Docker-specific Bun runtime shim or custom deploy path.
-- Updated `scripts/install.sh` to respect an existing `REVERSE_PROXY_PORT` environment variable before falling back to its host-type defaults.
+- Updated `scripts/install.sh` to support a seeded source directory for Docker, allow forced standalone install mode, and respect an existing `REVERSE_PROXY_PORT` environment variable before falling back to its host-type defaults.
 - Documented Raspberry Pi self-hosting, persistence, backups, updates, and port configuration.
 
 ## Why
