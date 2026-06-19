@@ -4,72 +4,74 @@ set -euo pipefail
 export PRIMORDIA_DIR="${PRIMORDIA_DIR:-/data}"
 export REVERSE_PROXY_PORT="${REVERSE_PROXY_PORT:-3000}"
 export HOSTNAME="${HOSTNAME:-0.0.0.0}"
+export HOME="${HOME:-/root}"
 
-IMAGE_APP_DIR="/opt/primordia"
-APP_DIR="${PRIMORDIA_DIR}/source.git"
-PROXY_FILE="${PRIMORDIA_DIR}/reverse-proxy.ts"
+SEED_DIR="/opt/primordia-seed"
+BARE_REPO="${PRIMORDIA_DIR}/source.git"
+WORKTREES_DIR="${PRIMORDIA_DIR}/worktrees"
+MISE_BIN="${HOME}/.local/bin/mise"
 
 log() { printf '[primordia-docker] %s\n' "$*"; }
 
-mkdir -p "$PRIMORDIA_DIR" "${PRIMORDIA_DIR}/worktrees" "${PRIMORDIA_DIR}/past-sessions"
-git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
-git config --global --add safe.directory "$IMAGE_APP_DIR" 2>/dev/null || true
+mkdir -p "$PRIMORDIA_DIR" "$WORKTREES_DIR" "${PRIMORDIA_DIR}/past-sessions"
+git config --global --add safe.directory "$SEED_DIR" 2>/dev/null || true
+git config --global --add safe.directory "$BARE_REPO" 2>/dev/null || true
 
-if [[ ! -d "$APP_DIR/.git" ]]; then
-  log "initializing persistent Primordia tree in $APP_DIR"
-  rm -rf "$APP_DIR"
-  mkdir -p "$APP_DIR"
-  rsync -a --delete \
-    --exclude '.primordia-auth.db' \
-    --exclude '.primordia-auth.db-*' \
-    --exclude '.primordia-session.ndjson' \
-    --exclude 'past-sessions' \
-    --exclude 'worktrees' \
-    "$IMAGE_APP_DIR/" "$APP_DIR/"
-
-  if [[ ! -d "$APP_DIR/.git" ]]; then
-    log "image build context did not include .git; creating an initial local repository"
-    git -C "$APP_DIR" init -b main
-    git -C "$APP_DIR" config user.email "primordia@docker.local"
-    git -C "$APP_DIR" config user.name "Primordia Docker"
-    git -C "$APP_DIR" add . ':!node_modules' ':!.next'
-    git -C "$APP_DIR" commit -m "Initial Primordia Docker import"
+if [[ ! -d "$BARE_REPO" ]]; then
+  log "seeding persistent git repository in $BARE_REPO"
+  if [[ -d "$SEED_DIR/.git" ]]; then
+    git clone --bare "$SEED_DIR" "$BARE_REPO"
+  else
+    log "image build context did not include .git; creating a local seed repository"
+    tmp_seed="$(mktemp -d)"
+    rsync -a --exclude '.git' --exclude 'node_modules' --exclude '.next' "$SEED_DIR/" "$tmp_seed/"
+    git -C "$tmp_seed" init -b main
+    git -C "$tmp_seed" config user.email "primordia@docker.local"
+    git -C "$tmp_seed" config user.name "Primordia Docker"
+    git -C "$tmp_seed" add .
+    git -C "$tmp_seed" commit -m "Initial Primordia Docker import"
+    git clone --bare "$tmp_seed" "$BARE_REPO"
+    rm -rf "$tmp_seed"
   fi
+  git -C "$BARE_REPO" config user.email "primordia@localhost"
+  git -C "$BARE_REPO" config user.name "Primordia"
 fi
 
-cp "$APP_DIR/scripts/reverse-proxy.ts" "$PROXY_FILE"
+BOOT_BRANCH="${PRIMORDIA_DOCKER_BRANCH:-$(git -C "$BARE_REPO" symbolic-ref --short HEAD 2>/dev/null || true)}"
+if [[ -z "$BOOT_BRANCH" ]]; then
+  BOOT_BRANCH="main"
+fi
+BOOT_WORKTREE="${WORKTREES_DIR}/${BOOT_BRANCH}"
+git config --global --add safe.directory "$BOOT_WORKTREE" 2>/dev/null || true
 
-if [[ ! -f "$APP_DIR/.env.local" ]]; then
+if [[ ! -d "$BOOT_WORKTREE/.git" ]]; then
+  log "creating ${BOOT_BRANCH} worktree"
+  rm -rf "$BOOT_WORKTREE"
+  git -C "$BARE_REPO" worktree add "$BOOT_WORKTREE" "$BOOT_BRANCH"
+fi
+
+if [[ ! -f "$BOOT_WORKTREE/.env.local" ]]; then
   log "creating .env.local"
-  cat > "$APP_DIR/.env.local" <<EOF_ENV
+  cat > "$BOOT_WORKTREE/.env.local" <<EOF_ENV
 REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}
 PRIMORDIA_DIR=${PRIMORDIA_DIR}
 EOF_ENV
 fi
 
-if [[ ! -d "$APP_DIR/node_modules" ]]; then
-  log "installing dependencies"
-  bun install --cwd "$APP_DIR" --frozen-lockfile
+log "running Primordia installer"
+REPORT_STYLE=plain bash "$BOOT_WORKTREE/scripts/install.sh" "$BOOT_BRANCH"
+
+if [[ ! -x "$MISE_BIN" ]]; then
+  MISE_BIN="$(command -v mise || true)"
+fi
+if [[ -z "$MISE_BIN" || ! -x "$MISE_BIN" ]]; then
+  echo "mise was not installed by scripts/install.sh" >&2
+  exit 1
 fi
 
-if [[ ! -d "$APP_DIR/.next" || "${PRIMORDIA_DOCKER_REBUILD_ON_START:-0}" == "1" ]]; then
-  log "building production app"
-  bun run --cwd "$APP_DIR" build
-fi
-
-current_branch="$(git -C "$APP_DIR" symbolic-ref --short HEAD 2>/dev/null || true)"
-if [[ -z "$current_branch" ]]; then
-  current_branch="main"
-fi
-
-if ! git -C "$APP_DIR" config --get primordia.productionBranch >/dev/null 2>&1; then
-  git -C "$APP_DIR" config primordia.productionBranch "$current_branch"
-fi
-
-if ! git -C "$APP_DIR" config --get "branch.${current_branch}.port" >/dev/null 2>&1; then
-  git -C "$APP_DIR" config "branch.${current_branch}.port" "$((REVERSE_PROXY_PORT + 1))"
-fi
+export PATH="$(dirname "$MISE_BIN"):${HOME}/.local/share/mise/shims:${PATH}"
+export MISE_TRUSTED_CONFIG_PATHS="${PRIMORDIA_DIR}:${WORKTREES_DIR}${MISE_TRUSTED_CONFIG_PATHS:+:${MISE_TRUSTED_CONFIG_PATHS}}"
 
 log "starting Primordia proxy on :${REVERSE_PROXY_PORT}"
 cd "$PRIMORDIA_DIR"
-exec bun "$PROXY_FILE"
+exec "$MISE_BIN" exec -C "$PRIMORDIA_DIR" -- bun "$PRIMORDIA_DIR/reverse-proxy.ts"

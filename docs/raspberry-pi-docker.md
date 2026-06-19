@@ -1,6 +1,6 @@
 # Self-host Primordia on a Raspberry Pi with Docker
 
-Primordia can run as a single Docker Compose service on a Raspberry Pi or any other Linux machine supported by Docker. The image is built from the checked-out source and stores the mutable Primordia repo, SQLite database, generated worktrees, and archived sessions in a Docker volume.
+Primordia can run as a single Docker Compose service on a Raspberry Pi or any other Linux machine supported by Docker. The image is intentionally lightweight: it seeds the source code, then runs Primordia's normal `scripts/install.sh` flow inside the persistent volume. Runtime management still goes through `mise`, and Primordia keeps its usual autonomy to install dependencies, rebuild itself, accept evolve sessions, and apply security fixes from inside the container.
 
 ## Requirements
 
@@ -26,8 +26,8 @@ The first user to register becomes the admin. You can add AI credentials from **
 
 The Compose file creates a named volume called `primordia-data`. It contains:
 
-- `/data/source.git` — the mutable Primordia git checkout used as production
-- `/data/worktrees` — evolve preview worktrees
+- `/data/source.git` — the mutable Primordia git repository
+- `/data/worktrees` — the production worktree and evolve preview worktrees
 - `/data/past-sessions` — archived session logs
 - SQLite auth/evolve/settings data inside the persisted checkout
 
@@ -46,7 +46,7 @@ Pull or merge code changes in your host checkout, then rebuild:
 docker compose up -d --build
 ```
 
-The container keeps using the persisted `/data/source.git` checkout. Primordia's own evolve/accept flow updates that checkout from inside the running app. If you intentionally edit files inside the persisted checkout and want a boot-time rebuild, set `PRIMORDIA_DOCKER_REBUILD_ON_START=1` for one restart.
+The container keeps using the persisted `/data/source.git` repository and production worktree under `/data/worktrees/`. Primordia's own evolve/accept flow updates that checkout from inside the running app using the same installer path as other self-hosted installs. Rebuilding the Docker image is only needed when you want a new seed image; day-to-day dependency updates, rebuilds, accepted changes, and security fixes happen in the persisted Primordia install.
 
 ## Ports and reverse proxying
 
@@ -61,7 +61,7 @@ Keep `REVERSE_PROXY_PORT` at `3000` inside the container unless you also change 
 
 ## Notes for Raspberry Pi
 
-- Build on a 64-bit OS. The Bun image and native packages used by Primordia are multi-arch, but 32-bit Raspberry Pi OS is not supported.
-- Initial image builds can take several minutes on Pi hardware.
+- Build on a 64-bit OS. The Debian base image, mise-managed Bun runtime, and native packages used by Primordia are multi-arch, but 32-bit Raspberry Pi OS is not supported.
+- First boot can take several minutes on Pi hardware because the installer downloads mise/Bun, installs dependencies, and builds the app in the persistent volume.
 - Evolve sessions may be CPU and memory intensive; close unused previews from the admin health page if disk space gets tight.
-- The Docker image includes a small `mise exec` compatibility shim because the container already pins Bun with the base image.
+- The Docker image does not include a custom Bun runtime or deploy path. It relies on mise and `scripts/install.sh`, just like non-Docker Primordia installs.

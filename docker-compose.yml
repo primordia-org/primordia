@@ -11,8 +11,6 @@ services:
     environment:
       REVERSE_PROXY_PORT: "3000"
       PRIMORDIA_DIR: /data
-      # Set to 1 after editing the persisted tree manually and wanting a rebuild on boot.
-      PRIMORDIA_DOCKER_REBUILD_ON_START: "0"
     volumes:
       - primordia-data:/data
       # Optional: let Primordia fetch/push private git remotes using your host SSH keys.

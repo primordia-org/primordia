@@ -484,19 +484,21 @@ fi
 
 _CURRENT_STEP="determine hostname"
 HOSTNAME_FQDN="$(hostname -f 2>/dev/null || hostname)"
-REVERSE_PROXY_PORT=3000
+REVERSE_PROXY_PORT="${REVERSE_PROXY_PORT:-}"
 
 if [[ "$HOSTNAME_FQDN" == *.local || "$HOSTNAME_FQDN" == *.lan || "$HOSTNAME_FQDN" == "localhost" ]]; then
   info "No domain name detected. Assuming localhost."
+  REVERSE_PROXY_PORT="${REVERSE_PROXY_PORT:-3000}"
   APP_URL="http://localhost:${REVERSE_PROXY_PORT}"
   PROBABLY_A_SERVER=false
 elif [[ "$HOSTNAME_FQDN" == *.exe.xyz ]]; then
   success "Detected exe.xyz host"
+  REVERSE_PROXY_PORT="${REVERSE_PROXY_PORT:-8000}"
   APP_URL="https://${HOSTNAME_FQDN}"
   PROBABLY_A_SERVER=true
-  REVERSE_PROXY_PORT=8000
 else
   warn "Not running on exe.dev — automatic SSL termination, exe.dev login, and LLM gateway integration won't be available."
+  REVERSE_PROXY_PORT="${REVERSE_PROXY_PORT:-3000}"
   APP_URL="http://${HOSTNAME_FQDN}:${REVERSE_PROXY_PORT}"
   PROBABLY_A_SERVER=true
 fi
