@@ -175,7 +175,7 @@ if [[ "${THIS_FILE}" != "bash" && "${THIS_FILE}" != "-bash" && -n "${THIS_FILE}"
 fi
 
 IS_WORKTREE_INSTALL=false
-if [[ "${PRIMORDIA_INSTALL_FORCE_STANDALONE:-}" != "1" ]] && [[ -n "$SCRIPT_DIR" ]] && git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+if [[ -n "$SCRIPT_DIR" ]] && git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
   IS_WORKTREE_INSTALL=true
   WORKTREES_DIR="$(dirname "$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)")"
   PRIMORDIA_DIR="$(dirname "${WORKTREES_DIR}")"
@@ -209,9 +209,8 @@ PRIMORDIA_PARENT_URL="${PRIMORDIA_PARENT_URL:-${PRIMORDIA_PARENT_URL_DEFAULT}}"
 _CURRENT_STEP="Clone primordia"
 if [[ ! -d "${BARE_REPO}" ]]; then
   _step "Cloning Primordia..."
-  _clone_source="${PRIMORDIA_SEED_DIR:-https://primordia.exe.xyz/api/git}"
   _log=$(mktemp)
-  if ! git clone --bare "${_clone_source}" "${BARE_REPO}" >"$_log" 2>&1; then _spin_kill; cat "$_log" >&2; rm -f "$_log"; exit_with_failure 1 "$LINENO" "git clone --bare ${_clone_source} ${BARE_REPO}"; fi
+  if ! git clone --bare https://primordia.exe.xyz/api/git "${BARE_REPO}" >"$_log" 2>&1; then _spin_kill; cat "$_log" >&2; rm -f "$_log"; exit_with_failure 1 "$LINENO" "git clone --bare https://primordia.exe.xyz/api/git ${BARE_REPO}"; fi
   rm -f "$_log"
   _done "Cloned to ${BARE_REPO}"
 fi

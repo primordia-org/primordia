@@ -62,7 +62,7 @@ The first user to register is automatically granted the `admin` role.
 docker compose up -d --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000), or `http://<raspberry-pi-ip>:3000` from another device on your network. The Docker image is multi-arch and lightweight: it seeds the source, then runs the normal `scripts/install.sh` + mise flow in the `primordia-data` Docker volume so Primordia can keep updating dependencies, rebuilding itself, and accepting evolve changes autonomously.
+Open [http://localhost:3000](http://localhost:3000), or `http://<raspberry-pi-ip>:3000` from another device on your network. The Docker image is multi-arch and lightweight: on first boot it downloads `/install.sh` from `PRIMORDIA_PARENT_URL`, runs the normal installer + mise flow in the `primordia-data` Docker volume, then starts the proxy so Primordia can keep updating dependencies, rebuilding itself, and accepting evolve changes autonomously.
 
 See [docs/raspberry-pi-docker.md](./docs/raspberry-pi-docker.md) for Raspberry Pi requirements, backup notes, and port configuration.
 

@@ -1,6 +1,6 @@
 # Self-host Primordia on a Raspberry Pi with Docker
 
-Primordia can run as a single Docker Compose service on a Raspberry Pi or any other Linux machine supported by Docker. The image is intentionally lightweight: its entrypoint just runs Primordia's normal `scripts/install.sh` flow against the seeded source inside the persistent volume, then starts the same reverse proxy command a systemd service would run. Runtime management still goes through `mise`, and Primordia keeps its usual autonomy to install dependencies, rebuild itself, accept evolve sessions, and apply security fixes from inside the container.
+Primordia can run as a single Docker Compose service on a Raspberry Pi or any other Linux machine supported by Docker. The image is intentionally lightweight: on first boot its entrypoint downloads `/install.sh` from the configured parent instance, runs Primordia's normal installer inside the persistent volume, then starts the same reverse proxy command a systemd service would run. Runtime management still goes through `mise`, and Primordia keeps its usual autonomy to install dependencies, rebuild itself, accept evolve sessions, and apply security fixes from inside the container.
 
 ## Requirements
 
@@ -21,6 +21,18 @@ docker compose up -d --build
 Open `http://<raspberry-pi-hostname-or-ip>:3000`.
 
 The first user to register becomes the admin. You can add AI credentials from **Settings** after signing in, or use any gateway/API-key setup already supported by Primordia.
+
+## Installer source and branch
+
+By default, first boot downloads `https://primordia.exe.xyz/install.sh` and installs the `main` branch. Override these with Docker environment variables:
+
+```yaml
+environment:
+  PRIMORDIA_PARENT_URL: https://your-parent.example.com
+  PRIMORDIA_DOCKER_BRANCH: main
+```
+
+If you need a fully custom installer URL, set `PRIMORDIA_INSTALL_URL`; it takes precedence over `PRIMORDIA_PARENT_URL`.
 
 ## What persists
 
@@ -46,7 +58,7 @@ Pull or merge code changes in your host checkout, then rebuild:
 docker compose up -d --build
 ```
 
-The container keeps using the persisted `/data/source.git` repository and production worktree under `/data/worktrees/`. Primordia's own evolve/accept flow updates that checkout from inside the running app using the same installer path as other self-hosted installs. Rebuilding the Docker image is only needed when you want a new seed image; day-to-day dependency updates, rebuilds, accepted changes, and security fixes happen in the persisted Primordia install.
+The container keeps using the persisted `/data/source.git` repository and production worktree under `/data/worktrees/`. Primordia's own evolve/accept flow updates that checkout from inside the running app using the same installer path as other self-hosted installs. Rebuilding the Docker image is only needed when the lightweight host wrapper itself changes; day-to-day dependency updates, rebuilds, accepted changes, and security fixes happen in the persisted Primordia install.
 
 ## Ports and reverse proxying
 
