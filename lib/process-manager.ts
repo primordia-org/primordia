@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { renderTable } from './cli-utils';
 import {
   getGitRepoRoot,
   listGitWorktrees,
@@ -206,12 +207,6 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
-function isPathInside(child: string | null, parent: string): boolean {
-  if (!child) return false;
-  const rel = path.relative(parent, child);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-}
-
 function readAgentPidFile(worktreePath: string): number | null {
   const text = readProcText(path.join(worktreePath, '.primordia-worker.pid'));
   if (!text) return null;
@@ -220,10 +215,8 @@ function readAgentPidFile(worktreePath: string): number | null {
 }
 
 function agentKindFromCommand(command: string): string {
-  if (command.includes('claude-worker.ts')) return 'claude-code';
-  if (command.includes('pi-worker.ts')) return 'pi';
-  if (command.includes('codex-worker.ts')) return 'codex';
-  return 'agent';
+  const script = command.split(/\s+/).find((part) => part.endsWith('.ts'));
+  return script ? path.basename(script) : 'agent';
 }
 
 function readConfigWorktree(command: string): string | null {
@@ -246,9 +239,9 @@ function getAgentsForWorktree(worktreePath: string, processes: ProcessInfo[]): A
   }
 
   for (const proc of processes) {
-    if (!/\b(claude-worker|pi-worker|codex-worker)\.ts\b/.test(proc.command)) continue;
     const configWorktree = readConfigWorktree(proc.command);
-    if (configWorktree ? path.resolve(configWorktree) === path.resolve(worktreePath) : isPathInside(proc.cwd, worktreePath)) {
+    if (!configWorktree) continue;
+    if (path.resolve(configWorktree) === path.resolve(worktreePath)) {
       agents.set(proc.pid, agentKindFromCommand(proc.command));
     }
   }
@@ -355,22 +348,6 @@ export function getProcessStatusReport(cwd = process.cwd()): ProcessStatusReport
 
 export function getProcessStatuses(cwd = process.cwd()): WorktreeProcessStatus[] {
   return getProcessStatusReport(cwd).worktrees;
-}
-
-function renderTable(headers: readonly string[], rows: string[][]): string {
-  const widths = headers.map((header, i) => Math.max(header.length, ...rows.map((row) => row[i]?.length ?? 0)));
-  const border = `┌${widths.map((width) => '─'.repeat(width + 2)).join('┬')}┐`;
-  const separator = `├${widths.map((width) => '─'.repeat(width + 2)).join('┼')}┤`;
-  const bottom = `└${widths.map((width) => '─'.repeat(width + 2)).join('┴')}┘`;
-  const renderRow = (values: readonly string[]) => `│${values.map((value, i) => ` ${value.padEnd(widths[i])} `).join('│')}│`;
-
-  return [
-    border,
-    renderRow(headers),
-    separator,
-    ...rows.map((row) => renderRow(row)),
-    bottom,
-  ].join('\n');
 }
 
 export function formatProcessStatusReport(report: ProcessStatusReport): string {
