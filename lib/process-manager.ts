@@ -1,6 +1,11 @@
-import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+  getGitRepoRoot,
+  listGitWorktrees,
+  readBranchPorts,
+  readProductionBranch,
+} from './git-runtime';
 
 export type ServerEnv = 'prod' | 'dev' | 'unknown';
 
@@ -8,17 +13,13 @@ export interface ManagedProcessStatus {
   pid: number;
   env: ServerEnv;
   state: string;
-  stateCode: string;
-  childCount: number;
   childPids: number[];
 }
 
 export interface ReverseProxyStatus {
   pid: number;
   state: string;
-  stateCode: string;
   port: number | null;
-  childCount: number;
   childPids: number[];
 }
 
@@ -39,13 +40,6 @@ export interface WorktreeProcessStatus {
   }>;
 }
 
-interface WorktreeInfo {
-  path: string;
-  branch: string | null;
-  head: string | null;
-  bare: boolean;
-}
-
 interface ProcessInfo {
   pid: number;
   ppid: number | null;
@@ -53,83 +47,6 @@ interface ProcessInfo {
   cwd: string | null;
   env: Record<string, string>;
   state: string;
-  stateCode: string;
-}
-
-function runGit(args: string[], cwd: string): string {
-  return execFileSync('git', args, {
-    cwd,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-}
-
-function getRepoRoot(cwd: string): string {
-  const commonDir = runGit(['rev-parse', '--git-common-dir'], cwd).trim();
-  return path.resolve(cwd, commonDir);
-}
-
-function parseWorktrees(porcelain: string): WorktreeInfo[] {
-  const worktrees: WorktreeInfo[] = [];
-  let current: WorktreeInfo | null = null;
-
-  const flush = () => {
-    if (current && !current.bare) worktrees.push(current);
-    current = null;
-  };
-
-  for (const line of porcelain.split('\n')) {
-    if (!line.trim()) {
-      flush();
-      continue;
-    }
-    if (line.startsWith('worktree ')) {
-      flush();
-      current = { path: line.slice('worktree '.length), branch: null, head: null, bare: false };
-    } else if (current && line.startsWith('HEAD ')) {
-      current.head = line.slice('HEAD '.length);
-    } else if (current && line.startsWith('branch ')) {
-      const ref = line.slice('branch '.length);
-      current.branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
-    } else if (current && line === 'detached') {
-      current.branch = null;
-    } else if (current && line === 'bare') {
-      current.bare = true;
-    }
-  }
-  flush();
-  return worktrees;
-}
-
-function readBranchPorts(repoRoot: string): Map<string, number> {
-  const ports = new Map<string, number>();
-  let out = '';
-  try {
-    out = runGit(['config', '--get-regexp', '^branch\\.[^.]+\\.port$'], repoRoot);
-  } catch {
-    return ports;
-  }
-
-  for (const line of out.trim().split('\n')) {
-    if (!line) continue;
-    const firstSpace = line.indexOf(' ');
-    if (firstSpace === -1) continue;
-    const key = line.slice(0, firstSpace);
-    const value = line.slice(firstSpace + 1).trim();
-    const match = key.match(/^branch\.([^.]+)\.port$/);
-    const port = Number.parseInt(value, 10);
-    if (match && Number.isFinite(port)) ports.set(match[1], port);
-  }
-  return ports;
-}
-
-function readProductionBranch(repoRoot: string): string | null {
-  try {
-    const value = runGit(['config', '--get', 'primordia.productionBranch'], repoRoot).trim();
-    return value || null;
-  } catch {
-    return null;
-  }
 }
 
 function readProcText(file: string): string | null {
@@ -183,7 +100,6 @@ function readProcess(pid: number): ProcessInfo | null {
     cwd,
     env: parseProcEnv(pid),
     state: linuxProcessStateName(stateCode),
-    stateCode,
   };
 }
 
@@ -387,9 +303,7 @@ function getReverseProxyStatuses(processes: ProcessInfo[], childrenByParent: Map
       return {
         pid: proc.pid,
         state: proc.state,
-        stateCode: proc.stateCode,
         port: Number.isFinite(port) ? port : null,
-        childCount: childPids.length,
         childPids,
       };
     })
@@ -397,8 +311,8 @@ function getReverseProxyStatuses(processes: ProcessInfo[], childrenByParent: Map
 }
 
 export function getProcessStatusReport(cwd = process.cwd()): ProcessStatusReport {
-  const repoRoot = getRepoRoot(cwd);
-  const worktrees = parseWorktrees(runGit(['worktree', 'list', '--porcelain'], repoRoot));
+  const repoRoot = getGitRepoRoot(cwd);
+  const worktrees = listGitWorktrees(repoRoot);
   const branchPorts = readBranchPorts(repoRoot);
   const productionBranch = readProductionBranch(repoRoot);
   const portOwners = buildPortOwners();
@@ -423,8 +337,6 @@ export function getProcessStatusReport(cwd = process.cwd()): ProcessStatusReport
           pid: proc.pid,
           env: inferServerEnv(proc, worktree.branch, productionBranch),
           state: proc.state,
-          stateCode: proc.stateCode,
-          childCount: childPids.length,
           childPids,
         };
       }),
@@ -463,10 +375,6 @@ function renderTable(headers: readonly string[], rows: string[][]): string {
   ].join('\n');
 }
 
-function formatPids(pids: number[]): string {
-  return pids.length > 0 ? pids.join(',') : '—';
-}
-
 export function formatProcessStatusReport(report: ProcessStatusReport): string {
   const proxyHeaders = ['Proxy', 'Port', 'State', 'PID', 'Children'] as const;
   const proxyRows = report.reverseProxy.length > 0
@@ -475,7 +383,7 @@ export function formatProcessStatusReport(report: ProcessStatusReport): string {
       proxy.port === null ? '—' : String(proxy.port),
       proxy.state,
       String(proxy.pid),
-      String(proxy.childCount),
+      String(proxy.childPids.length),
     ])
     : [['reverse-proxy', '—', 'not-running', '—', '—']];
 
@@ -486,7 +394,7 @@ export function formatProcessStatusReport(report: ProcessStatusReport): string {
     status.servers.length > 0 ? status.servers.map((server) => server.state).join(',') : '—',
     status.servers.length > 0 ? status.servers.map((server) => server.env).join(',') : '—',
     status.servers.length > 0 ? status.servers.map((server) => String(server.pid)).join(',') : '—',
-    status.servers.length > 0 ? status.servers.map((server) => String(server.childCount)).join(',') : '—',
+    status.servers.length > 0 ? status.servers.map((server) => String(server.childPids.length)).join(',') : '—',
     status.agents.length > 0
       ? status.agents.map((agent) => `${agent.kind}:${agent.pid}`).join(', ')
       : '—',

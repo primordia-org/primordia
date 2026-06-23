@@ -1,0 +1,90 @@
+import { execFileSync } from 'child_process';
+import * as path from 'path';
+
+export interface GitWorktreeInfo {
+  path: string;
+  branch: string | null;
+  head: string | null;
+}
+
+function runGit(args: string[], cwd: string): string {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+export function getGitRepoRoot(cwd: string): string {
+  const commonDir = runGit(['rev-parse', '--git-common-dir'], cwd).trim();
+  return path.resolve(cwd, commonDir);
+}
+
+export function listGitWorktrees(repoRoot: string): GitWorktreeInfo[] {
+  return parseWorktrees(runGit(['worktree', 'list', '--porcelain'], repoRoot));
+}
+
+function parseWorktrees(porcelain: string): GitWorktreeInfo[] {
+  const worktrees: GitWorktreeInfo[] = [];
+  let current: GitWorktreeInfo | null = null;
+  let currentIsBare = false;
+
+  const flush = () => {
+    if (current && !currentIsBare) worktrees.push(current);
+    current = null;
+    currentIsBare = false;
+  };
+
+  for (const line of porcelain.split('\n')) {
+    if (!line.trim()) {
+      flush();
+      continue;
+    }
+    if (line.startsWith('worktree ')) {
+      flush();
+      current = { path: line.slice('worktree '.length), branch: null, head: null };
+    } else if (current && line.startsWith('HEAD ')) {
+      current.head = line.slice('HEAD '.length);
+    } else if (current && line.startsWith('branch ')) {
+      const ref = line.slice('branch '.length);
+      current.branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
+    } else if (current && line === 'detached') {
+      current.branch = null;
+    } else if (current && line === 'bare') {
+      currentIsBare = true;
+    }
+  }
+  flush();
+  return worktrees;
+}
+
+export function readBranchPorts(repoRoot: string): Map<string, number> {
+  const ports = new Map<string, number>();
+  let out = '';
+  try {
+    out = runGit(['config', '--get-regexp', '^branch\\.[^.]+\\.port$'], repoRoot);
+  } catch {
+    return ports;
+  }
+
+  for (const line of out.trim().split('\n')) {
+    if (!line) continue;
+    const firstSpace = line.indexOf(' ');
+    if (firstSpace === -1) continue;
+    const key = line.slice(0, firstSpace);
+    const value = line.slice(firstSpace + 1).trim();
+    const match = key.match(/^branch\.([^.]+)\.port$/);
+    const port = Number.parseInt(value, 10);
+    if (match && Number.isFinite(port)) ports.set(match[1], port);
+  }
+  return ports;
+}
+
+export function readProductionBranch(repoRoot: string): string | null {
+  try {
+    const value = runGit(['config', '--get', 'primordia.productionBranch'], repoRoot).trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
