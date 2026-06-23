@@ -2,18 +2,19 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
-export type ServerMode = 'prod' | 'dev' | 'unknown';
+export type ServerEnv = 'prod' | 'dev' | 'unknown';
 
 export interface WorktreeProcessStatus {
   path: string;
   branch: string | null;
   head: string | null;
   port: number | null;
-  server: {
-    active: boolean;
-    mode: ServerMode;
-    pids: number[];
-  };
+  servers: Array<{
+    pid: number;
+    env: ServerEnv;
+    state: string;
+    stateCode: string;
+  }>;
   agents: Array<{
     kind: string;
     pid: number;
@@ -33,6 +34,8 @@ interface ProcessInfo {
   command: string;
   cwd: string | null;
   env: Record<string, string>;
+  state: string;
+  stateCode: string;
 }
 
 function runGit(args: string[], cwd: string): string {
@@ -147,6 +150,7 @@ function readProcess(pid: number): ProcessInfo | null {
   const command = cmdBuf.toString('utf8').split('\0').filter(Boolean).join(' ');
   const statClose = stat.lastIndexOf(')');
   const afterComm = statClose >= 0 ? stat.slice(statClose + 2).split(' ') : [];
+  const stateCode = afterComm[0] ?? '?';
   const ppid = afterComm.length >= 2 ? Number.parseInt(afterComm[1], 10) : null;
   let cwd: string | null = null;
   try {
@@ -154,7 +158,33 @@ function readProcess(pid: number): ProcessInfo | null {
   } catch {
     cwd = null;
   }
-  return { pid, ppid: Number.isFinite(ppid) ? ppid : null, command, cwd, env: parseProcEnv(pid) };
+  return {
+    pid,
+    ppid: Number.isFinite(ppid) ? ppid : null,
+    command,
+    cwd,
+    env: parseProcEnv(pid),
+    state: linuxProcessStateName(stateCode),
+    stateCode,
+  };
+}
+
+function linuxProcessStateName(code: string): string {
+  switch (code) {
+    case 'R': return 'running';
+    case 'S': return 'sleeping';
+    case 'D': return 'disk-sleep';
+    case 'Z': return 'zombie';
+    case 'T': return 'stopped';
+    case 't': return 'tracing-stop';
+    case 'W': return 'paging';
+    case 'X':
+    case 'x': return 'dead';
+    case 'K': return 'wakekill';
+    case 'P': return 'parked';
+    case 'I': return 'idle';
+    default: return 'unknown';
+  }
 }
 
 function listProcesses(): ProcessInfo[] {
@@ -295,13 +325,11 @@ function getAgentsForWorktree(worktreePath: string, processes: ProcessInfo[]): A
     .sort((a, b) => a.pid - b.pid);
 }
 
-function inferServerMode(branch: string | null, productionBranch: string | null, serverProcesses: ProcessInfo[]): ServerMode {
-  for (const proc of serverProcesses) {
-    if (proc.env.NODE_ENV === 'development' || proc.command.includes('next dev')) return 'dev';
-    if (proc.env.NODE_ENV === 'production' || proc.command.includes('next start')) return 'prod';
-  }
+function inferServerEnv(proc: ProcessInfo, branch: string | null, productionBranch: string | null): ServerEnv {
+  if (proc.env.NODE_ENV === 'development' || proc.command.includes('next dev')) return 'dev';
+  if (proc.env.NODE_ENV === 'production' || proc.command.includes('next start')) return 'prod';
   if (branch && productionBranch && branch === productionBranch) return 'prod';
-  return serverProcesses.length > 0 ? 'unknown' : 'unknown';
+  return 'unknown';
 }
 
 export function getProcessStatuses(cwd = process.cwd()): WorktreeProcessStatus[] {
@@ -324,11 +352,12 @@ export function getProcessStatuses(cwd = process.cwd()): WorktreeProcessStatus[]
       branch: worktree.branch,
       head: worktree.head,
       port,
-      server: {
-        active: pids.length > 0,
-        mode: inferServerMode(worktree.branch, productionBranch, serverProcesses),
-        pids,
-      },
+      servers: serverProcesses.map((proc) => ({
+        pid: proc.pid,
+        env: inferServerEnv(proc, worktree.branch, productionBranch),
+        state: proc.state,
+        stateCode: proc.stateCode,
+      })),
       agents: getAgentsForWorktree(worktree.path, processes),
     };
   });
@@ -338,15 +367,15 @@ export function formatProcessStatusTable(statuses: WorktreeProcessStatus[]): str
   const rows = statuses.map((status) => ({
     Worktree: status.branch ?? '(detached)',
     Port: status.port === null ? '—' : String(status.port),
-    Running: status.server.active ? 'yes' : 'no',
-    Env: status.server.active ? status.server.mode : '—',
-    PID: status.server.pids.length > 0 ? status.server.pids.join(',') : '—',
+    State: status.servers.length > 0 ? status.servers.map((server) => server.state).join(',') : '—',
+    Env: status.servers.length > 0 ? status.servers.map((server) => server.env).join(',') : '—',
+    PID: status.servers.length > 0 ? status.servers.map((server) => String(server.pid)).join(',') : '—',
     Agents: status.agents.length > 0
       ? status.agents.map((agent) => `${agent.kind}:${agent.pid}`).join(', ')
       : '—',
   }));
 
-  const headers = ['Worktree', 'Port', 'Running', 'Env', 'PID', 'Agents'] as const;
+  const headers = ['Worktree', 'Port', 'State', 'Env', 'PID', 'Agents'] as const;
   const widths = headers.map((header) => Math.max(header.length, ...rows.map((row) => row[header].length)));
   const border = `┌${widths.map((width) => '─'.repeat(width + 2)).join('┬')}┐`;
   const separator = `├${widths.map((width) => '─'.repeat(width + 2)).join('┼')}┤`;
