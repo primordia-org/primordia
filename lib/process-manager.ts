@@ -11,6 +11,18 @@ import {
 
 export type ServerEnv = 'prod' | 'dev' | 'unknown';
 export type ServerStartMode = 'dev' | 'prod';
+export type ProcessAction = 'start' | 'stop' | 'restart';
+
+export interface ProcessActionResult {
+  action: ProcessAction;
+  worktree: string;
+  branch: string;
+  port: number;
+  mode?: ServerStartMode;
+  pids: number[];
+  logPath?: string;
+  message: string;
+}
 
 export interface ManagedProcessStatus {
   pid: number;
@@ -360,14 +372,16 @@ export function getProcessStatuses(cwd = process.cwd()): WorktreeProcessStatus[]
   return getProcessStatusReport(cwd).worktrees;
 }
 
-function findWorktree(report: ProcessStatusReport, name: string): WorktreeProcessStatus {
+type ManageableWorktreeProcessStatus = WorktreeProcessStatus & { branch: string; port: number };
+
+function findWorktree(report: ProcessStatusReport, name: string): ManageableWorktreeProcessStatus {
   const match = report.worktrees.find((worktree) =>
     worktree.branch === name || path.basename(worktree.path) === name || worktree.path === name,
   );
   if (!match) throw new Error(`No worktree found for '${name}'`);
   if (!match.branch) throw new Error(`Worktree '${name}' is detached and cannot be managed by branch port`);
   if (match.port === null) throw new Error(`Worktree '${name}' has no assigned branch port`);
-  return match;
+  return match as ManageableWorktreeProcessStatus;
 }
 
 function signalPid(pid: number, signal: NodeJS.Signals): void {
@@ -383,7 +397,7 @@ async function waitForPidsToExit(pids: number[], timeoutMs: number): Promise<boo
   return pids.every((pid) => !isPidAlive(pid));
 }
 
-export async function stopWorktreeServer(name: string, cwd = process.cwd()): Promise<string> {
+export async function stopWorktreeServer(name: string, cwd = process.cwd()): Promise<ProcessActionResult> {
   const report = getProcessStatusReport(cwd);
   const worktree = findWorktree(report, name);
   const launcherPid = readServerLauncherPidFile(worktree.path);
@@ -391,7 +405,16 @@ export async function stopWorktreeServer(name: string, cwd = process.cwd()): Pro
     ...worktree.servers.flatMap((server) => [...server.childPids, server.pid]),
     ...(launcherPid === null ? [] : [launcherPid]),
   ])].sort((a, b) => b - a);
-  if (pids.length === 0) return `${worktree.branch} has no running server`;
+  if (pids.length === 0) {
+    return {
+      action: 'stop',
+      worktree: worktree.path,
+      branch: worktree.branch,
+      port: worktree.port,
+      pids: [],
+      message: `${worktree.branch} has no running server`,
+    };
+  }
 
   for (const pid of pids) signalPid(pid, 'SIGTERM');
   const stopped = await waitForPidsToExit(pids, 5000);
@@ -399,10 +422,29 @@ export async function stopWorktreeServer(name: string, cwd = process.cwd()): Pro
     for (const pid of pids) signalPid(pid, 'SIGKILL');
     await waitForPidsToExit(pids, 1000);
   }
-  return `stopped ${worktree.branch} server process(es): ${pids.join(', ')}`;
+  return {
+    action: 'stop',
+    worktree: worktree.path,
+    branch: worktree.branch,
+    port: worktree.port,
+    pids,
+    message: `stopped ${worktree.branch} server process(es): ${pids.join(', ')}`,
+  };
 }
 
-export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev', cwd = process.cwd()): string {
+export function getWorktreeLogPath(name: string, cwd = process.cwd()): string {
+  const report = getProcessStatusReport(cwd);
+  return path.join(findWorktree(report, name).path, '.primordia-next-server.log');
+}
+
+export function readWorktreeLogLines(name: string, cwd = process.cwd()): string[] {
+  const logPath = getWorktreeLogPath(name, cwd);
+  const text = readProcText(logPath);
+  if (!text) return [];
+  return text.split(/\r?\n/).filter((line) => line.length > 0);
+}
+
+export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev', cwd = process.cwd()): ProcessActionResult {
   const report = getProcessStatusReport(cwd);
   const worktree = findWorktree(report, name);
   if (worktree.servers.length > 0) {
@@ -414,7 +456,6 @@ export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev',
     ...process.env,
     PORT: String(port),
     HOSTNAME: '0.0.0.0',
-    NEXT_PRIVATE_STRUCTURED_LOGGING: '1',
   };
   const env: NodeJS.ProcessEnv = mode === 'dev'
     ? {
@@ -427,35 +468,40 @@ export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev',
       NODE_ENV: 'production',
     };
 
-  const logPath = path.join(worktree.path, '.primordia-next-server.ndjson');
+  const logPath = getWorktreeLogPath(name, cwd);
   const pidPath = path.join(worktree.path, '.primordia-server.pid');
-  const configPath = `/tmp/primordia-next-server-${process.pid}-${Date.now()}.json`;
-  const loggerScriptPath = path.join(cwd, 'scripts/next-server-logger.ts');
-  fs.writeFileSync(configPath, JSON.stringify({
-    worktreePath: worktree.path,
-    branch: worktree.branch,
-    mode,
-    port,
-    logPath,
-    pidPath,
+  const logFd = fs.openSync(logPath, 'a');
+  const args = ['exec', '-C', worktree.path, '--', 'bun', 'run', mode === 'dev' ? 'dev' : 'start'];
+  const proc = spawn('mise', args, {
+    cwd: worktree.path,
     env,
-  }), 'utf8');
-
-  const proc = spawn('bun', [loggerScriptPath, configPath], {
-    cwd,
-    env: process.env,
     detached: true,
-    stdio: 'ignore',
+    stdio: ['ignore', logFd, logFd],
   });
+  fs.closeSync(logFd);
   if (!proc.pid) throw new Error(`Failed to start ${worktree.branch} server`);
+  fs.writeFileSync(pidPath, String(proc.pid), 'utf8');
   proc.unref();
-  return `started ${worktree.branch} ${mode} server on port ${port} (launcher PID ${proc.pid}, log ${logPath})`;
+  return {
+    action: 'start',
+    worktree: worktree.path,
+    branch: worktree.branch,
+    port,
+    mode,
+    pids: [proc.pid],
+    logPath,
+    message: `started ${worktree.branch} ${mode} server on port ${port} (PID ${proc.pid}, log ${logPath})`,
+  };
 }
 
-export async function restartWorktreeServer(name: string, mode: ServerStartMode = 'dev', cwd = process.cwd()): Promise<string> {
-  const stopMessage = await stopWorktreeServer(name, cwd);
-  const startMessage = startWorktreeServer(name, mode, cwd);
-  return `${stopMessage}\n${startMessage}`;
+export async function restartWorktreeServer(name: string, mode: ServerStartMode = 'dev', cwd = process.cwd()): Promise<ProcessActionResult> {
+  await stopWorktreeServer(name, cwd);
+  const result = startWorktreeServer(name, mode, cwd);
+  return {
+    ...result,
+    action: 'restart',
+    message: `restarted ${result.branch} ${mode} server on port ${result.port} (PID ${result.pids.join(', ')}, log ${result.logPath})`,
+  };
 }
 
 export function formatProcessStatusReport(report: ProcessStatusReport): string {
