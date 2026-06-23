@@ -1,3 +1,4 @@
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { renderTable } from './cli-utils';
@@ -9,6 +10,7 @@ import {
 } from './git-runtime';
 
 export type ServerEnv = 'prod' | 'dev' | 'unknown';
+export type ServerStartMode = 'dev' | 'prod';
 
 export interface ManagedProcessStatus {
   pid: number;
@@ -348,6 +350,87 @@ export function getProcessStatusReport(cwd = process.cwd()): ProcessStatusReport
 
 export function getProcessStatuses(cwd = process.cwd()): WorktreeProcessStatus[] {
   return getProcessStatusReport(cwd).worktrees;
+}
+
+function findWorktree(report: ProcessStatusReport, name: string): WorktreeProcessStatus {
+  const match = report.worktrees.find((worktree) =>
+    worktree.branch === name || path.basename(worktree.path) === name || worktree.path === name,
+  );
+  if (!match) throw new Error(`No worktree found for '${name}'`);
+  if (!match.branch) throw new Error(`Worktree '${name}' is detached and cannot be managed by branch port`);
+  if (match.port === null) throw new Error(`Worktree '${name}' has no assigned branch port`);
+  return match;
+}
+
+function signalPid(pid: number, signal: NodeJS.Signals): void {
+  try { process.kill(pid, signal); } catch { /* process already gone */ }
+}
+
+async function waitForPidsToExit(pids: number[], timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (pids.every((pid) => !isPidAlive(pid))) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return pids.every((pid) => !isPidAlive(pid));
+}
+
+export async function stopWorktreeServer(name: string, cwd = process.cwd()): Promise<string> {
+  const report = getProcessStatusReport(cwd);
+  const worktree = findWorktree(report, name);
+  const pids = [...new Set(worktree.servers.flatMap((server) => [...server.childPids, server.pid]))]
+    .sort((a, b) => b - a);
+  if (pids.length === 0) return `${worktree.branch} has no running server`;
+
+  for (const pid of pids) signalPid(pid, 'SIGTERM');
+  const stopped = await waitForPidsToExit(pids, 5000);
+  if (!stopped) {
+    for (const pid of pids) signalPid(pid, 'SIGKILL');
+    await waitForPidsToExit(pids, 1000);
+  }
+  return `stopped ${worktree.branch} server process(es): ${pids.join(', ')}`;
+}
+
+export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev', cwd = process.cwd()): string {
+  const report = getProcessStatusReport(cwd);
+  const worktree = findWorktree(report, name);
+  if (worktree.servers.length > 0) {
+    throw new Error(`Worktree '${worktree.branch}' already has running server process(es): ${worktree.servers.map((server) => server.pid).join(', ')}`);
+  }
+
+  const port = worktree.port;
+  const baseEnv = {
+    ...process.env,
+    PORT: String(port),
+    HOSTNAME: '0.0.0.0',
+  };
+  const env: NodeJS.ProcessEnv = mode === 'dev'
+    ? {
+      ...baseEnv,
+      NODE_ENV: 'development',
+      ...(process.env.REVERSE_PROXY_PORT ? { NEXT_BASE_PATH: `/preview/${worktree.branch}` } : {}),
+    }
+    : {
+      ...baseEnv,
+      NODE_ENV: 'production',
+    };
+
+  const args = ['exec', '-C', worktree.path, '--', 'bun', 'run', mode === 'dev' ? 'dev' : 'start'];
+  const proc = spawn('mise', args, {
+    cwd: worktree.path,
+    env,
+    detached: true,
+    stdio: 'ignore',
+  });
+  if (!proc.pid) throw new Error(`Failed to start ${worktree.branch} server`);
+  proc.unref();
+  return `started ${worktree.branch} ${mode} server on port ${port} (launcher PID ${proc.pid})`;
+}
+
+export async function restartWorktreeServer(name: string, mode: ServerStartMode = 'dev', cwd = process.cwd()): Promise<string> {
+  const stopMessage = await stopWorktreeServer(name, cwd);
+  const startMessage = startWorktreeServer(name, mode, cwd);
+  return `${stopMessage}\n${startMessage}`;
 }
 
 export function formatProcessStatusReport(report: ProcessStatusReport): string {
