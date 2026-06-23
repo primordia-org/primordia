@@ -5,36 +5,24 @@ import { formatProcessStatusTable, getProcessStatuses } from '../lib/process-man
 interface Args {
   command: string | null;
   json: boolean;
-  watch: boolean;
-  intervalMs: number;
 }
 
 function printUsage(): void {
-  console.log(`Usage: bun run process status [--json] [--watch] [--interval <seconds>]
+  console.log(`Usage: bun run process status [--json]
 
 Commands:
   status      List worktrees, assigned ports, Next.js servers, and active agents.
 
 Options:
-  --json      Print machine-readable JSON instead of the table.
-  --watch     Refresh output until interrupted.
-  --interval  Refresh interval in seconds for --watch (default: 2).`);
+  --json      Print machine-readable JSON instead of the table.`);
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { command: null, json: false, watch: false, intervalMs: 2000 };
+  const args: Args = { command: null, json: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--json') args.json = true;
-    else if (arg === '--watch') args.watch = true;
-    else if (arg === '--interval') {
-      const next = argv[++i];
-      const seconds = Number.parseFloat(next ?? '');
-      if (!Number.isFinite(seconds) || seconds <= 0) {
-        throw new Error('--interval requires a positive number of seconds');
-      }
-      args.intervalMs = Math.round(seconds * 1000);
-    } else if (arg === '--help' || arg === '-h') {
+    else if (arg === '--help' || arg === '-h') {
       printUsage();
       process.exit(0);
     } else if (!args.command) {
@@ -63,16 +51,7 @@ async function main(): Promise<void> {
     process.exit(args.command ? 1 : 0);
   }
 
-  if (!args.watch) {
-    render(args.json);
-    return;
-  }
-
-  while (true) {
-    process.stdout.write('\x1Bc');
-    render(args.json);
-    await new Promise((resolve) => setTimeout(resolve, args.intervalMs));
-  }
+  render(args.json);
 }
 
 main().catch((err) => {
