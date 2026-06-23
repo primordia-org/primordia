@@ -338,16 +338,15 @@ export function formatProcessStatusTable(statuses: WorktreeProcessStatus[]): str
   const rows = statuses.map((status) => ({
     Worktree: status.branch ?? '(detached)',
     Port: status.port === null ? '—' : String(status.port),
-    Server: status.server.active ? 'yes' : 'no',
-    Mode: status.server.active ? status.server.mode : '—',
+    Running: status.server.active ? 'yes' : 'no',
+    Env: status.server.active ? status.server.mode : '—',
     PID: status.server.pids.length > 0 ? status.server.pids.join(',') : '—',
     Agents: status.agents.length > 0
       ? status.agents.map((agent) => `${agent.kind}:${agent.pid}`).join(', ')
       : '—',
-    Path: status.path,
   }));
 
-  const headers = ['Worktree', 'Port', 'Server', 'Mode', 'PID', 'Agents', 'Path'] as const;
+  const headers = ['Worktree', 'Port', 'Running', 'Env', 'PID', 'Agents'] as const;
   const widths = headers.map((header) => Math.max(header.length, ...rows.map((row) => row[header].length)));
   const border = `┌${widths.map((width) => '─'.repeat(width + 2)).join('┬')}┐`;
   const separator = `├${widths.map((width) => '─'.repeat(width + 2)).join('┼')}┤`;
