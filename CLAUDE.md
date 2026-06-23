@@ -26,7 +26,7 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 | Styling | Tailwind CSS | AI models write Tailwind well; no CSS files to manage |
 | Language | TypeScript | Catches mistakes; Claude Code understands it well |
 | AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Routes through exe.dev LLM gateway by default; users may override with their own Anthropic API key or Claude Code credentials.json (stored in localStorage/DB, encrypted in transit via one hybrid AES-GCM + RSA-OAEP envelope for all credential types) |
-| Hosting | exe.dev | Production builds via `bun run build && bun run start`; single systemd service (`primordia-proxy`) manages both proxy and production app; blue/green slot swap on accept |
+| Hosting | exe.dev | Production builds via `bun run build && bun run start`; the public reverse proxy only routes traffic while a separate worktree session daemon manages production/preview server lifecycles; blue/green slot swap on accept |
 | Runtime versioning | mise (`mise.toml`) | Pins Bun per worktree; evolve setup trusts `mise.toml`, and the reverse proxy launches worktree servers with `mise exec -C <worktree>` |
 | AI code gen | `@anthropic-ai/claude-agent-sdk` | `query()` runs Claude Code in git worktrees for evolve requests |
 | Database | bun:sqlite | Local SQLite for passkey auth **and evolve session persistence**; same adapter on exe.dev and local dev |
@@ -114,7 +114,7 @@ When implementing changes, follow these principles:
 | Feature | Status | Notes |
 |---|---|---|
 | Evolve mode | ✅ Live | "Propose a change" in the hamburger opens a draggable/dockable floating dialog; `/evolve` page also exists as standalone; before any evolve worktree is deleted, its `.primordia-session.ndjson` log is saved as a gzip archive under `PRIMORDIA_DIR/past-sessions` when present |
-| Local evolve pipeline | ✅ Live | git worktree → Claude Agent SDK → local preview → accept/reject |
+| Local evolve pipeline | ✅ Live | git worktree → selected agent harness → local preview → accept/reject; preview/production process lifecycle is owned by the worktree session daemon and reached through the proxy's `/_proxy/*` delegation |
 | Evolve follow-up requests | ✅ Live | Chain multiple Claude passes on the same branch; form appears when session is ready; draft text persists across refreshes per session |
 | Explicit preview target selection | ✅ Live | Agents set the session preview panel route by running `bun run set-preview-url /route` after app file edits and before validation/changelog work; the session page renders the preview as soon as that structured `preview_path` event appears instead of waiting for the agent run to finish or relying on ambiguous final-message path parsing |
 | File attachments in evolve | ✅ Live | Attach images/files to initial and follow-up requests; files are copied into `worktree/attachments/` so Claude can read and use them; the page picker highlights nearest `data-component` targets in blue and nearest `data-id` targets in green, includes both names/selectors in generated element markdown, and key preview/follow-up controls carry explicit picker names via `data-id` |

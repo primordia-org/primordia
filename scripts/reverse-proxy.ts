@@ -1,50 +1,35 @@
 // scripts/reverse-proxy.ts
 // Lightweight HTTP reverse proxy for zero-downtime blue/green deploys.
 //
-// Listens on REVERSE_PROXY_PORT (default 3000) and forwards all traffic to
-// the upstream port stored in git config as branch.{currentBranch}.port for
-// the branch stored in git config as primordia.productionBranch.
-//
-// On startup, if the production Next.js server is not already running, the
-// proxy spawns it automatically (bun run start in the production worktree).
-// This makes the proxy the sole systemd service needed — no separate
-// primordia.service required.
-//
-// Preview server management: the proxy owns the lifecycle of all preview dev
-// servers. When a request arrives for /preview/{sessionId} and no server is
-// running for that session, the proxy starts one lazily (bun run dev in the
-// session's worktree), queuing the first request until it is ready. Preview
-// servers are automatically stopped after 30 minutes of inactivity.
-//
-// Proxy management API (all under /_proxy/):
-//   POST /_proxy/prod/spawn          — spawn new prod server, health check, activate (SSE stream)
-//   GET  /_proxy/prod/logs           — SSE stream of production server stdout/stderr (last 50 KB + follow)
-//   GET  /_proxy/preview/:id/status  — { devServerStatus }
-//   POST /_proxy/preview/:id/restart — kill + restart
-//   DELETE /_proxy/preview/:id       — kill
-//   GET  /_proxy/preview/:id/logs    — SSE stream of server logs
-//
-// Session routing: requests to /preview/{branchName}/... are routed to the
-// port associated with that branch. The mapping is derived from git config:
-// each branch has a branch.{name}.port entry. Branches with slashes in their
-// name are not supported for preview routing.
-//
-// This approach eliminates the need for proxy-upstream.json and
-// proxy-previews.json entirely — the single source of truth is git config,
-// which is updated atomically during blue/green accepts.
+// This process only proxies public traffic. Production and preview process
+// lifecycle is delegated to scripts/worktree-session-daemon.ts over a local
+// Unix socket. Keeping process management out of this file lets the proxy stay
+// stable while worktree/session lifecycle behavior evolves independently.
 
 import * as http from 'http';
 import * as net from 'net';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execFileSync, spawn, ChildProcess } from 'child_process';
-import { gzipSync } from 'zlib';
+import { execFileSync } from 'child_process';
 
-// Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
 const HOP_BY_HOP = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'proxy-connection', 'te', 'trailers',
 ]);
+
+const LISTEN_PORT = parseInt(process.env.REVERSE_PROXY_PORT ?? '3000', 10);
+const DAEMON_SOCKET_PATH = process.env.WORKTREE_DAEMON_SOCKET || path.join('/tmp', `primordia-worktree-daemon-${LISTEN_PORT}.sock`);
+const PRIMORDIA_ROOT = path.dirname(__filename);
+const WORKTREES_DIR = path.join(PRIMORDIA_ROOT, 'worktrees');
+const MAIN_REPO = path.join(PRIMORDIA_ROOT, 'source.git');
+const MAX_REQUEST_HEADER_BYTES = 64 * 1024;
+const REQUEST_HEADER_TIMEOUT_MS = 30_000;
+const PREVIEW_START_TIMEOUT_MS = 2 * 60 * 1000;
+
+let upstreamPort = 3001;
+let currentProdBranch: string | null = null;
+let sessionPortCache: Record<string, number> = {};
+let watchedConfigPath: string | null = null;
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -54,1407 +39,221 @@ function logCrashBoundary(label: string, err: unknown): void {
   console.error(`[proxy] ${label}:`, errorMessage(err));
 }
 
-function safeWrite(res: http.ServerResponse, data: string | Buffer): boolean {
-  if (res.writableEnded || res.destroyed) return false;
-  try {
-    return res.write(data);
-  } catch (err) {
-    logCrashBoundary('response write failed', err);
-    return false;
-  }
-}
-
-function safeEnd(res: http.ServerResponse, data?: string | Buffer): void {
+function safeEnd(res: http.ServerResponse, statusCode: number, message: string): void {
   if (res.writableEnded || res.destroyed) return;
   try {
-    res.end(data);
+    res.writeHead(statusCode, { 'content-type': 'text/plain' });
+    res.end(`${message}\n`);
   } catch (err) {
-    logCrashBoundary('response end failed', err);
+    logCrashBoundary('response write failed', err);
     try { res.destroy(err instanceof Error ? err : undefined); } catch { /* already closed */ }
   }
 }
 
-function safeWriteHead(
-  res: http.ServerResponse,
-  statusCode: number,
-  headers?: http.OutgoingHttpHeaders,
-): boolean {
-  if (res.headersSent || res.writableEnded || res.destroyed) return false;
-  try {
-    res.writeHead(statusCode, headers);
-    return true;
-  } catch (err) {
-    logCrashBoundary('response writeHead failed', err);
-    try { res.destroy(err instanceof Error ? err : undefined); } catch { /* already closed */ }
-    return false;
-  }
-}
-
-function sendPlainError(res: http.ServerResponse, statusCode: number, message: string): void {
-  if (safeWriteHead(res, statusCode, { 'content-type': 'text/plain' })) {
-    safeEnd(res, `${message}\n`);
-  }
-}
-
-function forwardHeaders(
-  incoming: http.IncomingMessage,
-  extra: Record<string, string>,
-): http.OutgoingHttpHeaders {
-  const raw = incoming.headers;
-  const connVal = raw['connection'];
-  const perConn = new Set(
-    typeof connVal === 'string'
-      ? connVal.split(',').map((s) => s.trim().toLowerCase())
-      : [],
-  );
-  const out: http.OutgoingHttpHeaders = {};
-  for (const [key, val] of Object.entries(raw)) {
-    const lc = key.toLowerCase();
-    if (!HOP_BY_HOP.has(lc) && !perConn.has(lc)) {
-      out[key] = val;
-    }
-  }
-  const host = raw['host'];
-  if (host && !out['x-forwarded-host']) {
-    out['x-forwarded-host'] = host;
-  }
-  return { ...out, ...extra };
-}
-
-/**
- * Derives the public-facing port from an incoming request's x-forwarded
- * headers, falling back to the Host header port, then to the protocol default.
- *
- * Chain of preference:
- *   1. x-forwarded-port  (set by an upstream proxy like exe.dev)
- *   2. port in x-forwarded-host  (e.g. "myhost:8080")
- *   3. port in Host header
- *   4. 443 for https, 80 for http
- */
-function derivePublicPort(incoming: http.IncomingMessage): string {
-  const fwdPort = incoming.headers['x-forwarded-port'];
-  if (typeof fwdPort === 'string' && fwdPort) return fwdPort;
-
-  const fwdHost = incoming.headers['x-forwarded-host'];
-  if (typeof fwdHost === 'string') {
-    const colonIdx = fwdHost.lastIndexOf(':');
-    if (colonIdx !== -1) return fwdHost.slice(colonIdx + 1);
-  }
-
-  const host = incoming.headers['host'];
-  if (typeof host === 'string') {
-    const colonIdx = host.lastIndexOf(':');
-    if (colonIdx !== -1) return host.slice(colonIdx + 1);
-  }
-
-  const proto = typeof incoming.headers['x-forwarded-proto'] === 'string'
-    ? incoming.headers['x-forwarded-proto']
-    : 'http';
-  return proto === 'https' ? '443' : '80';
-}
-
-const LISTEN_PORT = parseInt(process.env.REVERSE_PROXY_PORT ?? '3000', 10);
-const MISE_COMMAND = 'mise';
-
-/**
- * Compute paths relative to the reverse-proxy.ts file location.
- * install.sh copies reverse-proxy.ts from scripts/ to {PRIMORDIA_ROOT}/reverse-proxy.ts,
- * so __filename is {PRIMORDIA_ROOT}/reverse-proxy.ts at runtime.
- * Worktrees are at {PRIMORDIA_ROOT}/worktrees/.
- * Main repo is at {PRIMORDIA_ROOT}/source.git.
- */
-const PRIMORDIA_ROOT = path.dirname(__filename);
-const WORKTREES_DIR = path.join(PRIMORDIA_ROOT, 'worktrees');
-const MAIN_REPO = path.join(PRIMORDIA_ROOT, 'source.git');
-
-function safeArchiveFilenamePart(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'session';
-}
-
-function archiveSessionNdjsonLogBeforeCleanup(worktreePath: string, sessionId: string): void {
-  const ndjsonPath = path.join(worktreePath, '.primordia-session.ndjson');
-  if (!fs.existsSync(ndjsonPath)) return;
-
-  const content = fs.readFileSync(ndjsonPath);
-  if (content.length === 0) return;
-
-  const archiveDir = path.join(process.env.PRIMORDIA_DIR || PRIMORDIA_ROOT, 'past-sessions');
-  fs.mkdirSync(archiveDir, { recursive: true });
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const safeSessionId = safeArchiveFilenamePart(sessionId || path.basename(worktreePath));
-  const baseName = `${timestamp}-${safeSessionId}.ndjson.gz`;
-  let archivePath = path.join(archiveDir, baseName);
-  for (let i = 2; fs.existsSync(archivePath); i++) {
-    archivePath = path.join(archiveDir, `${timestamp}-${safeSessionId}-${i}.ndjson.gz`);
-  }
-
-  fs.writeFileSync(archivePath, gzipSync(content));
-}
-
-/** Disk usage percent above which automatic worktree cleanup is triggered (configurable via git config primordia.diskCleanupThresholdPct). */
-let diskCleanupThresholdPct = 90;
-/** How often the proxy checks disk usage and cleans up if needed (5 minutes). */
-const DISK_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
-
-
-
-let upstreamPort = 3001;
-/** The branch name currently set as primordia.productionBranch. */
-let currentProdBranch: string | null = null;
-/** Cache of branch name → port for fast preview lookups. */
-let sessionPortCache: Record<string, number> = {};
-/** Cache of branch name → { worktreePath, port } for preview server spawning. */
-let sessionWorktreeCache: Record<string, { worktreePath: string; port: number }> = {};
-/** Path to the git config file being watched. */
-let watchedConfigPath: string | null = null;
-/** Tracked production server process (proxy-owned). Null until first spawn or boot start. */
-let prodServerEntry: { process: ChildProcess; port: number; branch: string } | null = null;
-/** Rolling log buffer for the production server's stdout+stderr (50 KB). */
-let prodLogBuffer = '';
-/** Active SSE subscribers for production server log streaming. */
-const prodLogSubscribers: Set<LogSubscriber> = new Set();
-
-function appendProdLog(text: string): void {
-  prodLogBuffer += text;
-  if (prodLogBuffer.length > MAX_LOG_BYTES) {
-    prodLogBuffer = prodLogBuffer.slice(prodLogBuffer.length - MAX_LOG_BYTES);
-  }
-  for (const sub of prodLogSubscribers) {
-    try { sub.write(text); } catch (err) { logCrashBoundary('prod log subscriber failed', err); }
-  }
-}
-
-// ─── Preview server registry ─────────────────────────────────────────────────
-
-/** Rolling log buffer size per preview server (50 KB). */
-const MAX_LOG_BYTES = 50 * 1024;
-/** Inactivity timeout in minutes before a preview server is stopped (configurable via git config primordia.previewInactivityMin). */
-let previewInactivityMin = 30;
-/** How long to wait for a preview server to become ready before giving up (2 min). */
-const PREVIEW_START_TIMEOUT_MS = 2 * 60 * 1000;
-/** Maximum request header bytes buffered by the raw TCP classifier before HTTP parsing. */
-const MAX_REQUEST_HEADER_BYTES = 64 * 1024;
-/** Timeout for clients to finish sending request headers to the raw TCP classifier. */
-const REQUEST_HEADER_TIMEOUT_MS = 30_000;
-/** Maximum JSON/body bytes read by proxy management endpoints before forwarding. */
-const MAX_PROXY_BODY_BYTES = 1024 * 1024;
-
-interface LogSubscriber {
-  write: (text: string) => void;
-  close: () => void;
-}
-
-interface StartWaiter {
-  resolve: () => void;
-  reject: (err: Error) => void;
-}
-
-interface PreviewEntry {
-  process: ChildProcess;
-  port: number;
-  worktreePath: string;
-  logBuffer: string;
-  lastActivityMs: number;
-  status: 'starting' | 'running' | 'stopped';
-  startWaiters: StartWaiter[];
-  logSubscribers: Set<LogSubscriber>;
-}
-
-/** Active preview server processes keyed by session ID. */
-const previewProcesses = new Map<string, PreviewEntry>();
-
-/**
- * Returns the path to the shared git config file for the repo.
- * Works whether cwd is the main repo or a worktree.
- */
 function findGitConfigPath(cwd: string): string | null {
   try {
-    const commonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+    const out = execFileSync('git', ['rev-parse', '--git-common-dir'], {
       cwd,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
-    return path.resolve(cwd, commonDir, 'config');
+    return path.isAbsolute(out) ? path.join(out, 'config') : path.join(cwd, out, 'config');
   } catch {
     return null;
   }
 }
 
-/**
- * Re-reads all branch ports from git config and updates the caches.
- * Also updates the upstream port based on the current production branch,
- * and rebuilds sessionWorktreeCache for preview server spawning.
- */
 function readAllPorts(): void {
-  // Start watching the git config file if not already doing so.
-  if (!watchedConfigPath) {
-    const cfgPath = findGitConfigPath(MAIN_REPO);
-    if (cfgPath) {
-      watchedConfigPath = cfgPath;
-      watchGitConfig(cfgPath);
-    }
-  }
-
-  const branchPort: Record<string, number> = {};
   try {
-    // Build branch → port map from git config.
-    const portOut = execFileSync('git', ['config', '--get-regexp', 'branch\\..*\\.port'], {
-      cwd: MAIN_REPO,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    const cache: Record<string, number> = {};
-    for (const line of portOut.trim().split('\n')) {
-      if (!line) continue;
-      const m = line.match(/^branch\.(.+)\.port\s+(\d+)$/);
-      if (m) {
-        branchPort[m[1]] = parseInt(m[2], 10);
-        // Only branches without slashes are valid as preview URL segments.
-        if (!m[1].includes('/')) {
-          cache[m[1]] = parseInt(m[2], 10);
-        }
-      }
-    }
-    sessionPortCache = cache;
-  } catch {
-    // git config --get-regexp exits non-zero when no keys match — normal on first run
-  }
-
-  // Build branch → worktreePath from git worktree list.
-  const branchWorktree: Record<string, string> = {};
-  try {
-    const wtOut = execFileSync('git', ['worktree', 'list', '--porcelain'], {
-      cwd: MAIN_REPO,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    let curPath: string | undefined;
-    for (const line of wtOut.split('\n')) {
-      if (line.startsWith('worktree ')) {
-        curPath = line.slice(9).trim();
-      } else if (line.startsWith('branch ') && curPath) {
-        const branch = line.slice(7).trim().replace('refs/heads/', '');
-        branchWorktree[branch] = curPath;
-      }
-    }
-  } catch {
-    // git worktree list failed
-  }
-
-  // Combine: branch name → { worktreePath, port } (skip branches with slashes)
-  const newWorktreeCache: Record<string, { worktreePath: string; port: number }> = {};
-  for (const [branch, port] of Object.entries(branchPort)) {
-    if (branch.includes('/')) continue;
-    const worktreePath = branchWorktree[branch];
-    if (worktreePath) {
-      newWorktreeCache[branch] = { worktreePath, port };
-    }
-  }
-  sessionWorktreeCache = newWorktreeCache;
-
-  // Determine production branch from git config primordia.productionBranch (set on
-  // each accept), falling back to HEAD of the current worktree (initial bootstrap
-  // before the first accept or on deployments not yet migrated to git config).
-  let prodBranch: string | null = null;
-  try {
-    const ref = execFileSync('git', ['config', '--get', 'primordia.productionBranch'], {
+    const prod = execFileSync('git', ['config', '--get', 'primordia.productionBranch'], {
       cwd: MAIN_REPO,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
-    if (ref) prodBranch = ref;
-  } catch {
-    // primordia.productionBranch not yet set — fall through to HEAD fallback
-  }
-  if (!prodBranch) {
-    try {
-      prodBranch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
-        cwd: MAIN_REPO,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim() || null;
-    } catch {
-      // Detached HEAD — keep current upstream port
+    if (prod) currentProdBranch = prod;
+  } catch { /* not set yet */ }
+
+  const nextSessionPorts: Record<string, number> = {};
+  try {
+    const out = execFileSync('git', ['config', '--get-regexp', '^branch\\.[^.]+\\.port$'], {
+      cwd: MAIN_REPO,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    for (const line of out.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const spaceIdx = trimmed.indexOf(' ');
+      if (spaceIdx === -1) continue;
+      const key = trimmed.slice(0, spaceIdx);
+      const value = trimmed.slice(spaceIdx + 1).trim();
+      const match = key.match(/^branch\.([^.]+)\.port$/);
+      if (!match) continue;
+      const port = parseInt(value, 10);
+      if (port) nextSessionPorts[match[1]] = port;
     }
-  }
-  if (prodBranch) {
-    const prevProdBranch = currentProdBranch;
-    currentProdBranch = prodBranch;
-    let port = branchPort[prodBranch];
-    if (!port) {
-      // No port assigned yet — find one that is neither already claimed by
-      // another branch in git config nor bound by another process, then
-      // persist it so all future reads see a consistent value.
-      const taken = new Set(Object.values(branchPort));
-      try {
-        port = findFreePort(taken, LISTEN_PORT + 1);
-      } catch (err) {
-        console.error(`[proxy] could not assign port for '${prodBranch}': ${errorMessage(err)}`);
-        return;
-      }
-      try {
-        execFileSync('git', ['config', `branch.${prodBranch}.port`, String(port)], {
-          cwd: MAIN_REPO,
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-        console.log(`[proxy] auto-assigned port :${port} to branch '${prodBranch}'`);
-        branchPort[prodBranch] = port;
-      } catch (err) {
-        console.warn(`[proxy] could not persist port for '${prodBranch}': ${(err as Error).message}`);
-      }
-    }
-    const portChanged = port !== upstreamPort;
-    if (portChanged) {
-      console.log(`[proxy] upstream port: ${upstreamPort} → ${port} (PROD branch: ${prodBranch})`);
-      upstreamPort = port;
-    }
-    // If the prod branch or port changed and there is no running prod server,
-    // start one now. This handles the local (non-production) accept flow where
-    // no /_proxy/prod/spawn call is made — the proxy just sees the git config
-    // change via fs.watch and must boot the new server automatically.
-    if ((portChanged || prodBranch !== prevProdBranch) && !prodServerEntry) {
-      setTimeout(() => {
-        startProdServerIfNeeded().catch((err) => logCrashBoundary('startProdServerIfNeeded failed after config reload', err));
-      }, 0);
-    }
+  } catch { /* no branch ports yet */ }
+
+  sessionPortCache = nextSessionPorts;
+  if (currentProdBranch && sessionPortCache[currentProdBranch]) {
+    upstreamPort = sessionPortCache[currentProdBranch];
   }
 
-  // Read proxy config settings from git config (updated via admin UI).
-  try {
-    const v = parseInt(execFileSync('git', ['config', '--get', 'primordia.previewInactivityMin'], {
-      cwd: MAIN_REPO, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim(), 10);
-    if (!isNaN(v) && v > 0) previewInactivityMin = v;
-  } catch { /* not set — keep default */ }
-  try {
-    const v = parseInt(execFileSync('git', ['config', '--get', 'primordia.diskCleanupThresholdPct'], {
-      cwd: MAIN_REPO, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim(), 10);
-    if (!isNaN(v) && v > 0 && v <= 100) diskCleanupThresholdPct = v;
-  } catch { /* not set — keep default */ }
+  const configPath = findGitConfigPath(MAIN_REPO);
+  if (configPath && configPath !== watchedConfigPath) watchGitConfig(configPath);
 }
 
 function watchGitConfig(configPath: string): void {
+  watchedConfigPath = configPath;
   try {
-    fs.watch(configPath, () => setTimeout(() => {
-      try { readAllPorts(); } catch (err) { logCrashBoundary('git config reload failed', err); }
-    }, 50));
-  } catch {
-    setTimeout(() => watchGitConfig(configPath), 1000);
-  }
-}
-
-// ─── Port management ──────────────────────────────────────────────────────────
-
-/**
- * Finds a free TCP port that is not already assigned to any branch in git
- * config and is not currently bound by any process. Starts scanning from
- * `startFrom` and skips LISTEN_PORT itself.
- *
- * Uses `ss -tlnH` (Linux) or `netstat -an` (fallback) to get the set of
- * listening ports, then picks the first candidate not in either set.
- */
-function findFreePort(assignedPorts: Set<number>, startFrom: number): number {
-  // Build the set of ports currently bound on this host.
-  const boundPorts = new Set<number>();
-  try {
-    // ss -tlnH prints one line per listening socket; 4th field is Local Address:Port
-    const out = execFileSync('ss', ['-tlnH'], {
-      encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+    fs.watch(configPath, { persistent: false }, () => {
+      setTimeout(() => {
+        try { readAllPorts(); } catch (err) { logCrashBoundary('git config reload failed', err); }
+      }, 50);
     });
-    for (const line of out.split('\n')) {
-      const m = line.trim().match(/:(\d+)\s/);
-      if (m) boundPorts.add(parseInt(m[1], 10));
-    }
-  } catch {
-    try {
-      // Fallback: netstat (macOS / older Linux)
-      const out = execFileSync('netstat', ['-an'], {
-        encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      for (const line of out.split('\n')) {
-        const m = line.match(/[.:](\d+)\s+.*LISTEN/);
-        if (m) boundPorts.add(parseInt(m[1], 10));
-      }
-    } catch { /* best-effort; proceed with only assignedPorts */ }
+  } catch (err) {
+    logCrashBoundary(`could not watch git config at ${configPath}`, err);
   }
-
-  for (let port = startFrom; port < 65535; port++) {
-    if (port === LISTEN_PORT) continue;
-    if (assignedPorts.has(port)) continue;
-    if (boundPorts.has(port)) continue;
-    return port;
-  }
-  throw new Error('No free port found');
 }
 
-/**
- * Kills any process currently listening on the given TCP port.
- * Sends SIGTERM, waits up to 60 seconds for the port to become free, then
- * escalates to SIGKILL if the process is still alive. Best-effort — errors are
- * silently ignored (lsof unavailable, no process on port, etc.).
- */
-async function killPortOwner(port: number): Promise<void> {
-  let pids: number[];
-  try {
-    pids = execFileSync('lsof', ['-ti', `tcp:${port}`], {
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim().split('\n').filter(Boolean).map(Number).filter(Boolean);
-  } catch {
-    return; // lsof unavailable or no process on port — normal
+function stripHopByHopHeaders(headers: http.IncomingHttpHeaders): http.OutgoingHttpHeaders {
+  const connVal = headers.connection;
+  const perConnection = new Set(
+    typeof connVal === 'string' ? connVal.split(',').map((s) => s.trim().toLowerCase()) : [],
+  );
+  const out: http.OutgoingHttpHeaders = {};
+  for (const [key, value] of Object.entries(headers)) {
+    const lower = key.toLowerCase();
+    if (!HOP_BY_HOP.has(lower) && !perConnection.has(lower)) out[key] = value;
   }
-  if (pids.length === 0) return;
+  return out;
+}
 
-  for (const pid of pids) {
-    try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+function forwardHeaders(req: http.IncomingMessage): http.OutgoingHttpHeaders {
+  const out = stripHopByHopHeaders(req.headers);
+  if (req.headers.host && !out['x-forwarded-host']) out['x-forwarded-host'] = req.headers.host;
+  const remote = req.socket.remoteAddress;
+  if (remote) {
+    const prior = req.headers['x-forwarded-for'];
+    out['x-forwarded-for'] = typeof prior === 'string' && prior ? `${prior}, ${remote}` : remote;
   }
-  console.log(`[proxy] sent SIGTERM to ${pids.length} process(es) on :${port}`);
+  if (!out['x-forwarded-proto']) out['x-forwarded-proto'] = req.headers['x-forwarded-proto'] ?? 'http';
+  return out;
+}
 
-  // Poll every 500 ms until the port is free (up to 60 s), then escalate.
-  const deadline = Date.now() + 60_000;
+function daemonRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+  const upstream = http.request({
+    socketPath: DAEMON_SOCKET_PATH,
+    path: req.url,
+    method: req.method,
+    headers: stripHopByHopHeaders(req.headers),
+  }, (daemonRes) => {
+    res.writeHead(daemonRes.statusCode ?? 502, stripHopByHopHeaders(daemonRes.headers));
+    daemonRes.pipe(res);
+  });
+  upstream.on('error', (err) => safeEnd(res, 503, `Worktree daemon unavailable: ${errorMessage(err)}`));
+  req.pipe(upstream);
+}
+
+async function daemonFetch(pathname: string, init?: { method?: string; body?: string; headers?: http.OutgoingHttpHeaders }): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      socketPath: DAEMON_SOCKET_PATH,
+      path: pathname,
+      method: init?.method ?? 'GET',
+      headers: init?.headers,
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString() }));
+    });
+    req.on('error', reject);
+    if (init?.body) req.end(init.body); else req.end();
+  });
+}
+
+async function ensurePreviewRunning(sessionId: string): Promise<void> {
+  const readStatus = async (): Promise<string> => {
+    const res = await daemonFetch(`/_proxy/preview/${encodeURIComponent(sessionId)}/status`);
+    if (res.status >= 400) throw new Error(res.body || `status ${res.status}`);
+    try { return (JSON.parse(res.body) as { devServerStatus?: string }).devServerStatus ?? 'stopped'; }
+    catch { return 'stopped'; }
+  };
+
+  let status = await readStatus();
+  if (status === 'running') return;
+  if (status !== 'starting') {
+    const restart = await daemonFetch(`/_proxy/preview/${encodeURIComponent(sessionId)}/restart`, { method: 'POST' });
+    if (restart.status >= 400) throw new Error(restart.body || `restart ${restart.status}`);
+  }
+
+  const deadline = Date.now() + PREVIEW_START_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    await new Promise<void>(r => setTimeout(r, 500));
-    let stillInUse = false;
-    try {
-      execFileSync('lsof', ['-ti', `tcp:${port}`], {
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      stillInUse = true;
-    } catch { /* port is free */ }
-    if (!stillInUse) {
-      console.log(`[proxy] port :${port} is now free`);
-      return;
-    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    status = await readStatus();
+    if (status === 'running') return;
+    if (status === 'error' || status === 'stopped') throw new Error(`preview server ${status}`);
   }
-
-  // 60 s elapsed — escalate to SIGKILL.
-  try {
-    const remainingPids = execFileSync('lsof', ['-ti', `tcp:${port}`], {
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim().split('\n').filter(Boolean).map(Number).filter(Boolean);
-    for (const pid of remainingPids) {
-      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
-    }
-    if (remainingPids.length > 0) {
-      console.log(`[proxy] sent SIGKILL to ${remainingPids.length} process(es) on :${port} after timeout`);
-    }
-  } catch { /* lsof unavailable or port already free */ }
+  throw new Error('preview server did not become ready in time');
 }
 
-// ─── Preview server management ───────────────────────────────────────────────
-
-/**
- * Spawns `bun run dev` in the session's worktree and tracks the process.
- * Incoming requests are queued in entry.startWaiters until 'Ready' is detected.
- */
-async function startPreviewServer(
-  sessionId: string,
-  info: { worktreePath: string; port: number },
-): Promise<PreviewEntry> {
-  const entry: PreviewEntry = {
-    process: null as unknown as ChildProcess, // assigned below
-    port: info.port,
-    worktreePath: info.worktreePath,
-    logBuffer: '',
-    lastActivityMs: Date.now(),
-    status: 'starting',
-    startWaiters: [],
-    logSubscribers: new Set(),
-  };
-  previewProcesses.set(sessionId, entry);
-
-  console.log(`[proxy] starting preview server for session ${sessionId} on :${info.port} in ${info.worktreePath}`);
-  await killPortOwner(info.port);
-
-  // Guard: if another concurrent restart superseded our entry while we were waiting for
-  // the port to free (e.g. a second simultaneous restart request), abort here instead of
-  // spawning an orphaned process that nobody tracks.
-  if (previewProcesses.get(sessionId) !== entry) {
-    console.log(`[proxy] aborting preview start for session ${sessionId} (superseded by concurrent operation)`);
-    return entry;
-  }
-
-  let proc: ChildProcess;
-  try {
-    proc = spawn(MISE_COMMAND, ['exec', '-C', info.worktreePath, '--', 'bun', 'run', 'dev'], {
-      cwd: info.worktreePath,
-      env: {
-        ...process.env,
-        NODE_ENV: 'development',
-        PORT: String(info.port),
-        HOSTNAME: '0.0.0.0',
-        NEXT_BASE_PATH: `/preview/${sessionId}`,
-        REVERSE_PROXY_PORT: String(LISTEN_PORT),
-      },
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-  } catch (err) {
-    entry.status = 'stopped';
-    const spawnErr = new Error(`Preview server spawn failed: ${errorMessage(err)}`);
-    const waiters = entry.startWaiters.splice(0);
-    for (const w of waiters) {
-      try { w.reject(spawnErr); } catch (waiterErr) { logCrashBoundary('preview start waiter reject failed', waiterErr); }
-    }
-    throw spawnErr;
-  }
-  proc.unref();
-  entry.process = proc;
-
-  const appendLog = (text: string) => {
-    entry.logBuffer += text;
-    if (entry.logBuffer.length > MAX_LOG_BYTES) {
-      entry.logBuffer = entry.logBuffer.slice(entry.logBuffer.length - MAX_LOG_BYTES);
-    }
-    for (const sub of entry.logSubscribers) {
-      try { sub.write(text); } catch (err) { logCrashBoundary('preview log subscriber failed', err); }
-    }
-    if (entry.status === 'starting' && text.includes('Ready')) {
-      entry.status = 'running';
-      console.log(`[proxy] preview server ready for session ${sessionId} on :${info.port}`);
-      const waiters = entry.startWaiters.splice(0);
-      for (const w of waiters) {
-        try { w.resolve(); } catch (err) { logCrashBoundary('preview start waiter resolve failed', err); }
-      }
-    }
-  };
-
-  proc.stdout?.on('data', (d: Buffer) => appendLog(d.toString()));
-  proc.stderr?.on('data', (d: Buffer) => appendLog(d.toString()));
-
-  proc.on('close', (code) => {
-    if (entry.status === 'starting') {
-      const err = new Error(`Preview server exited before becoming ready (code ${code ?? 'unknown'})`);
-      const waiters = entry.startWaiters.splice(0);
-      for (const w of waiters) {
-        try { w.reject(err); } catch (waiterErr) { logCrashBoundary('preview start waiter reject failed', waiterErr); }
-      }
-    }
-    entry.status = 'stopped';
-    // Keep the entry in the map so the logBuffer remains accessible for crash debugging.
-    // startPreviewServer will overwrite it with a fresh entry on restart.
-    console.log(`[proxy] preview server stopped for session ${sessionId} (code ${code ?? 'unknown'})`);
-    for (const sub of entry.logSubscribers) {
-      try { sub.close(); } catch (err) { logCrashBoundary('preview log subscriber close failed', err); }
-    }
-    entry.logSubscribers.clear();
-  });
-
-  proc.on('error', (err) => {
-    appendLog(`[proxy error] ${err.message}\n`);
-    if (entry.status === 'starting') {
-      entry.status = 'stopped';
-      const spawnErr = new Error(`Preview server spawn failed: ${err.message}`);
-      const waiters = entry.startWaiters.splice(0);
-      for (const w of waiters) {
-        try { w.reject(spawnErr); } catch (waiterErr) { logCrashBoundary('preview start waiter reject failed', waiterErr); }
-      }
-    }
-  });
-
-  return entry;
-}
-
-/**
- * Kills the preview server for the given session, if running.
- */
-function stopPreviewServer(sessionId: string): void {
-  const entry = previewProcesses.get(sessionId);
-  if (!entry || entry.status === 'stopped') return;
-  console.log(`[proxy] stopping preview server for session ${sessionId}`);
-  entry.status = 'stopped';
-  previewProcesses.delete(sessionId);
-  // entry.process may be null if stopPreviewServer is called before startPreviewServer
-  // has had a chance to assign the spawned ChildProcess (e.g. during concurrent restarts).
-  if (entry.process == null) return;
-  try {
-    if (entry.process.pid !== undefined) {
-      process.kill(-entry.process.pid, 'SIGTERM');
-    }
-  } catch {
-    try { entry.process.kill('SIGTERM'); } catch { /* already dead */ }
-  }
-}
-
-// Kill preview servers that have been inactive for previewInactivityMin minutes.
-// Also evict stopped entries (kept for crash-log access) after the same timeout.
-setInterval(() => {
-  const cutoff = Date.now() - previewInactivityMin * 60 * 1000;
-  for (const [sessionId, entry] of previewProcesses.entries()) {
-    if (entry.lastActivityMs < cutoff) {
-      if (entry.status === 'stopped') {
-        previewProcesses.delete(sessionId);
-      } else {
-        console.log(`[proxy] stopping idle preview server ${sessionId} (${previewInactivityMin} min inactivity)`);
-        stopPreviewServer(sessionId);
-      }
-    }
-  }
-}, 60_000).unref();
-
-// ─── Production server ────────────────────────────────────────────────────────
-
-/**
- * On startup, if the production Next.js server is not already running on the
- * upstream port, find the production worktree and spawn `bun run start` there.
- * This makes the proxy responsible for the production server lifecycle so no
- * separate primordia.service systemd unit is needed.
- */
-async function startProdServerIfNeeded(): Promise<void> {
-  if (!currentProdBranch || !upstreamPort) return;
-
-  // Check if the production server is already running.
-  try {
-    await fetch(`http://localhost:${upstreamPort}/`, {
-      signal: AbortSignal.timeout(2_000),
-      redirect: 'manual',
-    });
-    console.log(`[proxy] production server already running on :${upstreamPort}`);
-    return;
-  } catch {
-    // Not running — need to start it.
-  }
-
-  // Find the worktree checked out on the production branch.
-  let prodPath: string | null = null;
-  try {
-    const wtOut = execFileSync('git', ['worktree', 'list', '--porcelain'], {
-      cwd: MAIN_REPO,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    let curPath: string | undefined;
-    let curBranch: string | null = null;
-    for (const line of wtOut.split('\n')) {
-      const trimmed = line.trimEnd();
-      if (trimmed.startsWith('worktree ')) { curPath = trimmed.slice(9).trim(); curBranch = null; }
-      else if (trimmed.startsWith('branch ')) { curBranch = trimmed.slice(7).trim().replace('refs/heads/', ''); }
-      else if (trimmed === '' && curPath && curBranch === currentProdBranch) { prodPath = curPath; break; }
-    }
-    // Handle last entry (no trailing blank line)
-    if (!prodPath && curPath && curBranch === currentProdBranch) prodPath = curPath;
-    console.log(`[proxy] worktree lookup for '${currentProdBranch}': found=${prodPath ?? 'none'}`);
-    if (!prodPath) {
-      // Diagnostic: log all worktrees to aid debugging
-      console.log(`[proxy] git worktree list output:\n${wtOut}`);
-    }
-  } catch (err) {
-    console.warn(`[proxy] git worktree list failed: ${(err as Error).message}`);
-  }
-
-  if (!prodPath) {
-    // Fall back to MAIN_REPO itself if it matches the production branch
-    try {
-      const headBranch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
-        cwd: MAIN_REPO, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim();
-      if (headBranch === currentProdBranch) {
-        console.log(`[proxy] falling back to MAIN_REPO (${MAIN_REPO}) for branch '${currentProdBranch}'`);
-        prodPath = MAIN_REPO;
-      }
-    } catch { /* ignore */ }
-  }
-
-  if (!prodPath) {
-    console.warn(`[proxy] cannot start prod server: no worktree for branch '${currentProdBranch}'`);
-    return;
-  }
-
-  console.log(`[proxy] starting production server (${currentProdBranch}) on :${upstreamPort} in ${prodPath}`);
-  await killPortOwner(upstreamPort);
-  let server: ChildProcess;
-  try {
-    server = spawn(MISE_COMMAND, ['exec', '-C', prodPath, '--', 'bun', 'run', 'start'], {
-      cwd: prodPath,
-      env: { ...process.env, PORT: String(upstreamPort), HOSTNAME: '0.0.0.0' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-  } catch (err) {
-    console.error(`[proxy] production server spawn failed: ${errorMessage(err)}`);
-    return;
-  }
-  server.stdout?.on('data', (d: Buffer) => appendProdLog(d.toString()));
-  server.stderr?.on('data', (d: Buffer) => appendProdLog(d.toString()));
-  const startBranch = currentProdBranch;
-  const startPort = upstreamPort;
-  prodServerEntry = { process: server, port: startPort, branch: startBranch };
-  server.on('error', (err) => {
-    appendProdLog(`[proxy error] production server spawn failed: ${err.message}\n`);
-    if (prodServerEntry?.process === server) prodServerEntry = null;
-  });
-  server.on('exit', (code) => {
-    if (prodServerEntry?.process === server) {
-      console.log(`[proxy] production server exited (code ${code ?? 'unknown'})`);
-      prodServerEntry = null;
-    }
-  });
-}
-
-/**
- * Handles POST /_proxy/prod/spawn — spawns the new production server in the given
- * worktree, health-checks it, updates primordia.productionBranch in git config,
- * and gracefully kills the old production server.  Streams SSE events back:
- *   { type: 'log', text }  — progress message
- *   { type: 'done', ok: true }           — success
- *   { type: 'done', ok: false, error }   — failure
- */
-async function handleProdSpawn(
-  clientReq: http.IncomingMessage,
-  clientRes: http.ServerResponse,
-): Promise<void> {
-  // Read request body.
-  const chunks: Buffer[] = [];
-  let bodyBytes = 0;
-  try {
-    for await (const chunk of clientReq as AsyncIterable<Buffer>) {
-      bodyBytes += chunk.length;
-      if (bodyBytes > MAX_PROXY_BODY_BYTES) {
-        clientRes.writeHead(413, { 'content-type': 'application/json' });
-        clientRes.end(JSON.stringify({ error: 'Request body too large' }));
-        return;
-      }
-      chunks.push(chunk);
-    }
-  } catch (err) {
-    logCrashBoundary('prod spawn body read failed', err);
-    clientRes.writeHead(400, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ error: 'Request body could not be read' }));
-    return;
-  }
-  let body: { branch?: string };
-  try {
-    body = JSON.parse(Buffer.concat(chunks).toString()) as typeof body;
-  } catch {
-    clientRes.writeHead(400, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ error: 'Invalid JSON body' }));
-    return;
-  }
-
-  const { branch } = body;
-  if (!branch) {
-    clientRes.writeHead(400, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ error: 'branch is required' }));
-    return;
-  }
-
-  // Look up port from git config, or auto-assign one if not yet set.
-  let port: number;
-  try {
-    const portStr = execFileSync('git', ['config', '--get', `branch.${branch}.port`], {
-      cwd: MAIN_REPO,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    port = parseInt(portStr, 10);
-    if (!port) throw new Error('empty port');
-  } catch {
-    // No port assigned yet — find a free one and persist it.
-    readAllPorts(); // refresh cache so findFreePort sees current assignments
-    const taken = new Set(Object.values(sessionPortCache));
-    try {
-      port = findFreePort(taken, LISTEN_PORT + 1);
-    } catch (err) {
-      clientRes.writeHead(500, { 'content-type': 'application/json' });
-      clientRes.end(JSON.stringify({ error: `Could not find a free port for branch '${branch}': ${errorMessage(err)}` }));
-      return;
-    }
-    try {
-      execFileSync('git', ['config', `branch.${branch}.port`, String(port)], {
-        cwd: MAIN_REPO,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      console.log(`[proxy] auto-assigned port :${port} to branch '${branch}' for prod spawn`);
-    } catch (err) {
-      clientRes.writeHead(500, { 'content-type': 'application/json' });
-      clientRes.end(JSON.stringify({ error: `Could not assign port for branch '${branch}': ${(err as Error).message}` }));
-      return;
-    }
-  }
-
-  // Look up worktree path from git worktree list.
-  let worktreePath: string | undefined;
-  try {
-    const wtOut = execFileSync('git', ['worktree', 'list', '--porcelain'], {
-      cwd: MAIN_REPO,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    let curPath: string | undefined;
-    for (const line of wtOut.split('\n')) {
-      if (line.startsWith('worktree ')) {
-        curPath = line.slice(9).trim();
-      } else if (line.startsWith('branch ') && curPath) {
-        const b = line.slice(7).trim().replace('refs/heads/', '');
-        if (b === branch) { worktreePath = curPath; break; }
-      }
-    }
-  } catch { /* fall through */ }
-  if (!worktreePath) {
-    clientRes.writeHead(400, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ error: `No worktree found for branch: ${branch}` }));
-    return;
-  }
-
-  clientRes.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-cache',
-    'connection': 'keep-alive',
-  });
-
-  const send = (data: object): void => {
-    safeWrite(clientRes, `data: ${JSON.stringify(data)}\n\n`);
-  };
-  const sendLog = (text: string): void => send({ type: 'log', text });
-  const sendDone = (ok: boolean, error?: string): void => {
-    send({ type: 'done', ok, ...(error ? { error } : {}) });
-    safeEnd(clientRes);
-  };
-
-  // ANSI formatting helpers (same palette as scripts/install.sh).
-  const G = '\x1b[0;32m'; // green
-  const R = '\x1b[0m';    // reset
-  // Spinner characters: same \|/- sequence used by install.sh.
-  const SPIN = '\\|/-';
-  let _spinTimer: ReturnType<typeof setInterval> | null = null;
-
-  // _step: print '\ msg' and start a 120 ms spinner (same cadence as install.sh).
-  const _step = (msg: string) => {
-    if (_spinTimer) { clearInterval(_spinTimer); _spinTimer = null; }
-    let i = 0;
-    sendLog(`\\ ${msg}`);
-    _spinTimer = setInterval(() => {
-      try { sendLog(`\r${SPIN[i++ % 4]} ${msg}`); } catch (err) { logCrashBoundary('deploy spinner failed', err); }
-    }, 120);
-  };
-  // _done: kill the spinner and overwrite the line with a green ✓.
-  const _done = (msg: string) => {
-    if (_spinTimer) { clearInterval(_spinTimer); _spinTimer = null; }
-    sendLog(`\r\x1b[K${G}✓${R} ${msg}\n`);
-  };
-  // _success: standalone ✓ line (no preceding _step).
-  const _success = (msg: string) => sendLog(`${G}✓${R} ${msg}\n`);
-
-  // Stop the spinner if the SSE client disconnects mid-deploy.
-  clientReq.on('close', () => { if (_spinTimer) { clearInterval(_spinTimer); _spinTimer = null; } });
-
-  try {
-    // Snapshot the old upstream port before we change anything.
-    const oldPort = upstreamPort;
-
-    _step('Starting server…');
-    await killPortOwner(port);
-
-    // Spawn new prod server — proxy owns this process.
-    let newServer: ChildProcess;
-    try {
-      newServer = spawn(MISE_COMMAND, ['exec', '-C', path.resolve(worktreePath), '--', 'bun', 'run', 'start'], {
-        cwd: path.resolve(worktreePath),
-        env: { ...process.env, PORT: String(port), HOSTNAME: '0.0.0.0' },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-    } catch (err) {
-      _done('Server failed to start');
-      sendDone(false, `Server spawn failed: ${errorMessage(err)}`);
-      return;
-    }
-    newServer.stdout?.on('data', (d: Buffer) => appendProdLog(d.toString()));
-    newServer.stderr?.on('data', (d: Buffer) => appendProdLog(d.toString()));
-
-    let spawnError: string | undefined;
-    let exitedEarly = false;
-    newServer.on('error', (err: Error) => { spawnError = err.message; });
-    newServer.on('exit', (code) => {
-      // Track for health-check loop
-      exitedEarly = true;
-      // Clean up prodServerEntry if this is still the current server
-      if (prodServerEntry?.process === newServer) {
-        console.log(`[proxy] production server exited (code ${code ?? 'unknown'})`);
-        prodServerEntry = null;
-      }
-    });
-
-    // Health check — poll until the server responds or 30 s elapses.
-    _done('Server started');
-    _step('Health-checking server…');
-    let healthOk = false;
-    let healthError: string | undefined;
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
-      if (spawnError) { healthError = `Server process error: ${spawnError}`; break; }
-      if (exitedEarly) { healthError = 'Server exited before becoming ready'; break; }
-      try {
-        await fetch(`http://localhost:${port}/`, {
-          signal: AbortSignal.timeout(3_000),
-          redirect: 'manual',
-        });
-        healthOk = true;
-        break;
-      } catch { /* not ready yet */ }
-    }
-
-    if (!healthOk) {
-      try { newServer.kill('SIGTERM'); } catch { /* already gone */ }
-      _done('Health-check failed');
-      sendDone(false, `New slot failed health check: ${healthError ?? 'server did not respond'}`);
-      return;
-    }
-
-    // Register the new server as the tracked prod process.
-    prodServerEntry = { process: newServer, port, branch };
-
-    _done('Health-check passed');
-
-    // Update git config: primordia.productionBranch + history.
-    try {
-      execFileSync('git', ['config', 'primordia.productionBranch', branch], {
-        cwd: MAIN_REPO,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      execFileSync('git', ['config', '--add', 'primordia.productionHistory', branch], {
-        cwd: MAIN_REPO,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    } catch { /* best-effort */ }
-
-    // Re-write the port to touch .git/config and fire the fs.watch handler immediately.
-    try {
-      execFileSync('git', ['config', `branch.${branch}.port`, String(port)], {
-        cwd: MAIN_REPO,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    } catch { /* best-effort */ }
-
-    // Update internal state immediately (don't wait for 5 s poll).
-    readAllPorts();
-
-    // Do NOT kill the old production server here. The old server is the one that
-    // called this endpoint — it will self-terminate after running update-service.sh.
-    // Killing it from the proxy would race with (and likely win against) the old
-    // server's remaining work, causing update-service.sh to never run.
-    console.log(`[proxy] prod slot activated: ${branch} on :${port} (old :${oldPort}; old server will self-terminate)`);
-    _success('Web traffic is now being directed to this server');
-    sendDone(true);
-  } catch (err) {
-    if (_spinTimer) { clearInterval(_spinTimer); _spinTimer = null; }
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[proxy] handleProdSpawn error:', msg);
-    sendDone(false, msg);
-  }
-}
-
-try {
-  readAllPorts();
-} catch (err) {
-  logCrashBoundary('initial git config load failed', err);
-}
-// Start production server on boot if not already running.
-startProdServerIfNeeded().catch((err) => logCrashBoundary('initial production server start failed', err));
-
-// Safety-net poll every 5 s in case fs.watch misses an event
-setInterval(() => {
-  try { readAllPorts(); } catch (err) { logCrashBoundary('periodic git config reload failed', err); }
-}, 5000);
-
-// ─── Request forwarding ───────────────────────────────────────────────────────
-
-/**
- * Forwards a request to the given port, optionally using a pre-buffered body
- * instead of piping from clientReq.
- */
-function forwardToPort(
-  port: number,
-  clientReq: http.IncomingMessage,
-  clientRes: http.ServerResponse,
-  bodyBuffer?: Buffer,
-): void {
-  const options: http.RequestOptions = {
+function forwardToPort(port: number, req: http.IncomingMessage, res: http.ServerResponse): void {
+  const upstream = http.request({
     hostname: '127.0.0.1',
     port,
-    path: clientReq.url,
-    method: clientReq.method,
-    headers: forwardHeaders(clientReq, {
-      'x-forwarded-for': clientReq.socket.remoteAddress ?? '',
-      // Pass through the upstream proxy's x-forwarded-proto (e.g. "https" set
-      // by exe.dev) so the Next.js app sees the correct public protocol.
-      'x-forwarded-proto': (typeof clientReq.headers['x-forwarded-proto'] === 'string'
-        ? clientReq.headers['x-forwarded-proto']
-        : 'http'),
-      // Ensure the downstream app always has an explicit port to work with.
-      'x-forwarded-port': derivePublicPort(clientReq),
-    }),
-  };
-
-  let upstreamReq: http.ClientRequest;
-  try {
-    upstreamReq = http.request(options, (upstreamRes) => {
-      try {
-        clientRes.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
-        upstreamRes.pipe(clientRes);
-      } catch (err) {
-        logCrashBoundary(`forward response setup failed on port ${port}`, err);
-        upstreamRes.destroy(err instanceof Error ? err : undefined);
-        try { clientRes.destroy(err instanceof Error ? err : undefined); } catch { /* already closed */ }
-      }
-      upstreamRes.on('error', (err) => {
-        logCrashBoundary(`upstream response error on port ${port}`, err);
-        try { clientRes.destroy(err); } catch { /* already closed */ }
-      });
-    });
-  } catch (err) {
-    console.error(`[proxy] could not create upstream request on port ${port}:`, errorMessage(err));
-    sendPlainError(clientRes, 502, 'Bad Gateway - upstream request failed');
-    return;
-  }
-
-  clientReq.on('error', (err) => {
-    logCrashBoundary('client request stream error', err);
-    try { upstreamReq.destroy(err); } catch { /* already closed */ }
+    path: req.url,
+    method: req.method,
+    headers: forwardHeaders(req),
+  }, (upstreamRes) => {
+    res.writeHead(upstreamRes.statusCode ?? 502, stripHopByHopHeaders(upstreamRes.headers));
+    upstreamRes.pipe(res);
   });
-  clientRes.on('error', (err) => {
-    logCrashBoundary('client response stream error', err);
-    try { upstreamReq.destroy(err); } catch { /* already closed */ }
-  });
-
-  upstreamReq.on('error', (err) => {
-    console.error(`[proxy] upstream error on port ${port}:`, err.message);
-    if (!clientRes.headersSent) {
-      sendPlainError(clientRes, 502, 'Bad Gateway - upstream server unavailable');
-    } else {
-      try { clientRes.destroy(err); } catch { /* already closed */ }
-    }
-  });
-
-  if (bodyBuffer !== undefined) {
-    if (bodyBuffer.length > 0) upstreamReq.write(bodyBuffer);
-    upstreamReq.end();
-  } else {
-    clientReq.pipe(upstreamReq);
-  }
+  upstream.on('error', (err) => safeEnd(res, 502, `Upstream on port ${port} unavailable: ${errorMessage(err)}`));
+  req.pipe(upstream);
 }
 
-// ─── Preview request handler (auto-start + queue) ────────────────────────────
-
-/**
- * Handles a request for /preview/{sessionId}/... with auto-start.
- * If the preview server is not running, starts it and queues the request
- * until it is ready (up to PREVIEW_START_TIMEOUT_MS).
- */
-async function handlePreviewRequest(
-  sessionId: string,
-  clientReq: http.IncomingMessage,
-  clientRes: http.ServerResponse,
-): Promise<void> {
-  let entry = previewProcesses.get(sessionId);
-
-  // Update activity timestamp on every request to this preview.
-  if (entry) entry.lastActivityMs = Date.now();
-
-  if (entry?.status === 'running') {
-    forwardToPort(entry.port, clientReq, clientRes);
-    return;
-  }
-
-  if (!entry || entry.status === 'stopped') {
-    // Try to look up the session's worktree info.
-    let info = sessionWorktreeCache[sessionId];
-    if (!info) {
-      // Cache may be stale — force a refresh and retry.
-      readAllPorts();
-      info = sessionWorktreeCache[sessionId];
-    }
-    if (!info) {
-      // Unknown session — forward to upstream (will produce a useful 404 from Next.js)
-      forwardToPort(upstreamPort, clientReq, clientRes);
-      return;
-    }
-    // Guard: refuse to launch a preview server for a worktree that is currently
-    // serving production. This can happen when a session branch is accepted and
-    // becomes the production branch — its sessionWorktreeCache entry remains
-    // valid, but spawning a dev server would call killPortOwner and take down prod.
-    if (info.port === upstreamPort) {
-      console.warn(`[proxy] refusing preview for session ${sessionId}: worktree is the current production server (port :${info.port})`);
-      clientRes.writeHead(409, { 'content-type': 'text/plain' });
-      clientRes.end(`This session's branch is now the production server and cannot be previewed as a dev server.\n`);
-      return;
-    }
-    try {
-      entry = await startPreviewServer(sessionId, info);
-    } catch (err) {
-      sendPlainError(clientRes, 503, `Preview server failed to start: ${errorMessage(err)}`);
-      return;
-    }
-  }
-
-  // Server is 'starting' — buffer the request body and wait.
-  const chunks: Buffer[] = [];
-  let bodyBytes = 0;
-  try {
-    for await (const chunk of clientReq as AsyncIterable<Buffer>) {
-      bodyBytes += chunk.length;
-      if (bodyBytes > MAX_PROXY_BODY_BYTES) {
-        sendPlainError(clientRes, 413, 'Request body too large while preview server is starting');
-        return;
-      }
-      chunks.push(chunk);
-    }
-  } catch (err) {
-    logCrashBoundary('preview request body read failed', err);
-    sendPlainError(clientRes, 400, 'Request body could not be read');
-    return;
-  }
-  const bodyBuffer = Buffer.concat(chunks);
-
-  await new Promise<void>((resolve) => {
-    const timeoutId = setTimeout(() => {
-      if (!clientRes.headersSent) {
-        clientRes.writeHead(503, { 'content-type': 'text/html; charset=utf-8' });
-        safeEnd(clientRes,
-          '<html><head><title>Preview Starting</title></head><body>' +
-          '<h2>Preview server is starting…</h2>' +
-          '<p>Please wait a moment and refresh.</p>' +
-          '</body></html>',
-        );
-      }
-      resolve();
-    }, PREVIEW_START_TIMEOUT_MS);
-
-    entry!.startWaiters.push({
-      resolve: () => {
-        clearTimeout(timeoutId);
-        if (entry) entry.lastActivityMs = Date.now();
-        forwardToPort(entry!.port, clientReq, clientRes, bodyBuffer);
-        resolve();
-      },
-      reject: (err) => {
-        clearTimeout(timeoutId);
-        if (!clientRes.headersSent) {
-          clientRes.writeHead(503, { 'content-type': 'text/plain' });
-          safeEnd(clientRes, `Preview server failed to start: ${err.message}\n`);
-        }
-        resolve();
-      },
-    });
-  });
-}
-
-// ─── Proxy management API ─────────────────────────────────────────────────────
-
-/**
- * Handles requests to /_proxy/preview/:sessionId/:action.
- *
- * GET  /_proxy/preview/:id/status  — JSON { devServerStatus }
- * POST /_proxy/preview/:id/restart — kill existing + start new
- * DELETE /_proxy/preview/:id       — kill (used during accept/reject)
- * GET  /_proxy/preview/:id/logs    — SSE stream of server logs
- */
-function handleProxyApi(
-  clientReq: http.IncomingMessage,
-  clientRes: http.ServerResponse,
-): void {
-  const url = clientReq.url ?? '';
-
-  // POST /_proxy/refresh — force-read primordia.productionBranch and all branch ports immediately.
-  // Called by the production server after an accept to guarantee the proxy picks
-  // up the new production branch even if the fs.watch inotify event was missed.
-  if (url === '/_proxy/refresh' && clientReq.method === 'POST') {
+async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const url = req.url ?? '/';
+  if (url === '/_proxy/refresh' && req.method === 'POST') {
     readAllPorts();
-    clientRes.writeHead(200, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ ok: true }));
+    daemonRequest(req, res);
+    return;
+  }
+  if (url.startsWith('/_proxy/')) {
+    daemonRequest(req, res);
     return;
   }
 
-  const match = url.match(/^\/_proxy\/preview\/([^/?#]+)(?:\/([^/?#]*))?/);
-  if (!match) {
-    clientRes.writeHead(404, { 'content-type': 'text/plain' });
-    clientRes.end('Not Found');
-    return;
-  }
-
-  const sessionId = match[1];
-  const action = match[2] ?? '';
-
-  // GET /_proxy/preview/:id/status
-  if (action === 'status' && clientReq.method === 'GET') {
-    const entry = previewProcesses.get(sessionId);
-    clientRes.writeHead(200, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ devServerStatus: entry?.status ?? 'stopped' }));
-    return;
-  }
-
-  // POST /_proxy/preview/:id/restart
-  if (action === 'restart' && clientReq.method === 'POST') {
-    // If a start is already in progress for this session, treat the request as idempotent
-    // rather than spawning a second concurrent startPreviewServer — that causes a race
-    // where both calls share the same port and one orphans its process.
-    const existingEntry = previewProcesses.get(sessionId);
-    if (existingEntry?.status === 'starting') {
-      clientRes.writeHead(200, { 'content-type': 'application/json' });
-      clientRes.end(JSON.stringify({ ok: true, note: 'already starting' }));
-      return;
+  const previewMatch = url.match(/^\/preview\/([^/?#]+)/);
+  if (previewMatch) {
+    const sessionId = decodeURIComponent(previewMatch[1]);
+    const port = sessionPortCache[sessionId] ?? (() => { readAllPorts(); return sessionPortCache[sessionId]; })();
+    if (!port) return safeEnd(res, 404, `Unknown preview session: ${sessionId}`);
+    if (port === upstreamPort) return forwardToPort(port, req, res);
+    try {
+      await ensurePreviewRunning(sessionId);
+    } catch (err) {
+      return safeEnd(res, 503, `Preview unavailable: ${errorMessage(err)}`);
     }
-    stopPreviewServer(sessionId);
-    const info = sessionWorktreeCache[sessionId] ?? (() => { readAllPorts(); return sessionWorktreeCache[sessionId]; })();
-    if (!info) {
-      clientRes.writeHead(404, { 'content-type': 'application/json' });
-      clientRes.end(JSON.stringify({ error: 'Session worktree not found in cache' }));
-      return;
-    }
-    // Guard: refuse to restart a preview server whose port is currently serving production.
-    // This mirrors the same guard in handlePreviewRequest and prevents killPortOwner from
-    // taking down the production server when a just-accepted session is restarted.
-    if (info.port === upstreamPort) {
-      clientRes.writeHead(409, { 'content-type': 'application/json' });
-      clientRes.end(JSON.stringify({ error: 'Session is currently the production server; cannot restart as dev server' }));
-      return;
-    }
-    startPreviewServer(sessionId, info).catch((err) => logCrashBoundary(`preview restart failed for ${sessionId}`, err));
-    clientRes.writeHead(200, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ ok: true }));
-    return;
+    return forwardToPort(port, req, res);
   }
 
-  // DELETE /_proxy/preview/:id  (kill)
-  if ((action === '' || action === 'kill') && clientReq.method === 'DELETE') {
-    stopPreviewServer(sessionId);
-    clientRes.writeHead(200, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ ok: true }));
-    return;
-  }
-
-  // GET /_proxy/preview/:id/logs  (SSE stream)
-  if (action === 'logs' && clientReq.method === 'GET') {
-    clientRes.writeHead(200, {
-      'content-type': 'text/event-stream',
-      'cache-control': 'no-cache',
-      'connection': 'keep-alive',
-    });
-
-    const entry = previewProcesses.get(sessionId);
-
-    // Send current log buffer as the first event.
-    if (entry?.logBuffer) {
-      safeWrite(clientRes, `data: ${JSON.stringify({ text: entry.logBuffer, snapshot: true })}\n\n`);
-    }
-
-    if (!entry || entry.status === 'stopped') {
-      safeWrite(clientRes, `data: ${JSON.stringify({ done: true })}\n\n`);
-      safeEnd(clientRes);
-      return;
-    }
-
-    // Subscribe to future log lines.
-    const subscriber: LogSubscriber = {
-      write: (text) => {
-        safeWrite(clientRes, `data: ${JSON.stringify({ text })}\n\n`);
-      },
-      close: () => {
-        safeWrite(clientRes, `data: ${JSON.stringify({ done: true })}\n\n`);
-        safeEnd(clientRes);
-      },
-    };
-    entry.logSubscribers.add(subscriber);
-    clientReq.on('close', () => {
-      entry.logSubscribers.delete(subscriber);
-    });
-    return;
-  }
-
-  clientRes.writeHead(404, { 'content-type': 'text/plain' });
-  clientRes.end('Not Found');
+  forwardToPort(upstreamPort, req, res);
 }
 
-// ─── Routing ──────────────────────────────────────────────────────────────────
-
-/**
- * Resolves the target port for a non-preview request.
- */
-function resolveUpstreamPort(): number {
-  return upstreamPort;
-}
-
-// ─── HTTP server ──────────────────────────────────────────────────────────────
-
-async function handleRequest(
-  clientReq: http.IncomingMessage,
-  clientRes: http.ServerResponse,
-): Promise<void> {
-  try {
-    const url = clientReq.url ?? '/';
-
-    // Proxy management API
-    if (url.startsWith('/_proxy/')) {
-    if (url === '/_proxy/prod/spawn' && clientReq.method === 'POST') {
-      await handleProdSpawn(clientReq, clientRes);
-      return;
-    }
-    if (url.startsWith('/_proxy/prod/logs') && clientReq.method === 'GET') {
-      const qs = url.includes('?') ? url.slice(url.indexOf('?') + 1) : '';
-      const skipSnapshot = new URLSearchParams(qs).get('n') === '0';
-      clientRes.writeHead(200, {
-        'content-type': 'text/event-stream',
-        'cache-control': 'no-cache',
-        'connection': 'keep-alive',
-      });
-      if (!skipSnapshot && prodLogBuffer) {
-        safeWrite(clientRes, `data: ${JSON.stringify({ text: prodLogBuffer })}\n\n`);
-      }
-      const subscriber: LogSubscriber = {
-        write: (text) => {
-          safeWrite(clientRes, `data: ${JSON.stringify({ text })}\n\n`);
-        },
-        close: () => {
-          safeWrite(clientRes, `data: ${JSON.stringify({ done: true, exitCode: 0 })}\n\n`);
-          safeEnd(clientRes);
-        },
-      };
-      prodLogSubscribers.add(subscriber);
-      clientReq.on('close', () => prodLogSubscribers.delete(subscriber));
-      return;
-    }
-      handleProxyApi(clientReq, clientRes);
-      return;
-    }
-
-    // Preview routing with auto-start
-    const previewMatch = url.match(/^\/preview\/([^/?#]+)/);
-    if (previewMatch) {
-      await handlePreviewRequest(previewMatch[1], clientReq, clientRes);
-      return;
-    }
-
-    // Default: forward to production upstream
-    forwardToPort(resolveUpstreamPort(), clientReq, clientRes);
-  } catch (err) {
+const httpHandler = http.createServer((req, res) => {
+  handleRequest(req, res).catch((err) => {
     logCrashBoundary('request handler failed', err);
-    sendPlainError(clientRes, 500, 'Internal proxy error');
-  }
-}
-
-// Internal HTTP handler. Listens on a random localhost port; the external
-// net.Server forwards non-WebSocket connections to it via loopback.
-const httpHandler = http.createServer((clientReq, clientRes) => {
-  handleRequest(clientReq, clientRes).catch((err) => {
-    logCrashBoundary('request handler rejected', err);
-    sendPlainError(clientRes, 500, 'Internal proxy error');
+    safeEnd(res, 500, 'Internal proxy error');
   });
 });
 
-// Inject x-forwarded-for / x-forwarded-proto into a raw HTTP upgrade request
-// buffer and return the modified buffer.  Works at the byte level so we don't
-// need an HTTP parser just for these two headers.
 function buildWsUpgradeRequest(reqBuf: Buffer, remoteAddress: string): Buffer {
   const headerEnd = reqBuf.indexOf('\r\n\r\n');
-  if (headerEnd === -1) return reqBuf; // shouldn't happen
+  if (headerEnd === -1) return reqBuf;
   let headers = reqBuf.slice(0, headerEnd).toString('binary');
-  // Extract upstream x-forwarded-proto before stripping (exe.dev sets this to 'https').
   const protoMatch = headers.match(/\r\nx-forwarded-proto:\s*([^\r\n]+)/i);
   const proto = protoMatch ? protoMatch[1].trim() : 'http';
-  // Remove any existing forwarded headers to avoid duplicates.
   headers = headers.replace(/\r\nx-forwarded-for:[^\r\n]*/gi, '');
   headers = headers.replace(/\r\nx-forwarded-proto:[^\r\n]*/gi, '');
   headers += `\r\nX-Forwarded-For: ${remoteAddress}`;
@@ -1462,74 +261,33 @@ function buildWsUpgradeRequest(reqBuf: Buffer, remoteAddress: string): Buffer {
   return Buffer.concat([Buffer.from(headers, 'binary'), Buffer.from('\r\n\r\n')]);
 }
 
-// Handle a WebSocket upgrade at the raw TCP level.  This bypasses Bun's
-// http.Server upgrade socket, which does not correctly forward writes back
-// to the client (Bun bug: the socket's write() call succeeds but the bytes
-// are silently dropped).  Using raw net.Socket connections on both sides
-// avoids the issue entirely.
 function handleWsUpgrade(rawSocket: net.Socket, reqBuf: Buffer): void {
-  rawSocket.on('error', (err) => {
-    console.error('[proxy] client socket error during WS upgrade:', err.message);
-  });
-
-  const reqStr = reqBuf.toString('binary');
-  const url = reqStr.match(/^[A-Z]+ (\S+)/)?.[1] ?? '/';
-
-  // Update activity for preview WebSocket connections (HMR).
+  rawSocket.on('error', (err) => logCrashBoundary('client socket error during WS upgrade', err));
+  const url = reqBuf.toString('binary').match(/^[A-Z]+ (\S+)/)?.[1] ?? '/';
   const previewMatch = url.match(/^\/preview\/([^/?#]+)/);
-  if (previewMatch) {
-    const entry = previewProcesses.get(previewMatch[1]);
-    if (entry) entry.lastActivityMs = Date.now();
-  }
-
-  // Determine target port.
   let targetPort = upstreamPort;
   if (previewMatch) {
-    const cached = sessionPortCache[previewMatch[1]];
+    const cached = sessionPortCache[decodeURIComponent(previewMatch[1])] ?? (() => { readAllPorts(); return sessionPortCache[decodeURIComponent(previewMatch[1])]; })();
     if (cached) targetPort = cached;
   }
 
   const upstreamSocket = net.createConnection(targetPort, '127.0.0.1');
   upstreamSocket.on('connect', () => {
-    // Forward the upgrade request (with x-forwarded headers injected).
     upstreamSocket.write(buildWsUpgradeRequest(reqBuf, rawSocket.remoteAddress ?? ''));
-
-    // Inspect the first response chunk from the upstream to verify it is a 101.
-    // If not (e.g. the dev server returned 400), return a 502 to the browser.
-    // Once confirmed as 101, push the chunk back and start the bidirectional pipe.
-    upstreamSocket.once('data', (firstChunk: Buffer) => {
-      const firstLine = firstChunk.slice(0, 20).toString('binary');
-      if (!firstLine.startsWith('HTTP/1.1 101') && !firstLine.startsWith('HTTP/1.0 101')) {
-        console.error(`[proxy] WS upstream on port ${targetPort} did not return 101`);
-        upstreamSocket.destroy();
-        if (!rawSocket.destroyed) {
-          rawSocket.write(
-            `HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n` +
-            `WebSocket upstream did not upgrade\n`,
-          );
-          rawSocket.destroy();
-        }
-        return;
-      }
-      // Put the first chunk back so it flows through the pipe.
-      upstreamSocket.unshift(firstChunk);
-      // Bidirectional pipe — after this the proxy is a transparent tunnel.
-      rawSocket.pipe(upstreamSocket);
-      upstreamSocket.pipe(rawSocket);
-      rawSocket.on('error', () => upstreamSocket.destroy());
-      upstreamSocket.on('error', () => rawSocket.destroy());
-      rawSocket.resume();
-    });
+    upstreamSocket.pipe(rawSocket);
+    rawSocket.pipe(upstreamSocket);
+    rawSocket.resume();
   });
   upstreamSocket.on('error', (err) => {
-    console.error(`[proxy] WS upstream error on port ${targetPort}:`, err.message);
-    if (!rawSocket.destroyed) rawSocket.destroy();
+    logCrashBoundary(`WS upstream connection failed on :${targetPort}`, err);
+    if (!rawSocket.destroyed) {
+      rawSocket.write('HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nWebSocket upstream unavailable\n');
+      rawSocket.destroy();
+    }
   });
+  rawSocket.on('close', () => upstreamSocket.destroy());
 }
 
-// External listener.  Each connection is inspected: WebSocket upgrades are
-// handled via raw-TCP tunnelling (see handleWsUpgrade); all other requests
-// are forwarded to the internal httpHandler via a loopback connection.
 let httpHandlerPort = 0;
 const server = net.createServer((rawSocket) => {
   rawSocket.pause();
@@ -1542,281 +300,64 @@ const server = net.createServer((rawSocket) => {
   }, REQUEST_HEADER_TIMEOUT_MS);
   headerTimer.unref();
 
-  rawSocket.on('error', (err) => {
-    logCrashBoundary('raw client socket error', err);
-  });
-  rawSocket.on('close', () => clearTimeout(headerTimer));
-
   const onData = (chunk: Buffer): void => {
-    try {
-      buf = Buffer.concat([buf, chunk]);
-      const headerEnd = buf.indexOf('\r\n\r\n');
-      if (headerEnd === -1) {
-        if (buf.length > MAX_REQUEST_HEADER_BYTES) {
-          clearTimeout(headerTimer);
-          rawSocket.removeListener('data', onData);
-          if (!rawSocket.destroyed) {
-            rawSocket.write('HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n');
-            rawSocket.destroy();
-          }
-          return;
-        }
-        // Headers not yet complete — keep accumulating.
-        rawSocket.resume();
-        return;
-      }
-      if (headerEnd > MAX_REQUEST_HEADER_BYTES) {
+    buf = Buffer.concat([buf, chunk]);
+    const headerEnd = buf.indexOf('\r\n\r\n');
+    if (headerEnd === -1) {
+      if (buf.length > MAX_REQUEST_HEADER_BYTES) {
         clearTimeout(headerTimer);
         rawSocket.removeListener('data', onData);
-        if (!rawSocket.destroyed) {
-          rawSocket.write('HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n');
-          rawSocket.destroy();
-        }
-        return;
+        rawSocket.write('HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n');
+        rawSocket.destroy();
       }
-
-      clearTimeout(headerTimer);
-      rawSocket.removeListener('data', onData);
-
-      const isWsUpgrade = /upgrade:\s*websocket/i.test(buf.slice(0, headerEnd).toString('binary'));
-      if (isWsUpgrade) {
-        handleWsUpgrade(rawSocket, buf);
-      } else {
-        // Forward to internal HTTP handler via loopback.
-        const internal = net.createConnection(httpHandlerPort, '127.0.0.1');
-        internal.on('connect', () => {
-          internal.write(buf);
-          rawSocket.pipe(internal);
-          internal.pipe(rawSocket);
-          rawSocket.on('error', () => internal.destroy());
-          internal.on('error', () => rawSocket.destroy());
-          rawSocket.resume();
-        });
-        internal.on('error', (err) => {
-          console.error('[proxy] internal handler connection error:', err.message);
-          if (!rawSocket.destroyed) rawSocket.destroy();
-        });
-      }
-    } catch (err) {
-      clearTimeout(headerTimer);
-      rawSocket.removeListener('data', onData);
-      logCrashBoundary('raw request classification failed', err);
-      if (!rawSocket.destroyed) rawSocket.destroy();
+      rawSocket.resume();
+      return;
     }
+
+    clearTimeout(headerTimer);
+    rawSocket.removeListener('data', onData);
+    if (/upgrade:\s*websocket/i.test(buf.slice(0, headerEnd).toString('binary'))) {
+      handleWsUpgrade(rawSocket, buf);
+      return;
+    }
+
+    const internal = net.createConnection(httpHandlerPort, '127.0.0.1');
+    internal.on('connect', () => {
+      internal.write(buf);
+      rawSocket.pipe(internal);
+      internal.pipe(rawSocket);
+      rawSocket.resume();
+    });
+    internal.on('error', (err) => {
+      logCrashBoundary('internal handler connection failed', err);
+      rawSocket.destroy();
+    });
   };
 
+  rawSocket.on('error', (err) => logCrashBoundary('raw client socket error', err));
+  rawSocket.on('close', () => clearTimeout(headerTimer));
   rawSocket.on('data', onData);
   rawSocket.resume();
 });
 
-// ─── Automatic disk cleanup ───────────────────────────────────────────────────
-//
-// Periodically checks disk usage.  When usage is at or above
-// DISK_CLEANUP_THRESHOLD_PCT, the oldest non-production worktree is deleted
-// (killing its dev server, removing the worktree directory, and deleting its
-// branch).  This repeats until usage drops below the threshold or there are no
-// more deletable worktrees.
-
-function getDiskUsedPercent(): number | null {
-  try {
-    const out = execFileSync('df', ['-B1', '/'], {
-      encoding: 'utf8',
-      timeout: 5_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    const dataLine = out.trim().split('\n').slice(1).join(' ').trim();
-    const parts = dataLine.split(/\s+/);
-    if (parts.length < 3) return null;
-    const total = parseInt(parts[1], 10);
-    const used = parseInt(parts[2], 10);
-    if (isNaN(total) || isNaN(used) || total === 0) return null;
-    return Math.round((used / total) * 100);
-  } catch {
-    return null;
-  }
-}
-
-interface CleanupWorktreeTarget {
-  path: string;
-  branch: string;
-}
-
-function getOldestDeletableWorktree(repoRoot: string): CleanupWorktreeTarget | null {
-  let wtOut: string;
-  try {
-    wtOut = execFileSync('git', ['worktree', 'list', '--porcelain'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-  } catch {
-    return null;
-  }
-
-  // Parse worktree list into { path, branch } entries.
-  const worktrees: { path: string; branch: string | null }[] = [];
-  let cur: { path: string; branch: string | null } | null = null;
-  for (const line of wtOut.split('\n')) {
-    if (line.startsWith('worktree ')) {
-      if (cur) worktrees.push(cur);
-      cur = { path: line.slice('worktree '.length).trim(), branch: null };
-    } else if (line.startsWith('branch ') && cur) {
-      cur.branch = line.slice('branch '.length).replace('refs/heads/', '').trim();
-    }
-  }
-  if (cur) worktrees.push(cur);
-
-  const mainPath = worktrees[0]?.path ?? repoRoot;
-
-  let prodBranch: string | null = null;
-  try {
-    prodBranch = execFileSync(
-      'git', ['config', '--get', 'primordia.productionBranch'],
-      { cwd: repoRoot, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
-    ).trim() || null;
-  } catch { /* not set yet */ }
-
-  const candidates: (CleanupWorktreeTarget & { ctimeMs: number })[] = [];
-  for (const wt of worktrees) {
-    if (!wt.branch) continue;
-    if (wt.path === mainPath) continue;
-    if (prodBranch && wt.branch === prodBranch) continue;
-    let ctimeMs = 0;
-    try { ctimeMs = fs.statSync(wt.path).ctimeMs; } catch { /* missing dir */ }
-    candidates.push({ path: wt.path, branch: wt.branch, ctimeMs });
-  }
-
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => a.ctimeMs - b.ctimeMs);
-  return { path: candidates[0].path, branch: candidates[0].branch };
-}
-
-function deleteWorktreeForCleanup(repoRoot: string, target: CleanupWorktreeTarget): void {
-  // Kill any dev server on this branch's port (best-effort).
-  try {
-    const portStr = execFileSync(
-      'git', ['config', '--get', `branch.${target.branch}.port`],
-      { cwd: repoRoot, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
-    ).trim();
-    if (portStr) {
-      execFileSync('bash', ['-c', `lsof -ti tcp:${portStr} | xargs -r kill -SIGTERM`], {
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    }
-  } catch { /* best-effort */ }
-
-  // Archive the session log before removing the worktree (if this is an evolve session).
-  try {
-    archiveSessionNdjsonLogBeforeCleanup(target.path, target.branch);
-  } catch (err) {
-    console.warn(`[disk-cleanup] failed to archive session log for ${target.branch}: ${errorMessage(err)}`);
-  }
-
-  // Remove the worktree.
-  try {
-    execFileSync('git', ['worktree', 'remove', '--force', target.path], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-  } catch {
-    // If the directory is already gone, prune stale refs.
-    try {
-      execFileSync('git', ['worktree', 'prune'], {
-        cwd: repoRoot,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    } catch { /* best-effort */ }
-  }
-
-  // Delete the branch and clean up git config.
-  try {
-    execFileSync('git', ['branch', '-D', target.branch], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-  } catch { /* best-effort */ }
-  try {
-    execFileSync('git', ['config', '--unset', `branch.${target.branch}.port`], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-  } catch { /* best-effort */ }
-}
-
-function runDiskCleanup(): void {
-  const usedPct = getDiskUsedPercent();
-  if (usedPct === null || usedPct < diskCleanupThresholdPct) return;
-
-  console.log(
-    `[disk-cleanup] disk at ${usedPct}% ≥ threshold ${diskCleanupThresholdPct}% — starting cleanup`,
-  );
-
-  let deleted = 0;
-  for (;;) {
-    const current = getDiskUsedPercent();
-    if (current === null || current < diskCleanupThresholdPct) break;
-
-    const target = getOldestDeletableWorktree(MAIN_REPO);
-    if (!target) {
-      console.warn(
-        `[disk-cleanup] no deletable non-prod worktrees remain; disk still at ${current}%`,
-      );
-      break;
-    }
-
-    console.log(
-      `[disk-cleanup] deleting worktree branch='${target.branch}' path='${target.path}' (disk ${current}%)`,
-    );
-    deleteWorktreeForCleanup(MAIN_REPO, target);
-    deleted++;
-  }
-
-  const finalPct = getDiskUsedPercent();
-  console.log(
-    `[disk-cleanup] done — deleted ${deleted} worktree(s), disk now at ${finalPct ?? '?'}%`,
-  );
-}
-
-// ─── Server startup ───────────────────────────────────────────────────────────
+try { readAllPorts(); } catch (err) { logCrashBoundary('initial git config load failed', err); }
+setInterval(() => {
+  try { readAllPorts(); } catch (err) { logCrashBoundary('periodic git config reload failed', err); }
+}, 5000).unref();
 
 httpHandler.listen(0, '127.0.0.1', () => {
   httpHandlerPort = (httpHandler.address() as net.AddressInfo).port;
   server.listen(LISTEN_PORT, '0.0.0.0', () => {
-    console.log(
-      `[proxy] listening on :${LISTEN_PORT} → upstream :${upstreamPort} (git config)`,
-    );
+    console.log(`[proxy] listening on :${LISTEN_PORT} → production :${upstreamPort}`);
+    console.log(`[proxy] lifecycle daemon socket: ${DAEMON_SOCKET_PATH}`);
     console.log(`[proxy] main repo: ${MAIN_REPO}`);
     console.log(`[proxy] worktrees: ${WORKTREES_DIR}`);
   });
 });
 
-// Run an initial disk check shortly after startup, then on a fixed interval.
-setTimeout(() => {
-  try { runDiskCleanup(); } catch (err) { logCrashBoundary('initial disk cleanup failed', err); }
-}, 30_000).unref();
-setInterval(() => {
-  try { runDiskCleanup(); } catch (err) { logCrashBoundary('periodic disk cleanup failed', err); }
-}, DISK_CLEANUP_INTERVAL_MS).unref();
-
-process.on('unhandledRejection', (reason) => {
-  logCrashBoundary('unhandled promise rejection', reason);
-});
-
-process.on('uncaughtException', (err) => {
-  logCrashBoundary('uncaught exception', err);
-});
-
+process.on('unhandledRejection', (reason) => logCrashBoundary('unhandled promise rejection', reason));
+process.on('uncaughtException', (err) => logCrashBoundary('uncaught exception', err));
 process.on('SIGTERM', () => {
-  // Stop all preview servers before exiting.
-  for (const sessionId of previewProcesses.keys()) {
-    stopPreviewServer(sessionId);
-  }
-  // Close the external listener then the internal handler.
-  // Belt-and-suspenders: force exit after 5 s if connections don't drain.
   server.close(() => httpHandler.close(() => process.exit(0)));
   setTimeout(() => process.exit(0), 5_000).unref();
 });

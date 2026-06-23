@@ -25,8 +25,8 @@ User types change request on /evolve page
       → streams structured events → formatted progressText appended in memory
       → progressText flushed to SQLite (throttled, ≤1 write/2s per session)
   → assigns ephemeral port to branch in git config (branch.{branch}.port) — idempotent, stable for branch lifetime
-  → spawn: bun run dev in worktree with PORT=branch port and NEXT_BASE_PATH=/preview/{branchName}
-      → on ready: previewUrl = http://{host}:{REVERSE_PROXY_PORT}/preview/{branchName} (proxy routes by branch name via git config)
+  → worktree session daemon spawns: bun run dev in worktree with PORT=branch port and NEXT_BASE_PATH=/preview/{branchName}
+      → on ready: previewUrl = http://{host}:{REVERSE_PROXY_PORT}/preview/{branchName} (proxy routes by branch name via git config; lifecycle APIs are delegated to the daemon)
   → EvolveSessionView opens SSE stream to /api/evolve/stream?sessionId=... (sessionId = branchName)
       → GET streams delta progressText + state every 500 ms from SQLite until terminal
   → Preview link shown when status becomes "ready"
@@ -38,7 +38,7 @@ User types change request on /evolve page
           → session worktree stays checked out on the session branch; no detached HEAD
           → copy prod DB from old slot into new slot (preserves auth data)
           → fix .env.local symlink in new slot to point to main repo (prevents dangling link)
-          → POST /_proxy/prod/spawn to the reverse proxy (SSE stream): proxy spawns new prod server, health-checks it, sets primordia.productionBranch + productionHistory in git config, and switches traffic; proxy does NOT kill the old prod server
+          → POST /_proxy/prod/spawn through the reverse proxy (SSE stream): the worktree session daemon spawns the new prod server, health-checks it, sets primordia.productionBranch + productionHistory in git config, and switches traffic by updating git config; the daemon does NOT kill the old prod server
           → old prod server self-terminates (process.exit) after the proxy switches traffic; proxy owns the new server process
           → old slots accumulate indefinitely as registered git worktrees (enables deep rollback via /admin/rollback)
       → faster dev pipeline deploy (NODE_ENV !== 'production'): git merge in production dir → bun install → worktree remove

@@ -4,15 +4,15 @@
 //
 // SSE events: { text: string } | { done: true; exitCode: number }
 //
-// Proxies /_proxy/prod/logs from the reverse proxy, which captures the
-// production Next.js server's stdout/stderr in a ring buffer.
+// Proxies /_proxy/prod/logs through the reverse proxy to the worktree daemon,
+// which captures the production Next.js server's stdout/stderr in a ring buffer.
 
 import { type NextRequest } from "next/server";
 import { getSessionUser, isAdmin } from "@/lib/auth";
 
 /**
  * Stream production server logs
- * @description SSE stream of the production Next.js server's stdout/stderr via the reverse proxy's ring buffer. Pass `n` (default 100) to set how many historical lines to replay. Admin only.
+ * @description SSE stream of the production Next.js server's stdout/stderr via the worktree daemon's ring buffer. Pass `n` (default 100) to set how many historical lines to replay. Admin only.
  * @tag Admin
  */
 export async function GET(req: NextRequest) {

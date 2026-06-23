@@ -12,6 +12,7 @@
     "deploy-to-exe.dev": "bash scripts/deploy-to-exe-dev.sh",
     "rollback": "bun scripts/rollback.ts",
     "proxy": "bun scripts/reverse-proxy.ts",
+    "worktree-daemon": "bun scripts/worktree-session-daemon.ts",
     "generate-api-docs": "next-openapi-gen generate --config openapi-gen.config.json",
     "regenerate:model-registry": "bun run scripts/regenerate-model-registry.ts",
     "set-preview-url": "bun scripts/set-preview-url.ts",

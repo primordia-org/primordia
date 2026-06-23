@@ -451,6 +451,8 @@ _done "Build complete"
 _CURRENT_STEP="install reverse proxy"
 REVERSE_PROXY_SOURCE="${INSTALL_DIR}/scripts/reverse-proxy.ts"
 REVERSE_PROXY_DEST="${PRIMORDIA_DIR}/reverse-proxy.ts"
+WORKTREE_DAEMON_SOURCE="${INSTALL_DIR}/scripts/worktree-session-daemon.ts"
+WORKTREE_DAEMON_DEST="${PRIMORDIA_DIR}/worktree-session-daemon.ts"
 MISE_CONFIG_SOURCE="${INSTALL_DIR}/mise.toml"
 MISE_CONFIG_DEST="${PRIMORDIA_DIR}/mise.toml"
 ROOT_MISE_CHANGED=false
@@ -464,11 +466,26 @@ else
   PROXY_CHANGED=false
 fi
 
+if [[ ! -f "${WORKTREE_DAEMON_DEST}" ]]; then
+  DAEMON_CHANGED=true
+elif ! diff -q "${WORKTREE_DAEMON_SOURCE}" "${WORKTREE_DAEMON_DEST}" >/dev/null 2>&1; then
+  DAEMON_CHANGED=true
+else
+  DAEMON_CHANGED=false
+fi
+
 if [[ "${PROXY_CHANGED}" == "true" ]]; then
   cp -f "${REVERSE_PROXY_SOURCE}" "${REVERSE_PROXY_DEST}"
   success "Installed reverse-proxy.ts"
 else
   success "Using reverse-proxy.ts"
+fi
+
+if [[ "${DAEMON_CHANGED}" == "true" ]]; then
+  cp -f "${WORKTREE_DAEMON_SOURCE}" "${WORKTREE_DAEMON_DEST}"
+  success "Installed worktree-session-daemon.ts"
+else
+  success "Using worktree-session-daemon.ts"
 fi
 
 if [[ ! -f "${MISE_CONFIG_DEST}" ]] || ! diff -q "${MISE_CONFIG_SOURCE}" "${MISE_CONFIG_DEST}" >/dev/null 2>&1; then
@@ -513,6 +530,7 @@ if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; t
   _step "Installing systemd service..."
   SYSTEMD_SERVICE_DIR="/etc/systemd/system"
   PROXY_SERVICE_DST="${SYSTEMD_SERVICE_DIR}/primordia.service"
+  DAEMON_SERVICE_DST="${SYSTEMD_SERVICE_DIR}/primordia-worktree-daemon.service"
   PARENT_URL_ENV_LINE=""
   if [[ -n "${PRIMORDIA_PARENT_URL}" ]]; then
     PARENT_URL_ENV_LINE="Environment=PRIMORDIA_PARENT_URL=${PRIMORDIA_PARENT_URL}"
@@ -520,13 +538,15 @@ if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; t
   GENERATED_UNIT=$(cat << UNIT
 [Unit]
 Description=Primordia Reverse Proxy
-After=network.target
+After=network.target primordia-worktree-daemon.service
+Wants=primordia-worktree-daemon.service
 
 [Service]
 Type=simple
 User=${USER}
 WorkingDirectory=${PRIMORDIA_DIR}
 Environment=REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}
+Environment=WORKTREE_DAEMON_SOCKET=/tmp/primordia-worktree-daemon-${REVERSE_PROXY_PORT}.sock
 Environment=HOME=${HOME}
 Environment=PATH=${MISE_SHIMS_DIR}:$(dirname "${MISE_BIN}"):/usr/local/bin:/usr/bin:/bin
 Environment=MISE_TRUSTED_CONFIG_PATHS=${PRIMORDIA_DIR}:${WORKTREES_DIR}
@@ -541,9 +561,35 @@ StandardError=journal
 WantedBy=multi-user.target
 UNIT
 )
+  GENERATED_DAEMON_UNIT=$(cat << UNIT
+[Unit]
+Description=Primordia Worktree Session Lifecycle Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=${USER}
+WorkingDirectory=${PRIMORDIA_DIR}
+Environment=REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}
+Environment=WORKTREE_DAEMON_SOCKET=/tmp/primordia-worktree-daemon-${REVERSE_PROXY_PORT}.sock
+Environment=HOME=${HOME}
+Environment=PATH=${MISE_SHIMS_DIR}:$(dirname "${MISE_BIN}"):/usr/local/bin:/usr/bin:/bin
+Environment=MISE_TRUSTED_CONFIG_PATHS=${PRIMORDIA_DIR}:${WORKTREES_DIR}
+${PARENT_URL_ENV_LINE}
+ExecStart=${MISE_BIN} exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/worktree-session-daemon.ts
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+)
 
   # Calculate if the service unit needs updating
-  if [[ ! -f "${PROXY_SERVICE_DST}" ]] || ! diff -q <(echo "$GENERATED_UNIT") "${PROXY_SERVICE_DST}" >/dev/null 2>&1; then
+  if [[ ! -f "${PROXY_SERVICE_DST}" ]] || ! diff -q <(echo "$GENERATED_UNIT") "${PROXY_SERVICE_DST}" >/dev/null 2>&1 || \
+     [[ ! -f "${DAEMON_SERVICE_DST}" ]] || ! diff -q <(echo "$GENERATED_DAEMON_UNIT") "${DAEMON_SERVICE_DST}" >/dev/null 2>&1; then
     SERVICE_CHANGED=true
   else
     SERVICE_CHANGED=false
@@ -551,14 +597,19 @@ UNIT
 
   # Install/update the service unit
   if [[ "$SERVICE_CHANGED" == "true" ]]; then
+    echo "$GENERATED_DAEMON_UNIT" | sudo tee "${DAEMON_SERVICE_DST}" >/dev/null
     echo "$GENERATED_UNIT" | sudo tee "${PROXY_SERVICE_DST}" >/dev/null
     sudo systemctl daemon-reload
-    _done "Installed primordia systemd service"
+    _done "Installed primordia systemd services"
   else
-    _done "Using primordia systemd service"
+    _done "Using primordia systemd services"
   fi
 
   # Enable the service so it starts automatically on boot
+  if ! systemctl is-enabled --quiet primordia-worktree-daemon 2>/dev/null; then
+    sudo systemctl enable --quiet primordia-worktree-daemon 2>/dev/null
+    success "Enabled primordia worktree daemon"
+  fi
   if ! systemctl is-enabled --quiet primordia 2>/dev/null; then
     sudo systemctl enable --quiet primordia 2>/dev/null
     success "Enabled primordia systemd service"
@@ -579,6 +630,12 @@ PROXY_RUNNING=false
 if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; then
   if systemctl is-active --quiet primordia 2>/dev/null; then
     PROXY_RUNNING=true
+  fi
+  if [[ "${PROXY_RUNNING}" == "true" && "${DAEMON_CHANGED}" == "true" && "${PROXY_CHANGED}" == "false" && "${SERVICE_CHANGED}" == "false" && "${ROOT_MISE_CHANGED}" == "false" ]]; then
+    _CURRENT_STEP="restart worktree daemon"
+    sudo systemctl restart --quiet primordia-worktree-daemon
+    success "Restarted worktree daemon"
+    DAEMON_CHANGED=false
   fi
 else
   # Non-server install: detect proxy by checking if it responds on the port.
@@ -679,7 +736,7 @@ SERVICE_READY=false
 #   zero-downtime; if PROXY_CHANGED, warn user to restart proxy manually afterward)
 if [[ "${PROXY_RUNNING}" == "true" ]] && \
    { [[ "${PROBABLY_A_SERVER}" == "false" ]] || \
-     [[ "${PROXY_CHANGED}" == "false" && "${SERVICE_CHANGED}" == "false" && "${ROOT_MISE_CHANGED}" == "false" ]]; }; then
+     [[ "${PROXY_CHANGED}" == "false" && "${DAEMON_CHANGED}" == "false" && "${SERVICE_CHANGED}" == "false" && "${ROOT_MISE_CHANGED}" == "false" ]]; }; then
   # ── Zero-downtime path ────────────────────────────────────────────────────
   # The proxy is running and neither it nor the service unit changed.
   # Tell the proxy to spawn the new production server, health-check it, and
@@ -743,12 +800,14 @@ if [[ "${SERVICE_READY}" == "false" ]]; then
   if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; then
     if [[ "${PROXY_RUNNING}" == "true" ]]; then
       _CURRENT_STEP="restart systemd service"
+      sudo systemctl restart --quiet primordia-worktree-daemon
       sudo systemctl restart --quiet primordia
-      success "Restarted primordia systemd service"
+      success "Restarted primordia systemd services"
     else
       _CURRENT_STEP="start systemd service"
+      sudo systemctl start --quiet primordia-worktree-daemon
       sudo systemctl start --quiet primordia
-      success "Started primordia systemd service"
+      success "Started primordia systemd services"
     fi
 
     # Only poll for readiness when we actually started/restarted a managed service.

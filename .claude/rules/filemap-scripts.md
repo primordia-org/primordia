@@ -7,7 +7,8 @@ paths:
 
 ```
 scripts/
-├── reverse-proxy.ts              ← HTTP reverse proxy for blue/green production and preview servers; watches git config; owns prod spawn/log SSE endpoints; routes /preview/{branchName}
+├── reverse-proxy.ts              ← Traffic-only HTTP reverse proxy; watches git config for branch→port routing, routes production and /preview/{branchName}, and delegates /_proxy/* lifecycle APIs to the daemon
+├── worktree-session-daemon.ts    ← Local lifecycle daemon for production/preview process management, prod spawn/log SSE endpoints, preview restart/kill/log APIs, and disk cleanup
 ├── assign-branch-ports.sh        ← Idempotent migration script: assigns ephemeral branch ports in git config; main gets 3001, others 3002+
 ├── rollback.ts                   ← Standalone emergency rollback CLI for when the app/admin UI is unavailable
 ├── install.sh                    ← Primordia setup/deploy script; idempotent; installs proxy/systemd service and production app
