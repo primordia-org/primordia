@@ -16,6 +16,7 @@ scripts/
 ├── codex-worker.ts               ← Detached OpenAI Codex CLI worker process; configures gateway/API-key/ChatGPT auth and streams JSONL progress
 ├── claude-auth-pty.py            ← PTY wrapper used by lib/claude-temp-auth.ts to drive `claude auth login`
 ├── progress-monitor.ts           ← Evolve-agent helper invoked by `bun run progress`; appends progress_plan/progress_step events to the session log
+├── next-server-logger.ts         ← Detached process-manager launcher wrapper; runs worktree Next.js servers and writes structured JSONL logs to `.primordia-next-server.ndjson`
 ├── set-preview-url.ts            ← Evolve-agent helper invoked by `bun run set-preview-url /route`; emits structured preview_path session event
 ├── regenerate-model-registry.ts  ← Rewrites lib/models.generated.json from the pi ModelRegistry and Primordia model overlays
 ├── export-branch-graph-ascii.ts  ← CLI exporter for the branch graph layout in ASCII text

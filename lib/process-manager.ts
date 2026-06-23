@@ -209,11 +209,19 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
-function readAgentPidFile(worktreePath: string): number | null {
-  const text = readProcText(path.join(worktreePath, '.primordia-worker.pid'));
+function readLivePidFile(filePath: string): number | null {
+  const text = readProcText(filePath);
   if (!text) return null;
   const pid = Number.parseInt(text.trim(), 10);
   return Number.isFinite(pid) && isPidAlive(pid) ? pid : null;
+}
+
+function readAgentPidFile(worktreePath: string): number | null {
+  return readLivePidFile(path.join(worktreePath, '.primordia-worker.pid'));
+}
+
+function readServerLauncherPidFile(worktreePath: string): number | null {
+  return readLivePidFile(path.join(worktreePath, '.primordia-server.pid'));
 }
 
 function agentKindFromCommand(command: string): string {
@@ -378,8 +386,11 @@ async function waitForPidsToExit(pids: number[], timeoutMs: number): Promise<boo
 export async function stopWorktreeServer(name: string, cwd = process.cwd()): Promise<string> {
   const report = getProcessStatusReport(cwd);
   const worktree = findWorktree(report, name);
-  const pids = [...new Set(worktree.servers.flatMap((server) => [...server.childPids, server.pid]))]
-    .sort((a, b) => b - a);
+  const launcherPid = readServerLauncherPidFile(worktree.path);
+  const pids = [...new Set([
+    ...worktree.servers.flatMap((server) => [...server.childPids, server.pid]),
+    ...(launcherPid === null ? [] : [launcherPid]),
+  ])].sort((a, b) => b - a);
   if (pids.length === 0) return `${worktree.branch} has no running server`;
 
   for (const pid of pids) signalPid(pid, 'SIGTERM');
@@ -403,6 +414,7 @@ export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev',
     ...process.env,
     PORT: String(port),
     HOSTNAME: '0.0.0.0',
+    NEXT_PRIVATE_STRUCTURED_LOGGING: '1',
   };
   const env: NodeJS.ProcessEnv = mode === 'dev'
     ? {
@@ -415,16 +427,29 @@ export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev',
       NODE_ENV: 'production',
     };
 
-  const args = ['exec', '-C', worktree.path, '--', 'bun', 'run', mode === 'dev' ? 'dev' : 'start'];
-  const proc = spawn('mise', args, {
-    cwd: worktree.path,
+  const logPath = path.join(worktree.path, '.primordia-next-server.ndjson');
+  const pidPath = path.join(worktree.path, '.primordia-server.pid');
+  const configPath = `/tmp/primordia-next-server-${process.pid}-${Date.now()}.json`;
+  const loggerScriptPath = path.join(cwd, 'scripts/next-server-logger.ts');
+  fs.writeFileSync(configPath, JSON.stringify({
+    worktreePath: worktree.path,
+    branch: worktree.branch,
+    mode,
+    port,
+    logPath,
+    pidPath,
     env,
+  }), 'utf8');
+
+  const proc = spawn('bun', [loggerScriptPath, configPath], {
+    cwd,
+    env: process.env,
     detached: true,
     stdio: 'ignore',
   });
   if (!proc.pid) throw new Error(`Failed to start ${worktree.branch} server`);
   proc.unref();
-  return `started ${worktree.branch} ${mode} server on port ${port} (launcher PID ${proc.pid})`;
+  return `started ${worktree.branch} ${mode} server on port ${port} (launcher PID ${proc.pid}, log ${logPath})`;
 }
 
 export async function restartWorktreeServer(name: string, mode: ServerStartMode = 'dev', cwd = process.cwd()): Promise<string> {
