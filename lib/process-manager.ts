@@ -31,7 +31,6 @@ export interface ProcessStatusReport {
 export interface WorktreeProcessStatus {
   path: string;
   branch: string | null;
-  head: string | null;
   port: number | null;
   servers: ManagedProcessStatus[];
   agents: Array<{
@@ -329,7 +328,6 @@ export function getProcessStatusReport(cwd = process.cwd()): ProcessStatusReport
     return {
       path: worktree.path,
       branch: worktree.branch,
-      head: worktree.head,
       port,
       servers: serverProcesses.map((proc) => {
         const childPids = getDescendantPids(proc.pid, childrenByParent);

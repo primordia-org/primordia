@@ -4,7 +4,6 @@ import * as path from 'path';
 export interface GitWorktreeInfo {
   path: string;
   branch: string | null;
-  head: string | null;
 }
 
 function runGit(args: string[], cwd: string): string {
@@ -42,9 +41,7 @@ function parseWorktrees(porcelain: string): GitWorktreeInfo[] {
     }
     if (line.startsWith('worktree ')) {
       flush();
-      current = { path: line.slice('worktree '.length), branch: null, head: null };
-    } else if (current && line.startsWith('HEAD ')) {
-      current.head = line.slice('HEAD '.length);
+      current = { path: line.slice('worktree '.length), branch: null };
     } else if (current && line.startsWith('branch ')) {
       const ref = line.slice('branch '.length);
       current.branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
