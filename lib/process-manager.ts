@@ -4,17 +4,35 @@ import * as path from 'path';
 
 export type ServerEnv = 'prod' | 'dev' | 'unknown';
 
+export interface ManagedProcessStatus {
+  pid: number;
+  env: ServerEnv;
+  state: string;
+  stateCode: string;
+  childCount: number;
+  childPids: number[];
+}
+
+export interface ReverseProxyStatus {
+  pid: number;
+  state: string;
+  stateCode: string;
+  port: number | null;
+  childCount: number;
+  childPids: number[];
+}
+
+export interface ProcessStatusReport {
+  reverseProxy: ReverseProxyStatus[];
+  worktrees: WorktreeProcessStatus[];
+}
+
 export interface WorktreeProcessStatus {
   path: string;
   branch: string | null;
   head: string | null;
   port: number | null;
-  servers: Array<{
-    pid: number;
-    env: ServerEnv;
-    state: string;
-    stateCode: string;
-  }>;
+  servers: ManagedProcessStatus[];
   agents: Array<{
     kind: string;
     pid: number;
@@ -332,15 +350,62 @@ function inferServerEnv(proc: ProcessInfo, branch: string | null, productionBran
   return 'unknown';
 }
 
-export function getProcessStatuses(cwd = process.cwd()): WorktreeProcessStatus[] {
+function buildChildrenByParent(processes: ProcessInfo[]): Map<number, number[]> {
+  const children = new Map<number, number[]>();
+  for (const proc of processes) {
+    if (proc.ppid === null) continue;
+    const childPids = children.get(proc.ppid) ?? [];
+    childPids.push(proc.pid);
+    children.set(proc.ppid, childPids);
+  }
+  for (const childPids of children.values()) childPids.sort((a, b) => a - b);
+  return children;
+}
+
+function getDescendantPids(pid: number, childrenByParent: Map<number, number[]>): number[] {
+  const descendants: number[] = [];
+  const stack = [...(childrenByParent.get(pid) ?? [])];
+  while (stack.length > 0) {
+    const childPid = stack.shift();
+    if (childPid === undefined) continue;
+    descendants.push(childPid);
+    stack.push(...(childrenByParent.get(childPid) ?? []));
+  }
+  return descendants.sort((a, b) => a - b);
+}
+
+function isReverseProxyProcess(proc: ProcessInfo): boolean {
+  return /(^|\s)(?:\S*\/)?reverse-proxy\.ts(?:\s|$)/.test(proc.command);
+}
+
+function getReverseProxyStatuses(processes: ProcessInfo[], childrenByParent: Map<number, number[]>): ReverseProxyStatus[] {
+  return processes
+    .filter(isReverseProxyProcess)
+    .map((proc) => {
+      const childPids = getDescendantPids(proc.pid, childrenByParent);
+      const port = Number.parseInt(proc.env.REVERSE_PROXY_PORT ?? proc.env.PORT ?? '', 10);
+      return {
+        pid: proc.pid,
+        state: proc.state,
+        stateCode: proc.stateCode,
+        port: Number.isFinite(port) ? port : null,
+        childCount: childPids.length,
+        childPids,
+      };
+    })
+    .sort((a, b) => a.pid - b.pid);
+}
+
+export function getProcessStatusReport(cwd = process.cwd()): ProcessStatusReport {
   const repoRoot = getRepoRoot(cwd);
   const worktrees = parseWorktrees(runGit(['worktree', 'list', '--porcelain'], repoRoot));
   const branchPorts = readBranchPorts(repoRoot);
   const productionBranch = readProductionBranch(repoRoot);
   const portOwners = buildPortOwners();
   const processes = listProcesses();
+  const childrenByParent = buildChildrenByParent(processes);
 
-  return worktrees.map((worktree) => {
+  const worktreeStatuses = worktrees.map((worktree) => {
     const port = worktree.branch ? branchPorts.get(worktree.branch) ?? null : null;
     const pids = port ? [...(portOwners.get(port) ?? [])].sort((a, b) => a - b) : [];
     const serverProcesses = pids
@@ -352,41 +417,90 @@ export function getProcessStatuses(cwd = process.cwd()): WorktreeProcessStatus[]
       branch: worktree.branch,
       head: worktree.head,
       port,
-      servers: serverProcesses.map((proc) => ({
-        pid: proc.pid,
-        env: inferServerEnv(proc, worktree.branch, productionBranch),
-        state: proc.state,
-        stateCode: proc.stateCode,
-      })),
+      servers: serverProcesses.map((proc) => {
+        const childPids = getDescendantPids(proc.pid, childrenByParent);
+        return {
+          pid: proc.pid,
+          env: inferServerEnv(proc, worktree.branch, productionBranch),
+          state: proc.state,
+          stateCode: proc.stateCode,
+          childCount: childPids.length,
+          childPids,
+        };
+      }),
       agents: getAgentsForWorktree(worktree.path, processes),
     };
+  }).sort((a, b) => {
+    if (a.port === null && b.port === null) return (a.branch ?? '').localeCompare(b.branch ?? '');
+    if (a.port === null) return 1;
+    if (b.port === null) return -1;
+    return a.port - b.port;
   });
+
+  return {
+    reverseProxy: getReverseProxyStatuses(processes, childrenByParent),
+    worktrees: worktreeStatuses,
+  };
 }
 
-export function formatProcessStatusTable(statuses: WorktreeProcessStatus[]): string {
-  const rows = statuses.map((status) => ({
-    Worktree: status.branch ?? '(detached)',
-    Port: status.port === null ? '—' : String(status.port),
-    State: status.servers.length > 0 ? status.servers.map((server) => server.state).join(',') : '—',
-    Env: status.servers.length > 0 ? status.servers.map((server) => server.env).join(',') : '—',
-    PID: status.servers.length > 0 ? status.servers.map((server) => String(server.pid)).join(',') : '—',
-    Agents: status.agents.length > 0
-      ? status.agents.map((agent) => `${agent.kind}:${agent.pid}`).join(', ')
-      : '—',
-  }));
+export function getProcessStatuses(cwd = process.cwd()): WorktreeProcessStatus[] {
+  return getProcessStatusReport(cwd).worktrees;
+}
 
-  const headers = ['Worktree', 'Port', 'State', 'Env', 'PID', 'Agents'] as const;
-  const widths = headers.map((header) => Math.max(header.length, ...rows.map((row) => row[header].length)));
+function renderTable(headers: readonly string[], rows: string[][]): string {
+  const widths = headers.map((header, i) => Math.max(header.length, ...rows.map((row) => row[i]?.length ?? 0)));
   const border = `┌${widths.map((width) => '─'.repeat(width + 2)).join('┬')}┐`;
   const separator = `├${widths.map((width) => '─'.repeat(width + 2)).join('┼')}┤`;
   const bottom = `└${widths.map((width) => '─'.repeat(width + 2)).join('┴')}┘`;
-  const renderRow = (values: string[]) => `│${values.map((value, i) => ` ${value.padEnd(widths[i])} `).join('│')}│`;
+  const renderRow = (values: readonly string[]) => `│${values.map((value, i) => ` ${value.padEnd(widths[i])} `).join('│')}│`;
 
   return [
     border,
-    renderRow([...headers]),
+    renderRow(headers),
     separator,
-    ...rows.map((row) => renderRow(headers.map((header) => row[header]))),
+    ...rows.map((row) => renderRow(row)),
     bottom,
   ].join('\n');
+}
+
+function formatPids(pids: number[]): string {
+  return pids.length > 0 ? pids.join(',') : '—';
+}
+
+export function formatProcessStatusReport(report: ProcessStatusReport): string {
+  const proxyHeaders = ['Proxy', 'Port', 'State', 'PID', 'Children'] as const;
+  const proxyRows = report.reverseProxy.length > 0
+    ? report.reverseProxy.map((proxy) => [
+      'reverse-proxy',
+      proxy.port === null ? '—' : String(proxy.port),
+      proxy.state,
+      String(proxy.pid),
+      String(proxy.childCount),
+    ])
+    : [['reverse-proxy', '—', 'not-running', '—', '—']];
+
+  const worktreeHeaders = ['Worktree', 'Port', 'State', 'Env', 'PID', 'Children', 'Agents'] as const;
+  const worktreeRows = report.worktrees.map((status) => [
+    status.branch ?? '(detached)',
+    status.port === null ? '—' : String(status.port),
+    status.servers.length > 0 ? status.servers.map((server) => server.state).join(',') : '—',
+    status.servers.length > 0 ? status.servers.map((server) => server.env).join(',') : '—',
+    status.servers.length > 0 ? status.servers.map((server) => String(server.pid)).join(',') : '—',
+    status.servers.length > 0 ? status.servers.map((server) => String(server.childCount)).join(',') : '—',
+    status.agents.length > 0
+      ? status.agents.map((agent) => `${agent.kind}:${agent.pid}`).join(', ')
+      : '—',
+  ]);
+
+  return [
+    'Reverse proxy',
+    renderTable(proxyHeaders, proxyRows),
+    '',
+    'Worktrees',
+    renderTable(worktreeHeaders, worktreeRows),
+  ].join('\n');
+}
+
+export function formatProcessStatusTable(statuses: WorktreeProcessStatus[]): string {
+  return formatProcessStatusReport({ reverseProxy: [], worktrees: statuses }).split('\n').slice(3).join('\n');
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { formatProcessStatusTable, getProcessStatuses } from '../lib/process-manager';
+import { formatProcessStatusReport, getProcessStatusReport } from '../lib/process-manager';
 
 interface Args {
   command: string | null;
@@ -35,11 +35,11 @@ function parseArgs(argv: string[]): Args {
 }
 
 function render(json: boolean): void {
-  const statuses = getProcessStatuses();
+  const report = getProcessStatusReport();
   if (json) {
-    console.log(JSON.stringify(statuses, null, 2));
+    console.log(JSON.stringify(report, null, 2));
   } else {
-    console.log(formatProcessStatusTable(statuses));
+    console.log(formatProcessStatusReport(report));
   }
 }
 
