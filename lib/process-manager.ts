@@ -24,6 +24,7 @@ interface WorktreeInfo {
   path: string;
   branch: string | null;
   head: string | null;
+  bare: boolean;
 }
 
 interface ProcessInfo {
@@ -52,7 +53,7 @@ function parseWorktrees(porcelain: string): WorktreeInfo[] {
   let current: WorktreeInfo | null = null;
 
   const flush = () => {
-    if (current) worktrees.push(current);
+    if (current && !current.bare) worktrees.push(current);
     current = null;
   };
 
@@ -63,7 +64,7 @@ function parseWorktrees(porcelain: string): WorktreeInfo[] {
     }
     if (line.startsWith('worktree ')) {
       flush();
-      current = { path: line.slice('worktree '.length), branch: null, head: null };
+      current = { path: line.slice('worktree '.length), branch: null, head: null, bare: false };
     } else if (current && line.startsWith('HEAD ')) {
       current.head = line.slice('HEAD '.length);
     } else if (current && line.startsWith('branch ')) {
@@ -71,6 +72,8 @@ function parseWorktrees(porcelain: string): WorktreeInfo[] {
       current.branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
     } else if (current && line === 'detached') {
       current.branch = null;
+    } else if (current && line === 'bare') {
+      current.bare = true;
     }
   }
   flush();
