@@ -30,7 +30,7 @@ const TEST_PAGES = [
     emoji: "🌊",
     title: "Nested Suspense Streaming",
     description:
-      "Streams delayed text lines from async Server Components using nested Suspense boundaries instead of SSE.",
+      "Streams customizable log-style text from async Server Components using nested Suspense boundaries instead of SSE.",
   },
   {
     href: "/test-pages/sound-test",
