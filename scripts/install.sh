@@ -38,6 +38,13 @@ success() { echo -e "${GREEN}✓${RESET} $*"; }
 warn()    { echo -e "${YELLOW}⚠${RESET} $*"; }
 diag()    { echo -e "${DIM}  $*${RESET}"; }
 
+socket_status_hint_for_log() {
+  local log_file="$1"
+  if grep -Eiq 'socket(\.dev|security)?' "$log_file" && grep -Eiq '\b503\b|service unavailable|temporar(y|ily) unavailable|bad gateway|gateway timeout' "$log_file"; then
+    echo -e "${YELLOW}⚠${RESET} Socket.dev's package scanner appears to be temporarily unavailable. Check Socket.dev status: https://status.socket.dev/" >&2
+  fi
+}
+
 # _step: print a spinner line (no newline) — replaced by _done on success
 # _done: stop the spinner and overwrite the line with ✓
 # _spin_kill: stop spinner without printing a success line (use before die)
@@ -399,6 +406,7 @@ if [[ "$_BUN_OK" != "true" ]]; then
   echo -e "${DIM}  --- bun install output ---${RESET}" >&2
   tail -60 "$_bun_log" >&2
   echo -e "${DIM}  --------------------------${RESET}" >&2
+  socket_status_hint_for_log "$_bun_log"
   rm -f "$_bun_log"; exit_with_failure 1 "$LINENO" "bun install --frozen-lockfile"
 fi
 rm -f "$_bun_log"

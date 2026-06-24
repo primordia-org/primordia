@@ -16,6 +16,7 @@ import {
 } from './session-events';
 import { HARNESS_OPTIONS, DEFAULT_HARNESS, DEFAULT_MODEL } from './agent-config';
 import { MODEL_OPTIONS } from './agent-config';
+import { withSocketStatusHint } from './socket-status';
 
 /** Look up the human-readable label for a model ID within a given harness. Falls back to the raw ID. */
 function getModelLabel(harnessId: string, modelId: string): string {
@@ -862,16 +863,20 @@ export async function startLocalEvolve(
     // Bun is fast enough that a full install is preferable to a shared symlink,
     // which can cause subtle dependency issues when the worktree diverges.
     await new Promise<void>((resolve, reject) => {
+      let installLog = '';
       const proc = spawn('mise', ['exec', '-C', session.worktreePath, '--', 'bun', 'install'], {
         cwd: session.worktreePath,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
+      proc.stdout.on('data', (chunk: Buffer) => { installLog += chunk.toString(); });
+      proc.stderr.on('data', (chunk: Buffer) => { installLog += chunk.toString(); });
       proc.on('close', (code) => {
         if (code === 0) {
           appendSessionEvent(ndjsonPath, { type: 'setup_step', label: '`bun install` complete', done: true, ts: Date.now() });
           resolve();
         } else {
-          reject(new Error(`bun install failed with exit code ${code}`));
+          const detail = installLog.trim() ? `\n${installLog.trim()}` : '';
+          reject(new Error(withSocketStatusHint(`bun install failed with exit code ${code}${detail}`, installLog)));
         }
       });
       proc.on('error', (err) => reject(new Error(`bun install spawn failed: ${err.message}`)));
