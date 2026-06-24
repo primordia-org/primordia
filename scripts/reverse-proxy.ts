@@ -169,17 +169,20 @@ const WORKTREES_DIR = path.join(PRIMORDIA_ROOT, 'worktrees');
 const MAIN_REPO = path.join(PRIMORDIA_ROOT, 'source.git');
 
 type ProcessManagerModule = typeof import('../lib/process-manager');
-let processManagerPromise: Promise<ProcessManagerModule> | null = null;
-function loadProcessManager(): Promise<ProcessManagerModule> {
-  if (processManagerPromise) return processManagerPromise;
+const processManagerPromises = new Map<string, Promise<ProcessManagerModule>>();
+function loadProcessManager(worktreePath?: string): Promise<ProcessManagerModule> {
   const candidates = [
+    worktreePath ? path.join(worktreePath, 'lib', 'process-manager.ts') : null,
     path.join(__dirname, '..', 'lib', 'process-manager.ts'),
     path.join(__dirname, 'lib', 'process-manager.ts'),
-  ];
+  ].filter((candidate): candidate is string => Boolean(candidate));
   const modulePath = candidates.find((candidate) => fs.existsSync(candidate));
   if (!modulePath) throw new Error('Could not find lib/process-manager.ts for reverse proxy');
-  processManagerPromise = import(pathToFileURL(modulePath).href) as Promise<ProcessManagerModule>;
-  return processManagerPromise;
+  const existing = processManagerPromises.get(modulePath);
+  if (existing) return existing;
+  const promise = import(pathToFileURL(modulePath).href) as Promise<ProcessManagerModule>;
+  processManagerPromises.set(modulePath, promise);
+  return promise;
 }
 
 function safeArchiveFilenamePart(value: string): string {
@@ -602,7 +605,7 @@ async function startPreviewServer(
     return entry;
   }
 
-  const processManager = await loadProcessManager();
+  const processManager = await loadProcessManager(info.worktreePath);
   const initialLines = processManager.readWorktreeLogLines(sessionId, MAIN_REPO);
   if (initialLines.length > 0) appendLog(`${initialLines.join('\n')}\n`);
 
@@ -683,7 +686,7 @@ function stopPreviewServer(sessionId: string): void {
   entry.status = 'stopped';
   entry.logFollowAbort.abort();
   previewProcesses.delete(sessionId);
-  void loadProcessManager()
+  void loadProcessManager(entry.worktreePath)
     .then((processManager) => processManager.stopWorktreeServer(sessionId, MAIN_REPO))
     .catch((err) => {
       logCrashBoundary(`process-manager stop failed for preview ${sessionId}`, err);
