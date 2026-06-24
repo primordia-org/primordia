@@ -9,13 +9,22 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Crosshair, ShieldAlert } from "lucide-react";
 import { trackEvent } from "@/lib/events-client";
-import { isRecursivePreviewUrl } from "@/lib/smart-preview-url";
 
 // ─── Element Inspector script ─────────────────────────────────────────────────
 // Injected into the iframe's document when inspector mode is activated.
 // Communicates results back to the parent via postMessage.
 // Mouse: hover to highlight, click to select.
 // Touch: drag to highlight, long-press (600 ms hold) to select.
+function hasSamePathnameAsCurrentPage(url: string): boolean {
+  if (typeof window === "undefined") return false;
+
+  try {
+    return new URL(url, window.location.href).pathname === window.location.pathname;
+  } catch {
+    return false;
+  }
+}
+
 const INSPECTOR_SCRIPT = `
 (function() {
   if (window.__primordiaInspectorActive) return;
@@ -328,12 +337,13 @@ export function WebPreviewPanel({
   onElementSelected,
 }: WebPreviewPanelProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const initialBlockedUrl = hasSamePathnameAsCurrentPage(src) ? src : null;
   // The URL shown in the address bar — starts as the initial src.
   const [urlBarValue, setUrlBarValue] = useState(src);
   // The actual src attribute driving the iframe. We update this to navigate.
-  const [iframeSrc, setIframeSrc] = useState(() => isRecursivePreviewUrl(src, sessionId) ? "" : src);
-  const [blockedRecursiveUrl, setBlockedRecursiveUrl] = useState<string | null>(() => isRecursivePreviewUrl(src, sessionId) ? src : null);
-  const [isLoading, setIsLoading] = useState(() => !isRecursivePreviewUrl(src, sessionId));
+  const [iframeSrc, setIframeSrc] = useState(() => initialBlockedUrl ? "" : src);
+  const [blockedRecursiveUrl, setBlockedRecursiveUrl] = useState<string | null>(initialBlockedUrl);
+  const [isLoading, setIsLoading] = useState(() => !initialBlockedUrl);
   const [inspectorActive, setInspectorActive] = useState(false);
   // Ref so handleLoad can read the latest inspector state without stale closure.
   const inspectorActiveRef = useRef(false);
@@ -374,8 +384,16 @@ export function WebPreviewPanel({
   const handleLoad = useCallback(() => {
     setIsLoading(false);
     try {
-      const href = iframeRef.current?.contentWindow?.location?.href;
+      const iframeLocation = iframeRef.current?.contentWindow?.location;
+      const href = iframeLocation?.href;
       if (href && href !== "about:blank") setUrlBarValue(href);
+      if (iframeLocation?.pathname === window.location.pathname) {
+        setIframeSrc("");
+        setBlockedRecursiveUrl(href ?? urlBarValue);
+        setInspectorActive(false);
+        cancelInspector();
+        return;
+      }
     } catch {
       // Cross-origin frame — keep last known URL bar value.
     }
@@ -383,7 +401,7 @@ export function WebPreviewPanel({
     if (inspectorActiveRef.current) {
       setTimeout(() => injectInspector(), 50);
     }
-  }, [injectInspector]);
+  }, [cancelInspector, injectInspector, urlBarValue]);
 
   const handleLoadStart = useCallback(() => {
     setIsLoading(true);
@@ -392,7 +410,7 @@ export function WebPreviewPanel({
   /** Navigate the iframe to a new URL. */
   const navigate = useCallback((url: string) => {
     setUrlBarValue(url);
-    if (isRecursivePreviewUrl(url, sessionId)) {
+    if (hasSamePathnameAsCurrentPage(url)) {
       setIframeSrc("");
       setBlockedRecursiveUrl(url);
       setIsLoading(false);
@@ -404,7 +422,7 @@ export function WebPreviewPanel({
     setBlockedRecursiveUrl(null);
     setIframeSrc(url);
     setIsLoading(true);
-  }, [cancelInspector, sessionId]);
+  }, [cancelInspector]);
 
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -591,7 +609,7 @@ export function WebPreviewPanel({
                 <ShieldAlert className="mx-auto mb-3 text-amber-300" size={28} aria-hidden="true" />
                 <p className="font-semibold">Preview not loaded</p>
                 <p className="mt-2 text-sm text-amber-200/80">
-                  Evolve session pages include their own preview panel, so loading one here would create an infinite nested preview.
+                  The iframe is already pointed at this session page, so loading it here would create an infinite nested preview.
                 </p>
                 <p className="mt-3 break-all font-mono text-xs text-amber-300/80">{blockedRecursiveUrl}</p>
               </div>

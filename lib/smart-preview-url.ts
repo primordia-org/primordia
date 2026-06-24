@@ -21,29 +21,6 @@ function isSafePreviewPath(value: string): boolean {
 }
 
 /**
- * Evolve session pages contain their own preview iframe. Loading one inside the
- * preview iframe creates a recursive browser-in-browser view, so session pages
- * are never valid preview targets.
- */
-export function isRecursivePreviewUrl(value: string | null | undefined, sessionId?: string): boolean {
-  if (!value) return false;
-
-  try {
-    const parsed = new URL(value, 'http://primordia.local');
-    const pathname = parsed.pathname.replace(/\/+$/, '') || '/';
-
-    if (pathname === '/evolve/session' || pathname.startsWith('/evolve/session/')) return true;
-
-    const previewSessionPattern = sessionId
-      ? new RegExp(`^/preview/${sessionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/evolve/session(?:/|$)`)
-      : /^\/preview\/[^/]+\/evolve\/session(?:\/|$)/;
-    return previewSessionPattern.test(pathname);
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Returns the preview URL selected by the latest explicit `preview_path` event.
  * Falls back to the base preview URL (landing page) when no event has been set.
  */
@@ -57,7 +34,6 @@ export function deriveSmartPreviewUrl(
     const event = events[i];
     if (event.type !== 'preview_path') continue;
     if (!isSafePreviewPath(event.path)) continue;
-    if (isRecursivePreviewUrl(event.path)) continue;
     return event.path === '/' ? base : `${base}${event.path}`;
   }
 

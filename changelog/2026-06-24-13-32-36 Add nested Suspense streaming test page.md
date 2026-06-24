@@ -6,4 +6,4 @@ The page follows the interactive style of the ANSI streaming test page: users ca
 
 The recursive Suspense tail is now available as a reusable server component, `<SuspenseLogFile logFilename="..." />`, which watches a log file and renders each appended line with the ANSI renderer. Each Suspense boundary resolves to exactly one ANSI-rendered log line plus the next Suspense boundary. Pending boundaries render as empty space, so the UI behaves like an unknown-length log stream instead of a pre-known list, and it delivers progressively streamed HTML without Server-Sent Events, polling route handlers, or client-side fetch streaming.
 
-Also hardened evolve preview routing so the embedded preview panel refuses to load evolve session pages inside itself. This avoids an infinite browser-in-browser recursion when an agent selects, or a user types, a session URL as the preview target.
+Also hardened the evolve preview panel against simple self-recursion: if the iframe resolves to the same pathname as the session page itself, the panel shows a warning instead of continuing to render the page inside itself.
