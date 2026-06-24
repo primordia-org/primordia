@@ -7,7 +7,7 @@
 // and data-id elements on hover and reports both selectors on click.
 
 import React, { useRef, useState, useCallback, useEffect } from "react";
-import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Crosshair, ShieldAlert } from "lucide-react";
+import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Crosshair, Octagon } from "lucide-react";
 import { trackEvent } from "@/lib/events-client";
 
 // ─── Element Inspector script ─────────────────────────────────────────────────
@@ -613,14 +613,14 @@ export function WebPreviewPanel({
       <div className={`relative ${fullHeight ? 'flex-1' : ''}`} style={fullHeight ? undefined : { height: "600px" }}>
         {serverRunning ? (
           blockedRecursiveUrl ? (
-            <div className="h-full flex items-center justify-center bg-gray-900 px-6 text-center">
-              <div className="max-w-md rounded-xl border border-amber-700/50 bg-amber-950/30 p-5 text-amber-100 shadow-lg">
-                <ShieldAlert className="mx-auto mb-3 text-amber-300" size={28} aria-hidden="true" />
-                <p className="font-semibold">Preview hidden to prevent infinitely nested previews.</p>
+            <div className="h-full flex items-center justify-center bg-gray-900 px-6 text-center text-gray-300">
+              <div className="max-w-md p-5">
+                <Octagon className="mx-auto mb-3 text-gray-500" size={26} aria-hidden="true" />
+                <p className="font-medium">Preview hidden to prevent infinitely nested previews.</p>
                 <button
                   type="button"
                   onClick={handleShowAnyway}
-                  className="mt-4 rounded-md bg-amber-300 px-3 py-1.5 text-sm font-semibold text-gray-950 transition-colors hover:bg-amber-200"
+                  className="mt-4 rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-gray-100 transition-colors hover:bg-gray-700"
                 >
                   Show Anyway
                 </button>
