@@ -15,54 +15,61 @@ const SSE_HEADERS = {
 } as const;
 
 const INITIAL_TAIL_BYTES = 50 * 1024;
+const encoder = new TextEncoder();
 
 function sse(data: unknown): Uint8Array {
-  return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
+  return encoder.encode(`data: ${JSON.stringify(data)}\n\n`);
 }
 
-function readTail(logPath: string): { text: string; offset: number } {
+function readTail(logPath: string): { exists: boolean; text: string; offset: number } {
   try {
     const stat = fs.statSync(logPath);
     const start = Math.max(0, stat.size - INITIAL_TAIL_BYTES);
     const length = stat.size - start;
-    if (length <= 0) return { text: "", offset: stat.size };
+    if (length <= 0) return { exists: true, text: "", offset: stat.size };
 
     const fd = fs.openSync(logPath, "r");
     try {
       const buffer = Buffer.alloc(length);
       fs.readSync(fd, buffer, 0, length, start);
-      return { text: buffer.toString("utf8"), offset: stat.size };
+      return { exists: true, text: buffer.toString("utf8"), offset: stat.size };
     } finally {
       fs.closeSync(fd);
     }
-  } catch {
-    return { text: "", offset: 0 };
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return { exists: false, text: "", offset: 0 };
+    }
+    return { exists: true, text: "", offset: 0 };
   }
 }
 
-function readFromOffset(logPath: string, offset: number): { text: string; offset: number } {
+function readFromOffset(logPath: string, offset: number): { exists: boolean; text: string; offset: number } {
   try {
     const stat = fs.statSync(logPath);
     if (stat.size < offset) offset = 0;
-    if (stat.size <= offset) return { text: "", offset };
+    if (stat.size <= offset) return { exists: true, text: "", offset };
 
     const length = stat.size - offset;
     const fd = fs.openSync(logPath, "r");
     try {
       const buffer = Buffer.alloc(length);
       fs.readSync(fd, buffer, 0, length, offset);
-      return { text: buffer.toString("utf8"), offset: stat.size };
+      return { exists: true, text: buffer.toString("utf8"), offset: stat.size };
     } finally {
       fs.closeSync(fd);
     }
-  } catch {
-    return { text: "", offset };
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return { exists: false, text: "", offset: 0 };
+    }
+    return { exists: true, text: "", offset };
   }
 }
 
 /**
  * Stream evolve preview server logs
- * @description SSE stream of a session worktree's `.primordia-next-server.log`. Pass `sessionId`; add `n=0` to skip the initial tail and only follow newly appended bytes.
+ * @description SSE stream of a session worktree's `.primordia-next-server.log`. Pass `sessionId`; add `n=0` to skip the initial tail and only follow newly appended bytes. Emits a missing status while the log file does not exist yet.
  * @tag Evolve
  */
 export async function GET(req: NextRequest) {
@@ -88,6 +95,25 @@ export async function GET(req: NextRequest) {
       let offset = 0;
       let watcher: FSWatcher | null = null;
       let interval: NodeJS.Timeout | null = null;
+      let lastExists: boolean | null = null;
+
+      const enqueue = (data: unknown) => {
+        if (closed) return;
+        try { controller.enqueue(sse(data)); } catch { /* client disconnected */ }
+      };
+
+      const emitFileStatus = (exists: boolean) => {
+        if (lastExists === exists) return;
+        lastExists = exists;
+        if (exists) {
+          enqueue({ status: "ready" });
+        } else {
+          enqueue({
+            status: "missing",
+            message: `Preview server log file does not exist yet: ${logPath}`,
+          });
+        }
+      };
 
       const close = () => {
         if (closed) return;
@@ -100,16 +126,20 @@ export async function GET(req: NextRequest) {
       const emitAppended = () => {
         if (closed) return;
         const next = readFromOffset(logPath, offset);
+        emitFileStatus(next.exists);
         offset = next.offset;
-        if (next.text) controller.enqueue(sse({ text: next.text }));
+        if (next.text) enqueue({ text: next.text });
       };
 
       if (skipInitial) {
-        try { offset = fs.statSync(logPath).size; } catch { offset = 0; }
+        const initial = readTail(logPath);
+        emitFileStatus(initial.exists);
+        offset = initial.offset;
       } else {
         const initial = readTail(logPath);
+        emitFileStatus(initial.exists);
         offset = initial.offset;
-        if (initial.text) controller.enqueue(sse({ text: initial.text }));
+        if (initial.text) enqueue({ text: initial.text });
       }
 
       const watchedDir = dirname(logPath);
