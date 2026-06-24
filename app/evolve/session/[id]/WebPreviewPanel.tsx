@@ -343,6 +343,7 @@ export function WebPreviewPanel({
   // The actual src attribute driving the iframe. We update this to navigate.
   const [iframeSrc, setIframeSrc] = useState(() => initialBlockedUrl ? "" : src);
   const [blockedRecursiveUrl, setBlockedRecursiveUrl] = useState<string | null>(initialBlockedUrl);
+  const [allowNestedPreview, setAllowNestedPreview] = useState(false);
   const [isLoading, setIsLoading] = useState(() => !initialBlockedUrl);
   const [inspectorActive, setInspectorActive] = useState(false);
   // Ref so handleLoad can read the latest inspector state without stale closure.
@@ -387,7 +388,7 @@ export function WebPreviewPanel({
       const iframeLocation = iframeRef.current?.contentWindow?.location;
       const href = iframeLocation?.href;
       if (href && href !== "about:blank") setUrlBarValue(href);
-      if (iframeLocation?.pathname === window.location.pathname) {
+      if (!allowNestedPreview && iframeLocation?.pathname === window.location.pathname) {
         setIframeSrc("");
         setBlockedRecursiveUrl(href ?? urlBarValue);
         setInspectorActive(false);
@@ -401,7 +402,7 @@ export function WebPreviewPanel({
     if (inspectorActiveRef.current) {
       setTimeout(() => injectInspector(), 50);
     }
-  }, [cancelInspector, injectInspector, urlBarValue]);
+  }, [allowNestedPreview, cancelInspector, injectInspector, urlBarValue]);
 
   const handleLoadStart = useCallback(() => {
     setIsLoading(true);
@@ -410,7 +411,7 @@ export function WebPreviewPanel({
   /** Navigate the iframe to a new URL. */
   const navigate = useCallback((url: string) => {
     setUrlBarValue(url);
-    if (hasSamePathnameAsCurrentPage(url)) {
+    if (!allowNestedPreview && hasSamePathnameAsCurrentPage(url)) {
       setIframeSrc("");
       setBlockedRecursiveUrl(url);
       setIsLoading(false);
@@ -422,7 +423,15 @@ export function WebPreviewPanel({
     setBlockedRecursiveUrl(null);
     setIframeSrc(url);
     setIsLoading(true);
-  }, [cancelInspector]);
+  }, [allowNestedPreview, cancelInspector]);
+
+  const handleShowAnyway = () => {
+    if (!blockedRecursiveUrl) return;
+    setAllowNestedPreview(true);
+    setIframeSrc(blockedRecursiveUrl);
+    setBlockedRecursiveUrl(null);
+    setIsLoading(true);
+  };
 
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -607,11 +616,14 @@ export function WebPreviewPanel({
             <div className="h-full flex items-center justify-center bg-gray-900 px-6 text-center">
               <div className="max-w-md rounded-xl border border-amber-700/50 bg-amber-950/30 p-5 text-amber-100 shadow-lg">
                 <ShieldAlert className="mx-auto mb-3 text-amber-300" size={28} aria-hidden="true" />
-                <p className="font-semibold">Preview not loaded</p>
-                <p className="mt-2 text-sm text-amber-200/80">
-                  The iframe is already pointed at this session page, so loading it here would create an infinite nested preview.
-                </p>
-                <p className="mt-3 break-all font-mono text-xs text-amber-300/80">{blockedRecursiveUrl}</p>
+                <p className="font-semibold">Preview hidden to prevent infinitely nested previews.</p>
+                <button
+                  type="button"
+                  onClick={handleShowAnyway}
+                  className="mt-4 rounded-md bg-amber-300 px-3 py-1.5 text-sm font-semibold text-gray-950 transition-colors hover:bg-amber-200"
+                >
+                  Show Anyway
+                </button>
               </div>
             </div>
           ) : (
