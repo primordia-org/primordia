@@ -1,5 +1,5 @@
 // app/test-pages/nested-suspense-stream/page.tsx
-// Test page that streams customizable text with nested React Suspense boundaries.
+// Test page that streams customizable text with recursive React Suspense boundaries.
 
 import { Suspense } from "react";
 
@@ -12,9 +12,8 @@ Rendering Suspense line {n}
 Flushing streamed HTML chunk {n}
 Ready for the next log line…`;
 const DEFAULT_DELAY_MS = 60;
-const DEFAULT_LINE_COUNT = 100;
-const GROUP_SIZE = 25;
-const MAX_LINE_COUNT = 2000;
+const DEFAULT_SAFETY_CAP = 200;
+const MAX_SAFETY_CAP = 2000;
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -45,74 +44,43 @@ function formatLine(sourceLines: string[], lineNumber: number): string {
     .replaceAll("{000}", String(lineNumber).padStart(3, "0"));
 }
 
-async function SuspenseLogLine({
+function EmptyLineFallback() {
+  return <div className="h-5" aria-hidden="true" />;
+}
+
+async function SuspenseLogTail({
   sourceLines,
   lineNumber,
   delay,
+  safetyCap,
 }: {
   sourceLines: string[];
   lineNumber: number;
   delay: number;
+  safetyCap: number;
 }) {
-  await wait(lineNumber * delay);
-
-  return (
-    <div className="whitespace-pre-wrap break-words text-gray-400">
-      <span className="text-gray-600">{String(lineNumber).padStart(4, "0")} </span>
-      {formatLine(sourceLines, lineNumber)}
-    </div>
-  );
-}
-
-function LogLineFallback({ lineNumber }: { lineNumber: number }) {
-  return (
-    <div className="whitespace-pre-wrap text-gray-700">
-      <span>{String(lineNumber).padStart(4, "0")} </span>
-      <span className="italic">waiting for Suspense boundary…</span>
-    </div>
-  );
-}
-
-async function SuspenseLogGroup({
-  groupIndex,
-  sourceLines,
-  lineCount,
-  delay,
-}: {
-  groupIndex: number;
-  sourceLines: string[];
-  lineCount: number;
-  delay: number;
-}) {
-  await wait(groupIndex * Math.max(10, delay));
-
-  const firstLine = groupIndex * GROUP_SIZE + 1;
-  const lineNumbers = Array.from({ length: GROUP_SIZE }, (_, index) => firstLine + index).filter(
-    (lineNumber) => lineNumber <= lineCount,
-  );
+  await wait(delay);
 
   return (
     <>
-      {lineNumbers.map((lineNumber) => (
-        <Suspense key={lineNumber} fallback={<LogLineFallback lineNumber={lineNumber} />}>
-          <SuspenseLogLine sourceLines={sourceLines} lineNumber={lineNumber} delay={delay} />
+      <div className="whitespace-pre-wrap break-words text-gray-400">
+        <span className="text-gray-600">{String(lineNumber).padStart(4, "0")} </span>
+        {formatLine(sourceLines, lineNumber)}
+      </div>
+      {lineNumber < safetyCap ? (
+        <Suspense fallback={<EmptyLineFallback />}>
+          <SuspenseLogTail
+            sourceLines={sourceLines}
+            lineNumber={lineNumber + 1}
+            delay={delay}
+            safetyCap={safetyCap}
+          />
         </Suspense>
-      ))}
-    </>
-  );
-}
-
-function LogGroupFallback({ groupIndex, lineCount }: { groupIndex: number; lineCount: number }) {
-  const firstLine = groupIndex * GROUP_SIZE + 1;
-  const lineNumbers = Array.from({ length: GROUP_SIZE }, (_, index) => firstLine + index).filter(
-    (lineNumber) => lineNumber <= lineCount,
-  );
-
-  return (
-    <>
-      {lineNumbers.map((lineNumber) => (
-        <LogLineFallback key={lineNumber} lineNumber={lineNumber} />
-      ))}
+      ) : (
+        <div className="pt-2 text-gray-600 italic">
+          stream paused at safety cap; raise the cap to continue the indefinite-stream simulation
+        </div>
+      )}
     </>
   );
 }
@@ -121,7 +89,7 @@ type PageProps = {
   searchParams?: Promise<{
     text?: string | string[];
     delay?: string | string[];
-    lines?: string | string[];
+    cap?: string | string[];
   }>;
 };
 
@@ -129,9 +97,8 @@ export default async function NestedSuspenseStreamPage({ searchParams }: PagePro
   const params = await searchParams;
   const text = firstValue(params?.text) ?? DEFAULT_TEXT;
   const delay = clampNumber(params?.delay, DEFAULT_DELAY_MS, 0, 500);
-  const lineCount = clampNumber(params?.lines, DEFAULT_LINE_COUNT, 1, MAX_LINE_COUNT);
+  const safetyCap = clampNumber(params?.cap, DEFAULT_SAFETY_CAP, 1, MAX_SAFETY_CAP);
   const sourceLines = getSourceLines(text);
-  const groupCount = Math.ceil(lineCount / GROUP_SIZE);
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-950 text-gray-100">
@@ -140,7 +107,8 @@ export default async function NestedSuspenseStreamPage({ searchParams }: PagePro
           <div className="min-w-0 flex-1">
             <h1 className="text-sm font-semibold text-gray-100">Nested Suspense Stream Test Page</h1>
             <p className="mt-1 text-xs text-gray-500">
-              Customize log text, line count, and delay. The output streams through nested Suspense HTML chunks, not SSE.
+              Customize log text and delay. Each resolved Suspense boundary renders one line plus the next Suspense
+              boundary, simulating an unknown-length stream without SSE.
             </p>
             <textarea
               name="text"
@@ -153,13 +121,13 @@ export default async function NestedSuspenseStreamPage({ searchParams }: PagePro
 
           <div className="flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1 text-xs text-gray-400">
-              <span>Lines</span>
+              <span>Safety cap</span>
               <input
-                name="lines"
+                name="cap"
                 type="number"
                 min={1}
-                max={MAX_LINE_COUNT}
-                defaultValue={lineCount}
+                max={MAX_SAFETY_CAP}
+                defaultValue={safetyCap}
                 className="w-24 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-200"
               />
             </label>
@@ -173,7 +141,7 @@ export default async function NestedSuspenseStreamPage({ searchParams }: PagePro
               >
                 {[0, 20, 40, 60, 100, 200, 500].map((value) => (
                   <option key={value} value={value}>
-                    {value}ms / line
+                    {value}ms / boundary
                   </option>
                 ))}
               </select>
@@ -191,10 +159,7 @@ export default async function NestedSuspenseStreamPage({ searchParams }: PagePro
 
       <div className="flex flex-wrap items-center gap-3 border-b border-gray-800 bg-gray-900 px-4 py-1.5 text-xs text-gray-500">
         <span>
-          Status: <span className="font-medium text-yellow-400">streaming through nested Suspense…</span>
-        </span>
-        <span>
-          Lines requested: <span className="font-mono text-gray-300">{lineCount}</span>
+          Status: <span className="font-medium text-yellow-400">streaming recursive Suspense tail…</span>
         </span>
         <span>
           Source lines: <span className="font-mono text-gray-300">{sourceLines.length}</span>
@@ -217,19 +182,9 @@ export default async function NestedSuspenseStreamPage({ searchParams }: PagePro
             </summary>
             <div className="border-t border-gray-800 px-4 py-3">
               <div className="max-h-[70vh] overflow-y-auto overflow-x-auto font-mono text-xs leading-5">
-                {Array.from({ length: groupCount }, (_, groupIndex) => (
-                  <Suspense
-                    key={groupIndex}
-                    fallback={<LogGroupFallback groupIndex={groupIndex} lineCount={lineCount} />}
-                  >
-                    <SuspenseLogGroup
-                      groupIndex={groupIndex}
-                      sourceLines={sourceLines}
-                      lineCount={lineCount}
-                      delay={delay}
-                    />
-                  </Suspense>
-                ))}
+                <Suspense fallback={<EmptyLineFallback />}>
+                  <SuspenseLogTail sourceLines={sourceLines} lineNumber={1} delay={delay} safetyCap={safetyCap} />
+                </Suspense>
               </div>
             </div>
           </details>
