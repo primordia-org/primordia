@@ -22,7 +22,6 @@
 //   GET  /_proxy/preview/:id/status  — { devServerStatus }
 //   POST /_proxy/preview/:id/restart — kill + restart
 //   DELETE /_proxy/preview/:id       — kill
-//   GET  /_proxy/preview/:id/logs    — SSE stream of process-manager server logs
 //
 // Session routing: requests to /preview/{branchName}/... are routed to the
 // port associated with that branch. The mapping is derived from git config:
@@ -276,7 +275,6 @@ interface PreviewEntry {
   lastActivityMs: number;
   status: 'starting' | 'running' | 'stopped';
   startWaiters: StartWaiter[];
-  logSubscribers: Set<LogSubscriber>;
   logFollowAbort: AbortController;
 }
 
@@ -582,7 +580,6 @@ async function startPreviewServer(
     lastActivityMs: Date.now(),
     status: 'starting',
     startWaiters: [],
-    logSubscribers: new Set(),
     logFollowAbort: new AbortController(),
   };
   previewProcesses.set(sessionId, entry);
@@ -591,9 +588,6 @@ async function startPreviewServer(
     entry.logBuffer += text;
     if (entry.logBuffer.length > MAX_LOG_BYTES) {
       entry.logBuffer = entry.logBuffer.slice(entry.logBuffer.length - MAX_LOG_BYTES);
-    }
-    for (const sub of entry.logSubscribers) {
-      try { sub.write(text); } catch (err) { logCrashBoundary('preview log subscriber failed', err); }
     }
   };
 
@@ -1263,7 +1257,6 @@ async function handlePreviewRequest(
  * GET  /_proxy/preview/:id/status  — JSON { devServerStatus }
  * POST /_proxy/preview/:id/restart — kill existing + start new
  * DELETE /_proxy/preview/:id       — kill (used during accept/reject)
- * GET  /_proxy/preview/:id/logs    — SSE stream of server logs
  */
 function handleProxyApi(
   clientReq: http.IncomingMessage,
@@ -1339,43 +1332,6 @@ function handleProxyApi(
     return;
   }
 
-  // GET /_proxy/preview/:id/logs  (SSE stream)
-  if (action === 'logs' && clientReq.method === 'GET') {
-    clientRes.writeHead(200, {
-      'content-type': 'text/event-stream',
-      'cache-control': 'no-cache',
-      'connection': 'keep-alive',
-    });
-
-    const entry = previewProcesses.get(sessionId);
-
-    // Send current log buffer as the first event.
-    if (entry?.logBuffer) {
-      safeWrite(clientRes, `data: ${JSON.stringify({ text: entry.logBuffer, snapshot: true })}\n\n`);
-    }
-
-    if (!entry || entry.status === 'stopped') {
-      safeWrite(clientRes, `data: ${JSON.stringify({ done: true })}\n\n`);
-      safeEnd(clientRes);
-      return;
-    }
-
-    // Subscribe to future log lines.
-    const subscriber: LogSubscriber = {
-      write: (text) => {
-        safeWrite(clientRes, `data: ${JSON.stringify({ text })}\n\n`);
-      },
-      close: () => {
-        safeWrite(clientRes, `data: ${JSON.stringify({ done: true })}\n\n`);
-        safeEnd(clientRes);
-      },
-    };
-    entry.logSubscribers.add(subscriber);
-    clientReq.on('close', () => {
-      entry.logSubscribers.delete(subscriber);
-    });
-    return;
-  }
 
   clientRes.writeHead(404, { 'content-type': 'text/plain' });
   clientRes.end('Not Found');
