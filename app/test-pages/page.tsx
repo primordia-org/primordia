@@ -26,6 +26,13 @@ const TEST_PAGES = [
       "Streams a full markdown sample through MarkdownContent — the same component used on session pages — with adjustable speed and chunk-size controls.",
   },
   {
+    href: "/test-pages/nested-suspense-stream",
+    emoji: "🌊",
+    title: "Nested Suspense Streaming",
+    description:
+      "Streams customizable log-style text from async Server Components using nested Suspense boundaries instead of SSE.",
+  },
+  {
     href: "/test-pages/sound-test",
     emoji: "🔊",
     title: "Sound Effects",

@@ -30,6 +30,7 @@ components/                      ← Shared React components
 ├── ProgressBar.tsx              ← Shared progress bar primitive
 ├── QrSignInOtherDeviceDialog.tsx ← Dialog for authenticated users to initiate push cross-device sign-in with QR code
 ├── ServerLogsClient.tsx         ← Client component: live tail of primordia systemd journal via SSE (/admin/logs)
+├── SuspenseLogFile.tsx          ← Server component: watches a log file and streams appended ANSI-rendered lines through a recursive Suspense tail
 ├── SettingsSubNav.tsx           ← Tab subnav for account/settings pages
 ├── SimpleMarkdown.tsx           ← Minimal markdown renderer (bold, links, inline code, code blocks)
 ├── WebPushCategoryButton.tsx    ← Subscribe/test control for a single web-push notification category
@@ -53,6 +54,7 @@ app/                             ← Next.js App Router
 │   ├── ansi-test/page.tsx       ← Interactive test page for AnsiRenderer
 │   ├── claude-auth-test/page.tsx ← Manual test page for Claude OAuth credential capture flow
 │   ├── markdown-test/page.tsx   ← Interactive test page for MarkdownContent streaming behavior
+│   ├── nested-suspense-stream/page.tsx ← Server Component test page for nested Suspense HTML streaming without SSE
 │   ├── sound-test/page.tsx      ← Web Audio API soundboard with oscilloscope and browser diagnostics
 │   └── web-push-test/           ← Web push notification diagnostics and category simulation
 ├── branches/                    ← Branch tree page and branch-to-session actions
