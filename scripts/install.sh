@@ -471,6 +471,12 @@ else
   success "Using reverse-proxy.ts"
 fi
 
+mkdir -p "${PRIMORDIA_DIR}/lib"
+cp -f "${INSTALL_DIR}/lib/process-manager.ts" "${PRIMORDIA_DIR}/lib/process-manager.ts"
+cp -f "${INSTALL_DIR}/lib/git-runtime.ts" "${PRIMORDIA_DIR}/lib/git-runtime.ts"
+cp -f "${INSTALL_DIR}/lib/cli-utils.ts" "${PRIMORDIA_DIR}/lib/cli-utils.ts"
+success "Installed process-manager helpers"
+
 if [[ ! -f "${MISE_CONFIG_DEST}" ]] || ! diff -q "${MISE_CONFIG_SOURCE}" "${MISE_CONFIG_DEST}" >/dev/null 2>&1; then
   cp -f "${MISE_CONFIG_SOURCE}" "${MISE_CONFIG_DEST}"
   "${MISE_BIN}" trust "${MISE_CONFIG_DEST}" >/dev/null 2>&1 || true

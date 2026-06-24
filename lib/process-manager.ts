@@ -444,12 +444,17 @@ export function readWorktreeLogLines(name: string, cwd = process.cwd()): string[
   return text.split(/\r?\n/).filter((line) => line.length > 0);
 }
 
-export async function* followWorktreeLog(name: string, cwd = process.cwd(), pollMs = 500): AsyncGenerator<string> {
+export async function* followWorktreeLog(
+  name: string,
+  cwd = process.cwd(),
+  pollMs = 500,
+  signal?: AbortSignal,
+): AsyncGenerator<string> {
   const logPath = getWorktreeLogPath(name, cwd);
   let offset = 0;
   try { offset = fs.statSync(logPath).size; } catch { offset = 0; }
 
-  while (true) {
+  while (!signal?.aborted) {
     try {
       const stat = fs.statSync(logPath);
       if (stat.size < offset) offset = 0;

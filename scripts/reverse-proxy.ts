@@ -10,11 +10,11 @@
 // This makes the proxy the sole systemd service needed — no separate
 // primordia.service required.
 //
-// Preview server management: the proxy owns the lifecycle of all preview dev
-// servers. When a request arrives for /preview/{sessionId} and no server is
-// running for that session, the proxy starts one lazily (bun run dev in the
-// session's worktree), queuing the first request until it is ready. Preview
-// servers are automatically stopped after 30 minutes of inactivity.
+// Preview server management: the proxy routes preview traffic and delegates
+// dev-server start/stop/log handling to lib/process-manager.ts. When a request
+// arrives for /preview/{sessionId} and no server is running for that session,
+// the proxy starts one lazily, queuing the first request until it is ready.
+// Preview servers are automatically stopped after 30 minutes of inactivity.
 //
 // Proxy management API (all under /_proxy/):
 //   POST /_proxy/prod/spawn          — spawn new prod server, health check, activate (SSE stream)
@@ -22,7 +22,7 @@
 //   GET  /_proxy/preview/:id/status  — { devServerStatus }
 //   POST /_proxy/preview/:id/restart — kill + restart
 //   DELETE /_proxy/preview/:id       — kill
-//   GET  /_proxy/preview/:id/logs    — SSE stream of server logs
+//   GET  /_proxy/preview/:id/logs    — SSE stream of process-manager server logs
 //
 // Session routing: requests to /preview/{branchName}/... are routed to the
 // port associated with that branch. The mapping is derived from git config:
@@ -39,6 +39,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync, spawn, ChildProcess } from 'child_process';
 import { gzipSync } from 'zlib';
+import { pathToFileURL } from 'url';
 
 // Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
 const HOP_BY_HOP = new Set([
@@ -167,6 +168,20 @@ const PRIMORDIA_ROOT = path.dirname(__filename);
 const WORKTREES_DIR = path.join(PRIMORDIA_ROOT, 'worktrees');
 const MAIN_REPO = path.join(PRIMORDIA_ROOT, 'source.git');
 
+type ProcessManagerModule = typeof import('../lib/process-manager');
+let processManagerPromise: Promise<ProcessManagerModule> | null = null;
+function loadProcessManager(): Promise<ProcessManagerModule> {
+  if (processManagerPromise) return processManagerPromise;
+  const candidates = [
+    path.join(__dirname, '..', 'lib', 'process-manager.ts'),
+    path.join(__dirname, 'lib', 'process-manager.ts'),
+  ];
+  const modulePath = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!modulePath) throw new Error('Could not find lib/process-manager.ts for reverse proxy');
+  processManagerPromise = import(pathToFileURL(modulePath).href) as Promise<ProcessManagerModule>;
+  return processManagerPromise;
+}
+
 function safeArchiveFilenamePart(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'session';
 }
@@ -251,7 +266,7 @@ interface StartWaiter {
 }
 
 interface PreviewEntry {
-  process: ChildProcess;
+  process: ChildProcess | null;
   port: number;
   worktreePath: string;
   logBuffer: string;
@@ -259,6 +274,7 @@ interface PreviewEntry {
   status: 'starting' | 'running' | 'stopped';
   startWaiters: StartWaiter[];
   logSubscribers: Set<LogSubscriber>;
+  logFollowAbort: AbortController;
 }
 
 /** Active preview server processes keyed by session ID. */
@@ -556,7 +572,7 @@ async function startPreviewServer(
   info: { worktreePath: string; port: number },
 ): Promise<PreviewEntry> {
   const entry: PreviewEntry = {
-    process: null as unknown as ChildProcess, // assigned below
+    process: null,
     port: info.port,
     worktreePath: info.worktreePath,
     logBuffer: '',
@@ -564,46 +580,9 @@ async function startPreviewServer(
     status: 'starting',
     startWaiters: [],
     logSubscribers: new Set(),
+    logFollowAbort: new AbortController(),
   };
   previewProcesses.set(sessionId, entry);
-
-  console.log(`[proxy] starting preview server for session ${sessionId} on :${info.port} in ${info.worktreePath}`);
-  await killPortOwner(info.port);
-
-  // Guard: if another concurrent restart superseded our entry while we were waiting for
-  // the port to free (e.g. a second simultaneous restart request), abort here instead of
-  // spawning an orphaned process that nobody tracks.
-  if (previewProcesses.get(sessionId) !== entry) {
-    console.log(`[proxy] aborting preview start for session ${sessionId} (superseded by concurrent operation)`);
-    return entry;
-  }
-
-  let proc: ChildProcess;
-  try {
-    proc = spawn(MISE_COMMAND, ['exec', '-C', info.worktreePath, '--', 'bun', 'run', 'dev'], {
-      cwd: info.worktreePath,
-      env: {
-        ...process.env,
-        NODE_ENV: 'development',
-        PORT: String(info.port),
-        HOSTNAME: '0.0.0.0',
-        NEXT_BASE_PATH: `/preview/${sessionId}`,
-        REVERSE_PROXY_PORT: String(LISTEN_PORT),
-      },
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-  } catch (err) {
-    entry.status = 'stopped';
-    const spawnErr = new Error(`Preview server spawn failed: ${errorMessage(err)}`);
-    const waiters = entry.startWaiters.splice(0);
-    for (const w of waiters) {
-      try { w.reject(spawnErr); } catch (waiterErr) { logCrashBoundary('preview start waiter reject failed', waiterErr); }
-    }
-    throw spawnErr;
-  }
-  proc.unref();
-  entry.process = proc;
 
   const appendLog = (text: string) => {
     entry.logBuffer += text;
@@ -613,48 +592,83 @@ async function startPreviewServer(
     for (const sub of entry.logSubscribers) {
       try { sub.write(text); } catch (err) { logCrashBoundary('preview log subscriber failed', err); }
     }
-    if (entry.status === 'starting' && text.includes('Ready')) {
-      entry.status = 'running';
-      console.log(`[proxy] preview server ready for session ${sessionId} on :${info.port}`);
-      const waiters = entry.startWaiters.splice(0);
-      for (const w of waiters) {
-        try { w.resolve(); } catch (err) { logCrashBoundary('preview start waiter resolve failed', err); }
-      }
-    }
   };
 
-  proc.stdout?.on('data', (d: Buffer) => appendLog(d.toString()));
-  proc.stderr?.on('data', (d: Buffer) => appendLog(d.toString()));
+  console.log(`[proxy] starting preview server for session ${sessionId} on :${info.port} in ${info.worktreePath}`);
+  await killPortOwner(info.port);
 
-  proc.on('close', (code) => {
-    if (entry.status === 'starting') {
-      const err = new Error(`Preview server exited before becoming ready (code ${code ?? 'unknown'})`);
-      const waiters = entry.startWaiters.splice(0);
-      for (const w of waiters) {
-        try { w.reject(err); } catch (waiterErr) { logCrashBoundary('preview start waiter reject failed', waiterErr); }
+  if (previewProcesses.get(sessionId) !== entry) {
+    console.log(`[proxy] aborting preview start for session ${sessionId} (superseded by concurrent operation)`);
+    return entry;
+  }
+
+  const processManager = await loadProcessManager();
+  const initialLines = processManager.readWorktreeLogLines(sessionId, MAIN_REPO);
+  if (initialLines.length > 0) appendLog(`${initialLines.join('\n')}\n`);
+
+  void (async () => {
+    try {
+      for await (const chunk of processManager.followWorktreeLog(sessionId, MAIN_REPO, 500, entry.logFollowAbort.signal)) {
+        appendLog(chunk);
       }
+    } catch (err) {
+      if (!entry.logFollowAbort.signal.aborted) logCrashBoundary('preview log follow failed', err);
     }
-    entry.status = 'stopped';
-    // Keep the entry in the map so the logBuffer remains accessible for crash debugging.
-    // startPreviewServer will overwrite it with a fresh entry on restart.
-    console.log(`[proxy] preview server stopped for session ${sessionId} (code ${code ?? 'unknown'})`);
-    for (const sub of entry.logSubscribers) {
-      try { sub.close(); } catch (err) { logCrashBoundary('preview log subscriber close failed', err); }
-    }
-    entry.logSubscribers.clear();
-  });
+  })();
 
-  proc.on('error', (err) => {
-    appendLog(`[proxy error] ${err.message}\n`);
-    if (entry.status === 'starting') {
+  try {
+    const previousProxyPort = process.env.REVERSE_PROXY_PORT;
+    process.env.REVERSE_PROXY_PORT = String(LISTEN_PORT);
+    try {
+      const result = processManager.startWorktreeServer(sessionId, 'dev', MAIN_REPO);
+      appendLog(`[proxy] ${result.message}\n`);
+    } finally {
+      if (previousProxyPort === undefined) delete process.env.REVERSE_PROXY_PORT;
+      else process.env.REVERSE_PROXY_PORT = previousProxyPort;
+    }
+  } catch (err) {
+    if (errorMessage(err).includes('already has running server process')) {
+      appendLog(`[proxy] reusing existing preview server for ${sessionId}\n`);
+    } else {
       entry.status = 'stopped';
-      const spawnErr = new Error(`Preview server spawn failed: ${err.message}`);
+      const spawnErr = new Error(`Preview server spawn failed: ${errorMessage(err)}`);
       const waiters = entry.startWaiters.splice(0);
       for (const w of waiters) {
         try { w.reject(spawnErr); } catch (waiterErr) { logCrashBoundary('preview start waiter reject failed', waiterErr); }
       }
+      throw spawnErr;
     }
-  });
+  }
+
+  void (async () => {
+    const startedAt = Date.now();
+    while (previewProcesses.get(sessionId) === entry && entry.status === 'starting') {
+      try {
+        await fetch(`http://127.0.0.1:${info.port}/`, {
+          redirect: 'manual',
+          signal: AbortSignal.timeout(2_000),
+        });
+        entry.status = 'running';
+        console.log(`[proxy] preview server ready for session ${sessionId} on :${info.port}`);
+        const waiters = entry.startWaiters.splice(0);
+        for (const w of waiters) {
+          try { w.resolve(); } catch (err) { logCrashBoundary('preview start waiter resolve failed', err); }
+        }
+        return;
+      } catch {
+        if (Date.now() - startedAt > PREVIEW_START_TIMEOUT_MS) {
+          entry.status = 'stopped';
+          const err = new Error('Preview server did not become ready before timeout');
+          const waiters = entry.startWaiters.splice(0);
+          for (const w of waiters) {
+            try { w.reject(err); } catch (waiterErr) { logCrashBoundary('preview start waiter reject failed', waiterErr); }
+          }
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+    }
+  })();
 
   return entry;
 }
@@ -667,17 +681,13 @@ function stopPreviewServer(sessionId: string): void {
   if (!entry || entry.status === 'stopped') return;
   console.log(`[proxy] stopping preview server for session ${sessionId}`);
   entry.status = 'stopped';
+  entry.logFollowAbort.abort();
   previewProcesses.delete(sessionId);
-  // entry.process may be null if stopPreviewServer is called before startPreviewServer
-  // has had a chance to assign the spawned ChildProcess (e.g. during concurrent restarts).
-  if (entry.process == null) return;
-  try {
-    if (entry.process.pid !== undefined) {
-      process.kill(-entry.process.pid, 'SIGTERM');
-    }
-  } catch {
-    try { entry.process.kill('SIGTERM'); } catch { /* already dead */ }
-  }
+  void loadProcessManager()
+    .then((processManager) => processManager.stopWorktreeServer(sessionId, MAIN_REPO))
+    .catch((err) => {
+      logCrashBoundary(`process-manager stop failed for preview ${sessionId}`, err);
+    });
 }
 
 // Kill preview servers that have been inactive for previewInactivityMin minutes.
