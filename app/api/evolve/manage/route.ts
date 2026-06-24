@@ -41,6 +41,7 @@ import {
 import { getParentBranch } from '../../../../lib/branch-parent';
 import { getBranchParentSource } from '../../../../lib/user-prefs';
 import { archiveSessionNdjsonLog } from '../../../../lib/session-archive';
+import { withSocketStatusHint } from '../../../../lib/socket-status';
 
 /** Run an arbitrary command; resolves with stdout, stderr, and exit code. */
 function runCmd(
@@ -403,10 +404,12 @@ async function runAcceptAsync(
       await step('- Installing dependencies…\n');
       const installResult = await runCmd('bun', ['install', '--frozen-lockfile'], mergeRoot);
       if (installResult.code !== 0) {
-        await failWithError(
+        const installLog = (installResult.stdout + installResult.stderr).trim();
+        await failWithError(withSocketStatusHint(
           `❌ Accept failed: \`bun install --frozen-lockfile\` failed after merge.\n` +
-          `\`\`\`\n${(installResult.stdout + installResult.stderr).trim()}\n\`\`\``,
-        );
+          `\`\`\`\n${installLog}\n\`\`\``,
+          installLog,
+        ));
         return;
       }
 
