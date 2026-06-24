@@ -7,7 +7,7 @@
 // and data-id elements on hover and reports both selectors on click.
 
 import React, { useRef, useState, useCallback, useEffect } from "react";
-import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Crosshair } from "lucide-react";
+import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Crosshair, EyeOff } from "lucide-react";
 import { trackEvent } from "@/lib/events-client";
 
 // ─── Element Inspector script ─────────────────────────────────────────────────
@@ -15,6 +15,16 @@ import { trackEvent } from "@/lib/events-client";
 // Communicates results back to the parent via postMessage.
 // Mouse: hover to highlight, click to select.
 // Touch: drag to highlight, long-press (600 ms hold) to select.
+function hasSamePathnameAsCurrentPage(url: string): boolean {
+  if (typeof window === "undefined") return false;
+
+  try {
+    return new URL(url, window.location.href).pathname === window.location.pathname;
+  } catch {
+    return false;
+  }
+}
+
 const INSPECTOR_SCRIPT = `
 (function() {
   if (window.__primordiaInspectorActive) return;
@@ -327,11 +337,14 @@ export function WebPreviewPanel({
   onElementSelected,
 }: WebPreviewPanelProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const initialBlockedUrl = hasSamePathnameAsCurrentPage(src) ? src : null;
   // The URL shown in the address bar — starts as the initial src.
   const [urlBarValue, setUrlBarValue] = useState(src);
   // The actual src attribute driving the iframe. We update this to navigate.
-  const [iframeSrc, setIframeSrc] = useState(src);
-  const [isLoading, setIsLoading] = useState(true);
+  const [iframeSrc, setIframeSrc] = useState(() => initialBlockedUrl ? "" : src);
+  const [blockedRecursiveUrl, setBlockedRecursiveUrl] = useState<string | null>(initialBlockedUrl);
+  const [allowNestedPreview, setAllowNestedPreview] = useState(false);
+  const [isLoading, setIsLoading] = useState(() => !initialBlockedUrl);
   const [inspectorActive, setInspectorActive] = useState(false);
   // Ref so handleLoad can read the latest inspector state without stale closure.
   const inspectorActiveRef = useRef(false);
@@ -372,8 +385,16 @@ export function WebPreviewPanel({
   const handleLoad = useCallback(() => {
     setIsLoading(false);
     try {
-      const href = iframeRef.current?.contentWindow?.location?.href;
+      const iframeLocation = iframeRef.current?.contentWindow?.location;
+      const href = iframeLocation?.href;
       if (href && href !== "about:blank") setUrlBarValue(href);
+      if (!allowNestedPreview && iframeLocation?.pathname === window.location.pathname) {
+        setIframeSrc("");
+        setBlockedRecursiveUrl(href ?? urlBarValue);
+        setInspectorActive(false);
+        cancelInspector();
+        return;
+      }
     } catch {
       // Cross-origin frame — keep last known URL bar value.
     }
@@ -381,7 +402,7 @@ export function WebPreviewPanel({
     if (inspectorActiveRef.current) {
       setTimeout(() => injectInspector(), 50);
     }
-  }, [injectInspector]);
+  }, [allowNestedPreview, cancelInspector, injectInspector, urlBarValue]);
 
   const handleLoadStart = useCallback(() => {
     setIsLoading(true);
@@ -389,10 +410,28 @@ export function WebPreviewPanel({
 
   /** Navigate the iframe to a new URL. */
   const navigate = useCallback((url: string) => {
-    setIframeSrc(url);
     setUrlBarValue(url);
+    if (!allowNestedPreview && hasSamePathnameAsCurrentPage(url)) {
+      setIframeSrc("");
+      setBlockedRecursiveUrl(url);
+      setIsLoading(false);
+      setInspectorActive(false);
+      cancelInspector();
+      return;
+    }
+
+    setBlockedRecursiveUrl(null);
+    setIframeSrc(url);
     setIsLoading(true);
-  }, []);
+  }, [allowNestedPreview, cancelInspector]);
+
+  const handleShowAnyway = () => {
+    if (!blockedRecursiveUrl) return;
+    setAllowNestedPreview(true);
+    setIframeSrc(blockedRecursiveUrl);
+    setBlockedRecursiveUrl(null);
+    setIsLoading(true);
+  };
 
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -573,24 +612,40 @@ export function WebPreviewPanel({
       {/* ── iframe ── */}
       <div className={`relative ${fullHeight ? 'flex-1' : ''}`} style={fullHeight ? undefined : { height: "600px" }}>
         {serverRunning ? (
-          <>
-            {isLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10 pointer-events-none">
-                <span className="text-gray-500 text-xs animate-pulse">Loading preview…</span>
+          blockedRecursiveUrl ? (
+            <div className="h-full flex items-center justify-center bg-gray-900 px-6 text-center text-gray-300">
+              <div className="max-w-md p-5">
+                <EyeOff className="mx-auto mb-3 text-gray-500" size={26} aria-hidden="true" />
+                <p className="font-medium">Preview hidden to prevent infinitely nested previews.</p>
+                <button
+                  type="button"
+                  onClick={handleShowAnyway}
+                  className="mt-4 rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-gray-100 transition-colors hover:bg-gray-700"
+                >
+                  Show Anyway
+                </button>
               </div>
-            )}
-            {iframeSrc ? (
-              <iframe
-                ref={iframeRef}
-                src={iframeSrc}
-                onLoad={handleLoad}
-                onLoadStart={handleLoadStart as React.ReactEventHandler<HTMLIFrameElement>}
-                className="w-full h-full bg-white"
-                style={{ border: "none", display: "block" }}
-                title="Web preview"
-              />
-            ) : null}
-          </>
+            </div>
+          ) : (
+            <>
+              {isLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10 pointer-events-none">
+                  <span className="text-gray-500 text-xs animate-pulse">Loading preview…</span>
+                </div>
+              )}
+              {iframeSrc ? (
+                <iframe
+                  ref={iframeRef}
+                  src={iframeSrc}
+                  onLoad={handleLoad}
+                  onLoadStart={handleLoadStart as React.ReactEventHandler<HTMLIFrameElement>}
+                  className="w-full h-full bg-white"
+                  style={{ border: "none", display: "block" }}
+                  title="Web preview"
+                />
+              ) : null}
+            </>
+          )
         ) : offlineContent}
       </div>
     </div>

@@ -9,6 +9,7 @@ import { getSessionUser } from '../../../../lib/auth';
 import { getSessionFromFilesystem } from '../../../../lib/session-events';
 import { getParentBranch } from '../../../../lib/branch-parent';
 import { getBranchParentSource } from '../../../../lib/user-prefs';
+import { withSocketStatusHint } from '../../../../lib/socket-status';
 
 /** JSON body for POST /evolve/upstream-sync */
 export interface EvolveUpstreamSyncBody {
@@ -20,7 +21,7 @@ async function runBunInstallAfterMerge(worktreePath: string): Promise<string> {
   const installResult = await runCommand('bun', ['install'], worktreePath);
   const installLog = installResult.stdout + installResult.stderr;
   if (installResult.code !== 0) {
-    throw new Error(`bun install failed after merge:\n${installLog || `exit code ${installResult.code}`}`);
+    throw new Error(withSocketStatusHint(`bun install failed after merge:\n${installLog || `exit code ${installResult.code}`}`, installLog));
   }
   return installLog;
 }
