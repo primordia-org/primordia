@@ -53,6 +53,7 @@ app/                             ← Next.js App Router
 │   ├── ansi-test/page.tsx       ← Interactive test page for AnsiRenderer
 │   ├── claude-auth-test/page.tsx ← Manual test page for Claude OAuth credential capture flow
 │   ├── markdown-test/page.tsx   ← Interactive test page for MarkdownContent streaming behavior
+│   ├── nested-suspense-stream/page.tsx ← Server Component test page for nested Suspense HTML streaming without SSE
 │   ├── sound-test/page.tsx      ← Web Audio API soundboard with oscilloscope and browser diagnostics
 │   └── web-push-test/           ← Web push notification diagnostics and category simulation
 ├── branches/                    ← Branch tree page and branch-to-session actions
