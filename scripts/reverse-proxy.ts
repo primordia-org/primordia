@@ -244,7 +244,7 @@ function appendProdLog(text: string): void {
 
 // ─── Preview server registry ─────────────────────────────────────────────────
 
-/** Rolling log buffer size per preview server (50 KB). */
+/** Rolling log buffer size for production server logs (50 KB). */
 const MAX_LOG_BYTES = 50 * 1024;
 /** Inactivity timeout in minutes before a preview server is stopped (configurable via git config primordia.previewInactivityMin). */
 let previewInactivityMin = 30;
@@ -271,11 +271,9 @@ interface PreviewEntry {
   process: ChildProcess | null;
   port: number;
   worktreePath: string;
-  logBuffer: string;
   lastActivityMs: number;
   status: 'starting' | 'running' | 'stopped';
   startWaiters: StartWaiter[];
-  logFollowAbort: AbortController;
 }
 
 /** Active preview server processes keyed by session ID. */
@@ -576,20 +574,11 @@ async function startPreviewServer(
     process: null,
     port: info.port,
     worktreePath: info.worktreePath,
-    logBuffer: '',
     lastActivityMs: Date.now(),
     status: 'starting',
     startWaiters: [],
-    logFollowAbort: new AbortController(),
   };
   previewProcesses.set(sessionId, entry);
-
-  const appendLog = (text: string) => {
-    entry.logBuffer += text;
-    if (entry.logBuffer.length > MAX_LOG_BYTES) {
-      entry.logBuffer = entry.logBuffer.slice(entry.logBuffer.length - MAX_LOG_BYTES);
-    }
-  };
 
   console.log(`[proxy] starting preview server for session ${sessionId} on :${info.port} in ${info.worktreePath}`);
   await killPortOwner(info.port);
@@ -600,32 +589,20 @@ async function startPreviewServer(
   }
 
   const processManager = await loadProcessManager(info.worktreePath);
-  const initialLines = processManager.readWorktreeLogLines(sessionId, MAIN_REPO);
-  if (initialLines.length > 0) appendLog(`${initialLines.join('\n')}\n`);
-
-  void (async () => {
-    try {
-      for await (const chunk of processManager.followWorktreeLog(sessionId, MAIN_REPO, 500, entry.logFollowAbort.signal)) {
-        appendLog(chunk);
-      }
-    } catch (err) {
-      if (!entry.logFollowAbort.signal.aborted) logCrashBoundary('preview log follow failed', err);
-    }
-  })();
 
   try {
     const previousProxyPort = process.env.REVERSE_PROXY_PORT;
     process.env.REVERSE_PROXY_PORT = String(LISTEN_PORT);
     try {
       const result = processManager.startWorktreeServer(sessionId, 'dev', MAIN_REPO);
-      appendLog(`[proxy] ${result.message}\n`);
+      console.log(`[proxy] ${result.message}`);
     } finally {
       if (previousProxyPort === undefined) delete process.env.REVERSE_PROXY_PORT;
       else process.env.REVERSE_PROXY_PORT = previousProxyPort;
     }
   } catch (err) {
     if (errorMessage(err).includes('already has running server process')) {
-      appendLog(`[proxy] reusing existing preview server for ${sessionId}\n`);
+      console.log(`[proxy] reusing existing preview server for ${sessionId}`);
     } else {
       entry.status = 'stopped';
       const spawnErr = new Error(`Preview server spawn failed: ${errorMessage(err)}`);
@@ -678,7 +655,6 @@ function stopPreviewServer(sessionId: string): void {
   if (!entry || entry.status === 'stopped') return;
   console.log(`[proxy] stopping preview server for session ${sessionId}`);
   entry.status = 'stopped';
-  entry.logFollowAbort.abort();
   previewProcesses.delete(sessionId);
   void loadProcessManager(entry.worktreePath)
     .then((processManager) => processManager.stopWorktreeServer(sessionId, MAIN_REPO))
