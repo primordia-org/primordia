@@ -4,7 +4,7 @@
 // Client component rendered by /evolve/session/[id].
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
 import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown } from "lucide-react";
 import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
@@ -1432,7 +1432,7 @@ function WebPreviewCard({
   previewUrl,
   sessionId: cardSessionId,
   proxyServerStatus,
-  serverLogs,
+  serverLogsNode,
   canEvolve,
   isRestartingServer,
   restartError,
@@ -1443,7 +1443,7 @@ function WebPreviewCard({
   previewUrl: string | null;
   sessionId: string;
   proxyServerStatus: 'starting' | 'running' | 'stopped' | 'unknown';
-  serverLogs: string;
+  serverLogsNode: ReactNode;
   canEvolve: boolean;
   isRestartingServer: boolean;
   restartError: string | null;
@@ -1535,11 +1535,9 @@ function WebPreviewCard({
           )}
         </summary>
         <div className="px-4 py-3 border-t border-gray-800">
-          {serverLogs ? (
-            <pre className="text-xs text-gray-400 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">{serverLogs}</pre>
-          ) : (
-            <p className="text-xs text-gray-600 italic">No logs yet…</p>
-          )}
+          <div className="text-xs text-gray-400 font-mono overflow-x-auto max-h-48 overflow-y-auto">
+            {serverLogsNode}
+          </div>
         </div>
       </details>
     </div>
@@ -1555,8 +1553,8 @@ interface EvolveSessionViewProps {
   initialLineCount: number;
   initialStatus: string;
   initialPreviewUrl: string | null;
-  /** Initial worktree server logs loaded server-side. */
-  initialServerLogs: string;
+  /** Streaming worktree server log output rendered by a server component. */
+  serverLogsNode: ReactNode;
   /** The currently checked-out branch in this instance. Used in confirmation copy and NavHeader. */
   branch?: string | null;
   /** The branch this session was branched from (from git config). Used in upstream-changes display. */
@@ -1648,7 +1646,7 @@ export default function EvolveSessionView({
   initialLineCount,
   initialStatus,
   initialPreviewUrl,
-  initialServerLogs,
+  serverLogsNode,
   branch,
   parentBranch,
   sessionBranch,
@@ -1676,9 +1674,6 @@ export default function EvolveSessionView({
   const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl);
   /** Status of the preview server as reported by the process manager. */
   const [proxyServerStatus, setProxyServerStatus] = useState<'starting' | 'running' | 'stopped' | 'unknown'>('unknown');
-  /** Accumulated log lines from the worktree server log file. */
-  const [serverLogs, setServerLogs] = useState<string>(initialServerLogs);
-
   const sounds = useSounds();
   const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
   const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
@@ -1945,7 +1940,6 @@ export default function EvolveSessionView({
           const snapshot = await getPreviewProcessSnapshot(sessionId);
           if (!cancelled) {
             setProxyServerStatus(snapshot.status);
-            setServerLogs(snapshot.logs);
           }
         } catch { /* keep polling */ }
         if (!cancelled) await new Promise<void>((r) => setTimeout(r, 2_000));
@@ -1963,7 +1957,6 @@ export default function EvolveSessionView({
     try {
       const snapshot = await restartPreviewServer(sessionId);
       setProxyServerStatus(snapshot.status);
-      setServerLogs(snapshot.logs);
     } catch (err) {
       setRestartError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -2709,7 +2702,7 @@ export default function EvolveSessionView({
             previewUrl={smartPreviewUrl}
             sessionId={sessionId}
             proxyServerStatus={proxyServerStatus}
-            serverLogs={serverLogs}
+            serverLogsNode={serverLogsNode}
             canEvolve={canEvolve}
             isRestartingServer={isRestartingServer}
             restartError={restartError}
@@ -2759,7 +2752,7 @@ export default function EvolveSessionView({
           previewUrl={smartPreviewUrl}
           sessionId={sessionId}
           proxyServerStatus={proxyServerStatus}
-          serverLogs={serverLogs}
+          serverLogsNode={serverLogsNode}
           canEvolve={canEvolve}
           isRestartingServer={isRestartingServer}
           restartError={restartError}

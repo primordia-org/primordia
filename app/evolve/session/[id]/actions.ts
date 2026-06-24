@@ -1,10 +1,9 @@
 "use server";
 
-import { getProcessStatusReport, readWorktreeLogLines, restartWorktreeServer } from "@/lib/process-manager";
+import { getProcessStatusReport, restartWorktreeServer } from "@/lib/process-manager";
 
 export interface PreviewProcessSnapshot {
   status: 'starting' | 'running' | 'stopped' | 'unknown';
-  logs: string;
 }
 
 export async function getPreviewProcessSnapshot(sessionId: string): Promise<PreviewProcessSnapshot> {
@@ -12,10 +11,9 @@ export async function getPreviewProcessSnapshot(sessionId: string): Promise<Prev
     const report = getProcessStatusReport(process.cwd());
     const worktree = report.worktrees.find((item) => item.branch === sessionId);
     const status = worktree ? (worktree.servers.length > 0 ? 'running' : 'stopped') : 'unknown';
-    const logs = readWorktreeLogLines(sessionId, process.cwd()).join('\n');
-    return { status, logs };
+    return { status };
   } catch {
-    return { status: 'unknown', logs: '' };
+    return { status: 'unknown' };
   }
 }
 
