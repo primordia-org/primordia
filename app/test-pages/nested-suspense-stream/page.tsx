@@ -1,153 +1,171 @@
 // app/test-pages/nested-suspense-stream/page.tsx
-// Demonstrates server-rendered streaming with nested React Suspense boundaries.
+// Test page that streams 100 text lines with nested React Suspense boundaries.
 
-import Link from "next/link";
 import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type StreamLine = {
-  text: string;
-  delayMs: number;
-  tone?: "plain" | "success" | "info" | "warning";
-};
-
-type StreamSection = {
-  title: string;
-  delayMs: number;
-  lines: StreamLine[];
-};
-
-const SECTIONS: StreamSection[] = [
-  {
-    title: "Boot sequence",
-    delayMs: 350,
-    lines: [
-      { text: "Opening a fresh HTTP response from a Server Component.", delayMs: 500, tone: "info" },
-      { text: "The shell rendered first, before these lines existed.", delayMs: 900 },
-      { text: "No EventSource, polling, route handler, or client fetch is involved.", delayMs: 1300, tone: "success" },
-    ],
-  },
-  {
-    title: "Nested boundary A",
-    delayMs: 900,
-    lines: [
-      { text: "This section is inside its own Suspense boundary.", delayMs: 700 },
-      { text: "Each row below also suspends independently.", delayMs: 1200, tone: "info" },
-      { text: "The browser receives HTML chunks as promises resolve.", delayMs: 1800, tone: "success" },
-    ],
-  },
-  {
-    title: "Nested boundary B",
-    delayMs: 1500,
-    lines: [
-      { text: "A slower sibling section can finish after a faster one.", delayMs: 600, tone: "warning" },
-      { text: "React coordinates the reveal order without custom streaming code.", delayMs: 1500 },
-      { text: "Done: nested Suspense streamed text lines into the page.", delayMs: 2400, tone: "success" },
-    ],
-  },
-];
+const LINE_COUNT = 100;
+const GROUP_SIZE = 10;
+const DEFAULT_DELAY_MS = 80;
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function DelayedLine({ line, index }: { line: StreamLine; index: number }) {
-  await wait(line.delayMs);
+function clampDelay(value: string | string[] | undefined): number {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  const parsed = Number(rawValue ?? DEFAULT_DELAY_MS);
+  if (!Number.isFinite(parsed)) return DEFAULT_DELAY_MS;
+  return Math.max(0, Math.min(250, parsed));
+}
 
-  const toneClass =
-    line.tone === "success"
-      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-100"
-      : line.tone === "info"
-        ? "border-sky-500/40 bg-sky-500/10 text-sky-100"
-        : line.tone === "warning"
-          ? "border-amber-500/40 bg-amber-500/10 text-amber-100"
-          : "border-gray-700 bg-gray-900 text-gray-200";
+function buildHref(delay: number): string {
+  return `/test-pages/nested-suspense-stream?delay=${delay}`;
+}
+
+function getLineText(lineNumber: number): string {
+  const phase = Math.ceil(lineNumber / GROUP_SIZE);
+  const lineInPhase = ((lineNumber - 1) % GROUP_SIZE) + 1;
+  return `Line ${String(lineNumber).padStart(3, "0")} streamed from nested Suspense group ${phase}, row ${lineInPhase}.`;
+}
+
+async function SuspenseLine({ lineNumber, delay }: { lineNumber: number; delay: number }) {
+  await wait(lineNumber * delay);
 
   return (
-    <li className={`rounded-lg border px-4 py-3 font-mono text-sm shadow-sm ${toneClass}`}>
-      <span className="mr-3 text-gray-500">{String(index + 1).padStart(2, "0")}</span>
-      {line.text}
-    </li>
+    <div className="border-b border-gray-800 px-4 py-2.5 font-mono text-xs text-gray-200 last:border-b-0">
+      <span className="mr-3 text-emerald-400">✓</span>
+      {getLineText(lineNumber)}
+    </div>
   );
 }
 
-function LineFallback({ index }: { index: number }) {
+function LineFallback({ lineNumber }: { lineNumber: number }) {
   return (
-    <li className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3 font-mono text-sm text-gray-500">
-      <span className="mr-3 text-gray-700">{String(index + 1).padStart(2, "0")}</span>
-      <span className="inline-flex items-center gap-2">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-violet-400" />
-        waiting for nested Suspense chunk…
-      </span>
-    </li>
+    <div className="border-b border-gray-800 px-4 py-2.5 font-mono text-xs text-gray-600 last:border-b-0">
+      <span className="mr-3 inline-block h-2 w-2 animate-pulse rounded-full bg-violet-400" />
+      Waiting for line {String(lineNumber).padStart(3, "0")}…
+    </div>
   );
 }
 
-async function StreamSectionCard({ section }: { section: StreamSection }) {
-  await wait(section.delayMs);
+async function SuspenseLineGroup({
+  groupIndex,
+  delay,
+}: {
+  groupIndex: number;
+  delay: number;
+}) {
+  await wait(groupIndex * Math.max(20, delay));
+
+  const firstLine = groupIndex * GROUP_SIZE + 1;
+  const lineNumbers = Array.from({ length: GROUP_SIZE }, (_, index) => firstLine + index).filter(
+    (lineNumber) => lineNumber <= LINE_COUNT,
+  );
 
   return (
-    <section className="rounded-2xl border border-gray-800 bg-gray-950/80 p-5 shadow-2xl shadow-black/20">
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <h2 className="text-base font-semibold text-white">{section.title}</h2>
-        <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1 text-xs text-violet-200">
-          streamed section
-        </span>
+    <div className="border-b border-gray-800 last:border-b-0">
+      <div className="bg-gray-950 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+        Nested Suspense group {groupIndex + 1}
       </div>
-      <ul className="space-y-3">
-        {section.lines.map((line, index) => (
-          <Suspense key={line.text} fallback={<LineFallback index={index} />}>
-            <DelayedLine line={line} index={index} />
-          </Suspense>
-        ))}
-      </ul>
-    </section>
+      {lineNumbers.map((lineNumber) => (
+        <Suspense key={lineNumber} fallback={<LineFallback lineNumber={lineNumber} />}>
+          <SuspenseLine lineNumber={lineNumber} delay={delay} />
+        </Suspense>
+      ))}
+    </div>
   );
 }
 
-function SectionFallback({ title }: { title: string }) {
+function GroupFallback({ groupIndex }: { groupIndex: number }) {
+  const firstLine = groupIndex * GROUP_SIZE + 1;
+  const lineNumbers = Array.from({ length: GROUP_SIZE }, (_, index) => firstLine + index).filter(
+    (lineNumber) => lineNumber <= LINE_COUNT,
+  );
+
   return (
-    <section className="rounded-2xl border border-dashed border-gray-800 bg-gray-950/40 p-5">
-      <h2 className="text-base font-semibold text-gray-400">{title}</h2>
-      <div className="mt-4 space-y-3">
-        {[0, 1, 2].map((index) => (
-          <LineFallback key={index} index={index} />
-        ))}
+    <div className="border-b border-gray-800 last:border-b-0">
+      <div className="bg-gray-950 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-600">
+        Preparing nested Suspense group {groupIndex + 1}…
       </div>
-    </section>
+      {lineNumbers.map((lineNumber) => (
+        <LineFallback key={lineNumber} lineNumber={lineNumber} />
+      ))}
+    </div>
   );
 }
 
-export default function NestedSuspenseStreamPage() {
+type PageProps = {
+  searchParams?: Promise<{ delay?: string | string[] }>;
+};
+
+export default async function NestedSuspenseStreamPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const delay = clampDelay(params?.delay);
+  const groupCount = Math.ceil(LINE_COUNT / GROUP_SIZE);
+
   return (
-    <main className="min-h-screen bg-gray-950 px-6 py-8 text-gray-100">
-      <div className="mx-auto flex max-w-3xl flex-col gap-6">
-        <Link href="/test-pages" className="text-sm text-violet-300 hover:text-violet-200">
-          ← Back to test pages
-        </Link>
+    <div className="flex min-h-screen flex-col bg-gray-950 text-gray-100">
+      <header className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-gray-800 bg-gray-900 px-4 py-3">
+        <h1 className="mr-auto text-sm font-semibold text-gray-100">Nested Suspense Stream Test Page</h1>
 
-        <header className="rounded-3xl border border-gray-800 bg-gray-900 p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-violet-300">
-            React Server Components
-          </p>
-          <h1 className="mt-3 text-3xl font-bold text-white">Nested Suspense text streaming</h1>
-          <p className="mt-3 text-sm leading-6 text-gray-400">
-            This page intentionally delays async Server Components behind nested Suspense boundaries. The initial shell
-            appears immediately, then sections and individual text lines stream in as HTML. It demonstrates a streaming UI
-            without Server-Sent Events or a client-side fetch loop.
-          </p>
-        </header>
-
-        <div className="space-y-5">
-          {SECTIONS.map((section) => (
-            <Suspense key={section.title} fallback={<SectionFallback title={section.title} />}>
-              <StreamSectionCard section={section} />
-            </Suspense>
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          <span>Speed</span>
+          {[20, 50, 80, 120, 180].map((value) => (
+            <a
+              key={value}
+              href={buildHref(value)}
+              className={`rounded border px-2 py-1 transition-colors ${
+                delay === value
+                  ? "border-violet-500 bg-violet-600 text-white"
+                  : "border-gray-700 bg-gray-800 text-gray-300 hover:border-gray-500"
+              }`}
+            >
+              {value}ms
+            </a>
           ))}
         </div>
+
+        <a
+          href={buildHref(delay)}
+          className="rounded bg-violet-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-violet-500"
+        >
+          Restart
+        </a>
+      </header>
+
+      <div className="flex items-center gap-3 border-b border-gray-800 bg-gray-900 px-4 py-1.5 text-xs text-gray-500">
+        <span>
+          Status: <span className="font-medium text-yellow-400">streaming HTML through Suspense…</span>
+        </span>
+        <span>
+          Lines: <span className="font-mono text-gray-300">{LINE_COUNT}</span>
+        </span>
+        <span>
+          Transport: <span className="font-mono text-gray-300">no SSE</span>
+        </span>
       </div>
-    </main>
+
+      <main className="mx-auto w-full max-w-4xl flex-1 overflow-y-auto px-4 py-6 sm:px-8">
+        <div className="overflow-hidden rounded-lg border border-blue-700/50 bg-gray-900 text-sm">
+          <div className="flex items-center gap-2 border-b border-gray-800 px-4 py-2.5">
+            <span className="text-xs font-semibold text-blue-300">🤖 Streaming 100 Suspense-rendered lines…</span>
+            <span className="ml-auto flex animate-pulse items-center gap-1.5 text-xs text-gray-500">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />
+            </span>
+          </div>
+
+          <div>
+            {Array.from({ length: groupCount }, (_, groupIndex) => (
+              <Suspense key={groupIndex} fallback={<GroupFallback groupIndex={groupIndex} />}>
+                <SuspenseLineGroup groupIndex={groupIndex} delay={delay} />
+              </Suspense>
+            ))}
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }
