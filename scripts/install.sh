@@ -42,6 +42,7 @@ socket_status_hint_for_log() {
   local log_file="$1"
   if grep -Eiq 'socket(\.dev|security)?' "$log_file" && grep -Eiq '\b503\b|service unavailable|temporar(y|ily) unavailable|bad gateway|gateway timeout' "$log_file"; then
     echo -e "${YELLOW}⚠${RESET} Socket.dev's package scanner appears to be temporarily unavailable. Check Socket.dev status: https://status.socket.dev/" >&2
+    echo -e "${YELLOW}⚠${RESET} Primordia prioritizes your server's safety, so the best course of action is try again or wait until the security scanner is available again." >&2
   fi
 }
 
