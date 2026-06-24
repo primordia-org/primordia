@@ -7,7 +7,7 @@
 // and data-id elements on hover and reports both selectors on click.
 
 import React, { useRef, useState, useCallback, useEffect } from "react";
-import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Crosshair, Octagon } from "lucide-react";
+import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Crosshair, EyeOff } from "lucide-react";
 import { trackEvent } from "@/lib/events-client";
 
 // ─── Element Inspector script ─────────────────────────────────────────────────
@@ -615,7 +615,7 @@ export function WebPreviewPanel({
           blockedRecursiveUrl ? (
             <div className="h-full flex items-center justify-center bg-gray-900 px-6 text-center text-gray-300">
               <div className="max-w-md p-5">
-                <Octagon className="mx-auto mb-3 text-gray-500" size={26} aria-hidden="true" />
+                <EyeOff className="mx-auto mb-3 text-gray-500" size={26} aria-hidden="true" />
                 <p className="font-medium">Preview hidden to prevent infinitely nested previews.</p>
                 <button
                   type="button"
