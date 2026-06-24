@@ -1,10 +1,9 @@
 #!/usr/bin/env bun
 
-import * as fs from 'fs';
 import {
+  followWorktreeLog,
   formatProcessStatusReport,
   getProcessStatusReport,
-  getWorktreeLogPath,
   readWorktreeLogLines,
   restartWorktreeServer,
   startWorktreeServer,
@@ -77,29 +76,7 @@ function renderStatus(json: boolean): void {
   else console.log(formatProcessStatusReport(report));
 }
 
-async function followLog(logPath: string): Promise<never> {
-  let offset = 0;
-  try { offset = fs.statSync(logPath).size; } catch { offset = 0; }
-  while (true) {
-    try {
-      const stat = fs.statSync(logPath);
-      if (stat.size < offset) offset = 0;
-      if (stat.size > offset) {
-        const fd = fs.openSync(logPath, 'r');
-        const length = stat.size - offset;
-        const buffer = Buffer.alloc(length);
-        fs.readSync(fd, buffer, 0, length, offset);
-        fs.closeSync(fd);
-        process.stdout.write(buffer.toString('utf8'));
-        offset = stat.size;
-      }
-    } catch { /* log may not exist yet */ }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-}
-
 async function renderLogs(worktreeName: string, json: boolean, follow: boolean): Promise<void> {
-  const logPath = getWorktreeLogPath(worktreeName);
   if (json) {
     if (follow) throw new Error('--json and --follow cannot be combined');
     printJson(readWorktreeLogLines(worktreeName));
@@ -108,7 +85,11 @@ async function renderLogs(worktreeName: string, json: boolean, follow: boolean):
 
   const lines = readWorktreeLogLines(worktreeName);
   if (lines.length > 0) console.log(lines.join('\n'));
-  if (follow) await followLog(logPath);
+  if (follow) {
+    for await (const chunk of followWorktreeLog(worktreeName)) {
+      process.stdout.write(chunk);
+    }
+  }
 }
 
 async function main(): Promise<void> {

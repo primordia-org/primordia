@@ -444,6 +444,29 @@ export function readWorktreeLogLines(name: string, cwd = process.cwd()): string[
   return text.split(/\r?\n/).filter((line) => line.length > 0);
 }
 
+export async function* followWorktreeLog(name: string, cwd = process.cwd(), pollMs = 500): AsyncGenerator<string> {
+  const logPath = getWorktreeLogPath(name, cwd);
+  let offset = 0;
+  try { offset = fs.statSync(logPath).size; } catch { offset = 0; }
+
+  while (true) {
+    try {
+      const stat = fs.statSync(logPath);
+      if (stat.size < offset) offset = 0;
+      if (stat.size > offset) {
+        const fd = fs.openSync(logPath, 'r');
+        const length = stat.size - offset;
+        const buffer = Buffer.alloc(length);
+        fs.readSync(fd, buffer, 0, length, offset);
+        fs.closeSync(fd);
+        offset = stat.size;
+        yield buffer.toString('utf8');
+      }
+    } catch { /* log may not exist yet */ }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}
+
 export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev', cwd = process.cwd()): ProcessActionResult {
   const report = getProcessStatusReport(cwd);
   const worktree = findWorktree(report, name);

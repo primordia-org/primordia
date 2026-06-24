@@ -33,6 +33,7 @@ import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
 import { normalizeAuthSource, type PresetAuthSource } from "@/lib/presets";
 import { deriveSmartPreviewUrl } from "@/lib/smart-preview-url";
 import { trackEvent } from "@/lib/events-client";
+import { getPreviewProcessSnapshot, restartPreviewServer } from "./actions";
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────
 
@@ -1554,6 +1555,8 @@ interface EvolveSessionViewProps {
   initialLineCount: number;
   initialStatus: string;
   initialPreviewUrl: string | null;
+  /** Initial worktree server logs loaded server-side. */
+  initialServerLogs: string;
   /** The currently checked-out branch in this instance. Used in confirmation copy and NavHeader. */
   branch?: string | null;
   /** The branch this session was branched from (from git config). Used in upstream-changes display. */
@@ -1645,6 +1648,7 @@ export default function EvolveSessionView({
   initialLineCount,
   initialStatus,
   initialPreviewUrl,
+  initialServerLogs,
   branch,
   parentBranch,
   sessionBranch,
@@ -1670,10 +1674,10 @@ export default function EvolveSessionView({
   const [events, setEvents] = useState<SessionEvent[]>(initialEvents);
   const [status, setStatus] = useState(initialStatus);
   const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl);
-  /** Status of the preview server as reported by the proxy management API. */
+  /** Status of the preview server as reported by the process manager. */
   const [proxyServerStatus, setProxyServerStatus] = useState<'starting' | 'running' | 'stopped' | 'unknown'>('unknown');
-  /** Accumulated log lines from the proxy's server log SSE stream. */
-  const [serverLogs, setServerLogs] = useState<string>('');
+  /** Accumulated log lines from the worktree server log file. */
+  const [serverLogs, setServerLogs] = useState<string>(initialServerLogs);
 
   const sounds = useSounds();
   const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
@@ -1706,7 +1710,6 @@ export default function EvolveSessionView({
   const [upstreamSyncError, setUpstreamSyncError] = useState<string | null>(null);
   const [liveDiffSummary, setLiveDiffSummary] = useState<DiffFileSummary[]>(diffSummary);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const proxyLogsControllerRef = useRef<AbortController | null>(null);
   /** Tracks how many NDJSON lines the client has received, for SSE reconnection offset. */
   const lineCountRef = useRef(initialLineCount);
   /** Mirrors current status so the visibilitychange handler can read it without a stale closure. */
@@ -1932,92 +1935,35 @@ export default function EvolveSessionView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]); // intentionally omit initialStatus — run once on mount
 
-  // Poll the proxy for the real-time preview server status whenever a preview URL is available,
-  // or once the session is ready even if the agent never selected an explicit preview route.
   useEffect(() => {
     if (previewUrl === null && status !== "ready") return;
     let cancelled = false;
 
-    async function poll() {
+    async function pollProcessSnapshot() {
       while (!cancelled) {
         try {
-          const res = await fetch(`/_proxy/preview/${sessionId}/status`);
-          if (res.ok && !cancelled) {
-            const data = (await res.json()) as { devServerStatus?: string };
-            const s = data.devServerStatus;
-            if (s === 'starting' || s === 'running' || s === 'stopped') {
-              setProxyServerStatus(s);
-            }
+          const snapshot = await getPreviewProcessSnapshot(sessionId);
+          if (!cancelled) {
+            setProxyServerStatus(snapshot.status);
+            setServerLogs(snapshot.logs);
           }
-        } catch { /* network error — keep polling */ }
-        if (!cancelled) await new Promise<void>((r) => setTimeout(r, 5_000));
+        } catch { /* keep polling */ }
+        if (!cancelled) await new Promise<void>((r) => setTimeout(r, 2_000));
       }
     }
 
-    void poll();
+    void pollProcessSnapshot();
     return () => { cancelled = true; };
   }, [sessionId, previewUrl, status]);
-
-  // Stream server logs from the proxy when a preview URL is available or the session is ready.
-  async function startServerLogsStream() {
-    proxyLogsControllerRef.current?.abort();
-    const controller = new AbortController();
-    proxyLogsControllerRef.current = controller;
-
-    try {
-      const res = await fetch(`/_proxy/preview/${sessionId}/logs`, { signal: controller.signal });
-      if (!res.ok || !res.body) return;
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split('\n')) {
-          if (!line.startsWith('data: ')) continue;
-          const raw = line.slice(6).trim();
-          if (!raw) continue;
-          try {
-            const parsed = JSON.parse(raw) as { text?: string; snapshot?: boolean; done?: boolean };
-            if (parsed.snapshot) {
-              setServerLogs(parsed.text ?? '');
-            } else if (parsed.text) {
-              setServerLogs((prev) => prev + parsed.text);
-            }
-            if (parsed.done) return;
-          } catch { /* malformed line */ }
-        }
-      }
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') return;
-    }
-  }
-
-  useEffect(() => {
-    if (previewUrl === null && status !== "ready") return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void startServerLogsStream();
-    return () => { proxyLogsControllerRef.current?.abort(); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, previewUrl, status]);
-
   async function handleRestartServer() {
     trackEvent("session/restart-server-clicked/v1", { sessionId });
     setIsRestartingServer(true);
     setRestartError(null);
 
     try {
-      const res = await fetch(`/_proxy/preview/${sessionId}/restart`, { method: 'POST' });
-
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error ?? `Server error: ${res.status}`);
-      }
-
-      setProxyServerStatus('starting');
-      void startServerLogsStream();
+      const snapshot = await restartPreviewServer(sessionId);
+      setProxyServerStatus(snapshot.status);
+      setServerLogs(snapshot.logs);
     } catch (err) {
       setRestartError(err instanceof Error ? err.message : String(err));
     } finally {

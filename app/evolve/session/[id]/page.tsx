@@ -13,6 +13,7 @@ import { getBranchParentSource, getEvolvePrefs } from "@/lib/user-prefs";
 import { buildPageTitle } from "@/lib/page-title";
 import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem, type SessionEvent } from "@/lib/session-events";
 import { getParentBranch, type BranchParentSource } from "@/lib/branch-parent";
+import { readWorktreeLogLines } from "@/lib/process-manager";
 import EvolveSessionView from "./EvolveSessionView";
 
 export async function generateMetadata({
@@ -116,6 +117,8 @@ export default async function EvolveSessionPage({
   const upstreamCommitCount = getUpstreamCommitCount(session.branch, parentSource);
   const diffSummary = getGitDiffSummary(session.branch, parentSource);
 
+  const initialServerLogs = readWorktreeLogLines(session.branch, process.cwd()).join('\n');
+
   // Load initial events from the NDJSON log.
   let initialEvents: SessionEvent[] = [];
   let initialLineCount = 0;
@@ -134,6 +137,7 @@ export default async function EvolveSessionPage({
       initialLineCount={initialLineCount}
       initialStatus={session.status}
       initialPreviewUrl={session.previewUrl}
+      initialServerLogs={initialServerLogs}
       branch={branch}
       parentBranch={parentBranch}
       sessionBranch={session.branch}
