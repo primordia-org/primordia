@@ -7,8 +7,9 @@
 // and data-id elements on hover and reports both selectors on click.
 
 import React, { useRef, useState, useCallback, useEffect } from "react";
-import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Crosshair } from "lucide-react";
+import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Crosshair, ShieldAlert } from "lucide-react";
 import { trackEvent } from "@/lib/events-client";
+import { isRecursivePreviewUrl } from "@/lib/smart-preview-url";
 
 // ─── Element Inspector script ─────────────────────────────────────────────────
 // Injected into the iframe's document when inspector mode is activated.
@@ -330,8 +331,9 @@ export function WebPreviewPanel({
   // The URL shown in the address bar — starts as the initial src.
   const [urlBarValue, setUrlBarValue] = useState(src);
   // The actual src attribute driving the iframe. We update this to navigate.
-  const [iframeSrc, setIframeSrc] = useState(src);
-  const [isLoading, setIsLoading] = useState(true);
+  const [iframeSrc, setIframeSrc] = useState(() => isRecursivePreviewUrl(src, sessionId) ? "" : src);
+  const [blockedRecursiveUrl, setBlockedRecursiveUrl] = useState<string | null>(() => isRecursivePreviewUrl(src, sessionId) ? src : null);
+  const [isLoading, setIsLoading] = useState(() => !isRecursivePreviewUrl(src, sessionId));
   const [inspectorActive, setInspectorActive] = useState(false);
   // Ref so handleLoad can read the latest inspector state without stale closure.
   const inspectorActiveRef = useRef(false);
@@ -389,10 +391,20 @@ export function WebPreviewPanel({
 
   /** Navigate the iframe to a new URL. */
   const navigate = useCallback((url: string) => {
-    setIframeSrc(url);
     setUrlBarValue(url);
+    if (isRecursivePreviewUrl(url, sessionId)) {
+      setIframeSrc("");
+      setBlockedRecursiveUrl(url);
+      setIsLoading(false);
+      setInspectorActive(false);
+      cancelInspector();
+      return;
+    }
+
+    setBlockedRecursiveUrl(null);
+    setIframeSrc(url);
     setIsLoading(true);
-  }, []);
+  }, [cancelInspector, sessionId]);
 
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -573,24 +585,37 @@ export function WebPreviewPanel({
       {/* ── iframe ── */}
       <div className={`relative ${fullHeight ? 'flex-1' : ''}`} style={fullHeight ? undefined : { height: "600px" }}>
         {serverRunning ? (
-          <>
-            {isLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10 pointer-events-none">
-                <span className="text-gray-500 text-xs animate-pulse">Loading preview…</span>
+          blockedRecursiveUrl ? (
+            <div className="h-full flex items-center justify-center bg-gray-900 px-6 text-center">
+              <div className="max-w-md rounded-xl border border-amber-700/50 bg-amber-950/30 p-5 text-amber-100 shadow-lg">
+                <ShieldAlert className="mx-auto mb-3 text-amber-300" size={28} aria-hidden="true" />
+                <p className="font-semibold">Preview not loaded</p>
+                <p className="mt-2 text-sm text-amber-200/80">
+                  Evolve session pages include their own preview panel, so loading one here would create an infinite nested preview.
+                </p>
+                <p className="mt-3 break-all font-mono text-xs text-amber-300/80">{blockedRecursiveUrl}</p>
               </div>
-            )}
-            {iframeSrc ? (
-              <iframe
-                ref={iframeRef}
-                src={iframeSrc}
-                onLoad={handleLoad}
-                onLoadStart={handleLoadStart as React.ReactEventHandler<HTMLIFrameElement>}
-                className="w-full h-full bg-white"
-                style={{ border: "none", display: "block" }}
-                title="Web preview"
-              />
-            ) : null}
-          </>
+            </div>
+          ) : (
+            <>
+              {isLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10 pointer-events-none">
+                  <span className="text-gray-500 text-xs animate-pulse">Loading preview…</span>
+                </div>
+              )}
+              {iframeSrc ? (
+                <iframe
+                  ref={iframeRef}
+                  src={iframeSrc}
+                  onLoad={handleLoad}
+                  onLoadStart={handleLoadStart as React.ReactEventHandler<HTMLIFrameElement>}
+                  className="w-full h-full bg-white"
+                  style={{ border: "none", display: "block" }}
+                  title="Web preview"
+                />
+              ) : null}
+            </>
+          )
         ) : offlineContent}
       </div>
     </div>

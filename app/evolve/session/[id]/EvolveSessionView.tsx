@@ -1459,6 +1459,7 @@ function WebPreviewCard({
       <div className={fullHeight ? 'flex-1 min-h-0' : ''}>
         {previewUrl ? (
           <WebPreviewPanel
+            key={previewUrl}
             src={previewUrl}
             sessionId={cardSessionId}
             fullHeight={fullHeight}
