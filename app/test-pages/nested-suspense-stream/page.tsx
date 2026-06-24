@@ -1,8 +1,11 @@
 // app/test-pages/nested-suspense-stream/page.tsx
-// Test page that streams customizable text with a recursive React Suspense tail.
+// Test page that writes demo text to a temp log file and streams it with a recursive Suspense tail.
 
-import { Suspense } from "react";
-import { AnsiRenderer } from "@/components/AnsiRenderer";
+import { appendFile, mkdir, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { SuspenseLogFile } from "@/components/SuspenseLogFile";
 import { NestedSuspenseStreamControls } from "./NestedSuspenseStreamControls";
 
 export const dynamic = "force-dynamic";
@@ -93,32 +96,25 @@ function getSourceLines(text: string): string[] {
   return lines.length > 0 ? lines : [""];
 }
 
-function EmptyLineFallback() {
-  return <div className="h-5" aria-hidden="true" />;
-}
+async function createStreamingDemoLog(text: string, delay: number): Promise<string> {
+  const directory = join(tmpdir(), "primordia-recursive-suspense-tail");
+  await mkdir(directory, { recursive: true });
 
-async function SuspenseLogTail({
-  lines,
-  index,
-  delay,
-}: {
-  lines: string[];
-  index: number;
-  delay: number;
-}) {
-  const line = lines[index];
-  if (line === undefined) return null;
+  const logFilename = join(directory, `${Date.now()}-${randomUUID()}.log`);
+  await writeFile(logFilename, "");
 
-  await wait(delay);
+  const lines = getSourceLines(text);
+  void (async () => {
+    for (const line of lines) {
+      await wait(delay);
+      await appendFile(logFilename, `${line}\n`);
+    }
 
-  return (
-    <>
-      <AnsiRenderer text={line} className="text-gray-400" />
-      <Suspense fallback={<EmptyLineFallback />}>
-        <SuspenseLogTail lines={lines} index={index + 1} delay={delay} />
-      </Suspense>
-    </>
-  );
+    await wait(60_000);
+    await unlink(logFilename).catch(() => undefined);
+  })();
+
+  return logFilename;
 }
 
 type PageProps = {
@@ -132,7 +128,7 @@ export default async function NestedSuspenseStreamPage({ searchParams }: PagePro
   const params = await searchParams;
   const text = firstValue(params?.text) ?? DEMOS[0].text;
   const delay = clampDelay(params?.delay);
-  const lines = getSourceLines(text);
+  const logFilename = await createStreamingDemoLog(text, delay);
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-950 text-gray-100">
@@ -142,7 +138,7 @@ export default async function NestedSuspenseStreamPage({ searchParams }: PagePro
 
       <div className="flex flex-wrap items-center gap-3 border-b border-gray-800 bg-gray-900 px-4 py-1.5 text-xs text-gray-500">
         <span>
-          Status: <span className="font-medium text-yellow-400">streaming recursive Suspense tail…</span>
+          Status: <span className="font-medium text-yellow-400">watching temp log file…</span>
         </span>
         <span>
           Renderer: <span className="font-mono text-gray-300">ANSI per line</span>
@@ -165,9 +161,7 @@ export default async function NestedSuspenseStreamPage({ searchParams }: PagePro
             </summary>
             <div className="border-t border-gray-800 px-4 py-3">
               <div className="max-h-[70vh] overflow-y-auto overflow-x-auto">
-                <Suspense fallback={<EmptyLineFallback />}>
-                  <SuspenseLogTail lines={lines} index={0} delay={delay} />
-                </Suspense>
+                <SuspenseLogFile logFilename={logFilename} />
               </div>
             </div>
           </details>
