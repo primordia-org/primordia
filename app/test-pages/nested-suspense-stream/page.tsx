@@ -3,6 +3,7 @@
 
 import { Suspense } from "react";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
+import { NestedSuspenseStreamControls } from "./NestedSuspenseStreamControls";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -16,29 +17,59 @@ const DIM = `${ESC}2m`;
 const BOLD = `${ESC}1m`;
 const RESET = `${ESC}0m`;
 
-const DEFAULT_TEXT = [
-  `${DIM}▲ Next.js 16.2.6 (Turbopack)${RESET}`,
-  `${DIM}- Local:        http://localhost:3002${RESET}`,
-  `${DIM}- Network:      http://192.168.1.24:3002${RESET}`,
-  `${GREEN}✓${RESET} Starting...`,
-  `${GREEN}✓${RESET} Ready in 1248ms`,
-  `${CYAN}○${RESET} Compiling /test-pages/nested-suspense-stream ...`,
-  `${GREEN}✓${RESET} Compiled /test-pages/nested-suspense-stream in 932ms`,
-  `${BOLD}GET${RESET} /test-pages/nested-suspense-stream 200 in 1187ms`,
-  `${CYAN}○${RESET} Compiling /_not-found ...`,
-  `${GREEN}✓${RESET} Compiled /_not-found in 410ms`,
-  `${YELLOW}⚠${RESET} Fast Refresh had to perform a full reload because a Server Component changed.`,
-  `${BOLD}GET${RESET} /favicon.ico 200 in 36ms`,
-  `${CYAN}○${RESET} Compiling /test-pages ...`,
-  `${GREEN}✓${RESET} Compiled /test-pages in 288ms`,
-  `${BOLD}GET${RESET} /test-pages 200 in 352ms`,
-  `${CYAN}○${RESET} Compiling /api/evolve/stream ...`,
-  `${GREEN}✓${RESET} Compiled /api/evolve/stream in 517ms`,
-  `${BOLD}GET${RESET} /api/evolve/stream?sessionId=nested-suspense-stream-test 200 in 42ms`,
-  `${YELLOW}⚠${RESET} The requested page uses force-dynamic and will not be statically cached.`,
-  `${RED}⨯${RESET} Example recoverable log: preview socket disconnected, retrying...`,
-  `${GREEN}✓${RESET} Preview socket reconnected`,
-].join("\n");
+const DEMOS = [
+  {
+    label: "Next.js dev server",
+    text: [
+      `${DIM}▲ Next.js 16.2.6 (Turbopack)${RESET}`,
+      `${DIM}- Local:        http://localhost:3002${RESET}`,
+      `${DIM}- Network:      http://192.168.1.24:3002${RESET}`,
+      `${GREEN}✓${RESET} Starting...`,
+      `${GREEN}✓${RESET} Ready in 1248ms`,
+      `${CYAN}○${RESET} Compiling /test-pages/nested-suspense-stream ...`,
+      `${GREEN}✓${RESET} Compiled /test-pages/nested-suspense-stream in 932ms`,
+      `${BOLD}GET${RESET} /test-pages/nested-suspense-stream 200 in 1187ms`,
+      `${CYAN}○${RESET} Compiling /_not-found ...`,
+      `${GREEN}✓${RESET} Compiled /_not-found in 410ms`,
+      `${YELLOW}⚠${RESET} Fast Refresh had to perform a full reload because a Server Component changed.`,
+      `${BOLD}GET${RESET} /favicon.ico 200 in 36ms`,
+      `${CYAN}○${RESET} Compiling /test-pages ...`,
+      `${GREEN}✓${RESET} Compiled /test-pages in 288ms`,
+      `${BOLD}GET${RESET} /test-pages 200 in 352ms`,
+    ].join("\n"),
+  },
+  {
+    label: "Preview restart",
+    text: [
+      `${YELLOW}⚠${RESET} Preview server exited unexpectedly`,
+      `${CYAN}○${RESET} Restart requested for branch nested-suspense-stream-test`,
+      `${DIM}Killing stale preview process on port 3002${RESET}`,
+      `${GREEN}✓${RESET} Port released`,
+      `${CYAN}○${RESET} Spawning bun run dev with NEXT_BASE_PATH=/preview/nested-suspense-stream-test`,
+      `${DIM}$ bun run --bun next dev --turbopack${RESET}`,
+      `${DIM}▲ Next.js 16.2.6 (Turbopack)${RESET}`,
+      `${GREEN}✓${RESET} Starting...`,
+      `${GREEN}✓${RESET} Ready in 1395ms`,
+      `${BOLD}GET${RESET} /preview/nested-suspense-stream-test 200 in 64ms`,
+    ].join("\n"),
+  },
+  {
+    label: "Compile error",
+    text: [
+      `${CYAN}○${RESET} Compiling /test-pages/nested-suspense-stream ...`,
+      `${RED}⨯${RESET} ./app/test-pages/nested-suspense-stream/page.tsx:84:13`,
+      `${RED}⨯${RESET} Type error: Property 'delay' is missing in type '{ lines: string[]; }'`,
+      `${DIM}  82 |       <Suspense fallback={<EmptyLineFallback />}>${RESET}`,
+      `${DIM}  83 |         <SuspenseLogTail${RESET}`,
+      `${RED}     |             ^${RESET}`,
+      `${DIM}  84 |           lines={lines}${RESET}`,
+      `${DIM}  85 |         />${RESET}`,
+      `${YELLOW}⚠${RESET} Waiting for file changes before recompiling...`,
+      `${CYAN}○${RESET} Compiling /test-pages/nested-suspense-stream ...`,
+      `${GREEN}✓${RESET} Compiled /test-pages/nested-suspense-stream in 746ms`,
+    ].join("\n"),
+  },
+];
 const DEFAULT_DELAY_MS = 80;
 
 function wait(ms: number) {
@@ -99,53 +130,14 @@ type PageProps = {
 
 export default async function NestedSuspenseStreamPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const text = firstValue(params?.text) ?? DEFAULT_TEXT;
+  const text = firstValue(params?.text) ?? DEMOS[0].text;
   const delay = clampDelay(params?.delay);
   const lines = getSourceLines(text);
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-950 text-gray-100">
       <header className="sticky top-0 z-10 border-b border-gray-800 bg-gray-900 px-4 py-3">
-        <form className="flex flex-col gap-3 lg:flex-row lg:items-end" method="GET">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-sm font-semibold text-gray-100">Recursive Suspense Tail Test Page</h1>
-            <p className="mt-1 text-xs text-gray-500">
-              Customize the server-log text and delay. Each Suspense boundary resolves to one ANSI-rendered line plus the
-              next Suspense boundary, then stops when the text ends.
-            </p>
-            <textarea
-              name="text"
-              defaultValue={text}
-              rows={8}
-              className="mt-3 w-full resize-y rounded border border-gray-700 bg-gray-950 px-3 py-2 font-mono text-xs text-gray-200 outline-none focus:border-violet-500"
-              spellCheck={false}
-            />
-          </div>
-
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1 text-xs text-gray-400">
-              <span>Delay</span>
-              <select
-                name="delay"
-                defaultValue={delay}
-                className="rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-200"
-              >
-                {[0, 20, 40, 80, 120, 200, 500].map((value) => (
-                  <option key={value} value={value}>
-                    {value}ms / line
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <button
-              type="submit"
-              className="rounded bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-500"
-            >
-              Start stream
-            </button>
-          </div>
-        </form>
+        <NestedSuspenseStreamControls demos={DEMOS} initialText={text} initialDelay={delay} />
       </header>
 
       <div className="flex flex-wrap items-center gap-3 border-b border-gray-800 bg-gray-900 px-4 py-1.5 text-xs text-gray-500">
