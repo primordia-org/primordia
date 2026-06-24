@@ -448,28 +448,48 @@ _done "Build complete"
 
 # ── Install reverse-proxy ─────────────────────────────────────────────────────
 
-_CURRENT_STEP="install reverse proxy"
+_CURRENT_STEP="bundle reverse proxy"
 REVERSE_PROXY_SOURCE="${INSTALL_DIR}/scripts/reverse-proxy.ts"
-REVERSE_PROXY_DEST="${PRIMORDIA_DIR}/reverse-proxy.ts"
+REVERSE_PROXY_BUNDLE_DIR="$(mktemp -d)"
+REVERSE_PROXY_BUNDLE="${REVERSE_PROXY_BUNDLE_DIR}/reverse-proxy.js"
+REVERSE_PROXY_DEST="${PRIMORDIA_DIR}/reverse-proxy.js"
 MISE_CONFIG_SOURCE="${INSTALL_DIR}/mise.toml"
 MISE_CONFIG_DEST="${PRIMORDIA_DIR}/mise.toml"
 ROOT_MISE_CHANGED=false
 
-# Calculate if the proxy script needs updating
+_step "Bundling reverse proxy..."
+_proxy_bundle_log=$(mktemp)
+if ! bun build "${REVERSE_PROXY_SOURCE}" --target=bun --outfile="${REVERSE_PROXY_BUNDLE}" >"$_proxy_bundle_log" 2>&1; then
+  _spin_kill
+  printf "\n"
+  echo -e "${DIM}  --- reverse proxy bundle output ---${RESET}" >&2
+  cat "$_proxy_bundle_log" >&2
+  echo -e "${DIM}  -----------------------------------${RESET}" >&2
+  rm -f "$_proxy_bundle_log"
+  rm -rf "${REVERSE_PROXY_BUNDLE_DIR}"
+  exit_with_failure 1 "$LINENO" "bun build ${REVERSE_PROXY_SOURCE} --target=bun --outfile=${REVERSE_PROXY_BUNDLE}"
+fi
+rm -f "$_proxy_bundle_log"
+_done "Bundled reverse proxy"
+
+_CURRENT_STEP="install reverse proxy"
+# Calculate if the proxy bundle needs updating
 if [[ ! -f "${REVERSE_PROXY_DEST}" ]]; then
   PROXY_CHANGED=true
-elif ! diff -q "${REVERSE_PROXY_SOURCE}" "${REVERSE_PROXY_DEST}" >/dev/null 2>&1; then
+elif ! diff -q "${REVERSE_PROXY_BUNDLE}" "${REVERSE_PROXY_DEST}" >/dev/null 2>&1; then
   PROXY_CHANGED=true
 else
   PROXY_CHANGED=false
 fi
 
 if [[ "${PROXY_CHANGED}" == "true" ]]; then
-  cp -f "${REVERSE_PROXY_SOURCE}" "${REVERSE_PROXY_DEST}"
-  success "Installed reverse-proxy.ts"
+  cp -f "${REVERSE_PROXY_BUNDLE}" "${REVERSE_PROXY_DEST}"
+  rm -f "${PRIMORDIA_DIR}/reverse-proxy.ts"
+  success "Installed reverse-proxy.js"
 else
-  success "Using reverse-proxy.ts"
+  success "Using reverse-proxy.js"
 fi
+rm -rf "${REVERSE_PROXY_BUNDLE_DIR}"
 
 if [[ ! -f "${MISE_CONFIG_DEST}" ]] || ! diff -q "${MISE_CONFIG_SOURCE}" "${MISE_CONFIG_DEST}" >/dev/null 2>&1; then
   cp -f "${MISE_CONFIG_SOURCE}" "${MISE_CONFIG_DEST}"
@@ -531,7 +551,7 @@ Environment=HOME=${HOME}
 Environment=PATH=${MISE_SHIMS_DIR}:$(dirname "${MISE_BIN}"):/usr/local/bin:/usr/bin:/bin
 Environment=MISE_TRUSTED_CONFIG_PATHS=${PRIMORDIA_DIR}:${WORKTREES_DIR}
 ${PARENT_URL_ENV_LINE}
-ExecStart=${MISE_BIN} exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/reverse-proxy.ts
+ExecStart=${MISE_BIN} exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/reverse-proxy.js
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -783,7 +803,7 @@ if [[ "${SERVICE_READY}" == "false" ]]; then
     advance_main_and_push
     echo -e "${GREEN}✓${RESET} Congratulations! Primordia is ready."
     if [[ "${PROXY_RUNNING}" == "false" ]]; then
-      info "Proxy not detected — start it with: mise exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/reverse-proxy.ts"
+      info "Proxy not detected — start it with: mise exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/reverse-proxy.js"
     fi
   fi
 fi
