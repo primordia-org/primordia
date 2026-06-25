@@ -597,7 +597,7 @@ fi
 # ── Zero-downtime cutover (or first-time start) ───────────────────────────────
 # If the proxy is already running and neither it nor the service unit changed,
 # we can do a zero-downtime slot swap by starting the new server with
-# `bun run process <branch> start --prod` and then flipping git config.  This keeps existing connections alive.
+# `bun run primordia start --prod --worktree <branch>` and then flipping git config.  This keeps existing connections alive.
 #
 # If either changed, or the proxy isn't running yet, we fall back to the
 # traditional restart/start path (brief downtime, unavoidable).
@@ -716,8 +716,8 @@ if [[ "${PROXY_RUNNING}" == "true" ]] && \
   _CURRENT_STEP="zero-downtime start: process-manager"
   _step "Deploying to new slot (zero-downtime)..."
   _PROCESS_JSON="$(mktemp)"
-  diag "zero-downtime start: bun run process ${BRANCH} start --prod"
-  if ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run process "${BRANCH}" start --prod --json >"$_PROCESS_JSON" 2>&1; then
+  diag "zero-downtime start: bun run primordia start --prod --worktree ${BRANCH}"
+  if ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia start --prod --json --worktree "${BRANCH}" >"$_PROCESS_JSON" 2>&1; then
     _NEW_PORT="$(grep -o '"port":[[:space:]]*[0-9]*' "$_PROCESS_JSON" | head -1 | grep -o '[0-9]*' || true)"
     if [[ -z "$_NEW_PORT" ]]; then
       warn "Could not determine new server port from process-manager output. Falling back to service restart."
