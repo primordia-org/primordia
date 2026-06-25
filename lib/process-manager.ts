@@ -467,6 +467,25 @@ export function readProcessManagerConfig(cwd = process.cwd()): { previewInactivi
   };
 }
 
+export function watchGitConfig(cwd: string, onChange: () => void): string | null {
+  let configPath: string;
+  try {
+    configPath = path.join(getGitRepoRoot(cwd), 'config');
+  } catch {
+    return null;
+  }
+
+  const startWatch = () => {
+    try {
+      fs.watch(configPath, () => setTimeout(onChange, 50));
+    } catch {
+      setTimeout(startWatch, 1000);
+    }
+  };
+  startWatch();
+  return configPath;
+}
+
 export function getProxyRoutingState(cwd = process.cwd(), listenPort?: number): ProxyRoutingState {
   const repoRoot = getGitRepoRoot(cwd);
   const branchPorts = readBranchPorts(repoRoot);

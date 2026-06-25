@@ -26,13 +26,13 @@
 
 import * as http from 'http';
 import * as net from 'net';
-import * as fs from 'fs';
-import * as path from 'path';
 import {
   getProxyRoutingState,
   startWorktreeServer,
   stopWorktreeServer,
+  watchGitConfig,
 } from '../lib/process-manager';
+import { getPrimordiaRuntimePaths } from '../lib/git-runtime';
 import { runScheduledJobs } from '../lib/scheduled-jobs';
 
 // Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
@@ -140,38 +140,10 @@ function derivePublicPort(incoming: http.IncomingMessage): string {
 
 const LISTEN_PORT = parseInt(process.env.REVERSE_PROXY_PORT ?? '3000', 10);
 
-/**
- * Compute paths relative to the installed reverse proxy bundle location.
- * Bun's bundler preserves source __dirname/__filename, so use the invoked
- * entrypoint path instead. Supported entrypoints:
- *   - {PRIMORDIA_ROOT}/reverse-proxy.js
- *   - {PRIMORDIA_ROOT}/scripts/reverse-proxy.ts
- */
-function findPrimordiaRoot(): string {
-  const entrypoint = process.argv[1];
-  if (!entrypoint) {
-    throw new Error('Cannot determine Primordia root: process.argv[1] is empty');
-  }
-
-  const entrypointPath = path.resolve(entrypoint);
-  const root = path.basename(path.dirname(entrypointPath)) === 'scripts'
-    ? path.dirname(path.dirname(entrypointPath))
-    : path.dirname(entrypointPath);
-
-  const sourceGit = path.join(root, 'source.git');
-  const worktrees = path.join(root, 'worktrees');
-  if (!fs.existsSync(sourceGit) || !fs.existsSync(worktrees)) {
-    throw new Error(
-      `Cannot determine Primordia root from entrypoint ${entrypointPath}: expected ${sourceGit} and ${worktrees}`,
-    );
-  }
-
-  return root;
-}
-
-const PRIMORDIA_ROOT = findPrimordiaRoot();
-const WORKTREES_DIR = path.join(PRIMORDIA_ROOT, 'worktrees');
-const MAIN_REPO = path.join(PRIMORDIA_ROOT, 'source.git');
+const PRIMORDIA_PATHS = getPrimordiaRuntimePaths();
+const PRIMORDIA_ROOT = PRIMORDIA_PATHS.root;
+const WORKTREES_DIR = PRIMORDIA_PATHS.worktreesDir;
+const MAIN_REPO = PRIMORDIA_PATHS.mainRepo;
 
 let upstreamPort = 3001;
 /** The branch name currently set as primordia.productionBranch. */
@@ -215,9 +187,10 @@ const previewProcesses = new Map<string, PreviewEntry>();
  */
 function readAllPorts(): void {
   const state = getProxyRoutingState(MAIN_REPO, LISTEN_PORT);
-  if (!watchedConfigPath && state.gitConfigPath) {
-    watchedConfigPath = state.gitConfigPath;
-    watchGitConfig(state.gitConfigPath);
+  if (!watchedConfigPath) {
+    watchedConfigPath = watchGitConfig(MAIN_REPO, () => {
+      try { readAllPorts(); } catch (err) { logCrashBoundary('git config reload failed', err); }
+    });
   }
 
   sessionPortCache = Object.fromEntries(
@@ -242,16 +215,6 @@ function readAllPorts(): void {
 
   if (state.previewInactivityMin) previewInactivityMin = state.previewInactivityMin;
 
-}
-
-function watchGitConfig(configPath: string): void {
-  try {
-    fs.watch(configPath, () => setTimeout(() => {
-      try { readAllPorts(); } catch (err) { logCrashBoundary('git config reload failed', err); }
-    }, 50));
-  } catch {
-    setTimeout(() => watchGitConfig(configPath), 1000);
-  }
 }
 
 // ─── Port management ──────────────────────────────────────────────────────────

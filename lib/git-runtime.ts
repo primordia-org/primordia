@@ -1,9 +1,16 @@
 import { execFileSync } from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
 
 export interface GitWorktreeInfo {
   path: string;
   branch: string | null;
+}
+
+export interface PrimordiaRuntimePaths {
+  root: string;
+  worktreesDir: string;
+  mainRepo: string;
 }
 
 export function runGit(args: string[], cwd: string): string {
@@ -17,6 +24,33 @@ export function runGit(args: string[], cwd: string): string {
 export function getGitRepoRoot(cwd: string): string {
   const commonDir = runGit(['rev-parse', '--git-common-dir'], cwd).trim();
   return path.resolve(cwd, commonDir);
+}
+
+/**
+ * Computes installed Primordia paths relative to the invoked reverse-proxy
+ * entrypoint. Supported entrypoints:
+ *   - {PRIMORDIA_ROOT}/reverse-proxy.js
+ *   - {PRIMORDIA_ROOT}/scripts/reverse-proxy.ts
+ */
+export function getPrimordiaRuntimePaths(entrypoint = process.argv[1]): PrimordiaRuntimePaths {
+  if (!entrypoint) {
+    throw new Error('Cannot determine Primordia root: process.argv[1] is empty');
+  }
+
+  const entrypointPath = path.resolve(entrypoint);
+  const root = path.basename(path.dirname(entrypointPath)) === 'scripts'
+    ? path.dirname(path.dirname(entrypointPath))
+    : path.dirname(entrypointPath);
+
+  const mainRepo = path.join(root, 'source.git');
+  const worktreesDir = path.join(root, 'worktrees');
+  if (!fs.existsSync(mainRepo) || !fs.existsSync(worktreesDir)) {
+    throw new Error(
+      `Cannot determine Primordia root from entrypoint ${entrypointPath}: expected ${mainRepo} and ${worktreesDir}`,
+    );
+  }
+
+  return { root, mainRepo, worktreesDir };
 }
 
 export function listGitWorktrees(repoRoot: string): GitWorktreeInfo[] {
