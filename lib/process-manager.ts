@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { execFileSync, spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { renderTable } from './cli-utils';
@@ -21,6 +21,15 @@ export interface ProcessActionResult {
   mode?: ServerStartMode;
   pids: number[];
   logPath?: string;
+  message: string;
+}
+
+export interface ProxyOwnedServerProcess {
+  process: ChildProcess;
+  worktree: string;
+  branch: string;
+  port: number;
+  mode: ServerStartMode;
   message: string;
 }
 
@@ -388,6 +397,54 @@ function signalPid(pid: number, signal: NodeJS.Signals): void {
   try { process.kill(pid, signal); } catch { /* process already gone */ }
 }
 
+export function getBoundPorts(): Set<number> {
+  return new Set(buildPortOwners().keys());
+}
+
+export function findFreePort(assignedPorts: Set<number>, startFrom: number, excludedPorts: Set<number> = new Set()): number {
+  const boundPorts = getBoundPorts();
+  for (let port = startFrom; port < 65535; port++) {
+    if (excludedPorts.has(port)) continue;
+    if (assignedPorts.has(port)) continue;
+    if (boundPorts.has(port)) continue;
+    return port;
+  }
+  throw new Error('No free port found');
+}
+
+export async function killPortOwner(port: number, timeoutMs = 60_000): Promise<void> {
+  const owners = buildPortOwners().get(port);
+  if (!owners || owners.size === 0) return;
+
+  const pids = [...owners].sort((a, b) => b - a);
+  for (const pid of pids) signalPid(pid, 'SIGTERM');
+
+  const stopped = await waitForPidsToExit(pids, timeoutMs);
+  if (!stopped) {
+    for (const pid of pids) signalPid(pid, 'SIGKILL');
+    await waitForPidsToExit(pids, 1000);
+  }
+}
+
+export function getDiskUsedPercent(mountPoint = '/'): number | null {
+  try {
+    const out = execFileSync('df', ['-B1', mountPoint], {
+      encoding: 'utf8',
+      timeout: 5_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const dataLine = out.trim().split('\n').slice(1).join(' ').trim();
+    const parts = dataLine.split(/\s+/);
+    if (parts.length < 3) return null;
+    const total = Number.parseInt(parts[1], 10);
+    const used = Number.parseInt(parts[2], 10);
+    if (!Number.isFinite(total) || !Number.isFinite(used) || total === 0) return null;
+    return Math.round((used / total) * 100);
+  } catch {
+    return null;
+  }
+}
+
 async function waitForPidsToExit(pids: number[], timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -472,30 +529,37 @@ export async function* followWorktreeLog(
   }
 }
 
-export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev', cwd = process.cwd()): ProcessActionResult {
-  const report = getProcessStatusReport(cwd);
-  const worktree = findWorktree(report, name);
-  if (worktree.servers.length > 0) {
-    throw new Error(`Worktree '${worktree.branch}' already has running server process(es): ${worktree.servers.map((server) => server.pid).join(', ')}`);
-  }
-
-  const port = worktree.port;
+function buildServerEnv(worktreeBranch: string, port: number, mode: ServerStartMode): NodeJS.ProcessEnv {
   const baseEnv = {
     ...process.env,
     PORT: String(port),
     HOSTNAME: '0.0.0.0',
   };
-  const env: NodeJS.ProcessEnv = mode === 'dev'
+  return mode === 'dev'
     ? {
       ...baseEnv,
       NODE_ENV: 'development',
-      ...(process.env.REVERSE_PROXY_PORT ? { NEXT_BASE_PATH: `/preview/${worktree.branch}` } : {}),
+      ...(process.env.REVERSE_PROXY_PORT ? { NEXT_BASE_PATH: `/preview/${worktreeBranch}` } : {}),
     }
     : {
       ...baseEnv,
       NODE_ENV: 'production',
     };
+}
 
+function assertNoRunningServer(worktree: ManageableWorktreeProcessStatus): void {
+  if (worktree.servers.length > 0) {
+    throw new Error(`Worktree '${worktree.branch}' already has running server process(es): ${worktree.servers.map((server) => server.pid).join(', ')}`);
+  }
+}
+
+export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev', cwd = process.cwd()): ProcessActionResult {
+  const report = getProcessStatusReport(cwd);
+  const worktree = findWorktree(report, name);
+  assertNoRunningServer(worktree);
+
+  const port = worktree.port;
+  const env = buildServerEnv(worktree.branch, port, mode);
   const logPath = getWorktreeLogPath(name, cwd);
   const pidPath = path.join(worktree.path, '.primordia-server.pid');
   const logFd = fs.openSync(logPath, 'a');
@@ -519,6 +583,28 @@ export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev',
     pids: [proc.pid],
     logPath,
     message: `started ${worktree.branch} ${mode} server on port ${port} (PID ${proc.pid}, log ${logPath})`,
+  };
+}
+
+export function startProxyOwnedWorktreeServer(name: string, mode: ServerStartMode = 'prod', cwd = process.cwd()): ProxyOwnedServerProcess {
+  const report = getProcessStatusReport(cwd);
+  const worktree = findWorktree(report, name);
+  assertNoRunningServer(worktree);
+
+  const port = worktree.port;
+  const proc = spawn('mise', ['exec', '-C', worktree.path, '--', 'bun', 'run', mode === 'dev' ? 'dev' : 'start'], {
+    cwd: worktree.path,
+    env: buildServerEnv(worktree.branch, port, mode),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (!proc.pid) throw new Error(`Failed to start ${worktree.branch} server`);
+  return {
+    process: proc,
+    worktree: worktree.path,
+    branch: worktree.branch,
+    port,
+    mode,
+    message: `started ${worktree.branch} ${mode} server on port ${port} (PID ${proc.pid})`,
   };
 }
 

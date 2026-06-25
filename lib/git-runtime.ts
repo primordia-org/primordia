@@ -6,7 +6,7 @@ export interface GitWorktreeInfo {
   branch: string | null;
 }
 
-function runGit(args: string[], cwd: string): string {
+export function runGit(args: string[], cwd: string): string {
   return execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
@@ -80,6 +80,48 @@ export function readBranchPorts(repoRoot: string): Map<string, number> {
 export function readProductionBranch(repoRoot: string): string | null {
   try {
     const value = runGit(['config', '--get', 'primordia.productionBranch'], repoRoot).trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
+export function readGitConfigValue(repoRoot: string, key: string): string | null {
+  try {
+    const value = runGit(['config', '--get', key], repoRoot).trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeGitConfigValue(repoRoot: string, key: string, value: string): void {
+  runGit(['config', key, value], repoRoot);
+}
+
+export function addGitConfigValue(repoRoot: string, key: string, value: string): void {
+  runGit(['config', '--add', key, value], repoRoot);
+}
+
+export function unsetGitConfigValue(repoRoot: string, key: string): void {
+  runGit(['config', '--unset', key], repoRoot);
+}
+
+export function removeGitWorktree(repoRoot: string, worktreePath: string): void {
+  runGit(['worktree', 'remove', '--force', worktreePath], repoRoot);
+}
+
+export function pruneGitWorktrees(repoRoot: string): void {
+  runGit(['worktree', 'prune'], repoRoot);
+}
+
+export function deleteGitBranch(repoRoot: string, branch: string): void {
+  runGit(['branch', '-D', branch], repoRoot);
+}
+
+export function readCurrentBranch(repoRoot: string): string | null {
+  try {
+    const value = runGit(['symbolic-ref', '--short', 'HEAD'], repoRoot).trim();
     return value || null;
   } catch {
     return null;
