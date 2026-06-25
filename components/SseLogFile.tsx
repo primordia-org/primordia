@@ -69,8 +69,8 @@ export function SseLogFile({ streamPath, initialOutput = "" }: SseLogFileProps) 
       }
 
       if ("status" in parsed) {
+        setConnectionState("connected");
         setMissingLog(parsed.status === "missing");
-        if (parsed.message) setNotice(parsed.message);
         if (parsed.status === "ready") setNotice(null);
         return;
       }
@@ -153,23 +153,21 @@ export function SseLogFile({ streamPath, initialOutput = "" }: SseLogFileProps) 
 
   const connected = connectionState === "connected";
   const label = connected
-    ? missingLog ? "Waiting for log file" : "Following log"
+    ? missingLog ? "Preview server log file does not exist yet." : "Following log"
     : connectionState === "reconnecting" ? "Reconnecting log stream" : "Connecting log stream";
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
-        <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
+        <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? missingLog ? "bg-amber-400" : "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
         {label}
       </div>
-      {notice && <div className="text-[11px] text-amber-300">{notice}</div>}
+      {notice && !missingLog && <div className="text-[11px] text-amber-300">{notice}</div>}
       {output ? (
         <AnsiRenderer text={output} className="text-gray-400" />
-      ) : (
-        <div className="text-gray-600">
-          {missingLog ? "The preview server log file does not exist yet." : "Waiting for log output…"}
-        </div>
-      )}
+      ) : !missingLog ? (
+        <div className="text-gray-600">Waiting for log output…</div>
+      ) : null}
     </div>
   );
 }
