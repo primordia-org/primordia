@@ -13,6 +13,8 @@ import { getBranchParentSource, getEvolvePrefs } from "@/lib/user-prefs";
 import { buildPageTitle } from "@/lib/page-title";
 import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem, type SessionEvent } from "@/lib/session-events";
 import { getParentBranch, type BranchParentSource } from "@/lib/branch-parent";
+import { getWorktreeLogPath } from "@/lib/process-manager";
+import { SseLogFile } from "@/components/SseLogFile";
 import EvolveSessionView from "./EvolveSessionView";
 
 export async function generateMetadata({
@@ -90,6 +92,26 @@ function getUpstreamCommitCount(sessionBranch: string, parentSource: BranchParen
   }
 }
 
+function readLogTail(logPath: string, maxBytes = 50 * 1024): string {
+  try {
+    const stat = fs.statSync(logPath);
+    const start = Math.max(0, stat.size - maxBytes);
+    const length = stat.size - start;
+    if (length <= 0) return "";
+
+    const fd = fs.openSync(logPath, "r");
+    try {
+      const buffer = Buffer.alloc(length);
+      fs.readSync(fd, buffer, 0, length, start);
+      return buffer.toString("utf8");
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return "";
+  }
+}
+
 export default async function EvolveSessionPage({
   params,
 }: {
@@ -116,6 +138,9 @@ export default async function EvolveSessionPage({
   const upstreamCommitCount = getUpstreamCommitCount(session.branch, parentSource);
   const diffSummary = getGitDiffSummary(session.branch, parentSource);
 
+  const serverLogPath = getWorktreeLogPath(session.branch, process.cwd());
+  const initialServerLogs = readLogTail(serverLogPath);
+
   // Load initial events from the NDJSON log.
   let initialEvents: SessionEvent[] = [];
   let initialLineCount = 0;
@@ -134,6 +159,12 @@ export default async function EvolveSessionPage({
       initialLineCount={initialLineCount}
       initialStatus={session.status}
       initialPreviewUrl={session.previewUrl}
+      serverLogsNode={(
+        <SseLogFile
+          streamPath={`/api/evolve/server-logs?sessionId=${encodeURIComponent(session.id)}`}
+          initialOutput={initialServerLogs}
+        />
+      )}
       branch={branch}
       parentBranch={parentBranch}
       sessionBranch={session.branch}

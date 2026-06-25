@@ -4,7 +4,7 @@
 // Client component rendered by /evolve/session/[id].
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
 import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown } from "lucide-react";
 import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
@@ -33,6 +33,7 @@ import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
 import { normalizeAuthSource, type PresetAuthSource } from "@/lib/presets";
 import { deriveSmartPreviewUrl } from "@/lib/smart-preview-url";
 import { trackEvent } from "@/lib/events-client";
+import { getPreviewProcessSnapshot, restartPreviewServer } from "./actions";
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────
 
@@ -1431,7 +1432,7 @@ function WebPreviewCard({
   previewUrl,
   sessionId: cardSessionId,
   proxyServerStatus,
-  serverLogs,
+  serverLogsNode,
   canEvolve,
   isRestartingServer,
   restartError,
@@ -1442,13 +1443,29 @@ function WebPreviewCard({
   previewUrl: string | null;
   sessionId: string;
   proxyServerStatus: 'starting' | 'running' | 'stopped' | 'unknown';
-  serverLogs: string;
+  serverLogsNode: ReactNode;
   canEvolve: boolean;
   isRestartingServer: boolean;
   restartError: string | null;
   onRestartServer: () => void;
   onElementSelected: (info: ElementSelection) => void;
 }) {
+  const serverLogsScrollRef = useRef<HTMLDivElement>(null);
+
+  const scrollServerLogsToEnd = useCallback(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = serverLogsScrollRef.current;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (proxyServerStatus === 'stopped') scrollServerLogsToEnd();
+  }, [proxyServerStatus, scrollServerLogsToEnd]);
+
   return (
     <div className={`rounded-lg border border-emerald-700/50 bg-gray-900 text-sm overflow-hidden flex flex-col${fullHeight ? ' h-full' : ''}`}>
       {restartError && (
@@ -1459,6 +1476,7 @@ function WebPreviewCard({
       <div className={fullHeight ? 'flex-1 min-h-0' : ''}>
         {previewUrl ? (
           <WebPreviewPanel
+            key={previewUrl}
             src={previewUrl}
             sessionId={cardSessionId}
             fullHeight={fullHeight}
@@ -1518,7 +1536,13 @@ function WebPreviewCard({
       </div>
 
       {/* Server logs — always collapsible; auto-open when stopped */}
-      <details className="group flex-shrink-0 border-t border-emerald-700/50" open={proxyServerStatus === 'stopped'}>
+      <details
+        className="group flex-shrink-0 border-t border-emerald-700/50"
+        open={proxyServerStatus === 'stopped'}
+        onToggle={(event) => {
+          if (event.currentTarget.open) scrollServerLogsToEnd();
+        }}
+      >
         <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
           <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
           <span className="text-gray-500">🪵 Server logs</span>
@@ -1534,11 +1558,9 @@ function WebPreviewCard({
           )}
         </summary>
         <div className="px-4 py-3 border-t border-gray-800">
-          {serverLogs ? (
-            <pre className="text-xs text-gray-400 whitespace-pre-wrap font-mono overflow-x-auto max-h-48 overflow-y-auto">{serverLogs}</pre>
-          ) : (
-            <p className="text-xs text-gray-600 italic">No logs yet…</p>
-          )}
+          <div ref={serverLogsScrollRef} className="text-xs text-gray-400 font-mono overflow-x-auto max-h-48 overflow-y-auto">
+            {serverLogsNode}
+          </div>
         </div>
       </details>
     </div>
@@ -1554,6 +1576,8 @@ interface EvolveSessionViewProps {
   initialLineCount: number;
   initialStatus: string;
   initialPreviewUrl: string | null;
+  /** Streaming worktree server log output rendered by a server component. */
+  serverLogsNode: ReactNode;
   /** The currently checked-out branch in this instance. Used in confirmation copy and NavHeader. */
   branch?: string | null;
   /** The branch this session was branched from (from git config). Used in upstream-changes display. */
@@ -1645,6 +1669,7 @@ export default function EvolveSessionView({
   initialLineCount,
   initialStatus,
   initialPreviewUrl,
+  serverLogsNode,
   branch,
   parentBranch,
   sessionBranch,
@@ -1670,11 +1695,8 @@ export default function EvolveSessionView({
   const [events, setEvents] = useState<SessionEvent[]>(initialEvents);
   const [status, setStatus] = useState(initialStatus);
   const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl);
-  /** Status of the preview server as reported by the proxy management API. */
+  /** Status of the preview server as reported by the process manager. */
   const [proxyServerStatus, setProxyServerStatus] = useState<'starting' | 'running' | 'stopped' | 'unknown'>('unknown');
-  /** Accumulated log lines from the proxy's server log SSE stream. */
-  const [serverLogs, setServerLogs] = useState<string>('');
-
   const sounds = useSounds();
   const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
   const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
@@ -1706,7 +1728,6 @@ export default function EvolveSessionView({
   const [upstreamSyncError, setUpstreamSyncError] = useState<string | null>(null);
   const [liveDiffSummary, setLiveDiffSummary] = useState<DiffFileSummary[]>(diffSummary);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const proxyLogsControllerRef = useRef<AbortController | null>(null);
   /** Tracks how many NDJSON lines the client has received, for SSE reconnection offset. */
   const lineCountRef = useRef(initialLineCount);
   /** Mirrors current status so the visibilitychange handler can read it without a stale closure. */
@@ -1932,92 +1953,33 @@ export default function EvolveSessionView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]); // intentionally omit initialStatus — run once on mount
 
-  // Poll the proxy for the real-time preview server status whenever a preview URL is available,
-  // or once the session is ready even if the agent never selected an explicit preview route.
   useEffect(() => {
     if (previewUrl === null && status !== "ready") return;
     let cancelled = false;
 
-    async function poll() {
+    async function pollProcessSnapshot() {
       while (!cancelled) {
         try {
-          const res = await fetch(`/_proxy/preview/${sessionId}/status`);
-          if (res.ok && !cancelled) {
-            const data = (await res.json()) as { devServerStatus?: string };
-            const s = data.devServerStatus;
-            if (s === 'starting' || s === 'running' || s === 'stopped') {
-              setProxyServerStatus(s);
-            }
+          const snapshot = await getPreviewProcessSnapshot(sessionId);
+          if (!cancelled) {
+            setProxyServerStatus(snapshot.status);
           }
-        } catch { /* network error — keep polling */ }
-        if (!cancelled) await new Promise<void>((r) => setTimeout(r, 5_000));
+        } catch { /* keep polling */ }
+        if (!cancelled) await new Promise<void>((r) => setTimeout(r, 2_000));
       }
     }
 
-    void poll();
+    void pollProcessSnapshot();
     return () => { cancelled = true; };
   }, [sessionId, previewUrl, status]);
-
-  // Stream server logs from the proxy when a preview URL is available or the session is ready.
-  async function startServerLogsStream() {
-    proxyLogsControllerRef.current?.abort();
-    const controller = new AbortController();
-    proxyLogsControllerRef.current = controller;
-
-    try {
-      const res = await fetch(`/_proxy/preview/${sessionId}/logs`, { signal: controller.signal });
-      if (!res.ok || !res.body) return;
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split('\n')) {
-          if (!line.startsWith('data: ')) continue;
-          const raw = line.slice(6).trim();
-          if (!raw) continue;
-          try {
-            const parsed = JSON.parse(raw) as { text?: string; snapshot?: boolean; done?: boolean };
-            if (parsed.snapshot) {
-              setServerLogs(parsed.text ?? '');
-            } else if (parsed.text) {
-              setServerLogs((prev) => prev + parsed.text);
-            }
-            if (parsed.done) return;
-          } catch { /* malformed line */ }
-        }
-      }
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') return;
-    }
-  }
-
-  useEffect(() => {
-    if (previewUrl === null && status !== "ready") return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void startServerLogsStream();
-    return () => { proxyLogsControllerRef.current?.abort(); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, previewUrl, status]);
-
   async function handleRestartServer() {
     trackEvent("session/restart-server-clicked/v1", { sessionId });
     setIsRestartingServer(true);
     setRestartError(null);
 
     try {
-      const res = await fetch(`/_proxy/preview/${sessionId}/restart`, { method: 'POST' });
-
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error ?? `Server error: ${res.status}`);
-      }
-
-      setProxyServerStatus('starting');
-      void startServerLogsStream();
+      const snapshot = await restartPreviewServer(sessionId);
+      setProxyServerStatus(snapshot.status);
     } catch (err) {
       setRestartError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -2763,7 +2725,7 @@ export default function EvolveSessionView({
             previewUrl={smartPreviewUrl}
             sessionId={sessionId}
             proxyServerStatus={proxyServerStatus}
-            serverLogs={serverLogs}
+            serverLogsNode={serverLogsNode}
             canEvolve={canEvolve}
             isRestartingServer={isRestartingServer}
             restartError={restartError}
@@ -2813,7 +2775,7 @@ export default function EvolveSessionView({
           previewUrl={smartPreviewUrl}
           sessionId={sessionId}
           proxyServerStatus={proxyServerStatus}
-          serverLogs={serverLogs}
+          serverLogsNode={serverLogsNode}
           canEvolve={canEvolve}
           isRestartingServer={isRestartingServer}
           restartError={restartError}
