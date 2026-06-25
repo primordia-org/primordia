@@ -305,7 +305,7 @@ function getDescendantPids(pid: number, childrenByParent: Map<number, number[]>)
 }
 
 function isReverseProxyProcess(proc: ProcessInfo): boolean {
-  return /(^|\s)(?:\S*\/)?reverse-proxy\.ts(?:\s|$)/.test(proc.command);
+  return /(^|\s)(?:\S*\/)?reverse-proxy\.(?:ts|js)(?:\s|$)/.test(proc.command);
 }
 
 function getReverseProxyStatuses(processes: ProcessInfo[], childrenByParent: Map<number, number[]>): ReverseProxyStatus[] {

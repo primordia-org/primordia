@@ -158,12 +158,34 @@ const MISE_COMMAND = 'mise';
 
 /**
  * Compute paths relative to the installed reverse proxy bundle location.
- * install.sh bundles scripts/reverse-proxy.ts to {PRIMORDIA_ROOT}/reverse-proxy.js,
- * so __filename is {PRIMORDIA_ROOT}/reverse-proxy.js at runtime.
- * Worktrees are at {PRIMORDIA_ROOT}/worktrees/.
- * Main repo is at {PRIMORDIA_ROOT}/source.git.
+ * Bun's bundler preserves source __dirname/__filename, so use the invoked
+ * entrypoint path instead. Supported entrypoints:
+ *   - {PRIMORDIA_ROOT}/reverse-proxy.js
+ *   - {PRIMORDIA_ROOT}/scripts/reverse-proxy.ts
  */
-const PRIMORDIA_ROOT = path.dirname(__filename);
+function findPrimordiaRoot(): string {
+  const entrypoint = process.argv[1];
+  if (!entrypoint) {
+    throw new Error('Cannot determine Primordia root: process.argv[1] is empty');
+  }
+
+  const entrypointPath = path.resolve(entrypoint);
+  const root = path.basename(path.dirname(entrypointPath)) === 'scripts'
+    ? path.dirname(path.dirname(entrypointPath))
+    : path.dirname(entrypointPath);
+
+  const sourceGit = path.join(root, 'source.git');
+  const worktrees = path.join(root, 'worktrees');
+  if (!fs.existsSync(sourceGit) || !fs.existsSync(worktrees)) {
+    throw new Error(
+      `Cannot determine Primordia root from entrypoint ${entrypointPath}: expected ${sourceGit} and ${worktrees}`,
+    );
+  }
+
+  return root;
+}
+
+const PRIMORDIA_ROOT = findPrimordiaRoot();
 const WORKTREES_DIR = path.join(PRIMORDIA_ROOT, 'worktrees');
 const MAIN_REPO = path.join(PRIMORDIA_ROOT, 'source.git');
 
