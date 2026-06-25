@@ -1,0 +1,130 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import { execFileSync } from 'child_process';
+import { gzipSync } from 'zlib';
+import { deleteWorktreeAndBranch, getProxyRoutingState, stopWorktreeServer } from './process-manager';
+
+export interface CleanupWorktreeTarget {
+  path: string;
+  branch: string;
+}
+
+export interface DiskCleanupOptions {
+  repoRoot?: string;
+  listenPort?: number;
+  archiveRoot?: string;
+  thresholdPct?: number;
+  log?: (message: string) => void;
+  warn?: (message: string) => void;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function safeArchiveFilenamePart(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'session';
+}
+
+function archiveSessionNdjsonLogBeforeCleanup(worktreePath: string, sessionId: string, archiveRoot: string): void {
+  const ndjsonPath = path.join(worktreePath, '.primordia-session.ndjson');
+  if (!fs.existsSync(ndjsonPath)) return;
+
+  const content = fs.readFileSync(ndjsonPath);
+  if (content.length === 0) return;
+
+  const archiveDir = path.join(archiveRoot, 'past-sessions');
+  fs.mkdirSync(archiveDir, { recursive: true });
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const safeSessionId = safeArchiveFilenamePart(sessionId || path.basename(worktreePath));
+  const baseName = `${timestamp}-${safeSessionId}.ndjson.gz`;
+  let archivePath = path.join(archiveDir, baseName);
+  for (let i = 2; fs.existsSync(archivePath); i++) {
+    archivePath = path.join(archiveDir, `${timestamp}-${safeSessionId}-${i}.ndjson.gz`);
+  }
+
+  fs.writeFileSync(archivePath, gzipSync(content));
+}
+
+export function getDiskUsedPercent(mountPoint = '/'): number | null {
+  try {
+    const out = execFileSync('df', ['-B1', mountPoint], {
+      encoding: 'utf8',
+      timeout: 5_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const dataLine = out.trim().split('\n').slice(1).join(' ').trim();
+    const parts = dataLine.split(/\s+/);
+    if (parts.length < 3) return null;
+    const total = Number.parseInt(parts[1], 10);
+    const used = Number.parseInt(parts[2], 10);
+    if (!Number.isFinite(total) || !Number.isFinite(used) || total === 0) return null;
+    return Math.round((used / total) * 100);
+  } catch {
+    return null;
+  }
+}
+
+export function getOldestDeletableWorktree(repoRoot: string, listenPort?: number): CleanupWorktreeTarget | null {
+  const state = getProxyRoutingState(repoRoot, listenPort);
+  const candidates: (CleanupWorktreeTarget & { ctimeMs: number })[] = [];
+  for (const [branch, target] of Object.entries(state.previewTargets)) {
+    if (branch === state.productionBranch) continue;
+    let ctimeMs = 0;
+    try { ctimeMs = fs.statSync(target.worktreePath).ctimeMs; } catch { /* missing dir */ }
+    candidates.push({ path: target.worktreePath, branch, ctimeMs });
+  }
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.ctimeMs - b.ctimeMs);
+  return { path: candidates[0].path, branch: candidates[0].branch };
+}
+
+export async function deleteWorktreeForCleanup(
+  repoRoot: string,
+  target: CleanupWorktreeTarget,
+  options: { archiveRoot?: string; warn?: (message: string) => void } = {},
+): Promise<void> {
+  try {
+    await stopWorktreeServer(target.branch, repoRoot);
+  } catch { /* server may already be stopped */ }
+
+  try {
+    archiveSessionNdjsonLogBeforeCleanup(target.path, target.branch, options.archiveRoot ?? process.env.PRIMORDIA_DIR ?? repoRoot);
+  } catch (err) {
+    options.warn?.(`[disk-cleanup] failed to archive session log for ${target.branch}: ${errorMessage(err)}`);
+  }
+
+  deleteWorktreeAndBranch(target.path, target.branch, repoRoot);
+}
+
+export async function runDiskCleanupOnce(options: DiskCleanupOptions = {}): Promise<void> {
+  const repoRoot = options.repoRoot ?? process.cwd();
+  const thresholdPct = options.thresholdPct ?? 90;
+  const log = options.log ?? console.log;
+  const warn = options.warn ?? console.warn;
+  const usedPct = getDiskUsedPercent();
+  if (usedPct === null || usedPct < thresholdPct) return;
+
+  log(`[disk-cleanup] disk at ${usedPct}% ≥ threshold ${thresholdPct}% — starting cleanup`);
+
+  let deleted = 0;
+  for (;;) {
+    const current = getDiskUsedPercent();
+    if (current === null || current < thresholdPct) break;
+
+    const target = getOldestDeletableWorktree(repoRoot, options.listenPort);
+    if (!target) {
+      warn(`[disk-cleanup] no deletable non-prod worktrees remain; disk still at ${current}%`);
+      break;
+    }
+
+    log(`[disk-cleanup] deleting worktree branch='${target.branch}' path='${target.path}' (disk ${current}%)`);
+    await deleteWorktreeForCleanup(repoRoot, target, { archiveRoot: options.archiveRoot, warn });
+    deleted++;
+  }
+
+  const finalPct = getDiskUsedPercent();
+  log(`[disk-cleanup] done — deleted ${deleted} worktree(s), disk now at ${finalPct ?? '?'}%`);
+}

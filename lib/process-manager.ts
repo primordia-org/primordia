@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'child_process';
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { renderTable } from './cli-utils';
@@ -430,7 +430,7 @@ function findFreePort(assignedPorts: Set<number>, startFrom: number, excludedPor
   throw new Error('No free port found');
 }
 
-export async function killPortOwner(port: number, timeoutMs = 60_000): Promise<void> {
+async function killPortOwner(port: number, timeoutMs = 60_000): Promise<void> {
   const owners = buildPortOwners().get(port);
   if (!owners || owners.size === 0) return;
 
@@ -441,25 +441,6 @@ export async function killPortOwner(port: number, timeoutMs = 60_000): Promise<v
   if (!stopped) {
     for (const pid of pids) signalPid(pid, 'SIGKILL');
     await waitForPidsToExit(pids, 1000);
-  }
-}
-
-export function getDiskUsedPercent(mountPoint = '/'): number | null {
-  try {
-    const out = execFileSync('df', ['-B1', mountPoint], {
-      encoding: 'utf8',
-      timeout: 5_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    const dataLine = out.trim().split('\n').slice(1).join(' ').trim();
-    const parts = dataLine.split(/\s+/);
-    if (parts.length < 3) return null;
-    const total = Number.parseInt(parts[1], 10);
-    const used = Number.parseInt(parts[2], 10);
-    if (!Number.isFinite(total) || !Number.isFinite(used) || total === 0) return null;
-    return Math.round((used / total) * 100);
-  } catch {
-    return null;
   }
 }
 
@@ -643,18 +624,15 @@ function buildServerEnv(worktreeBranch: string, port: number, mode: ServerStartM
     };
 }
 
-function assertNoRunningServer(worktree: ManageableWorktreeProcessStatus): void {
-  if (worktree.servers.length > 0) {
-    throw new Error(`Worktree '${worktree.branch}' already has running server process(es): ${worktree.servers.map((server) => server.pid).join(', ')}`);
-  }
-}
-
-export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev', cwd = process.cwd()): ProcessActionResult {
+export async function startWorktreeServer(name: string, mode: ServerStartMode = 'dev', cwd = process.cwd()): Promise<ProcessActionResult> {
   const report = getProcessStatusReport(cwd);
   const worktree = findWorktree(report, name, cwd);
-  assertNoRunningServer(worktree);
-
   const port = worktree.port;
+  if (worktree.servers.length > 0) {
+    await stopWorktreeServer(name, cwd);
+  } else {
+    await killPortOwner(port);
+  }
   const env = buildServerEnv(worktree.branch, port, mode);
   const logPath = getWorktreeLogPath(name, cwd);
   const pidPath = path.join(worktree.path, '.primordia-server.pid');
@@ -684,7 +662,7 @@ export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev',
 
 export async function restartWorktreeServer(name: string, mode: ServerStartMode = 'dev', cwd = process.cwd()): Promise<ProcessActionResult> {
   await stopWorktreeServer(name, cwd);
-  const result = startWorktreeServer(name, mode, cwd);
+  const result = await startWorktreeServer(name, mode, cwd);
   return {
     ...result,
     action: 'restart',

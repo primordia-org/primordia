@@ -28,15 +28,12 @@ import * as http from 'http';
 import * as net from 'net';
 import * as fs from 'fs';
 import * as path from 'path';
-import { gzipSync } from 'zlib';
 import {
-  deleteWorktreeAndBranch,
-  getDiskUsedPercent as getManagedDiskUsedPercent,
   getProxyRoutingState,
-  killPortOwner,
   startWorktreeServer,
   stopWorktreeServer,
 } from '../lib/process-manager';
+import { runScheduledJobs } from '../lib/scheduled-jobs';
 
 // Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
 const HOP_BY_HOP = new Set([
@@ -176,38 +173,6 @@ const PRIMORDIA_ROOT = findPrimordiaRoot();
 const WORKTREES_DIR = path.join(PRIMORDIA_ROOT, 'worktrees');
 const MAIN_REPO = path.join(PRIMORDIA_ROOT, 'source.git');
 
-function safeArchiveFilenamePart(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'session';
-}
-
-function archiveSessionNdjsonLogBeforeCleanup(worktreePath: string, sessionId: string): void {
-  const ndjsonPath = path.join(worktreePath, '.primordia-session.ndjson');
-  if (!fs.existsSync(ndjsonPath)) return;
-
-  const content = fs.readFileSync(ndjsonPath);
-  if (content.length === 0) return;
-
-  const archiveDir = path.join(process.env.PRIMORDIA_DIR || PRIMORDIA_ROOT, 'past-sessions');
-  fs.mkdirSync(archiveDir, { recursive: true });
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const safeSessionId = safeArchiveFilenamePart(sessionId || path.basename(worktreePath));
-  const baseName = `${timestamp}-${safeSessionId}.ndjson.gz`;
-  let archivePath = path.join(archiveDir, baseName);
-  for (let i = 2; fs.existsSync(archivePath); i++) {
-    archivePath = path.join(archiveDir, `${timestamp}-${safeSessionId}-${i}.ndjson.gz`);
-  }
-
-  fs.writeFileSync(archivePath, gzipSync(content));
-}
-
-/** Disk usage percent above which automatic worktree cleanup is triggered (configurable via git config primordia.diskCleanupThresholdPct). */
-let diskCleanupThresholdPct = 90;
-/** How often the proxy checks disk usage and cleans up if needed (5 minutes). */
-const DISK_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
-
-
-
 let upstreamPort = 3001;
 /** The branch name currently set as primordia.productionBranch. */
 let currentProdBranch: string | null = null;
@@ -276,7 +241,7 @@ function readAllPorts(): void {
   }
 
   if (state.previewInactivityMin) previewInactivityMin = state.previewInactivityMin;
-  if (state.diskCleanupThresholdPct) diskCleanupThresholdPct = state.diskCleanupThresholdPct;
+
 }
 
 function watchGitConfig(configPath: string): void {
@@ -311,7 +276,6 @@ async function startPreviewServer(
   previewProcesses.set(sessionId, entry);
 
   console.log(`[proxy] starting preview server for session ${sessionId} on :${info.port} in ${info.worktreePath}`);
-  await killPortOwner(info.port);
 
   if (previewProcesses.get(sessionId) !== entry) {
     console.log(`[proxy] aborting preview start for session ${sessionId} (superseded by concurrent operation)`);
@@ -322,7 +286,7 @@ async function startPreviewServer(
     const previousProxyPort = process.env.REVERSE_PROXY_PORT;
     process.env.REVERSE_PROXY_PORT = String(LISTEN_PORT);
     try {
-      const result = startWorktreeServer(sessionId, 'dev', MAIN_REPO);
+      const result = await startWorktreeServer(sessionId, 'dev', MAIN_REPO);
       console.log(`[proxy] ${result.message}`);
     } finally {
       if (previousProxyPort === undefined) delete process.env.REVERSE_PROXY_PORT;
@@ -429,9 +393,8 @@ async function startProdServerIfNeeded(): Promise<void> {
   }
 
   console.log(`[proxy] asking process-manager to start production server (${currentProdBranch}) on :${upstreamPort}`);
-  await killPortOwner(upstreamPort);
   try {
-    const result = startWorktreeServer(currentProdBranch, 'prod', MAIN_REPO);
+    const result = await startWorktreeServer(currentProdBranch, 'prod', MAIN_REPO);
     console.log(`[proxy] ${result.message}`);
   } catch (err) {
     if (errorMessage(err).includes('already has running server process')) {
@@ -570,7 +533,7 @@ async function handlePreviewRequest(
     // Guard: refuse to launch a preview server for a worktree that is currently
     // serving production. This can happen when a session branch is accepted and
     // becomes the production branch — its sessionWorktreeCache entry remains
-    // valid, but spawning a dev server would call killPortOwner and take down prod.
+    // valid, but spawning a dev server would stop the process on that branch port and take down prod.
     if (info.port === upstreamPort) {
       console.warn(`[proxy] refusing preview for session ${sessionId}: worktree is the current production server (port :${info.port})`);
       clientRes.writeHead(409, { 'content-type': 'text/plain' });
@@ -849,91 +812,6 @@ const server = net.createServer((rawSocket) => {
   rawSocket.resume();
 });
 
-// ─── Automatic disk cleanup ───────────────────────────────────────────────────
-//
-// Periodically checks disk usage.  When usage is at or above
-// DISK_CLEANUP_THRESHOLD_PCT, the oldest non-production worktree is deleted
-// (killing its dev server, removing the worktree directory, and deleting its
-// branch).  This repeats until usage drops below the threshold or there are no
-// more deletable worktrees.
-
-function getDiskUsedPercent(): number | null {
-  return getManagedDiskUsedPercent('/');
-}
-
-interface CleanupWorktreeTarget {
-  path: string;
-  branch: string;
-}
-
-function getOldestDeletableWorktree(repoRoot: string): CleanupWorktreeTarget | null {
-  const state = getProxyRoutingState(repoRoot, LISTEN_PORT);
-  const candidates: (CleanupWorktreeTarget & { ctimeMs: number })[] = [];
-  for (const [branch, target] of Object.entries(state.previewTargets)) {
-    if (branch === state.productionBranch) continue;
-    let ctimeMs = 0;
-    try { ctimeMs = fs.statSync(target.worktreePath).ctimeMs; } catch { /* missing dir */ }
-    candidates.push({ path: target.worktreePath, branch, ctimeMs });
-  }
-
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => a.ctimeMs - b.ctimeMs);
-  return { path: candidates[0].path, branch: candidates[0].branch };
-}
-
-async function deleteWorktreeForCleanup(repoRoot: string, target: CleanupWorktreeTarget): Promise<void> {
-  // Kill any dev server on this branch's port (best-effort).
-  try {
-    const port = getProxyRoutingState(repoRoot, LISTEN_PORT).branchPorts.get(target.branch);
-    if (port) await killPortOwner(port);
-  } catch { /* best-effort */ }
-
-  // Archive the session log before removing the worktree (if this is an evolve session).
-  try {
-    archiveSessionNdjsonLogBeforeCleanup(target.path, target.branch);
-  } catch (err) {
-    console.warn(`[disk-cleanup] failed to archive session log for ${target.branch}: ${errorMessage(err)}`);
-  }
-
-  try {
-    deleteWorktreeAndBranch(target.path, target.branch, repoRoot);
-  } catch { /* best-effort */ }
-}
-
-async function runDiskCleanup(): Promise<void> {
-  const usedPct = getDiskUsedPercent();
-  if (usedPct === null || usedPct < diskCleanupThresholdPct) return;
-
-  console.log(
-    `[disk-cleanup] disk at ${usedPct}% ≥ threshold ${diskCleanupThresholdPct}% — starting cleanup`,
-  );
-
-  let deleted = 0;
-  for (;;) {
-    const current = getDiskUsedPercent();
-    if (current === null || current < diskCleanupThresholdPct) break;
-
-    const target = getOldestDeletableWorktree(MAIN_REPO);
-    if (!target) {
-      console.warn(
-        `[disk-cleanup] no deletable non-prod worktrees remain; disk still at ${current}%`,
-      );
-      break;
-    }
-
-    console.log(
-      `[disk-cleanup] deleting worktree branch='${target.branch}' path='${target.path}' (disk ${current}%)`,
-    );
-    await deleteWorktreeForCleanup(MAIN_REPO, target);
-    deleted++;
-  }
-
-  const finalPct = getDiskUsedPercent();
-  console.log(
-    `[disk-cleanup] done — deleted ${deleted} worktree(s), disk now at ${finalPct ?? '?'}%`,
-  );
-}
-
 // ─── Server startup ───────────────────────────────────────────────────────────
 
 httpHandler.listen(0, '127.0.0.1', () => {
@@ -947,13 +825,12 @@ httpHandler.listen(0, '127.0.0.1', () => {
   });
 });
 
-// Run an initial disk check shortly after startup, then on a fixed interval.
-setTimeout(() => {
-  runDiskCleanup().catch((err) => logCrashBoundary('initial disk cleanup failed', err));
-}, 30_000).unref();
-setInterval(() => {
-  runDiskCleanup().catch((err) => logCrashBoundary('periodic disk cleanup failed', err));
-}, DISK_CLEANUP_INTERVAL_MS).unref();
+runScheduledJobs({
+  repoRoot: MAIN_REPO,
+  listenPort: LISTEN_PORT,
+  archiveRoot: process.env.PRIMORDIA_DIR || PRIMORDIA_ROOT,
+  logError: logCrashBoundary,
+});
 
 process.on('unhandledRejection', (reason) => {
   logCrashBoundary('unhandled promise rejection', reason);
