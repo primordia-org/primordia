@@ -1,12 +1,20 @@
-import { execFileSync, spawn, type ChildProcess } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { renderTable } from './cli-utils';
 import {
+  addGitConfigValue,
+  deleteGitBranch,
   getGitRepoRoot,
   listGitWorktrees,
+  pruneGitWorktrees,
   readBranchPorts,
+  readCurrentBranch,
+  readGitConfigValue,
   readProductionBranch,
+  removeGitWorktree,
+  unsetGitConfigValue,
+  writeGitConfigValue,
 } from './git-runtime';
 
 export type ServerEnv = 'prod' | 'dev' | 'unknown';
@@ -24,13 +32,14 @@ export interface ProcessActionResult {
   message: string;
 }
 
-export interface ProxyOwnedServerProcess {
-  process: ChildProcess;
-  worktree: string;
-  branch: string;
-  port: number;
-  mode: ServerStartMode;
-  message: string;
+export interface ProxyRoutingState {
+  productionBranch: string | null;
+  upstreamPort: number | null;
+  branchPorts: Map<string, number>;
+  previewTargets: Record<string, { worktreePath: string; port: number }>;
+  previewInactivityMin: number | null;
+  diskCleanupThresholdPct: number | null;
+  gitConfigPath: string | null;
 }
 
 export interface ManagedProcessStatus {
@@ -383,13 +392,22 @@ export function getProcessStatuses(cwd = process.cwd()): WorktreeProcessStatus[]
 
 type ManageableWorktreeProcessStatus = WorktreeProcessStatus & { branch: string; port: number };
 
-function findWorktree(report: ProcessStatusReport, name: string): ManageableWorktreeProcessStatus {
+type BranchWorktreeProcessStatus = WorktreeProcessStatus & { branch: string };
+
+function findWorktreeRecord(report: ProcessStatusReport, name: string): BranchWorktreeProcessStatus {
   const match = report.worktrees.find((worktree) =>
     worktree.branch === name || path.basename(worktree.path) === name || worktree.path === name,
   );
   if (!match) throw new Error(`No worktree found for '${name}'`);
   if (!match.branch) throw new Error(`Worktree '${name}' is detached and cannot be managed by branch port`);
-  if (match.port === null) throw new Error(`Worktree '${name}' has no assigned branch port`);
+  return match as BranchWorktreeProcessStatus;
+}
+
+function findWorktree(report: ProcessStatusReport, name: string, cwd = process.cwd()): ManageableWorktreeProcessStatus {
+  const match = findWorktreeRecord(report, name);
+  if (match.port === null) {
+    match.port = ensureBranchPort(match.branch, cwd);
+  }
   return match as ManageableWorktreeProcessStatus;
 }
 
@@ -401,7 +419,7 @@ export function getBoundPorts(): Set<number> {
   return new Set(buildPortOwners().keys());
 }
 
-export function findFreePort(assignedPorts: Set<number>, startFrom: number, excludedPorts: Set<number> = new Set()): number {
+function findFreePort(assignedPorts: Set<number>, startFrom: number, excludedPorts: Set<number> = new Set()): number {
   const boundPorts = getBoundPorts();
   for (let port = startFrom; port < 65535; port++) {
     if (excludedPorts.has(port)) continue;
@@ -445,6 +463,84 @@ export function getDiskUsedPercent(mountPoint = '/'): number | null {
   }
 }
 
+export function ensureBranchPort(branch: string, cwd = process.cwd(), startFrom?: number, excludedPorts: Set<number> = new Set()): number {
+  const repoRoot = getGitRepoRoot(cwd);
+  const existing = readBranchPorts(repoRoot).get(branch);
+  if (existing) return existing;
+  const listenPort = Number.parseInt(process.env.REVERSE_PROXY_PORT ?? '', 10);
+  const firstPort = startFrom ?? (Number.isFinite(listenPort) ? listenPort + 1 : 3001);
+  const assignedPorts = new Set(readBranchPorts(repoRoot).values());
+  if (Number.isFinite(listenPort)) excludedPorts.add(listenPort);
+  const port = findFreePort(assignedPorts, firstPort, excludedPorts);
+  writeGitConfigValue(repoRoot, `branch.${branch}.port`, String(port));
+  return port;
+}
+
+export function readProcessManagerConfig(cwd = process.cwd()): { previewInactivityMin: number | null; diskCleanupThresholdPct: number | null } {
+  const repoRoot = getGitRepoRoot(cwd);
+  const previewInactivityMin = Number.parseInt(readGitConfigValue(repoRoot, 'primordia.previewInactivityMin') ?? '', 10);
+  const diskCleanupThresholdPct = Number.parseInt(readGitConfigValue(repoRoot, 'primordia.diskCleanupThresholdPct') ?? '', 10);
+  return {
+    previewInactivityMin: Number.isFinite(previewInactivityMin) && previewInactivityMin > 0 ? previewInactivityMin : null,
+    diskCleanupThresholdPct: Number.isFinite(diskCleanupThresholdPct) && diskCleanupThresholdPct > 0 && diskCleanupThresholdPct <= 100 ? diskCleanupThresholdPct : null,
+  };
+}
+
+export function getProxyRoutingState(cwd = process.cwd(), listenPort?: number): ProxyRoutingState {
+  const repoRoot = getGitRepoRoot(cwd);
+  const branchPorts = readBranchPorts(repoRoot);
+  const worktrees = listGitWorktrees(repoRoot);
+  const productionBranch = readProductionBranch(repoRoot) ?? readCurrentBranch(repoRoot);
+  let upstreamPort: number | null = null;
+  if (productionBranch) {
+    upstreamPort = branchPorts.get(productionBranch) ?? ensureBranchPort(
+      productionBranch,
+      repoRoot,
+      listenPort ? listenPort + 1 : undefined,
+      listenPort ? new Set([listenPort]) : new Set(),
+    );
+    branchPorts.set(productionBranch, upstreamPort);
+  }
+
+  const worktreeByBranch = new Map(worktrees.flatMap((worktree) => worktree.branch ? [[worktree.branch, worktree.path] as const] : []));
+  const previewTargets: Record<string, { worktreePath: string; port: number }> = {};
+  for (const [branch, port] of branchPorts) {
+    if (branch.includes('/')) continue;
+    const worktreePath = worktreeByBranch.get(branch);
+    if (worktreePath) previewTargets[branch] = { worktreePath, port };
+  }
+  const config = readProcessManagerConfig(repoRoot);
+  let gitConfigPath: string | null = null;
+  try { gitConfigPath = path.join(getGitRepoRoot(repoRoot), 'config'); } catch { gitConfigPath = null; }
+  return { productionBranch, upstreamPort, branchPorts, previewTargets, gitConfigPath, ...config };
+}
+
+export function getWorktreePathForBranch(branch: string, cwd = process.cwd()): string | null {
+  const repoRoot = getGitRepoRoot(cwd);
+  return listGitWorktrees(repoRoot).find((worktree) => worktree.branch === branch)?.path ?? null;
+}
+
+export function setProductionBranch(branch: string, cwd = process.cwd(), addToHistory = true): void {
+  const repoRoot = getGitRepoRoot(cwd);
+  writeGitConfigValue(repoRoot, 'primordia.productionBranch', branch);
+  if (addToHistory) addGitConfigValue(repoRoot, 'primordia.productionHistory', branch);
+}
+
+export function touchBranchPort(branch: string, port: number, cwd = process.cwd()): void {
+  writeGitConfigValue(getGitRepoRoot(cwd), `branch.${branch}.port`, String(port));
+}
+
+export function deleteWorktreeAndBranch(worktreePath: string, branch: string, cwd = process.cwd()): void {
+  const repoRoot = getGitRepoRoot(cwd);
+  try {
+    removeGitWorktree(repoRoot, worktreePath);
+  } catch {
+    pruneGitWorktrees(repoRoot);
+  }
+  try { deleteGitBranch(repoRoot, branch); } catch { /* best-effort */ }
+  try { unsetGitConfigValue(repoRoot, `branch.${branch}.port`); } catch { /* best-effort */ }
+}
+
 async function waitForPidsToExit(pids: number[], timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -456,7 +552,7 @@ async function waitForPidsToExit(pids: number[], timeoutMs: number): Promise<boo
 
 export async function stopWorktreeServer(name: string, cwd = process.cwd()): Promise<ProcessActionResult> {
   const report = getProcessStatusReport(cwd);
-  const worktree = findWorktree(report, name);
+  const worktree = findWorktree(report, name, cwd);
   const launcherPid = readServerLauncherPidFile(worktree.path);
   const pids = [...new Set([
     ...worktree.servers.flatMap((server) => [...server.childPids, server.pid]),
@@ -491,7 +587,7 @@ export async function stopWorktreeServer(name: string, cwd = process.cwd()): Pro
 
 export function getWorktreeLogPath(name: string, cwd = process.cwd()): string {
   const report = getProcessStatusReport(cwd);
-  return path.join(findWorktree(report, name).path, '.primordia-next-server.log');
+  return path.join(findWorktree(report, name, cwd).path, '.primordia-next-server.log');
 }
 
 export function readWorktreeLogLines(name: string, cwd = process.cwd()): string[] {
@@ -555,7 +651,7 @@ function assertNoRunningServer(worktree: ManageableWorktreeProcessStatus): void 
 
 export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev', cwd = process.cwd()): ProcessActionResult {
   const report = getProcessStatusReport(cwd);
-  const worktree = findWorktree(report, name);
+  const worktree = findWorktree(report, name, cwd);
   assertNoRunningServer(worktree);
 
   const port = worktree.port;
@@ -583,28 +679,6 @@ export function startWorktreeServer(name: string, mode: ServerStartMode = 'dev',
     pids: [proc.pid],
     logPath,
     message: `started ${worktree.branch} ${mode} server on port ${port} (PID ${proc.pid}, log ${logPath})`,
-  };
-}
-
-export function startProxyOwnedWorktreeServer(name: string, mode: ServerStartMode = 'prod', cwd = process.cwd()): ProxyOwnedServerProcess {
-  const report = getProcessStatusReport(cwd);
-  const worktree = findWorktree(report, name);
-  assertNoRunningServer(worktree);
-
-  const port = worktree.port;
-  const proc = spawn('mise', ['exec', '-C', worktree.path, '--', 'bun', 'run', mode === 'dev' ? 'dev' : 'start'], {
-    cwd: worktree.path,
-    env: buildServerEnv(worktree.branch, port, mode),
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  if (!proc.pid) throw new Error(`Failed to start ${worktree.branch} server`);
-  return {
-    process: proc,
-    worktree: worktree.path,
-    branch: worktree.branch,
-    port,
-    mode,
-    message: `started ${worktree.branch} ${mode} server on port ${port} (PID ${proc.pid})`,
   };
 }
 

@@ -17,6 +17,7 @@ import {
 import { HARNESS_OPTIONS, DEFAULT_HARNESS, DEFAULT_MODEL } from './agent-config';
 import { MODEL_OPTIONS } from './agent-config';
 import { withSocketStatusHint } from './socket-status';
+import { restartWorktreeServer } from './process-manager';
 
 /** Look up the human-readable label for a model ID within a given harness. Falls back to the raw ID. */
 function getModelLabel(harnessId: string, modelId: string): string {
@@ -1191,27 +1192,16 @@ export async function runFollowupInWorktree(
 // ─── Restart dev server ───────────────────────────────────────────────────────
 
 /**
- * Asks the reverse proxy to restart the preview server for a session.
- * The proxy manages the dev server process; this is a thin HTTP call to its
- * management API at /_proxy/preview/{sessionId}/restart.
- *
- * Kept for backward compatibility with kill-restart/route.ts.
+ * Restarts the preview server for a session via the shared process manager.
+ * Kept for backward compatibility with older callers.
  */
 export async function restartDevServerInWorktree(
   session: LocalSession,
-  _repoRoot: string,
+  repoRoot: string,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _publicHostname: string = "localhost",
 ): Promise<void> {
-  const proxyPort = process.env.REVERSE_PROXY_PORT!;
-  const res = await fetch(
-    `http://127.0.0.1:${proxyPort}/_proxy/preview/${session.id}/restart`,
-    { method: 'POST' },
-  );
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Proxy restart failed (${res.status}): ${body}`);
-  }
+  await restartWorktreeServer(session.id, 'dev', repoRoot);
 }
 
 // ─── Auto conflict resolution ─────────────────────────────────────────────────

@@ -1,5 +1,7 @@
 # Refactor reverse proxy process helpers
 
-The reverse proxy now statically imports the shared process manager instead of dynamically resolving and importing `lib/process-manager.ts` at runtime. Reverse-proxy process spawning, port cleanup, free-port selection, disk usage checks, and git runtime operations have been moved behind `lib/process-manager.ts` and `lib/git-runtime.ts` helpers so the proxy no longer uses `child_process` directly.
+The reverse proxy now statically imports the shared process manager instead of dynamically resolving helper modules at runtime. Process and git orchestration has been centralized in `lib/process-manager.ts`, including branch-port assignment, detached worktree server starts/stops/restarts, production routing state, disk usage checks, and worktree cleanup helpers.
 
-This keeps process and git orchestration behavior centralized, makes reverse proxy bundling/import behavior simpler, and reduces duplicated process-management code.
+All internal `/_proxy/*` management routes were removed from the reverse proxy. Callers that previously asked the proxy to start, stop, restart, or stream logs now use `lib/process-manager.ts` directly or the `bun run process` CLI. Production deploys start the new slot with `bun run process <branch> start --prod`, health-check it, and then flip git config for the proxy to route traffic. Preview restarts and accept/reject cleanup stop servers through the process manager instead of HTTP calls to the proxy.
+
+The proxy now owns zero app server child processes: production and preview servers are started as detached worktree processes with logs written to each worktree's `.primordia-next-server.log`. The admin server logs page streams that production worktree log file directly rather than reading a reverse-proxy ring buffer.

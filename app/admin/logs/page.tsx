@@ -12,6 +12,7 @@ import ForbiddenPage from "@/components/ForbiddenPage";
 import { PageNavBar } from "@/components/PageNavBar";
 import AdminSubNav from "@/components/AdminSubNav";
 import ServerLogsClient from "@/components/ServerLogsClient";
+import { getProxyRoutingState, readWorktreeLogLines } from "@/lib/process-manager";
 
 export function generateMetadata(): Metadata {
   return {
@@ -51,49 +52,11 @@ export default async function AdminLogsPage() {
     getEvolvePrefs(user.id),
   ]);
 
-  // Pre-fetch the initial log buffer for a useful first paint even if JS is broken.
-  // Read the first SSE event from /_proxy/prod/logs, which contains the full
-  // ring-buffer snapshot captured by the reverse proxy.
-  const proxyPort = process.env.REVERSE_PROXY_PORT!;
-  let initialLogs = "";
-
-  // Fetch the proxy SSE stream and read just the first event (the snapshot).
-  // Abort after 2 s in case the buffer is empty and no event arrives.
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), 2000);
-  try {
-    const res = await fetch(`http://localhost:${proxyPort}/_proxy/prod/logs`, {
-      signal: ac.signal,
-    });
-    if (res.ok && res.body) {
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let raw = "";
-      outer: while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        raw += decoder.decode(value, { stream: true });
-        // SSE events are delimited by \n\n
-        const end = raw.indexOf("\n\n");
-        if (end !== -1) {
-          const eventText = raw.slice(0, end);
-          reader.cancel();
-          for (const line of eventText.split("\n")) {
-            if (!line.startsWith("data: ")) continue;
-            try {
-              const parsed = JSON.parse(line.slice(6)) as { text?: string };
-              if (parsed.text) { initialLogs = parsed.text; }
-            } catch { /* ignore malformed */ }
-          }
-          break outer;
-        }
-      }
-    }
-  } catch {
-    // timeout or network error — leave initialLogs as ""
-  } finally {
-    clearTimeout(timer);
-  }
+  // Pre-fetch recent production log lines for a useful first paint even if JS is broken.
+  const productionBranch = getProxyRoutingState(process.cwd()).productionBranch;
+  const initialLogs = productionBranch
+    ? `${readWorktreeLogLines(productionBranch, process.cwd()).slice(-100).join("\n")}\n`
+    : "";
 
   return (
     <main className="flex flex-col w-full max-w-5xl mx-auto px-4 py-6 min-h-dvh">

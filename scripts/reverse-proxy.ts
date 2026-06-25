@@ -6,22 +6,14 @@
 // the branch stored in git config as primordia.productionBranch.
 //
 // On startup, if the production Next.js server is not already running, the
-// proxy spawns it automatically (bun run start in the production worktree).
-// This makes the proxy the sole systemd service needed — no separate
-// primordia.service required.
+// proxy asks lib/process-manager.ts to start it as a detached process. The proxy
+// itself owns no app server child processes.
 //
 // Preview server management: the proxy routes preview traffic and delegates
 // dev-server start/stop/log handling to lib/process-manager.ts. When a request
 // arrives for /preview/{sessionId} and no server is running for that session,
 // the proxy starts one lazily, queuing the first request until it is ready.
 // Preview servers are automatically stopped after 30 minutes of inactivity.
-//
-// Proxy management API (all under /_proxy/):
-//   POST /_proxy/prod/spawn          — spawn new prod server, health check, activate (SSE stream)
-//   GET  /_proxy/prod/logs           — SSE stream of production server stdout/stderr (last 50 KB + follow)
-//   GET  /_proxy/preview/:id/status  — { devServerStatus }
-//   POST /_proxy/preview/:id/restart — kill + restart
-//   DELETE /_proxy/preview/:id       — kill
 //
 // Session routing: requests to /preview/{branchName}/... are routed to the
 // port associated with that branch. The mapping is derived from git config:
@@ -38,28 +30,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { gzipSync } from 'zlib';
 import {
-  findFreePort as findFreeManagedPort,
+  deleteWorktreeAndBranch,
   getDiskUsedPercent as getManagedDiskUsedPercent,
+  getProxyRoutingState,
   killPortOwner,
-  startProxyOwnedWorktreeServer,
   startWorktreeServer,
   stopWorktreeServer,
-  type ProxyOwnedServerProcess,
 } from '../lib/process-manager';
-import {
-  addGitConfigValue,
-  deleteGitBranch,
-  getGitRepoRoot,
-  listGitWorktrees,
-  pruneGitWorktrees,
-  readBranchPorts,
-  readCurrentBranch,
-  readGitConfigValue,
-  readProductionBranch,
-  removeGitWorktree,
-  unsetGitConfigValue,
-  writeGitConfigValue,
-} from '../lib/git-runtime';
 
 // Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
 const HOP_BY_HOP = new Set([
@@ -73,16 +50,6 @@ function errorMessage(err: unknown): string {
 
 function logCrashBoundary(label: string, err: unknown): void {
   console.error(`[proxy] ${label}:`, errorMessage(err));
-}
-
-function safeWrite(res: http.ServerResponse, data: string | Buffer): boolean {
-  if (res.writableEnded || res.destroyed) return false;
-  try {
-    return res.write(data);
-  } catch (err) {
-    logCrashBoundary('response write failed', err);
-    return false;
-  }
 }
 
 function safeEnd(res: http.ServerResponse, data?: string | Buffer): void {
@@ -250,27 +217,7 @@ let sessionPortCache: Record<string, number> = {};
 let sessionWorktreeCache: Record<string, { worktreePath: string; port: number }> = {};
 /** Path to the git config file being watched. */
 let watchedConfigPath: string | null = null;
-/** Tracked production server process (proxy-owned). Null until first spawn or boot start. */
-let prodServerEntry: { process: ProxyOwnedServerProcess['process']; port: number; branch: string } | null = null;
-/** Rolling log buffer for the production server's stdout+stderr (50 KB). */
-let prodLogBuffer = '';
-/** Active SSE subscribers for production server log streaming. */
-const prodLogSubscribers: Set<LogSubscriber> = new Set();
-
-function appendProdLog(text: string): void {
-  prodLogBuffer += text;
-  if (prodLogBuffer.length > MAX_LOG_BYTES) {
-    prodLogBuffer = prodLogBuffer.slice(prodLogBuffer.length - MAX_LOG_BYTES);
-  }
-  for (const sub of prodLogSubscribers) {
-    try { sub.write(text); } catch (err) { logCrashBoundary('prod log subscriber failed', err); }
-  }
-}
-
 // ─── Preview server registry ─────────────────────────────────────────────────
-
-/** Rolling log buffer size for production server logs (50 KB). */
-const MAX_LOG_BYTES = 50 * 1024;
 /** Inactivity timeout in minutes before a preview server is stopped (configurable via git config primordia.previewInactivityMin). */
 let previewInactivityMin = 30;
 /** How long to wait for a preview server to become ready before giving up (2 min). */
@@ -282,18 +229,12 @@ const REQUEST_HEADER_TIMEOUT_MS = 30_000;
 /** Maximum JSON/body bytes read by proxy management endpoints before forwarding. */
 const MAX_PROXY_BODY_BYTES = 1024 * 1024;
 
-interface LogSubscriber {
-  write: (text: string) => void;
-  close: () => void;
-}
-
 interface StartWaiter {
   resolve: () => void;
   reject: (err: Error) => void;
 }
 
 interface PreviewEntry {
-  process: ProxyOwnedServerProcess['process'] | null;
   port: number;
   worktreePath: string;
   lastActivityMs: number;
@@ -305,115 +246,37 @@ interface PreviewEntry {
 const previewProcesses = new Map<string, PreviewEntry>();
 
 /**
- * Returns the path to the shared git config file for the repo.
- * Works whether cwd is the main repo or a worktree.
- */
-function findGitConfigPath(cwd: string): string | null {
-  try {
-    return path.join(getGitRepoRoot(cwd), 'config');
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Re-reads all branch ports from git config and updates the caches.
- * Also updates the upstream port based on the current production branch,
- * and rebuilds sessionWorktreeCache for preview server spawning.
+ * Re-reads process-manager routing state and updates the proxy caches.
  */
 function readAllPorts(): void {
-  // Start watching the git config file if not already doing so.
-  if (!watchedConfigPath) {
-    const cfgPath = findGitConfigPath(MAIN_REPO);
-    if (cfgPath) {
-      watchedConfigPath = cfgPath;
-      watchGitConfig(cfgPath);
-    }
+  const state = getProxyRoutingState(MAIN_REPO, LISTEN_PORT);
+  if (!watchedConfigPath && state.gitConfigPath) {
+    watchedConfigPath = state.gitConfigPath;
+    watchGitConfig(state.gitConfigPath);
   }
 
-  const branchPorts = readBranchPorts(MAIN_REPO);
-  const branchPort: Record<string, number> = Object.fromEntries(branchPorts);
-  const cache: Record<string, number> = {};
-  for (const [branch, port] of branchPorts) {
-    // Only branches without slashes are valid as preview URL segments.
-    if (!branch.includes('/')) cache[branch] = port;
-  }
-  sessionPortCache = cache;
+  sessionPortCache = Object.fromEntries(
+    [...state.branchPorts].filter(([branch]) => !branch.includes('/')),
+  );
+  sessionWorktreeCache = state.previewTargets;
 
-  // Build branch → worktreePath from git worktree list.
-  const branchWorktree: Record<string, string> = {};
-  try {
-    for (const worktree of listGitWorktrees(MAIN_REPO)) {
-      if (worktree.branch) branchWorktree[worktree.branch] = worktree.path;
-    }
-  } catch {
-    // git worktree list failed
-  }
-
-  // Combine: branch name → { worktreePath, port } (skip branches with slashes)
-  const newWorktreeCache: Record<string, { worktreePath: string; port: number }> = {};
-  for (const [branch, port] of Object.entries(branchPort)) {
-    if (branch.includes('/')) continue;
-    const worktreePath = branchWorktree[branch];
-    if (worktreePath) {
-      newWorktreeCache[branch] = { worktreePath, port };
-    }
-  }
-  sessionWorktreeCache = newWorktreeCache;
-
-  // Determine production branch from git config primordia.productionBranch (set on
-  // each accept), falling back to HEAD of the current worktree (initial bootstrap
-  // before the first accept or on deployments not yet migrated to git config).
-  let prodBranch: string | null = readProductionBranch(MAIN_REPO);
-  if (!prodBranch) prodBranch = readCurrentBranch(MAIN_REPO);
-  if (prodBranch) {
+  if (state.productionBranch && state.upstreamPort) {
     const prevProdBranch = currentProdBranch;
-    currentProdBranch = prodBranch;
-    let port = branchPort[prodBranch];
-    if (!port) {
-      // No port assigned yet — find one that is neither already claimed by
-      // another branch in git config nor bound by another process, then
-      // persist it so all future reads see a consistent value.
-      const taken = new Set(Object.values(branchPort));
-      try {
-        port = findFreeManagedPort(taken, LISTEN_PORT + 1, new Set([LISTEN_PORT]));
-      } catch (err) {
-        console.error(`[proxy] could not assign port for '${prodBranch}': ${errorMessage(err)}`);
-        return;
-      }
-      try {
-        writeGitConfigValue(MAIN_REPO, `branch.${prodBranch}.port`, String(port));
-        console.log(`[proxy] auto-assigned port :${port} to branch '${prodBranch}'`);
-        branchPort[prodBranch] = port;
-      } catch (err) {
-        console.warn(`[proxy] could not persist port for '${prodBranch}': ${(err as Error).message}`);
-      }
-    }
-    const portChanged = port !== upstreamPort;
+    currentProdBranch = state.productionBranch;
+    const portChanged = state.upstreamPort !== upstreamPort;
     if (portChanged) {
-      console.log(`[proxy] upstream port: ${upstreamPort} → ${port} (PROD branch: ${prodBranch})`);
-      upstreamPort = port;
+      console.log(`[proxy] upstream port: ${upstreamPort} → ${state.upstreamPort} (PROD branch: ${state.productionBranch})`);
+      upstreamPort = state.upstreamPort;
     }
-    // If the prod branch or port changed and there is no running prod server,
-    // start one now. This handles the local (non-production) accept flow where
-    // no /_proxy/prod/spawn call is made — the proxy just sees the git config
-    // change via fs.watch and must boot the new server automatically.
-    if ((portChanged || prodBranch !== prevProdBranch) && !prodServerEntry) {
+    if (portChanged || state.productionBranch !== prevProdBranch) {
       setTimeout(() => {
         startProdServerIfNeeded().catch((err) => logCrashBoundary('startProdServerIfNeeded failed after config reload', err));
       }, 0);
     }
   }
 
-  // Read proxy config settings from git config (updated via admin UI).
-  try {
-    const v = parseInt(readGitConfigValue(MAIN_REPO, 'primordia.previewInactivityMin') ?? '', 10);
-    if (!isNaN(v) && v > 0) previewInactivityMin = v;
-  } catch { /* not set — keep default */ }
-  try {
-    const v = parseInt(readGitConfigValue(MAIN_REPO, 'primordia.diskCleanupThresholdPct') ?? '', 10);
-    if (!isNaN(v) && v > 0 && v <= 100) diskCleanupThresholdPct = v;
-  } catch { /* not set — keep default */ }
+  if (state.previewInactivityMin) previewInactivityMin = state.previewInactivityMin;
+  if (state.diskCleanupThresholdPct) diskCleanupThresholdPct = state.diskCleanupThresholdPct;
 }
 
 function watchGitConfig(configPath: string): void {
@@ -439,7 +302,6 @@ async function startPreviewServer(
   info: { worktreePath: string; port: number },
 ): Promise<PreviewEntry> {
   const entry: PreviewEntry = {
-    process: null,
     port: info.port,
     worktreePath: info.worktreePath,
     lastActivityMs: Date.now(),
@@ -566,254 +428,17 @@ async function startProdServerIfNeeded(): Promise<void> {
     // Not running — need to start it.
   }
 
-  const prodPath = listGitWorktrees(MAIN_REPO).find((worktree) => worktree.branch === currentProdBranch)?.path
-    ?? (readCurrentBranch(MAIN_REPO) === currentProdBranch ? MAIN_REPO : null);
-  console.log(`[proxy] worktree lookup for '${currentProdBranch}': found=${prodPath ?? 'none'}`);
-  if (!prodPath) {
-    console.warn(`[proxy] cannot start prod server: no worktree for branch '${currentProdBranch}'`);
-    return;
-  }
-
-  console.log(`[proxy] starting production server (${currentProdBranch}) on :${upstreamPort} in ${prodPath}`);
+  console.log(`[proxy] asking process-manager to start production server (${currentProdBranch}) on :${upstreamPort}`);
   await killPortOwner(upstreamPort);
-  let ownedServer: ProxyOwnedServerProcess;
   try {
-    ownedServer = startProxyOwnedWorktreeServer(currentProdBranch, 'prod', MAIN_REPO);
+    const result = startWorktreeServer(currentProdBranch, 'prod', MAIN_REPO);
+    console.log(`[proxy] ${result.message}`);
   } catch (err) {
-    console.error(`[proxy] production server spawn failed: ${errorMessage(err)}`);
-    return;
-  }
-  const server = ownedServer.process;
-  server.stdout?.on('data', (d: Buffer) => appendProdLog(d.toString()));
-  server.stderr?.on('data', (d: Buffer) => appendProdLog(d.toString()));
-  prodServerEntry = { process: server, port: ownedServer.port, branch: ownedServer.branch };
-  server.on('error', (err) => {
-    appendProdLog(`[proxy error] production server spawn failed: ${err.message}\n`);
-    if (prodServerEntry?.process === server) prodServerEntry = null;
-  });
-  server.on('exit', (code) => {
-    if (prodServerEntry?.process === server) {
-      console.log(`[proxy] production server exited (code ${code ?? 'unknown'})`);
-      prodServerEntry = null;
+    if (errorMessage(err).includes('already has running server process')) {
+      console.log(`[proxy] production server already managed for ${currentProdBranch}`);
+    } else {
+      console.error(`[proxy] production server start failed: ${errorMessage(err)}`);
     }
-  });
-}
-
-/**
- * Handles POST /_proxy/prod/spawn — spawns the new production server in the given
- * worktree, health-checks it, updates primordia.productionBranch in git config,
- * and gracefully kills the old production server.  Streams SSE events back:
- *   { type: 'log', text }  — progress message
- *   { type: 'done', ok: true }           — success
- *   { type: 'done', ok: false, error }   — failure
- */
-async function handleProdSpawn(
-  clientReq: http.IncomingMessage,
-  clientRes: http.ServerResponse,
-): Promise<void> {
-  // Read request body.
-  const chunks: Buffer[] = [];
-  let bodyBytes = 0;
-  try {
-    for await (const chunk of clientReq as AsyncIterable<Buffer>) {
-      bodyBytes += chunk.length;
-      if (bodyBytes > MAX_PROXY_BODY_BYTES) {
-        clientRes.writeHead(413, { 'content-type': 'application/json' });
-        clientRes.end(JSON.stringify({ error: 'Request body too large' }));
-        return;
-      }
-      chunks.push(chunk);
-    }
-  } catch (err) {
-    logCrashBoundary('prod spawn body read failed', err);
-    clientRes.writeHead(400, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ error: 'Request body could not be read' }));
-    return;
-  }
-  let body: { branch?: string };
-  try {
-    body = JSON.parse(Buffer.concat(chunks).toString()) as typeof body;
-  } catch {
-    clientRes.writeHead(400, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ error: 'Invalid JSON body' }));
-    return;
-  }
-
-  const { branch } = body;
-  if (!branch) {
-    clientRes.writeHead(400, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ error: 'branch is required' }));
-    return;
-  }
-
-  // Look up port from git config, or auto-assign one if not yet set.
-  let port: number;
-  try {
-    const portStr = readGitConfigValue(MAIN_REPO, `branch.${branch}.port`) ?? '';
-    port = parseInt(portStr, 10);
-    if (!port) throw new Error('empty port');
-  } catch {
-    // No port assigned yet — find a free one and persist it.
-    readAllPorts(); // refresh cache so findFreePort sees current assignments
-    const taken = new Set(Object.values(sessionPortCache));
-    try {
-      port = findFreeManagedPort(taken, LISTEN_PORT + 1, new Set([LISTEN_PORT]));
-    } catch (err) {
-      clientRes.writeHead(500, { 'content-type': 'application/json' });
-      clientRes.end(JSON.stringify({ error: `Could not find a free port for branch '${branch}': ${errorMessage(err)}` }));
-      return;
-    }
-    try {
-      writeGitConfigValue(MAIN_REPO, `branch.${branch}.port`, String(port));
-      console.log(`[proxy] auto-assigned port :${port} to branch '${branch}' for prod spawn`);
-    } catch (err) {
-      clientRes.writeHead(500, { 'content-type': 'application/json' });
-      clientRes.end(JSON.stringify({ error: `Could not assign port for branch '${branch}': ${(err as Error).message}` }));
-      return;
-    }
-  }
-
-  // Look up worktree path from git worktree list.
-  const worktreePath = listGitWorktrees(MAIN_REPO).find((worktree) => worktree.branch === branch)?.path;
-  if (!worktreePath) {
-    clientRes.writeHead(400, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ error: `No worktree found for branch: ${branch}` }));
-    return;
-  }
-
-  clientRes.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-cache',
-    'connection': 'keep-alive',
-  });
-
-  const send = (data: object): void => {
-    safeWrite(clientRes, `data: ${JSON.stringify(data)}\n\n`);
-  };
-  const sendLog = (text: string): void => send({ type: 'log', text });
-  const sendDone = (ok: boolean, error?: string): void => {
-    send({ type: 'done', ok, ...(error ? { error } : {}) });
-    safeEnd(clientRes);
-  };
-
-  // ANSI formatting helpers (same palette as scripts/install.sh).
-  const G = '\x1b[0;32m'; // green
-  const R = '\x1b[0m';    // reset
-  // Spinner characters: same \|/- sequence used by install.sh.
-  const SPIN = '\\|/-';
-  let _spinTimer: ReturnType<typeof setInterval> | null = null;
-
-  // _step: print '\ msg' and start a 120 ms spinner (same cadence as install.sh).
-  const _step = (msg: string) => {
-    if (_spinTimer) { clearInterval(_spinTimer); _spinTimer = null; }
-    let i = 0;
-    sendLog(`\\ ${msg}`);
-    _spinTimer = setInterval(() => {
-      try { sendLog(`\r${SPIN[i++ % 4]} ${msg}`); } catch (err) { logCrashBoundary('deploy spinner failed', err); }
-    }, 120);
-  };
-  // _done: kill the spinner and overwrite the line with a green ✓.
-  const _done = (msg: string) => {
-    if (_spinTimer) { clearInterval(_spinTimer); _spinTimer = null; }
-    sendLog(`\r\x1b[K${G}✓${R} ${msg}\n`);
-  };
-  // _success: standalone ✓ line (no preceding _step).
-  const _success = (msg: string) => sendLog(`${G}✓${R} ${msg}\n`);
-
-  // Stop the spinner if the SSE client disconnects mid-deploy.
-  clientReq.on('close', () => { if (_spinTimer) { clearInterval(_spinTimer); _spinTimer = null; } });
-
-  try {
-    // Snapshot the old upstream port before we change anything.
-    const oldPort = upstreamPort;
-
-    _step('Starting server…');
-    await killPortOwner(port);
-
-    // Spawn new prod server — proxy owns this process.
-    let ownedServer: ProxyOwnedServerProcess;
-    try {
-      ownedServer = startProxyOwnedWorktreeServer(branch, 'prod', MAIN_REPO);
-    } catch (err) {
-      _done('Server failed to start');
-      sendDone(false, `Server spawn failed: ${errorMessage(err)}`);
-      return;
-    }
-    const newServer = ownedServer.process;
-    newServer.stdout?.on('data', (d: Buffer) => appendProdLog(d.toString()));
-    newServer.stderr?.on('data', (d: Buffer) => appendProdLog(d.toString()));
-
-    let spawnError: string | undefined;
-    let exitedEarly = false;
-    newServer.on('error', (err: Error) => { spawnError = err.message; });
-    newServer.on('exit', (code) => {
-      // Track for health-check loop
-      exitedEarly = true;
-      // Clean up prodServerEntry if this is still the current server
-      if (prodServerEntry?.process === newServer) {
-        console.log(`[proxy] production server exited (code ${code ?? 'unknown'})`);
-        prodServerEntry = null;
-      }
-    });
-
-    // Health check — poll until the server responds or 30 s elapses.
-    _done('Server started');
-    _step('Health-checking server…');
-    let healthOk = false;
-    let healthError: string | undefined;
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
-      if (spawnError) { healthError = `Server process error: ${spawnError}`; break; }
-      if (exitedEarly) { healthError = 'Server exited before becoming ready'; break; }
-      try {
-        await fetch(`http://localhost:${port}/`, {
-          signal: AbortSignal.timeout(3_000),
-          redirect: 'manual',
-        });
-        healthOk = true;
-        break;
-      } catch { /* not ready yet */ }
-    }
-
-    if (!healthOk) {
-      try { newServer.kill('SIGTERM'); } catch { /* already gone */ }
-      _done('Health-check failed');
-      sendDone(false, `New slot failed health check: ${healthError ?? 'server did not respond'}`);
-      return;
-    }
-
-    // Register the new server as the tracked prod process.
-    prodServerEntry = { process: newServer, port, branch };
-
-    _done('Health-check passed');
-
-    // Update git config: primordia.productionBranch + history.
-    try {
-      writeGitConfigValue(MAIN_REPO, 'primordia.productionBranch', branch);
-      addGitConfigValue(MAIN_REPO, 'primordia.productionHistory', branch);
-    } catch { /* best-effort */ }
-
-    // Re-write the port to touch .git/config and fire the fs.watch handler immediately.
-    try {
-      writeGitConfigValue(MAIN_REPO, `branch.${branch}.port`, String(port));
-    } catch { /* best-effort */ }
-
-    // Update internal state immediately (don't wait for 5 s poll).
-    readAllPorts();
-
-    // Do NOT kill the old production server here. The old server is the one that
-    // called this endpoint — it will self-terminate after running update-service.sh.
-    // Killing it from the proxy would race with (and likely win against) the old
-    // server's remaining work, causing update-service.sh to never run.
-    console.log(`[proxy] prod slot activated: ${branch} on :${port} (old :${oldPort}; old server will self-terminate)`);
-    _success('Web traffic is now being directed to this server');
-    sendDone(true);
-  } catch (err) {
-    if (_spinTimer) { clearInterval(_spinTimer); _spinTimer = null; }
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[proxy] handleProdSpawn error:', msg);
-    sendDone(false, msg);
   }
 }
 
@@ -1012,94 +637,6 @@ async function handlePreviewRequest(
   });
 }
 
-// ─── Proxy management API ─────────────────────────────────────────────────────
-
-/**
- * Handles requests to /_proxy/preview/:sessionId/:action.
- *
- * GET  /_proxy/preview/:id/status  — JSON { devServerStatus }
- * POST /_proxy/preview/:id/restart — kill existing + start new
- * DELETE /_proxy/preview/:id       — kill (used during accept/reject)
- */
-function handleProxyApi(
-  clientReq: http.IncomingMessage,
-  clientRes: http.ServerResponse,
-): void {
-  const url = clientReq.url ?? '';
-
-  // POST /_proxy/refresh — force-read primordia.productionBranch and all branch ports immediately.
-  // Called by the production server after an accept to guarantee the proxy picks
-  // up the new production branch even if the fs.watch inotify event was missed.
-  if (url === '/_proxy/refresh' && clientReq.method === 'POST') {
-    readAllPorts();
-    clientRes.writeHead(200, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ ok: true }));
-    return;
-  }
-
-  const match = url.match(/^\/_proxy\/preview\/([^/?#]+)(?:\/([^/?#]*))?/);
-  if (!match) {
-    clientRes.writeHead(404, { 'content-type': 'text/plain' });
-    clientRes.end('Not Found');
-    return;
-  }
-
-  const sessionId = match[1];
-  const action = match[2] ?? '';
-
-  // GET /_proxy/preview/:id/status
-  if (action === 'status' && clientReq.method === 'GET') {
-    const entry = previewProcesses.get(sessionId);
-    clientRes.writeHead(200, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ devServerStatus: entry?.status ?? 'stopped' }));
-    return;
-  }
-
-  // POST /_proxy/preview/:id/restart
-  if (action === 'restart' && clientReq.method === 'POST') {
-    // If a start is already in progress for this session, treat the request as idempotent
-    // rather than spawning a second concurrent startPreviewServer — that causes a race
-    // where both calls share the same port and one orphans its process.
-    const existingEntry = previewProcesses.get(sessionId);
-    if (existingEntry?.status === 'starting') {
-      clientRes.writeHead(200, { 'content-type': 'application/json' });
-      clientRes.end(JSON.stringify({ ok: true, note: 'already starting' }));
-      return;
-    }
-    stopPreviewServer(sessionId);
-    const info = sessionWorktreeCache[sessionId] ?? (() => { readAllPorts(); return sessionWorktreeCache[sessionId]; })();
-    if (!info) {
-      clientRes.writeHead(404, { 'content-type': 'application/json' });
-      clientRes.end(JSON.stringify({ error: 'Session worktree not found in cache' }));
-      return;
-    }
-    // Guard: refuse to restart a preview server whose port is currently serving production.
-    // This mirrors the same guard in handlePreviewRequest and prevents killPortOwner from
-    // taking down the production server when a just-accepted session is restarted.
-    if (info.port === upstreamPort) {
-      clientRes.writeHead(409, { 'content-type': 'application/json' });
-      clientRes.end(JSON.stringify({ error: 'Session is currently the production server; cannot restart as dev server' }));
-      return;
-    }
-    startPreviewServer(sessionId, info).catch((err) => logCrashBoundary(`preview restart failed for ${sessionId}`, err));
-    clientRes.writeHead(200, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ ok: true }));
-    return;
-  }
-
-  // DELETE /_proxy/preview/:id  (kill)
-  if ((action === '' || action === 'kill') && clientReq.method === 'DELETE') {
-    stopPreviewServer(sessionId);
-    clientRes.writeHead(200, { 'content-type': 'application/json' });
-    clientRes.end(JSON.stringify({ ok: true }));
-    return;
-  }
-
-
-  clientRes.writeHead(404, { 'content-type': 'text/plain' });
-  clientRes.end('Not Found');
-}
-
 // ─── Routing ──────────────────────────────────────────────────────────────────
 
 /**
@@ -1118,37 +655,8 @@ async function handleRequest(
   try {
     const url = clientReq.url ?? '/';
 
-    // Proxy management API
     if (url.startsWith('/_proxy/')) {
-    if (url === '/_proxy/prod/spawn' && clientReq.method === 'POST') {
-      await handleProdSpawn(clientReq, clientRes);
-      return;
-    }
-    if (url.startsWith('/_proxy/prod/logs') && clientReq.method === 'GET') {
-      const qs = url.includes('?') ? url.slice(url.indexOf('?') + 1) : '';
-      const skipSnapshot = new URLSearchParams(qs).get('n') === '0';
-      clientRes.writeHead(200, {
-        'content-type': 'text/event-stream',
-        'cache-control': 'no-cache',
-        'connection': 'keep-alive',
-      });
-      if (!skipSnapshot && prodLogBuffer) {
-        safeWrite(clientRes, `data: ${JSON.stringify({ text: prodLogBuffer })}\n\n`);
-      }
-      const subscriber: LogSubscriber = {
-        write: (text) => {
-          safeWrite(clientRes, `data: ${JSON.stringify({ text })}\n\n`);
-        },
-        close: () => {
-          safeWrite(clientRes, `data: ${JSON.stringify({ done: true, exitCode: 0 })}\n\n`);
-          safeEnd(clientRes);
-        },
-      };
-      prodLogSubscribers.add(subscriber);
-      clientReq.on('close', () => prodLogSubscribers.delete(subscriber));
-      return;
-    }
-      handleProxyApi(clientReq, clientRes);
+      sendPlainError(clientRes, 404, 'Not Found');
       return;
     }
 
@@ -1359,24 +867,13 @@ interface CleanupWorktreeTarget {
 }
 
 function getOldestDeletableWorktree(repoRoot: string): CleanupWorktreeTarget | null {
-  let worktrees: { path: string; branch: string | null }[];
-  try {
-    worktrees = listGitWorktrees(repoRoot);
-  } catch {
-    return null;
-  }
-
-  const mainPath = worktrees[0]?.path ?? repoRoot;
-  const prodBranch = readProductionBranch(repoRoot);
-
+  const state = getProxyRoutingState(repoRoot, LISTEN_PORT);
   const candidates: (CleanupWorktreeTarget & { ctimeMs: number })[] = [];
-  for (const wt of worktrees) {
-    if (!wt.branch) continue;
-    if (wt.path === mainPath) continue;
-    if (prodBranch && wt.branch === prodBranch) continue;
+  for (const [branch, target] of Object.entries(state.previewTargets)) {
+    if (branch === state.productionBranch) continue;
     let ctimeMs = 0;
-    try { ctimeMs = fs.statSync(wt.path).ctimeMs; } catch { /* missing dir */ }
-    candidates.push({ path: wt.path, branch: wt.branch, ctimeMs });
+    try { ctimeMs = fs.statSync(target.worktreePath).ctimeMs; } catch { /* missing dir */ }
+    candidates.push({ path: target.worktreePath, branch, ctimeMs });
   }
 
   if (candidates.length === 0) return null;
@@ -1387,9 +884,8 @@ function getOldestDeletableWorktree(repoRoot: string): CleanupWorktreeTarget | n
 async function deleteWorktreeForCleanup(repoRoot: string, target: CleanupWorktreeTarget): Promise<void> {
   // Kill any dev server on this branch's port (best-effort).
   try {
-    const portStr = readGitConfigValue(repoRoot, `branch.${target.branch}.port`);
-    const port = Number.parseInt(portStr ?? '', 10);
-    if (Number.isFinite(port)) await killPortOwner(port);
+    const port = getProxyRoutingState(repoRoot, LISTEN_PORT).branchPorts.get(target.branch);
+    if (port) await killPortOwner(port);
   } catch { /* best-effort */ }
 
   // Archive the session log before removing the worktree (if this is an evolve session).
@@ -1399,22 +895,8 @@ async function deleteWorktreeForCleanup(repoRoot: string, target: CleanupWorktre
     console.warn(`[disk-cleanup] failed to archive session log for ${target.branch}: ${errorMessage(err)}`);
   }
 
-  // Remove the worktree.
   try {
-    removeGitWorktree(repoRoot, target.path);
-  } catch {
-    // If the directory is already gone, prune stale refs.
-    try {
-      pruneGitWorktrees(repoRoot);
-    } catch { /* best-effort */ }
-  }
-
-  // Delete the branch and clean up git config.
-  try {
-    deleteGitBranch(repoRoot, target.branch);
-  } catch { /* best-effort */ }
-  try {
-    unsetGitConfigValue(repoRoot, `branch.${target.branch}.port`);
+    deleteWorktreeAndBranch(target.path, target.branch, repoRoot);
   } catch { /* best-effort */ }
 }
 
