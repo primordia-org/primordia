@@ -18,6 +18,16 @@ export interface DiskCleanupOptions {
   warn?: (message: string) => void;
 }
 
+export interface DiskCleanupSchedulerOptions {
+  repoRoot?: string;
+  listenPort?: number;
+  archiveRoot?: string;
+  logError?: (label: string, err: unknown) => void;
+}
+
+const DISK_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+let diskCleanupSchedulerStarted = false;
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -101,7 +111,7 @@ export async function deleteWorktreeForCleanup(
 
 export async function runDiskCleanupOnce(options: DiskCleanupOptions = {}): Promise<void> {
   const repoRoot = options.repoRoot ?? process.cwd();
-  const thresholdPct = options.thresholdPct ?? 90;
+  const thresholdPct = options.thresholdPct ?? getProxyRoutingState(repoRoot, options.listenPort).diskCleanupThresholdPct ?? 90;
   const log = options.log ?? console.log;
   const warn = options.warn ?? console.warn;
   const usedPct = getDiskUsedPercent();
@@ -127,4 +137,33 @@ export async function runDiskCleanupOnce(options: DiskCleanupOptions = {}): Prom
 
   const finalPct = getDiskUsedPercent();
   log(`[disk-cleanup] done — deleted ${deleted} worktree(s), disk now at ${finalPct ?? '?'}%`);
+}
+
+function defaultLogError(label: string, err: unknown): void {
+  console.error(`[disk-cleanup] ${label}:`, errorMessage(err));
+}
+
+function runDiskCleanupJob(options: DiskCleanupSchedulerOptions): void {
+  runDiskCleanupOnce({
+    repoRoot: options.repoRoot,
+    listenPort: options.listenPort,
+    archiveRoot: options.archiveRoot,
+  }).catch((err) => (options.logError ?? defaultLogError)('disk cleanup failed', err));
+}
+
+export function startDiskCleanupJobScheduler(options: DiskCleanupSchedulerOptions = {}): void {
+  if (diskCleanupSchedulerStarted) return;
+  diskCleanupSchedulerStarted = true;
+
+  const initialTimeout = setTimeout(() => runDiskCleanupJob(options), 30_000);
+  if (typeof initialTimeout === 'object' && initialTimeout && 'unref' in initialTimeout) {
+    initialTimeout.unref();
+  }
+
+  const intervalId = setInterval(() => runDiskCleanupJob(options), DISK_CLEANUP_INTERVAL_MS);
+  if (typeof intervalId === 'object' && intervalId && 'unref' in intervalId) {
+    intervalId.unref();
+  }
+
+  console.log(`[disk-cleanup-scheduler] Started (check interval: ${DISK_CLEANUP_INTERVAL_MS / 1000}s)`);
 }
