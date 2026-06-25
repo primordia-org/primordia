@@ -1450,6 +1450,22 @@ function WebPreviewCard({
   onRestartServer: () => void;
   onElementSelected: (info: ElementSelection) => void;
 }) {
+  const serverLogsScrollRef = useRef<HTMLDivElement>(null);
+
+  const scrollServerLogsToEnd = useCallback(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = serverLogsScrollRef.current;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (proxyServerStatus === 'stopped') scrollServerLogsToEnd();
+  }, [proxyServerStatus, scrollServerLogsToEnd]);
+
   return (
     <div className={`rounded-lg border border-emerald-700/50 bg-gray-900 text-sm overflow-hidden flex flex-col${fullHeight ? ' h-full' : ''}`}>
       {restartError && (
@@ -1520,7 +1536,13 @@ function WebPreviewCard({
       </div>
 
       {/* Server logs — always collapsible; auto-open when stopped */}
-      <details className="group flex-shrink-0 border-t border-emerald-700/50" open={proxyServerStatus === 'stopped'}>
+      <details
+        className="group flex-shrink-0 border-t border-emerald-700/50"
+        open={proxyServerStatus === 'stopped'}
+        onToggle={(event) => {
+          if (event.currentTarget.open) scrollServerLogsToEnd();
+        }}
+      >
         <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
           <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
           <span className="text-gray-500">🪵 Server logs</span>
@@ -1536,7 +1558,7 @@ function WebPreviewCard({
           )}
         </summary>
         <div className="px-4 py-3 border-t border-gray-800">
-          <div className="text-xs text-gray-400 font-mono overflow-x-auto max-h-48 overflow-y-auto">
+          <div ref={serverLogsScrollRef} className="text-xs text-gray-400 font-mono overflow-x-auto max-h-48 overflow-y-auto">
             {serverLogsNode}
           </div>
         </div>
