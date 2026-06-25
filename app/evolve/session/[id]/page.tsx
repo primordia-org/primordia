@@ -2,7 +2,7 @@
 // Dedicated session-tracking page for a single local evolve run.
 //
 // The server component reads the initial session state from the filesystem and
-// passes it to the EvolveSessionView client component, which polls for live updates.
+// passes it to the EvolveSessionView client component, which streams live updates.
 
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -13,7 +13,8 @@ import { getBranchParentSource, getEvolvePrefs } from "@/lib/user-prefs";
 import { buildPageTitle } from "@/lib/page-title";
 import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem, type SessionEvent } from "@/lib/session-events";
 import { getParentBranch, type BranchParentSource } from "@/lib/branch-parent";
-import { getWorktreeLogPath } from "@/lib/process-manager";
+import { getProcessStatusReport, getWorktreeLogPath } from "@/lib/process-manager";
+import type { PreviewProcessSnapshot } from "./actions";
 import { SseLogFile } from "@/components/SseLogFile";
 import EvolveSessionView from "./EvolveSessionView";
 
@@ -92,6 +93,16 @@ function getUpstreamCommitCount(sessionBranch: string, parentSource: BranchParen
   }
 }
 
+function getInitialPreviewProcessStatus(sessionBranch: string): PreviewProcessSnapshot['status'] {
+  try {
+    const report = getProcessStatusReport(process.cwd());
+    const worktree = report.worktrees.find((item) => item.branch === sessionBranch);
+    return worktree ? (worktree.servers.length > 0 ? 'running' : 'stopped') : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 function readLogTail(logPath: string, maxBytes = 50 * 1024): string {
   try {
     const stat = fs.statSync(logPath);
@@ -140,6 +151,7 @@ export default async function EvolveSessionPage({
 
   const serverLogPath = getWorktreeLogPath(session.branch, process.cwd());
   const initialServerLogs = readLogTail(serverLogPath);
+  const initialPreviewProcessStatus = getInitialPreviewProcessStatus(session.branch);
 
   // Load initial events from the NDJSON log.
   let initialEvents: SessionEvent[] = [];
@@ -165,6 +177,7 @@ export default async function EvolveSessionPage({
           initialOutput={initialServerLogs}
         />
       )}
+      initialPreviewProcessStatus={initialPreviewProcessStatus}
       branch={branch}
       parentBranch={parentBranch}
       sessionBranch={session.branch}
