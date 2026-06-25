@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { getBranchParent, readBranchMarker, writeBranchMarker } from "../lib/branch-parent";
+import { getBranchParent, readBranchMarker, writeBranchMarker } from "@/lib/branch-parent";
 
 let repo: string;
 

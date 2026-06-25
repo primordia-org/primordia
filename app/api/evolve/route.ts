@@ -13,26 +13,26 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { AuthStorage, ModelRegistry } from '@earendil-works/pi-coding-agent';
 import { complete, type UserMessage } from '@earendil-works/pi-ai';
-import { decryptApiKey, decryptHybridCredentials } from '../../../lib/llm-encryption';
+import { decryptApiKey, decryptHybridCredentials } from '@/lib/llm-encryption';
 import {
   startLocalEvolve,
   runGit,
   getRepoRoot,
   getWorktreesDir,
   type LocalSession,
-} from '../../../lib/evolve-sessions';
-import { getSessionUser, hasEvolvePermission } from '../../../lib/auth';
-import { getDb } from '../../../lib/db';
-import { PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY, CAVEMAN_INTENSITIES, DEFAULT_CAVEMAN_INTENSITY, type CavemanIntensity } from '../../../lib/user-prefs';
-import { normalizeAuthSource, PREF_PRESET, type PresetAuthSource } from '../../../lib/presets';
+} from '@/lib/evolve-sessions';
+import { getSessionUser, hasEvolvePermission } from '@/lib/auth';
+import { getDb } from '@/lib/db';
+import { PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY, CAVEMAN_INTENSITIES, DEFAULT_CAVEMAN_INTENSITY, type CavemanIntensity } from '@/lib/user-prefs';
+import { normalizeAuthSource, PREF_PRESET, type PresetAuthSource } from '@/lib/presets';
 import {
   getSessionFromFilesystem,
   appendSessionEvent,
   getSessionNdjsonPath,
-} from '../../../lib/session-events';
-import { DEFAULT_HARNESS, DEFAULT_MODEL } from '../../../lib/agent-config';
-import { writeBranchMarker } from '../../../lib/branch-parent';
-import { ensurePrimordiaPiModelsJson } from '../../../lib/pi-custom-models';
+} from '@/lib/session-events';
+import { DEFAULT_HARNESS, DEFAULT_MODEL } from '@/lib/agent-config';
+import { writeBranchMarker } from '@/lib/branch-parent';
+import { ensurePrimordiaPiModelsJson } from '@/lib/pi-custom-models';
 
 
 const ANTHROPIC_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';

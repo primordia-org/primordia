@@ -6,16 +6,16 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import { getSessionUser } from '../../../../lib/auth';
-import { decryptApiKey, decryptHybridCredentials } from '../../../../lib/llm-encryption';
+import { getSessionUser } from '@/lib/auth';
+import { decryptApiKey, decryptHybridCredentials } from '@/lib/llm-encryption';
 import {
   runFollowupInWorktree,
   type LocalSession,
-} from '../../../../lib/evolve-sessions';
+} from '@/lib/evolve-sessions';
 import {
   getSessionFromFilesystem,
-} from '../../../../lib/session-events';
-import { normalizeAuthSource, type PresetAuthSource } from '../../../../lib/presets';
+} from '@/lib/session-events';
+import { normalizeAuthSource, type PresetAuthSource } from '@/lib/presets';
 
 /** Multipart form-data body for POST /evolve/followup */
 export interface EvolveFollowupFormData {

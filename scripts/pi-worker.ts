@@ -31,9 +31,9 @@ import { minimatch } from 'minimatch';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
-} from '../lib/session-events';
-import { ensurePrimordiaPiModelsJson } from '../lib/pi-custom-models';
-import { PROGRESS_MONITOR_PROMPT } from '../lib/progress-prompt';
+} from '@/lib/session-events';
+import { ensurePrimordiaPiModelsJson } from '@/lib/pi-custom-models';
+import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
 
 // ---------------------------------------------------------------------------
 // LLM backend configuration

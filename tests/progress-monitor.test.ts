@@ -7,7 +7,7 @@ import {
   shouldRenderAgentProgressPanel,
   shouldRenderFinalSummaryOutsideProgress,
   type ProgressState,
-} from '../lib/progress-monitor';
+} from '@/lib/progress-monitor';
 
 describe('dead simple progress monitor reducer', () => {
   test('starts each run with Make a plan active', () => {

@@ -20,8 +20,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { NavHeader } from "./NavHeader";
 import { FloatingEvolveDialog, EvolveSubmitToast } from "./FloatingEvolveDialog";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
-import type { SessionUser } from "../lib/hooks";
-import { withBasePath } from "../lib/base-path";
+import type { SessionUser } from "@/lib/hooks";
+import { withBasePath } from "@/lib/base-path";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ interface PageNavBarProps {
   /** Sticky caveman mode preference loaded server-side. Forwarded to FloatingEvolveDialog. */
   initialCavemanMode?: boolean;
   /** Sticky caveman intensity preference loaded server-side. Forwarded to FloatingEvolveDialog. */
-  initialCavemanIntensity?: import("../lib/user-prefs").CavemanIntensity;
+  initialCavemanIntensity?: import("@/lib/user-prefs").CavemanIntensity;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────

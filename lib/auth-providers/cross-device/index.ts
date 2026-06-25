@@ -7,7 +7,7 @@
 // API routes: app/(auth-cross-device)/api/auth/cross-device/
 // Client tab: components/auth-tabs/cross-device/index.tsx
 
-import type { AuthPlugin } from "../types";
+import type { AuthPlugin } from "@/lib/auth-providers/types";
 
 const plugin: AuthPlugin<"cross-device"> = {
   id: "cross-device",

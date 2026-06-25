@@ -5,9 +5,9 @@
 //   Body: { sessionId: string }
 //   Returns: { ok: true }
 
-import { getSessionUser } from '../../../../lib/auth';
-import { getSessionFromFilesystem } from '../../../../lib/session-events';
-import { restartWorktreeServer } from '../../../../lib/process-manager';
+import { getSessionUser } from '@/lib/auth';
+import { getSessionFromFilesystem } from '@/lib/session-events';
+import { restartWorktreeServer } from '@/lib/process-manager';
 
 /** JSON body for POST /evolve/kill-restart */
 export interface EvolveKillRestartBody {

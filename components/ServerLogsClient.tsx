@@ -7,7 +7,7 @@
 // has scrolled up (paused). A "Clear" button wipes accumulated output.
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { withBasePath } from "../lib/base-path";
+import { withBasePath } from "@/lib/base-path";
 
 interface ServerLogsClientProps {
   /** API route to stream from. Defaults to /api/admin/logs. */

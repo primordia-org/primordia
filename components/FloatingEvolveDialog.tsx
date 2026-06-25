@@ -12,9 +12,9 @@ import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { EvolveRequestForm } from "./EvolveRequestForm";
-import { withBasePath } from "../lib/base-path";
+import { withBasePath } from "@/lib/base-path";
 import { X, ExternalLink, PanelTop, PanelBottom } from "lucide-react";
-import { trackEvent } from "../lib/events-client";
+import { trackEvent } from "@/lib/events-client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ export function FloatingEvolveDialog({
   /** Sticky caveman mode preference loaded server-side. */
   initialCavemanMode?: boolean;
   /** Sticky caveman intensity preference loaded server-side. */
-  initialCavemanIntensity?: import("../lib/user-prefs").CavemanIntensity;
+  initialCavemanIntensity?: import("@/lib/user-prefs").CavemanIntensity;
   /**
    * Called with the new sessionId when a request is submitted successfully.
    * The dialog calls onClose() before this, so the caller should render a toast

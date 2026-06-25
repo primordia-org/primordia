@@ -9,7 +9,7 @@ import {
   startWorktreeServer,
   stopWorktreeServer,
   type ServerStartMode,
-} from '../lib/process-manager';
+} from '@/lib/process-manager';
 
 interface Args {
   command: 'status' | 'manage' | null;
