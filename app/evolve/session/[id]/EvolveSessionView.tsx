@@ -33,7 +33,7 @@ import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
 import { normalizeAuthSource, type PresetAuthSource } from "@/lib/presets";
 import { deriveSmartPreviewUrl } from "@/lib/smart-preview-url";
 import { trackEvent } from "@/lib/events-client";
-import { getPreviewProcessSnapshot, restartPreviewServer } from "./actions";
+import { restartPreviewServer, type PreviewProcessSnapshot } from "./actions";
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────
 
@@ -1480,7 +1480,7 @@ function WebPreviewCard({
             src={previewUrl}
             sessionId={cardSessionId}
             fullHeight={fullHeight}
-            serverRunning={proxyServerStatus === 'running'}
+            serverRunning={proxyServerStatus !== 'stopped'}
             offlineContent={(
               <div className="flex h-full flex-col items-center justify-center gap-4">
                 {proxyServerStatus === 'starting' ? (
@@ -1578,6 +1578,8 @@ interface EvolveSessionViewProps {
   initialPreviewUrl: string | null;
   /** Streaming worktree server log output rendered by a server component. */
   serverLogsNode: ReactNode;
+  /** Initial preview server process state read once by the page server component. */
+  initialPreviewProcessStatus: PreviewProcessSnapshot['status'];
   /** The currently checked-out branch in this instance. Used in confirmation copy and NavHeader. */
   branch?: string | null;
   /** The branch this session was branched from (from git config). Used in upstream-changes display. */
@@ -1683,6 +1685,7 @@ export default function EvolveSessionView({
   initialModel,
   initialCavemanMode,
   initialCavemanIntensity,
+  initialPreviewProcessStatus,
 }: EvolveSessionViewProps) {
   const [modelOptionsByHarness, setModelOptionsByHarness] = useState<Record<string, ModelOption[]>>({});
   useEffect(() => {
@@ -1696,7 +1699,7 @@ export default function EvolveSessionView({
   const [status, setStatus] = useState(initialStatus);
   const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl);
   /** Status of the preview server as reported by the process manager. */
-  const [proxyServerStatus, setProxyServerStatus] = useState<'starting' | 'running' | 'stopped' | 'unknown'>('unknown');
+  const [proxyServerStatus, setProxyServerStatus] = useState<PreviewProcessSnapshot['status']>(initialPreviewProcessStatus);
   const sounds = useSounds();
   const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
   const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
@@ -1953,25 +1956,6 @@ export default function EvolveSessionView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]); // intentionally omit initialStatus — run once on mount
 
-  useEffect(() => {
-    if (previewUrl === null && status !== "ready") return;
-    let cancelled = false;
-
-    async function pollProcessSnapshot() {
-      while (!cancelled) {
-        try {
-          const snapshot = await getPreviewProcessSnapshot(sessionId);
-          if (!cancelled) {
-            setProxyServerStatus(snapshot.status);
-          }
-        } catch { /* keep polling */ }
-        if (!cancelled) await new Promise<void>((r) => setTimeout(r, 2_000));
-      }
-    }
-
-    void pollProcessSnapshot();
-    return () => { cancelled = true; };
-  }, [sessionId, previewUrl, status]);
   async function handleRestartServer() {
     trackEvent("session/restart-server-clicked/v1", { sessionId });
     setIsRestartingServer(true);
