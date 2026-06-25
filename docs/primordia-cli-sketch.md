@@ -6,8 +6,8 @@ This is a quick product and architecture sketch for a future `primordia` CLI tha
 
 `primordia` should be the stable automation layer for self-modifying apps:
 
-- Manage instances, branches, worktrees, previews, and deployments.
-- Run evolve agents with consistent session logs and progress events.
+- Manage instances, threads, worktrees, previews, and deployments.
+- Run evolve agents with consistent thread logs and progress events.
 - Expose the same capabilities through CLI commands, a local API, and reusable TypeScript modules.
 - Treat web UI, reverse proxy, and Next.js pages as optional clients of the core.
 
@@ -21,28 +21,25 @@ primordia status
 primordia doctor
 
 primordia evolve "Add a pricing page"
-primordia evolve --from-branch feature-x "Polish the UI"
-primordia followup <session> "Make the hero shorter"
-primordia abort <session>
+primordia evolve --thread feature-x "Polish the UI"
+primordia followup <thread> "Make the hero shorter"
+primordia abort <thread>
 
-primordia session list
-primordia session show <session>
-primordia session logs <session> --follow
-primordia session diff <session>
-primordia session accept <session>
-primordia session reject <session>
+primordia thread list
+primordia thread show <thread>
+primordia thread logs <thread> --follow
+primordia thread diff <thread>
+primordia thread graph
+primordia thread sync <thread>
+primordia thread accept <thread>
+primordia thread reject <thread>
 
-primordia branch list
-primordia branch graph
-primordia branch parent <branch>
-primordia branch sync <branch>
+primordia preview start <thread>
+primordia preview stop <thread>
+primordia preview url <thread>
+primordia preview logs <thread> --follow
 
-primordia preview start <branch|session>
-primordia preview stop <branch|session>
-primordia preview url <branch|session>
-primordia preview logs <branch|session> --follow
-
-primordia deploy <branch|session>
+primordia deploy <thread>
 primordia rollback list
 primordia rollback apply <slot>
 
@@ -106,27 +103,29 @@ Example config:
 }
 ```
 
-### Session
+### Thread
 
-A session is the durable unit of evolve work. It should remain framework-agnostic:
+A thread is the durable user-facing unit of evolve work. It combines what Primordia currently calls a session and the backing branch into one concept, so users do not have to choose between two parallel nouns for the same line of work.
+
+A thread should remain framework-agnostic and track:
 
 - Initial request and follow-ups.
 - Selected harness, model, billing source, and credentials reference.
-- Worktree path and branch parentage.
+- Worktree path and backing git branch metadata.
 - Structured NDJSON event log.
 - Progress plan and step events.
 - Preview process metadata, if any.
 - Accept/reject/deploy state.
 
-The current `.primordia-session.ndjson` format is a good foundation and should become a core contract.
+Git branches still exist internally because they are the safest implementation primitive for diffs, merges, parentage, and rollback. The CLI should expose them as thread details, not as a separate top-level workflow. The current `.primordia-session.ndjson` format is a good foundation, but the core contract should be renamed around thread events over time.
 
 ### Preview
 
 The CLI should support previews without requiring the reverse proxy:
 
 ```bash
-primordia preview start my-session
-primordia preview url my-session
+primordia preview start my-thread
+primordia preview url my-thread
 ```
 
 Preview modes could include:
@@ -144,7 +143,7 @@ A likely package split:
 
 | Package | Responsibility |
 |---|---|
-| `@primordia/core` | Sessions, worktrees, branch parentage, progress logs, agent orchestration, config, adapters |
+| `@primordia/core` | Threads, worktrees, git parentage, progress logs, agent orchestration, config, adapters |
 | `@primordia/cli` | `primordia` executable and terminal UI |
 | `@primordia/server` | Optional HTTP/stdio API around core for frontends and desktop apps |
 | `@primordia/reverse-proxy` | Optional blue/green and preview routing |
@@ -161,23 +160,21 @@ primordia core serve --http 127.0.0.1:7331
 Possible endpoints:
 
 ```http
-POST /sessions
-GET  /sessions
-GET  /sessions/:id
-POST /sessions/:id/followups
-POST /sessions/:id/abort
-POST /sessions/:id/accept
-POST /sessions/:id/reject
-GET  /sessions/:id/events
-GET  /sessions/:id/diff
+POST /threads
+GET  /threads
+GET  /threads/:id
+POST /threads/:id/followups
+POST /threads/:id/abort
+POST /threads/:id/accept
+POST /threads/:id/reject
+POST /threads/:id/sync
+GET  /threads/:id/events
+GET  /threads/:id/diff
+GET  /threads/graph
 
 POST /previews/:id/start
 POST /previews/:id/stop
 GET  /previews/:id/logs
-
-GET  /branches
-GET  /branches/graph
-POST /branches/:branch/sync
 ```
 
 This lets Astro, Electron, Swift, Tauri, or mobile clients consume the same evolve engine.
@@ -188,9 +185,9 @@ This lets Astro, Electron, Swift, Tauri, or mobile clients consume the same evol
 
 ```bash
 primordia evolve "Add keyboard shortcuts to settings" --no-preview
-primordia session logs latest --follow
-primordia session diff latest
-primordia session accept latest
+primordia thread logs latest --follow
+primordia thread diff latest
+primordia thread accept latest
 ```
 
 ### Astro frontend
@@ -210,8 +207,8 @@ The Next.js app would call `@primordia/core` directly in-process during developm
 
 ## Migration Plan
 
-1. Extract pure helpers first: branch graph, branch parentage, git runtime, progress monitor, session events, model/preset definitions.
-2. Define a stable `PrimordiaCore` TypeScript interface around session lifecycle operations.
+1. Extract pure helpers first: thread graph, git parentage, git runtime, progress monitor, session/thread events, model/preset definitions.
+2. Define a stable `PrimordiaCore` TypeScript interface around thread lifecycle operations.
 3. Move worktree creation, agent execution, preview process management, and accept/reject into core services.
 4. Convert Next.js API routes to call the core interface with minimal request/response mapping.
 5. Add the `primordia` CLI on top of the same interface.
@@ -228,4 +225,4 @@ The Next.js app would call `@primordia/core` directly in-process during developm
 
 ## Recommended First Milestone
 
-Build `primordia session` and `primordia preview` around the existing repo internals without changing user-facing behavior. The CLI can initially wrap current TypeScript modules, then those modules can be hardened into `@primordia/core` once the command boundaries feel right.
+Build `primordia thread` and `primordia preview` around the existing repo internals without changing user-facing behavior. The CLI can initially wrap current TypeScript modules, then those modules can be hardened into `@primordia/core` once the command boundaries feel right.
