@@ -1,15 +1,13 @@
 // app/api/evolve/kill-restart/route.ts
-// Delegates to the reverse proxy to kill and restart a session's preview server.
+// Restarts a session's preview server through the shared process manager.
 //
 // POST
 //   Body: { sessionId: string }
 //   Returns: { ok: true }
-//
-// The proxy manages all preview server processes. This route is a thin
-// authenticated wrapper around POST /_proxy/preview/:id/restart.
 
 import { getSessionUser } from '../../../../lib/auth';
 import { getSessionFromFilesystem } from '../../../../lib/session-events';
+import { restartWorktreeServer } from '../../../../lib/process-manager';
 
 /** JSON body for POST /evolve/kill-restart */
 export interface EvolveKillRestartBody {
@@ -18,7 +16,7 @@ export interface EvolveKillRestartBody {
 
 /**
  * Restart a session's preview dev server
- * @description Delegates to the reverse proxy to kill and restart the session's preview dev server process.
+ * @description Uses the process manager to kill and restart the session's preview dev server process.
  * @tag Evolve
  * @body EvolveKillRestartBody
  */
@@ -38,26 +36,13 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Session not found' }, { status: 404 });
   }
 
-  const proxyPort = process.env.REVERSE_PROXY_PORT;
-  if (!proxyPort) {
-    return Response.json({ error: 'REVERSE_PROXY_PORT not configured' }, { status: 503 });
-  }
-
   try {
-    const res = await fetch(
-      `http://127.0.0.1:${proxyPort}/_proxy/preview/${body.sessionId}/restart`,
-      { method: 'POST' },
-    );
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      return Response.json({ error: `Proxy error: ${text}` }, { status: res.status });
-    }
+    await restartWorktreeServer(body.sessionId, 'dev', process.cwd());
+    return Response.json({ ok: true });
   } catch (err) {
     return Response.json(
-      { error: `Could not reach proxy: ${err instanceof Error ? err.message : String(err)}` },
-      { status: 503 },
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
     );
   }
-
-  return Response.json({ ok: true });
 }

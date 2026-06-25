@@ -596,8 +596,8 @@ fi
 
 # ── Zero-downtime cutover (or first-time start) ───────────────────────────────
 # If the proxy is already running and neither it nor the service unit changed,
-# we can do a zero-downtime slot swap via POST /_proxy/prod/spawn — the same
-# path the "Accept Changes" flow uses.  This keeps existing connections alive.
+# we can do a zero-downtime slot swap by starting the new server with
+# `bun run process <branch> start --prod` and then flipping git config.  This keeps existing connections alive.
 #
 # If either changed, or the proxy isn't running yet, we fall back to the
 # traditional restart/start path (brief downtime, unavoidable).
@@ -710,55 +710,51 @@ if [[ "${PROXY_RUNNING}" == "true" ]] && \
    { [[ "${PROBABLY_A_SERVER}" == "false" ]] || \
      [[ "${PROXY_CHANGED}" == "false" && "${SERVICE_CHANGED}" == "false" && "${ROOT_MISE_CHANGED}" == "false" ]]; }; then
   # ── Zero-downtime path ────────────────────────────────────────────────────
-  # The proxy is running and neither it nor the service unit changed.
-  # Tell the proxy to spawn the new production server, health-check it, and
-  # cut over atomically — no restart required.
-  _CURRENT_STEP="zero-downtime spawn: create FIFO"
+  # The proxy is running and neither it nor the service unit changed. Start the
+  # new production server through the process-manager CLI, health-check it, then
+  # flip git config so the proxy routes traffic to the healthy slot.
+  _CURRENT_STEP="zero-downtime start: process-manager"
   _step "Deploying to new slot (zero-downtime)..."
-  # Stream SSE events from the proxy: print log lines immediately, capture
-  # the final done line to check success/failure.
-  _SPAWN_FIFO="$(mktemp -u)"
-  mkfifo "$_SPAWN_FIFO"
-  _CURRENT_STEP="zero-downtime spawn: curl /_proxy/prod/spawn"
-  diag "zero-downtime spawn: POST /_proxy/prod/spawn branch=${BRANCH} port=${REVERSE_PROXY_PORT}"
-  curl -sf --max-time 60 \
-    -X POST "http://localhost:${REVERSE_PROXY_PORT}/_proxy/prod/spawn" \
-    -H 'Content-Type: application/json' \
-    -d "{\"branch\":\"${BRANCH}\"}" \
-    --no-buffer 2>/dev/null \
-    | grep '^data: ' | sed 's/^data: //' > "$_SPAWN_FIFO" &
-  _SPAWN_CURL_PID=$!
-  _CURRENT_STEP="zero-downtime spawn: read SSE stream"
-  SPAWN_RESULT=""
-  while IFS= read -r _sse_line; do
-    SPAWN_RESULT="$_sse_line"
-    # Print log-type messages immediately.
-    # sed converts JSON-encoded \u001b (ESC) to the actual ESC byte so that
-    # ANSI colour codes emitted by the proxy render correctly in the terminal.
-    _sse_text="$(echo "$_sse_line" | grep -o '"text":"[^"]*"' | sed 's/"text":"//;s/"$//;s/\\u001b/\x1b/g' || true)"
-    if [[ -n "$_sse_text" ]]; then
-      printf '%b' "$_sse_text"
+  _PROCESS_JSON="$(mktemp)"
+  diag "zero-downtime start: bun run process ${BRANCH} start --prod"
+  if ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run process "${BRANCH}" start --prod --json >"$_PROCESS_JSON" 2>&1; then
+    _NEW_PORT="$(grep -o '"port":[[:space:]]*[0-9]*' "$_PROCESS_JSON" | head -1 | grep -o '[0-9]*' || true)"
+    if [[ -z "$_NEW_PORT" ]]; then
+      warn "Could not determine new server port from process-manager output. Falling back to service restart."
+    else
+      _CURRENT_STEP="zero-downtime start: health check"
+      _done "Server started"
+      _step "Health-checking server..."
+      _HEALTH_OK=false
+      for _i in {1..30}; do
+        if curl -sf --max-time 3 "http://localhost:${_NEW_PORT}/" -o /dev/null 2>/dev/null; then
+          _HEALTH_OK=true
+          break
+        fi
+        sleep 1
+      done
+      if [[ "$_HEALTH_OK" == "true" ]]; then
+        _done "Health-check passed"
+        _CURRENT_STEP="zero-downtime start: activate git config"
+        git -C "${BARE_REPO}" config primordia.productionBranch "${BRANCH}" || true
+        git -C "${BARE_REPO}" config --add primordia.productionHistory "${BRANCH}" || true
+        git -C "${BARE_REPO}" config "branch.${BRANCH}.port" "${_NEW_PORT}" || true
+        SERVICE_READY=true
+        advance_main_and_push
+        if [[ "${PROBABLY_A_SERVER}" == "false" ]] && { [[ "${PROXY_CHANGED}" == "true" ]] || [[ "${ROOT_MISE_CHANGED}" == "true" ]]; }; then
+          warn "Proxy runtime files changed — restart the proxy manually to pick up the new version."
+        fi
+        echo -e "${GREEN}✓${RESET} Congratulations! Primordia is running!"
+      else
+        _spin_kill
+        warn "Zero-downtime deploy failed (new server did not pass health check). Falling back to service restart."
+      fi
     fi
-  done < "$_SPAWN_FIFO"
-  wait "$_SPAWN_CURL_PID" 2>/dev/null || true
-  rm -f "$_SPAWN_FIFO"
-  _CURRENT_STEP="zero-downtime spawn: evaluate result"
-  diag "zero-downtime spawn: result=${SPAWN_RESULT:-<empty>}"
-  # The last SSE data line is: {"type":"done","ok":true} or {"type":"done","ok":false,"error":"..."}
-  if echo "${SPAWN_RESULT}" | grep -q '"ok":true'; then
-    SERVICE_READY=true
-    _spin_kill
-    advance_main_and_push
-    if [[ "${PROBABLY_A_SERVER}" == "false" ]] && { [[ "${PROXY_CHANGED}" == "true" ]] || [[ "${ROOT_MISE_CHANGED}" == "true" ]]; }; then
-      warn "Proxy runtime files changed — restart the proxy manually to pick up the new version."
-    fi
-    echo -e "${GREEN}✓${RESET} Congratulations! Primordia is running!"
   else
     _spin_kill
-    SPAWN_ERROR="$(echo "${SPAWN_RESULT}" | grep -o '"error":"[^"]*"' | head -1 || true)"
-    warn "Zero-downtime deploy failed (${SPAWN_ERROR:-no response from proxy}). Falling back to service restart."
-    # Fall through to the restart path below
+    warn "Zero-downtime deploy failed ($(cat "$_PROCESS_JSON" | tail -3)). Falling back to service restart."
   fi
+  rm -f "$_PROCESS_JSON"
 fi
 
 if [[ "${SERVICE_READY}" == "false" ]]; then

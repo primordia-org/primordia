@@ -103,7 +103,7 @@ async function main(): Promise<void> {
 
   if (args.command === 'manage' && args.worktreeName && args.action) {
     if (args.action === 'start') {
-      const result = startWorktreeServer(args.worktreeName, args.mode);
+      const result = await startWorktreeServer(args.worktreeName, args.mode);
       if (args.json) printJson(result);
       else console.log(result.message);
     } else if (args.action === 'stop') {
