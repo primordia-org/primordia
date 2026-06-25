@@ -1,5 +1,7 @@
 import { getProxyRoutingState } from './process-manager';
 import { runDiskCleanupOnce } from './disk-space-management';
+import { startDependencyAuditScheduler } from './dependency-audit-scheduler';
+import { startUpdateSourceScheduler } from './update-source-scheduler';
 
 const DISK_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -31,6 +33,10 @@ async function runDiskCleanupJob(options: ScheduledJobsOptions): Promise<void> {
 export function runScheduledJobs(options: ScheduledJobsOptions = {}): void {
   if (started) return;
   started = true;
+
+  const repoRoot = options.repoRoot ?? process.cwd();
+  startUpdateSourceScheduler(repoRoot);
+  startDependencyAuditScheduler(repoRoot);
 
   const logError = options.logError ?? defaultLogError;
   setTimeout(() => {
