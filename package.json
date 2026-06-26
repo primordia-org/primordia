@@ -16,7 +16,7 @@
     "regenerate:model-registry": "bun run scripts/regenerate-model-registry.ts",
     "set-preview-url": "bun scripts/set-preview-url.ts",
     "progress": "bun scripts/progress-monitor.ts",
-    "process": "bun scripts/process.ts",
+    "primordia": "bun scripts/primordia.ts",
     "export-branch-parentage-mermaid": "bun scripts/export-branch-parentage-mermaid.ts",
     "export-branch-graph-ascii": "bun scripts/export-branch-graph-ascii.ts",
     "export-branch-graph-unicode": "bun scripts/export-branch-graph-unicode.ts",

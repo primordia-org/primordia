@@ -5,8 +5,8 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { appendSessionEvent, getSessionNdjsonPath, type SessionEvent } from '../lib/session-events';
-import { PROGRESS_MONITOR_PROMPT } from '../lib/progress-prompt';
+import { appendSessionEvent, getSessionNdjsonPath, type SessionEvent } from '@/lib/session-events';
+import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
 
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai/v1';
 

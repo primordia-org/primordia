@@ -3,7 +3,7 @@
 // Only imported when DATABASE_URL is not set (i.e., local dev without Neon).
 
 import type { DbAdapter, User, Passkey, Challenge, Session, CrossDeviceToken, InstanceConfig, GraphNode, GraphEdge, WebPushSubscription, WebPushCategory } from "./types";
-import { generateUuid7 } from "../uuid7";
+import { generateUuid7 } from "@/lib/uuid7";
 
 let dbInstance: DbAdapter | null = null;
 let sqliteHandle: { close: () => void } | null = null;

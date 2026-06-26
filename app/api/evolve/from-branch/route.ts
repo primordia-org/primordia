@@ -12,13 +12,13 @@ import {
   getRepoRoot,
   getWorktreesDir,
   type LocalSession,
-} from '../../../../lib/evolve-sessions';
-import { getSessionUser, hasEvolvePermission } from '../../../../lib/auth';
+} from '@/lib/evolve-sessions';
+import { getSessionUser, hasEvolvePermission } from '@/lib/auth';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
   getCandidateWorktreePath,
-} from '../../../../lib/session-events';
+} from '@/lib/session-events';
 
 /** JSON body for POST /evolve/from-branch */
 export interface EvolveFromBranchBody {

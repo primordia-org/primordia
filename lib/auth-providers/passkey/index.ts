@@ -4,7 +4,7 @@
 // API routes: app/(auth-passkey)/api/auth/passkey/
 // Client tab: components/auth-tabs/passkey/index.tsx
 
-import type { AuthPlugin } from "../types";
+import type { AuthPlugin } from "@/lib/auth-providers/types";
 
 const plugin: AuthPlugin<"passkey"> = {
   id: "passkey",

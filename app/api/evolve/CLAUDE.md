@@ -38,8 +38,8 @@ User types change request on /evolve page
           → session worktree stays checked out on the session branch; no detached HEAD
           → copy prod DB from old slot into new slot (preserves auth data)
           → fix .env.local symlink in new slot to point to main repo (prevents dangling link)
-          → POST /_proxy/prod/spawn to the reverse proxy (SSE stream): proxy spawns new prod server, health-checks it, sets primordia.productionBranch + productionHistory in git config, and switches traffic; proxy does NOT kill the old prod server
-          → old prod server self-terminates (process.exit) after the proxy switches traffic; proxy owns the new server process
+          → install.sh starts the new production server through `bun run primordia start --prod --worktree <branch>`, health-checks it, sets primordia.productionBranch + productionHistory in git config, and switches traffic; the proxy owns no app server processes
+          → old prod server self-terminates (process.exit) after git config switches traffic to the new slot
           → old slots accumulate indefinitely as registered git worktrees (enables deep rollback via /admin/rollback)
       → faster dev pipeline deploy (NODE_ENV !== 'production'): git merge in production dir → bun install → worktree remove
   → User clicks Reject → POST /api/evolve/manage { action: "reject" }

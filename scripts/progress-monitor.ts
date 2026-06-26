@@ -1,6 +1,6 @@
 import * as fs from 'fs';
-import { appendSessionEvent, getSessionNdjsonPath, readSessionEvents, type SessionEvent } from '../lib/session-events';
-import { progressSummary, reduceProgressEvents, validateProgressSteps } from '../lib/progress-monitor';
+import { appendSessionEvent, getSessionNdjsonPath, readSessionEvents, type SessionEvent } from '@/lib/session-events';
+import { progressSummary, reduceProgressEvents, validateProgressSteps } from '@/lib/progress-monitor';
 
 function say(message: string, code = 0): never {
   const stream = code === 0 ? process.stdout : process.stderr;

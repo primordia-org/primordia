@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getSessionUser, hasEvolvePermission, isAdmin } from "@/lib/auth";
 import { getDb } from "@/lib/db/index";
 import { getEvolvePrefs } from "@/lib/user-prefs";
-import { getSettingsPageData } from "../data";
+import { getSettingsPageData } from "@/app/settings/data";
 import { buildPageTitle } from "@/lib/page-title";
 import { PageNavBar } from "@/components/PageNavBar";
 import SettingsSubNav from "@/components/SettingsSubNav";

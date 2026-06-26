@@ -4,7 +4,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { withSqliteDbHotswap } from '../../../../lib/db';
+import { withSqliteDbHotswap } from '@/lib/db';
 
 function isLoopbackHost(host: string | null): boolean {
   if (!host) return false;

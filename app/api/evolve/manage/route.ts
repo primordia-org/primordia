@@ -11,7 +11,7 @@
 //              1. TypeScript gate — auto-fix via Claude if it fails
 //              2. Run scripts/install.sh from the session worktree with REPORT_STYLE=ansi,
 //                 streaming its output as log_line events. install.sh handles build, DB copy,
-//                 proxy spawn, main pointer advancement, and mirror push.
+//                 process-manager start, main pointer advancement, and mirror push.
 //              3. Write decision event + self-terminate (proxy already switched traffic)
 //
 //            FASTER DEV PIPELINE (NODE_ENV !== 'production'):
@@ -28,20 +28,21 @@ import {
   runFollowupInWorktree,
   resolveConflictsWithAgent,
   type LocalSession,
-} from '../../../../lib/evolve-sessions';
-import { getSessionUser } from '../../../../lib/auth';
-import { decryptApiKey, decryptHybridCredentials } from '../../../../lib/llm-encryption';
-import { normalizeAuthSource, type PresetAuthSource } from '../../../../lib/presets';
+} from '@/lib/evolve-sessions';
+import { getSessionUser } from '@/lib/auth';
+import { decryptApiKey, decryptHybridCredentials } from '@/lib/llm-encryption';
+import { normalizeAuthSource, type PresetAuthSource } from '@/lib/presets';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
   getSessionFromFilesystem,
   listSessionsFromFilesystem,
-} from '../../../../lib/session-events';
-import { getParentBranch } from '../../../../lib/branch-parent';
-import { getBranchParentSource } from '../../../../lib/user-prefs';
-import { archiveSessionNdjsonLog } from '../../../../lib/session-archive';
-import { withSocketStatusHint } from '../../../../lib/socket-status';
+} from '@/lib/session-events';
+import { getParentBranch } from '@/lib/branch-parent';
+import { getBranchParentSource } from '@/lib/user-prefs';
+import { archiveSessionNdjsonLog } from '@/lib/session-archive';
+import { withSocketStatusHint } from '@/lib/socket-status';
+import { stopWorktreeServer } from '@/lib/process-manager';
 
 /** Run an arbitrary command; resolves with stdout, stderr, and exit code. */
 function runCmd(
@@ -179,10 +180,8 @@ async function retryAcceptAfterFix(
   // Kill the preview dev server before running install.sh.
   console.log(`[retryAcceptAfterFix] killing preview server for session ${sessionId}`);
   try {
-    await fetch(`http://127.0.0.1:${process.env.REVERSE_PROXY_PORT!}/_proxy/preview/${sessionId}`, {
-      method: 'DELETE',
-    });
-  } catch { /* proxy not running — preview server may already be gone */ }
+    await stopWorktreeServer(sessionId, repoRoot);
+  } catch { /* preview server may already be gone */ }
 
   if (isProduction) {
     const exitCode = await runInstallSh(sessionId, worktreePath, branch).catch((err) => {
@@ -227,12 +226,12 @@ async function retryAcceptAfterFix(
  * Production path:
  *   1. Run install.sh from the session worktree with REPORT_STYLE=ansi,
  *      streaming its output as log_line events. install.sh handles typecheck
- *      (exit 2 on failure), build, DB copy, proxy spawn,
+ *      (exit 2 on failure), build, DB copy, process-manager start,
  *      main advancement, and mirror push.
  *   2. On exit code 2: read .primordia-typecheck-errors.txt and trigger the
  *      auto-fix Claude session (fixing-types → retryAcceptAfterFix).
- *   3. Write the decision event and self-terminate (the proxy has already
- *      switched traffic to the new slot).
+ *   3. Write the decision event and self-terminate (the proxy routes traffic
+ *      to the new slot after git config changes).
  *
  * Faster dev pipeline path (NODE_ENV !== 'production'):
  *   git merge → bun install (unchanged from before).
@@ -270,10 +269,8 @@ async function runAcceptAsync(
       // "Another next build process is already running". Kill them first.
       console.log(`[runAcceptAsync] killing preview server for session ${sessionId}`);
       try {
-        await fetch(`http://127.0.0.1:${process.env.REVERSE_PROXY_PORT!}/_proxy/preview/${sessionId}`, {
-          method: 'DELETE',
-        });
-      } catch { /* proxy not running — dev server may already be gone */ }
+        await stopWorktreeServer(sessionId, repoRoot);
+      } catch { /* dev server may already be gone */ }
 
       // Kill any background cache-warming build that may still be running.
       const warmupPidFile = path.join(worktreePath, '.primordia-warmup-build.pid');
@@ -295,7 +292,7 @@ async function runAcceptAsync(
 
       // ── Production: run install.sh from the session worktree ─────────────
       // install.sh handles: typecheck (exits 2 on failure), bun install, build,
-      // DB copy, proxy spawn, main pointer advancement, and mirror push.
+      // DB copy, process-manager start, main pointer advancement, and mirror push.
       const exitCode = await runInstallSh(sessionId, worktreePath, branch);
 
       if (exitCode === INSTALL_EXIT_TYPECHECK) {
@@ -345,7 +342,7 @@ async function runAcceptAsync(
         appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: 'deployed to production', ts: Date.now() });
       }
 
-      // Self-terminate: the proxy has already switched traffic to the new slot.
+      // Self-terminate: the proxy routes traffic to the new slot after git config changes.
       setTimeout(() => process.exit(0), 1000);
 
     } else {
@@ -523,16 +520,14 @@ export async function POST(request: Request) {
 
   const isProduction = process.env.NODE_ENV === 'production';
 
-  // Ask the reverse proxy to stop the preview dev server for this session.
+  // Stop the preview dev server for this session.
   // For dev accepts we keep the worktree alive (logs + preview server remain
   // accessible), so there's no need to kill the preview server up front.
   const shouldKillPreview = body.action === 'reject' || isProduction;
   if (shouldKillPreview) {
     try {
-      await fetch(`http://127.0.0.1:${process.env.REVERSE_PROXY_PORT!}/_proxy/preview/${body.sessionId}`, {
-        method: 'DELETE',
-      });
-    } catch { /* proxy not running — preview server may already be gone */ }
+      await stopWorktreeServer(body.sessionId, repoRoot);
+    } catch { /* preview server may already be gone */ }
   }
 
   /** Write a decision event (makes inferred status 'accepted' or 'rejected'). */

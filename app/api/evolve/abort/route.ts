@@ -11,13 +11,13 @@ export interface EvolveAbortBody {
   sessionId: string; // The session ID (git branch name) of the running session to abort.
 }
 
-import { getSessionUser } from '../../../../lib/auth';
-import { abortAgentRun } from '../../../../lib/evolve-sessions';
+import { getSessionUser } from '@/lib/auth';
+import { abortAgentRun } from '@/lib/evolve-sessions';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
   getSessionFromFilesystem,
-} from '../../../../lib/session-events';
+} from '@/lib/session-events';
 
 /**
  * Abort the running AI Agent

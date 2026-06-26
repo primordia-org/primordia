@@ -10,14 +10,15 @@
 //
 // Requires: can_evolve or admin permission.
 
-import { getSessionUser } from '../../../../lib/auth';
-import { hasEvolvePermission } from '../../../../lib/auth';
+import { getSessionUser } from '@/lib/auth';
+import { stopWorktreeServer } from '@/lib/process-manager';
+import { hasEvolvePermission } from '@/lib/auth';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
   getSessionFromFilesystem,
-} from '../../../../lib/session-events';
-import { INSTALL_SH_PID_FILE } from '../manage/route';
+} from '@/lib/session-events';
+import { INSTALL_SH_PID_FILE } from '@/app/api/evolve/manage/route';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -74,15 +75,10 @@ export async function POST(request: Request) {
 
   // Also kill any running preview dev server — it was killed at the start of the
   // accept pipeline, but if the pipeline got stuck before that kill (e.g. an
-  // earlier server-restart scenario), the proxy endpoint is idempotent so this
-  // is always safe.
-  if (process.env.REVERSE_PROXY_PORT) {
-    try {
-      await fetch(`http://127.0.0.1:${process.env.REVERSE_PROXY_PORT}/_proxy/preview/${body.sessionId}`, {
-        method: 'DELETE',
-      });
-    } catch { /* proxy not running — dev server may already be gone */ }
-  }
+  // earlier server-restart scenario), stopping it here is idempotent.
+  try {
+    await stopWorktreeServer(body.sessionId, process.cwd());
+  } catch { /* dev server may already be gone */ }
 
   // Write a result:error event — this makes inferStatusFromEvents return 'ready',
   // unblocking the session so it can be accepted, rejected, or followed up.

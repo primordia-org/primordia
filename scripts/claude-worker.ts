@@ -64,8 +64,8 @@ import * as path from 'path';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
-} from '../lib/session-events';
-import { PROGRESS_MONITOR_PROMPT } from '../lib/progress-prompt';
+} from '@/lib/session-events';
+import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
 
 interface WorkerConfig {
   sessionId: string;

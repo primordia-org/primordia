@@ -14,10 +14,10 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Search, Check, X } from "lucide-react";
 import { ClaudeIcon } from "@/components/brand-icons/ClaudeIcon";
-import type { ModelOption } from "../lib/agent-config";
-import { withBasePath } from "../lib/base-path";
-import { filterModelsForAuthSource } from "../lib/preset-options";
-import type { PresetAuthSource } from "../lib/presets";
+import type { ModelOption } from "@/lib/agent-config";
+import { withBasePath } from "@/lib/base-path";
+import { filterModelsForAuthSource } from "@/lib/preset-options";
+import type { PresetAuthSource } from "@/lib/presets";
 
 // ─── Provider detection ────────────────────────────────────────────────────────
 
