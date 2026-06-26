@@ -11,7 +11,7 @@ import {
   parseDisabledBuiltInPresetIds,
   type SecretAuthSource,
 } from '@/lib/presets';
-import { listUserSecretSources } from '../data';
+import { listUserSecretSources } from '@/app/settings/data';
 
 export interface PresetsSettingsPageData {
   secretSources: SecretAuthSource[];

@@ -72,7 +72,7 @@ function makeFetch() {
 
 // Import after globals are set up so the module's guards work on first call.
 // ESM imports are hoisted, but guards only run when functions are *called*.
-import { setSecret, getSecret, clearSecret } from "../lib/secrets-client";
+import { setSecret, getSecret, clearSecret } from "@/lib/secrets-client";
 
 // ── Test suite ───────────────────────────────────────────────────────────────
 

@@ -11,9 +11,9 @@
 // Final event (terminal state):
 //   data: { events: SessionEvent[], lineCount: number, status: string, previewUrl: string | null, done: true }
 
-import { getSessionUser } from '../../../../lib/auth';
-import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem } from '../../../../lib/session-events';
-import type { SessionEvent } from '../../../../lib/session-events';
+import { getSessionUser } from '@/lib/auth';
+import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem } from '@/lib/session-events';
+import type { SessionEvent } from '@/lib/session-events';
 import * as fs from 'fs';
 import * as path from 'path';
 

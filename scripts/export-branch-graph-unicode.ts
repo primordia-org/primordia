@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 
 import { spawnSync } from "node:child_process";
-import { getBranchParent, type BranchParentSource } from "../lib/branch-parent";
+import { getBranchParent, type BranchParentSource } from "@/lib/branch-parent";
 import {
   computeBranchGraphLayout,
   renderBranchGraphUnicode,
   type BranchGraphInputNode,
   type BranchGraphMergeEdge,
-} from "../lib/branch-graph-layout";
+} from "@/lib/branch-graph-layout";
 
 interface GitResult { stdout: string; code: number }
 interface BranchInfo extends BranchGraphInputNode { tipSha: string; markerSha: string | null }

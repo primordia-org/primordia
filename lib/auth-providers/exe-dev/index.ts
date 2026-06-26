@@ -8,7 +8,7 @@
 // API routes: app/(auth-exe-dev)/api/auth/exe-dev/
 // Client tab: components/auth-tabs/exe-dev/index.tsx
 
-import type { AuthPlugin } from "../types";
+import type { AuthPlugin } from "@/lib/auth-providers/types";
 
 const plugin: AuthPlugin<"exe-dev"> = {
   id: "exe-dev",

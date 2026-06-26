@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { spawnSync } from "node:child_process";
-import { getBranchParent, type BranchParentSource } from "../lib/branch-parent";
+import { getBranchParent, type BranchParentSource } from "@/lib/branch-parent";
 
 interface GitResult {
   stdout: string;

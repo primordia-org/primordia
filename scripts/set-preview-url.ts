@@ -10,7 +10,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { appendSessionEvent, getSessionNdjsonPath, type SessionEvent } from '../lib/session-events';
+import { appendSessionEvent, getSessionNdjsonPath, type SessionEvent } from '@/lib/session-events';
 
 function usage(message?: string): never {
   if (message) process.stderr.write(`${message}\n\n`);

@@ -4,12 +4,12 @@
 //   Body: { sessionId: string; action: "merge" }
 //   Returns: { outcome: "merged" | "merged-with-conflict-resolution"; log: string }
 
-import { hotswapProductionDbIntoWorktree, runCommand, runGit, resolveConflictsWithAgent } from '../../../../lib/evolve-sessions';
-import { getSessionUser } from '../../../../lib/auth';
-import { getSessionFromFilesystem } from '../../../../lib/session-events';
-import { getParentBranch } from '../../../../lib/branch-parent';
-import { getBranchParentSource } from '../../../../lib/user-prefs';
-import { withSocketStatusHint } from '../../../../lib/socket-status';
+import { hotswapProductionDbIntoWorktree, runCommand, runGit, resolveConflictsWithAgent } from '@/lib/evolve-sessions';
+import { getSessionUser } from '@/lib/auth';
+import { getSessionFromFilesystem } from '@/lib/session-events';
+import { getParentBranch } from '@/lib/branch-parent';
+import { getBranchParentSource } from '@/lib/user-prefs';
+import { withSocketStatusHint } from '@/lib/socket-status';
 
 /** JSON body for POST /evolve/upstream-sync */
 export interface EvolveUpstreamSyncBody {

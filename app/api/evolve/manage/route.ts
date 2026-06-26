@@ -28,21 +28,21 @@ import {
   runFollowupInWorktree,
   resolveConflictsWithAgent,
   type LocalSession,
-} from '../../../../lib/evolve-sessions';
-import { getSessionUser } from '../../../../lib/auth';
-import { decryptApiKey, decryptHybridCredentials } from '../../../../lib/llm-encryption';
-import { normalizeAuthSource, type PresetAuthSource } from '../../../../lib/presets';
+} from '@/lib/evolve-sessions';
+import { getSessionUser } from '@/lib/auth';
+import { decryptApiKey, decryptHybridCredentials } from '@/lib/llm-encryption';
+import { normalizeAuthSource, type PresetAuthSource } from '@/lib/presets';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
   getSessionFromFilesystem,
   listSessionsFromFilesystem,
-} from '../../../../lib/session-events';
-import { getParentBranch } from '../../../../lib/branch-parent';
-import { getBranchParentSource } from '../../../../lib/user-prefs';
-import { archiveSessionNdjsonLog } from '../../../../lib/session-archive';
-import { withSocketStatusHint } from '../../../../lib/socket-status';
-import { stopWorktreeServer } from '../../../../lib/process-manager';
+} from '@/lib/session-events';
+import { getParentBranch } from '@/lib/branch-parent';
+import { getBranchParentSource } from '@/lib/user-prefs';
+import { archiveSessionNdjsonLog } from '@/lib/session-archive';
+import { withSocketStatusHint } from '@/lib/socket-status';
+import { stopWorktreeServer } from '@/lib/process-manager';
 
 /** Run an arbitrary command; resolves with stdout, stderr, and exit code. */
 function runCmd(

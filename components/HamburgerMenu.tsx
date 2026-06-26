@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { SessionUser } from "../lib/hooks";
+import type { SessionUser } from "@/lib/hooks";
 import { Edit, Shield, Settings, X, Menu, LogOut, LogIn, GitBranch, QrCode } from "lucide-react";
 import { AdminUpdatesBell } from "./AdminUpdatesBell";
 import { QrSignInOtherDeviceDialog } from "./QrSignInOtherDeviceDialog";

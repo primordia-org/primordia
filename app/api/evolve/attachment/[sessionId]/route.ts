@@ -9,8 +9,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { type NextRequest } from 'next/server';
-import { getSessionUser } from '../../../../../lib/auth';
-import { getSessionFromFilesystem } from '../../../../../lib/session-events';
+import { getSessionUser } from '@/lib/auth';
+import { getSessionFromFilesystem } from '@/lib/session-events';
 
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.avif', '.bmp', '.ico']);
 const INLINE_TEXT_EXTENSIONS = new Set(['.md', '.txt', '.json', '.csv']);

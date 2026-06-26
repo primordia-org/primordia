@@ -13,17 +13,17 @@
 import { useState, useRef, useEffect, useCallback, FormEvent, memo } from "react";
 import { Paperclip, Settings, ChevronDown, Crosshair, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { withBasePath } from "../lib/base-path";
-import { appendCredentialFieldsForAuthSource } from "../lib/preset-credentials-client";
+import { withBasePath } from "@/lib/base-path";
+import { appendCredentialFieldsForAuthSource } from "@/lib/preset-credentials-client";
 import {
   DEFAULT_HARNESS,
   DEFAULT_MODEL,
   CAVEMAN_INTENSITIES,
   DEFAULT_CAVEMAN_INTENSITY,
   type CavemanIntensity,
-} from "../lib/agent-config";
-import { type PresetAuthSource } from "../lib/presets";
-import type { EvolvePresetWithAvailability } from "../lib/preset-availability";
+} from "@/lib/agent-config";
+import { type PresetAuthSource } from "@/lib/presets";
+import type { EvolvePresetWithAvailability } from "@/lib/preset-availability";
 import { PageElementInspector, PageElementInfo, captureElementFiles } from "./PageElementInspector";
 import { useSounds } from "@/lib/sounds";
 import { trackEvent } from "@/lib/events-client";

@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 
 import { spawnSync } from "node:child_process";
-import { getBranchParent, type BranchParentSource } from "../lib/branch-parent";
+import { getBranchParent, type BranchParentSource } from "@/lib/branch-parent";
 import {
   computeBranchGraphLayout,
   renderBranchGraphAscii,
   type BranchGraphInputNode,
-} from "../lib/branch-graph-layout";
+} from "@/lib/branch-graph-layout";
 
 interface GitResult {
   stdout: string;

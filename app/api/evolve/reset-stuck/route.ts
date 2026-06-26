@@ -10,15 +10,15 @@
 //
 // Requires: can_evolve or admin permission.
 
-import { getSessionUser } from '../../../../lib/auth';
-import { stopWorktreeServer } from '../../../../lib/process-manager';
-import { hasEvolvePermission } from '../../../../lib/auth';
+import { getSessionUser } from '@/lib/auth';
+import { stopWorktreeServer } from '@/lib/process-manager';
+import { hasEvolvePermission } from '@/lib/auth';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
   getSessionFromFilesystem,
-} from '../../../../lib/session-events';
-import { INSTALL_SH_PID_FILE } from '../manage/route';
+} from '@/lib/session-events';
+import { INSTALL_SH_PID_FILE } from '@/app/api/evolve/manage/route';
 import * as fs from 'fs';
 import * as path from 'path';
 

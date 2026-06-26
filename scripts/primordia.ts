@@ -12,7 +12,7 @@ import {
   stopWorktreeServer,
   type ProcessStatusReport,
   type ServerStartMode,
-} from '../lib/process-manager';
+} from '@/lib/process-manager';
 
 interface Args {
   command: 'status' | 'start' | 'stop' | 'restart' | 'logs' | null;
