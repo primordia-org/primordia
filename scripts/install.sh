@@ -597,7 +597,7 @@ fi
 # ── Zero-downtime cutover (or first-time start) ───────────────────────────────
 # If the proxy is already running and neither it nor the service unit changed,
 # we can do a zero-downtime slot swap by starting the new server with
-# `bun run primordia start --prod --worktree <branch>` and then flipping git config.  This keeps existing connections alive.
+# `bun run primordia start --prod --worktree <branch>` and then publishing it through the CLI.  This keeps existing connections alive.
 #
 # If either changed, or the proxy isn't running yet, we fall back to the
 # traditional restart/start path (brief downtime, unavoidable).
@@ -711,44 +711,27 @@ if [[ "${PROXY_RUNNING}" == "true" ]] && \
      [[ "${PROXY_CHANGED}" == "false" && "${SERVICE_CHANGED}" == "false" && "${ROOT_MISE_CHANGED}" == "false" ]]; }; then
   # ── Zero-downtime path ────────────────────────────────────────────────────
   # The proxy is running and neither it nor the service unit changed. Start the
-  # new production server through the process-manager CLI, health-check it, then
-  # flip git config so the proxy routes traffic to the healthy slot.
+  # new production server through the process-manager CLI, then publish it through
+  # the CLI health-check so the proxy routes traffic to the healthy slot.
   _CURRENT_STEP="zero-downtime start: process-manager"
   _step "Deploying to new slot (zero-downtime)..."
   _PROCESS_JSON="$(mktemp)"
   diag "zero-downtime start: bun run primordia start --prod --worktree ${BRANCH}"
   if ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia start --prod --json --worktree "${BRANCH}" >"$_PROCESS_JSON" 2>&1; then
-    _NEW_PORT="$(grep -o '"port":[[:space:]]*[0-9]*' "$_PROCESS_JSON" | head -1 | grep -o '[0-9]*' || true)"
-    if [[ -z "$_NEW_PORT" ]]; then
-      warn "Could not determine new server port from process-manager output. Falling back to service restart."
-    else
-      _CURRENT_STEP="zero-downtime start: health check"
-      _done "Server started"
-      _step "Health-checking server..."
-      _HEALTH_OK=false
-      for _i in {1..30}; do
-        if curl -sf --max-time 3 "http://localhost:${_NEW_PORT}/" -o /dev/null 2>/dev/null; then
-          _HEALTH_OK=true
-          break
-        fi
-        sleep 1
-      done
-      if [[ "$_HEALTH_OK" == "true" ]]; then
-        _done "Health-check passed"
-        _CURRENT_STEP="zero-downtime start: activate git config"
-        git -C "${BARE_REPO}" config primordia.productionBranch "${BRANCH}" || true
-        git -C "${BARE_REPO}" config --add primordia.productionHistory "${BRANCH}" || true
-        git -C "${BARE_REPO}" config "branch.${BRANCH}.port" "${_NEW_PORT}" || true
-        SERVICE_READY=true
-        advance_main_and_push
-        if [[ "${PROBABLY_A_SERVER}" == "false" ]] && { [[ "${PROXY_CHANGED}" == "true" ]] || [[ "${ROOT_MISE_CHANGED}" == "true" ]]; }; then
-          warn "Proxy runtime files changed — restart the proxy manually to pick up the new version."
-        fi
-        echo -e "${GREEN}✓${RESET} Congratulations! Primordia is running!"
-      else
-        _spin_kill
-        warn "Zero-downtime deploy failed (new server did not pass health check). Falling back to service restart."
+    _done "Server started"
+    _CURRENT_STEP="zero-downtime start: publish production branch"
+    _step "Publishing production branch..."
+    if ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia publish --json --worktree "${BRANCH}" >"$_PROCESS_JSON" 2>&1; then
+      _done "Production branch published"
+      SERVICE_READY=true
+      advance_main_and_push
+      if [[ "${PROBABLY_A_SERVER}" == "false" ]] && { [[ "${PROXY_CHANGED}" == "true" ]] || [[ "${ROOT_MISE_CHANGED}" == "true" ]]; }; then
+        warn "Proxy runtime files changed — restart the proxy manually to pick up the new version."
       fi
+      echo -e "${GREEN}✓${RESET} Congratulations! Primordia is running!"
+    else
+      _spin_kill
+      warn "Zero-downtime deploy failed ($(cat "$_PROCESS_JSON" | tail -3)). Falling back to service restart."
     fi
   else
     _spin_kill
@@ -760,10 +743,21 @@ fi
 if [[ "${SERVICE_READY}" == "false" ]]; then
   # ── Restart/start path ────────────────────────────────────────────────────
   # Used when: first install, proxy/service changed, or zero-downtime failed.
-  # Mark the production branch directly — the proxy will pick it up on start.
-  _CURRENT_STEP="set production branch in git config"
-  diag "restart path: setting primordia.productionBranch=${BRANCH}"
-  git -C "${BARE_REPO}" config primordia.productionBranch "$BRANCH"
+  # Start the target slot and publish it through the CLI health-check before
+  # restarting/starting the proxy service.
+  _CURRENT_STEP="restart path: start production server"
+  _step "Starting production server..."
+  _PROCESS_JSON="$(mktemp)"
+  diag "restart path: bun run primordia start --prod --worktree ${BRANCH}"
+  ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia start --prod --json --worktree "${BRANCH}" >"$_PROCESS_JSON" 2>&1
+  _done "Production server started"
+
+  _CURRENT_STEP="restart path: publish production branch"
+  _step "Publishing production branch..."
+  diag "restart path: bun run primordia publish --worktree ${BRANCH}"
+  ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia publish --json --worktree "${BRANCH}" >"$_PROCESS_JSON" 2>&1
+  rm -f "$_PROCESS_JSON"
+  _done "Production branch published"
 
   if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; then
     if [[ "${PROXY_RUNNING}" == "true" ]]; then
