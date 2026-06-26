@@ -68,6 +68,7 @@ export interface ReverseProxyStatus {
 }
 
 export interface ProcessStatusReport {
+  productionBranch: string | null;
   reverseProxy: ReverseProxyStatus[];
   worktrees: WorktreeProcessStatus[];
 }
@@ -392,6 +393,7 @@ export function getProcessStatusReport(cwd = process.cwd()): ProcessStatusReport
   });
 
   return {
+    productionBranch,
     reverseProxy: getReverseProxyStatuses(processes, childrenByParent),
     worktrees: worktreeStatuses,
   };
@@ -762,6 +764,8 @@ export function formatProcessStatusReport(report: ProcessStatusReport): string {
   ]);
 
   return [
+    `Production branch: ${report.productionBranch ?? '—'}`,
+    '',
     'Reverse proxy',
     renderTable(proxyHeaders, proxyRows),
     '',
@@ -771,5 +775,5 @@ export function formatProcessStatusReport(report: ProcessStatusReport): string {
 }
 
 export function formatProcessStatusTable(statuses: WorktreeProcessStatus[]): string {
-  return formatProcessStatusReport({ reverseProxy: [], worktrees: statuses }).split('\n').slice(3).join('\n');
+  return formatProcessStatusReport({ productionBranch: null, reverseProxy: [], worktrees: statuses }).split('\n').slice(5).join('\n');
 }
