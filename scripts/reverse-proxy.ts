@@ -156,12 +156,9 @@ let sessionPortCache: Record<string, number> = {};
 let sessionWorktreeCache: Record<string, { worktreePath: string; port: number }> = {};
 /** Path to the git config file being watched. */
 let watchedConfigPath: string | null = null;
-// ─── Preview server registry ─────────────────────────────────────────────────
+// ─── Managed app server registry configuration ───────────────────────────────
 /** Inactivity timeout in minutes before a preview server is stopped (configurable via git config primordia.previewInactivityMin). */
 let previewInactivityMin = 30;
-let prodStatus: 'starting' | 'running' | 'stopped' = 'stopped';
-const prodStartWaiters: StartWaiter[] = [];
-let prodStartPromise: Promise<void> | null = null;
 /** How long to wait for a server to become ready before giving up (2 min). */
 const PREVIEW_START_TIMEOUT_MS = 2 * 60 * 1000;
 /** Maximum request header bytes buffered by the raw TCP classifier before HTTP parsing. */
@@ -175,17 +172,6 @@ interface StartWaiter {
   resolve: () => void;
   reject: (err: Error) => void;
 }
-
-interface PreviewEntry {
-  port: number;
-  worktreePath: string;
-  lastActivityMs: number;
-  status: 'starting' | 'running' | 'stopped';
-  startWaiters: StartWaiter[];
-}
-
-/** Active preview server processes keyed by session ID. */
-const previewProcesses = new Map<string, PreviewEntry>();
 
 /**
  * Re-reads process-manager routing state and updates the proxy caches.
@@ -230,96 +216,130 @@ function readAllPorts(): void {
 
 }
 
-// ─── Port management ──────────────────────────────────────────────────────────
+// ─── Managed app server registry ──────────────────────────────────────────────
 
-// ─── Preview server management ───────────────────────────────────────────────
+type ManagedServerKind = 'preview' | 'production';
 
-/**
- * Spawns `bun run dev` in the session's worktree and tracks the process.
- * Incoming requests are queued in entry.startWaiters until 'Ready' is detected.
- */
-async function startPreviewServer(
-  sessionId: string,
-  info: { worktreePath: string; port: number },
-): Promise<PreviewEntry> {
-  const entry: PreviewEntry = {
-    port: info.port,
-    worktreePath: info.worktreePath,
-    lastActivityMs: Date.now(),
-    status: 'starting',
-    startWaiters: [],
-  };
-  previewProcesses.set(sessionId, entry);
+type ManagedServerMode = 'dev' | 'prod';
 
-  console.log(`[proxy] starting preview server for session ${sessionId} on :${info.port} in ${info.worktreePath}`);
-
-  if (previewProcesses.get(sessionId) !== entry) {
-    console.log(`[proxy] aborting preview start for session ${sessionId} (superseded by concurrent operation)`);
-    return entry;
-  }
-
-  try {
-    const previousProxyPort = process.env.REVERSE_PROXY_PORT;
-    process.env.REVERSE_PROXY_PORT = String(LISTEN_PORT);
-    try {
-      const result = await startWorktreeServer(sessionId, 'dev', MAIN_REPO);
-      console.log(`[proxy] ${result.message}`);
-    } finally {
-      if (previousProxyPort === undefined) delete process.env.REVERSE_PROXY_PORT;
-      else process.env.REVERSE_PROXY_PORT = previousProxyPort;
-    }
-  } catch (err) {
-    if (errorMessage(err).includes('already has running server process')) {
-      console.log(`[proxy] reusing existing preview server for ${sessionId}`);
-    } else {
-      entry.status = 'stopped';
-      const spawnErr = new Error(`Preview server spawn failed: ${errorMessage(err)}`);
-      const waiters = entry.startWaiters.splice(0);
-      for (const w of waiters) {
-        try { w.reject(spawnErr); } catch (waiterErr) { logCrashBoundary('preview start waiter reject failed', waiterErr); }
-      }
-      throw spawnErr;
-    }
-  }
-
-  void (async () => {
-    const startedAt = Date.now();
-    while (previewProcesses.get(sessionId) === entry && entry.status === 'starting') {
-      try {
-        await fetch(`http://127.0.0.1:${info.port}/`, {
-          redirect: 'manual',
-          signal: AbortSignal.timeout(2_000),
-        });
-        entry.status = 'running';
-        console.log(`[proxy] preview server ready for session ${sessionId} on :${info.port}`);
-        const waiters = entry.startWaiters.splice(0);
-        for (const w of waiters) {
-          try { w.resolve(); } catch (err) { logCrashBoundary('preview start waiter resolve failed', err); }
-        }
-        return;
-      } catch {
-        if (Date.now() - startedAt > PREVIEW_START_TIMEOUT_MS) {
-          entry.status = 'stopped';
-          const err = new Error('Preview server did not become ready before timeout');
-          const waiters = entry.startWaiters.splice(0);
-          for (const w of waiters) {
-            try { w.reject(err); } catch (waiterErr) { logCrashBoundary('preview start waiter reject failed', waiterErr); }
-          }
-          return;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 1_000));
-      }
-    }
-  })();
-
-  return entry;
+interface ManagedServerEntry {
+  id: string;
+  kind: ManagedServerKind;
+  mode: ManagedServerMode;
+  port: number;
+  worktreePath?: string;
+  lastActivityMs: number;
+  status: 'starting' | 'running' | 'stopped';
+  startWaiters: StartWaiter[];
+  startPromise: Promise<void> | null;
 }
 
-/**
- * Kills the preview server for the given session, if running.
- */
+/** Active preview server processes keyed by session ID. */
+const previewProcesses = new Map<string, ManagedServerEntry>();
+let prodEntry: ManagedServerEntry | null = null;
+
+function serverLabel(entry: ManagedServerEntry): string {
+  return entry.kind === 'production' ? 'production' : `preview ${entry.id}`;
+}
+
+function getProdEntry(): ManagedServerEntry | null {
+  if (!currentProdBranch || !upstreamPort) return null;
+  if (!prodEntry || prodEntry.id !== currentProdBranch || prodEntry.port !== upstreamPort) {
+    prodEntry = {
+      id: currentProdBranch,
+      kind: 'production',
+      mode: 'prod',
+      port: upstreamPort,
+      lastActivityMs: Date.now(),
+      status: 'stopped',
+      startWaiters: [],
+      startPromise: null,
+    };
+  }
+  return prodEntry;
+}
+
+async function isPortReady(port: number, timeoutMs = 2_000): Promise<boolean> {
+  try {
+    await fetch(`http://127.0.0.1:${port}/`, {
+      signal: AbortSignal.timeout(timeoutMs),
+      redirect: 'manual',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function settleStartWaiters(entry: ManagedServerEntry, err?: Error): void {
+  const waiters = entry.startWaiters.splice(0);
+  for (const waiter of waiters) {
+    try {
+      if (err) waiter.reject(err);
+      else waiter.resolve();
+    } catch (waiterErr) {
+      logCrashBoundary(`${serverLabel(entry)} start waiter failed`, waiterErr);
+    }
+  }
+}
+
+async function waitForServerReady(entry: ManagedServerEntry): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= PREVIEW_START_TIMEOUT_MS) {
+    if (await isPortReady(entry.port)) {
+      entry.status = 'running';
+      console.log(`[proxy] ${serverLabel(entry)} server ready on :${entry.port}`);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  entry.status = 'stopped';
+  throw new Error(`${serverLabel(entry)} server did not become ready before timeout`);
+}
+
 function isProductionTarget(branch: string, port: number): boolean {
   return Boolean(currentProdBranch && branch === currentProdBranch) || Boolean(upstreamPort && port === upstreamPort);
+}
+
+async function startManagedServer(entry: ManagedServerEntry): Promise<void> {
+  if (entry.startPromise) return entry.startPromise;
+
+  entry.startPromise = (async () => {
+    if (await isPortReady(entry.port, 750)) {
+      entry.status = 'running';
+      console.log(`[proxy] ${serverLabel(entry)} server already running on :${entry.port}`);
+      settleStartWaiters(entry);
+      return;
+    }
+
+    entry.status = 'starting';
+    console.log(`[proxy] asking process-manager to start ${serverLabel(entry)} server (${entry.id}) on :${entry.port}`);
+    try {
+      const previousProxyPort = process.env.REVERSE_PROXY_PORT;
+      if (entry.kind === 'preview') process.env.REVERSE_PROXY_PORT = String(LISTEN_PORT);
+      try {
+        const result = await startWorktreeServer(entry.id, entry.mode, MAIN_REPO);
+        console.log(`[proxy] ${result.message}`);
+      } finally {
+        if (entry.kind === 'preview') {
+          if (previousProxyPort === undefined) delete process.env.REVERSE_PROXY_PORT;
+          else process.env.REVERSE_PROXY_PORT = previousProxyPort;
+        }
+      }
+      await waitForServerReady(entry);
+      settleStartWaiters(entry);
+    } catch (err) {
+      const startErr = new Error(`${serverLabel(entry)} server failed to start: ${errorMessage(err)}`);
+      entry.status = 'stopped';
+      console.error(`[proxy] ${startErr.message}`);
+      settleStartWaiters(entry, startErr);
+      throw startErr;
+    }
+  })().finally(() => {
+    entry.startPromise = null;
+  });
+
+  return entry.startPromise;
 }
 
 function stopPreviewServer(sessionId: string): void {
@@ -331,7 +351,7 @@ function stopPreviewServer(sessionId: string): void {
     previewProcesses.delete(sessionId);
     return;
   }
-  console.log(`[proxy] stopping preview server for session ${sessionId}`);
+  console.log(`[proxy] stopping ${serverLabel(entry)} server`);
   entry.status = 'stopped';
   previewProcesses.delete(sessionId);
   void stopWorktreeServer(sessionId, MAIN_REPO).catch((err) => {
@@ -357,10 +377,7 @@ setInterval(() => {
       }
     }
   }
-
 }, 60_000).unref();
-
-// ─── Production server ────────────────────────────────────────────────────────
 
 /**
  * On startup, if the production Next.js server is not already running on the
@@ -368,81 +385,10 @@ setInterval(() => {
  * This makes the proxy responsible for the production server lifecycle so no
  * separate primordia.service systemd unit is needed.
  */
-async function isPortReady(port: number, timeoutMs = 2_000): Promise<boolean> {
-  try {
-    await fetch(`http://127.0.0.1:${port}/`, {
-      signal: AbortSignal.timeout(timeoutMs),
-      redirect: 'manual',
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function settleProdWaiters(err?: Error): void {
-  const waiters = prodStartWaiters.splice(0);
-  for (const waiter of waiters) {
-    try {
-      if (err) waiter.reject(err);
-      else waiter.resolve();
-    } catch (waiterErr) {
-      logCrashBoundary('production start waiter failed', waiterErr);
-    }
-  }
-}
-
-async function waitForProdReady(): Promise<void> {
-  if (!upstreamPort) throw new Error('No production upstream port configured');
-  const startedAt = Date.now();
-  while (Date.now() - startedAt <= PREVIEW_START_TIMEOUT_MS) {
-    if (await isPortReady(upstreamPort)) {
-      prodStatus = 'running';
-      console.log(`[proxy] production server ready on :${upstreamPort}`);
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-  }
-  prodStatus = 'stopped';
-  throw new Error('Production server did not become ready before timeout');
-}
-
-/**
- * If the production Next.js server is not already running on the upstream port,
- * find the production worktree and spawn `bun run start` there. Multiple callers
- * share one in-flight start and may wait until the port is ready.
- */
 async function startProdServerIfNeeded(): Promise<void> {
-  if (!currentProdBranch || !upstreamPort) return;
-  if (prodStartPromise) return prodStartPromise;
-
-  prodStartPromise = (async () => {
-    if (await isPortReady(upstreamPort, 750)) {
-      prodStatus = 'running';
-      console.log(`[proxy] production server already running on :${upstreamPort}`);
-      settleProdWaiters();
-      return;
-    }
-
-    prodStatus = 'starting';
-    console.log(`[proxy] asking process-manager to start production server (${currentProdBranch}) on :${upstreamPort}`);
-    try {
-      const result = await startWorktreeServer(currentProdBranch, 'prod', MAIN_REPO);
-      console.log(`[proxy] ${result.message}`);
-      await waitForProdReady();
-      settleProdWaiters();
-    } catch (err) {
-      const startErr = new Error(`Production server failed to start: ${errorMessage(err)}`);
-      prodStatus = 'stopped';
-      console.error(`[proxy] ${startErr.message}`);
-      settleProdWaiters(startErr);
-      throw startErr;
-    }
-  })().finally(() => {
-    prodStartPromise = null;
-  });
-
-  return prodStartPromise;
+  const entry = getProdEntry();
+  if (!entry) return;
+  return startManagedServer(entry);
 }
 
 try {
@@ -477,12 +423,9 @@ function forwardToPort(
     method: clientReq.method,
     headers: forwardHeaders(clientReq, {
       'x-forwarded-for': clientReq.socket.remoteAddress ?? '',
-      // Pass through the upstream proxy's x-forwarded-proto (e.g. "https" set
-      // by exe.dev) so the Next.js app sees the correct public protocol.
       'x-forwarded-proto': (typeof clientReq.headers['x-forwarded-proto'] === 'string'
         ? clientReq.headers['x-forwarded-proto']
         : 'http'),
-      // Ensure the downstream app always has an explicit port to work with.
       'x-forwarded-port': derivePublicPort(clientReq),
     }),
   };
@@ -520,7 +463,10 @@ function forwardToPort(
 
   upstreamReq.on('error', (err) => {
     console.error(`[proxy] upstream error on port ${port}:`, err.message);
-    if (port === upstreamPort) prodStatus = 'stopped';
+    if (port === upstreamPort) {
+      const entry = getProdEntry();
+      if (entry) entry.status = 'stopped';
+    }
     if (!clientRes.headersSent) {
       sendPlainError(clientRes, 502, 'Bad Gateway - upstream server unavailable');
     } else {
@@ -535,113 +481,6 @@ function forwardToPort(
     clientReq.pipe(upstreamReq);
   }
 }
-
-// ─── Preview request handler (auto-start + queue) ────────────────────────────
-
-/**
- * Handles a request for /preview/{sessionId}/... with auto-start.
- * If the preview server is not running, starts it and queues the request
- * until it is ready (up to PREVIEW_START_TIMEOUT_MS).
- */
-async function handlePreviewRequest(
-  sessionId: string,
-  clientReq: http.IncomingMessage,
-  clientRes: http.ServerResponse,
-): Promise<void> {
-  let entry = previewProcesses.get(sessionId);
-
-  // Update activity timestamp on every request to this preview.
-  if (entry) entry.lastActivityMs = Date.now();
-
-  if (entry?.status === 'running') {
-    forwardToPort(entry.port, clientReq, clientRes);
-    return;
-  }
-
-  if (!entry || entry.status === 'stopped') {
-    // Try to look up the session's worktree info.
-    let info = sessionWorktreeCache[sessionId];
-    if (!info) {
-      // Cache may be stale — force a refresh and retry.
-      readAllPorts();
-      info = sessionWorktreeCache[sessionId];
-    }
-    if (!info) {
-      // Unknown session — forward to upstream (will produce a useful 404 from Next.js)
-      forwardToPort(upstreamPort, clientReq, clientRes);
-      return;
-    }
-    // Guard: refuse to launch a preview server for a worktree that is currently
-    // serving production. This can happen when a session branch is accepted and
-    // becomes the production branch — its sessionWorktreeCache entry remains
-    // valid, but spawning a dev server would stop the process on that branch port and take down prod.
-    if (isProductionTarget(sessionId, info.port)) {
-      console.warn(`[proxy] refusing preview for session ${sessionId}: worktree is the current production server (port :${info.port})`);
-      clientRes.writeHead(409, { 'content-type': 'text/plain' });
-      clientRes.end(`This session's branch is now the production server and cannot be previewed as a dev server.\n`);
-      return;
-    }
-    try {
-      entry = await startPreviewServer(sessionId, info);
-    } catch (err) {
-      sendPlainError(clientRes, 503, `Preview server failed to start: ${errorMessage(err)}`);
-      return;
-    }
-  }
-
-  // Server is 'starting' — buffer the request body and wait.
-  const chunks: Buffer[] = [];
-  let bodyBytes = 0;
-  try {
-    for await (const chunk of clientReq as AsyncIterable<Buffer>) {
-      bodyBytes += chunk.length;
-      if (bodyBytes > MAX_PROXY_BODY_BYTES) {
-        sendPlainError(clientRes, 413, 'Request body too large while preview server is starting');
-        return;
-      }
-      chunks.push(chunk);
-    }
-  } catch (err) {
-    logCrashBoundary('preview request body read failed', err);
-    sendPlainError(clientRes, 400, 'Request body could not be read');
-    return;
-  }
-  const bodyBuffer = Buffer.concat(chunks);
-
-  await new Promise<void>((resolve) => {
-    const timeoutId = setTimeout(() => {
-      if (!clientRes.headersSent) {
-        clientRes.writeHead(503, { 'content-type': 'text/html; charset=utf-8' });
-        safeEnd(clientRes,
-          '<html><head><title>Preview Starting</title></head><body>' +
-          '<h2>Preview server is starting…</h2>' +
-          '<p>Please wait a moment and refresh.</p>' +
-          '</body></html>',
-        );
-      }
-      resolve();
-    }, PREVIEW_START_TIMEOUT_MS);
-
-    entry!.startWaiters.push({
-      resolve: () => {
-        clearTimeout(timeoutId);
-        if (entry) entry.lastActivityMs = Date.now();
-        forwardToPort(entry!.port, clientReq, clientRes, bodyBuffer);
-        resolve();
-      },
-      reject: (err) => {
-        clearTimeout(timeoutId);
-        if (!clientRes.headersSent) {
-          clientRes.writeHead(503, { 'content-type': 'text/plain' });
-          safeEnd(clientRes, `Preview server failed to start: ${err.message}\n`);
-        }
-        resolve();
-      },
-    });
-  });
-}
-
-// ─── Production request handler (auto-start + queue) ─────────────────────────
 
 async function readRequestBodyForQueuedStart(
   clientReq: http.IncomingMessage,
@@ -667,20 +506,22 @@ async function readRequestBodyForQueuedStart(
   return Buffer.concat(chunks);
 }
 
-async function handleProdRequest(
+async function forwardWhenReady(
+  entry: ManagedServerEntry,
   clientReq: http.IncomingMessage,
   clientRes: http.ServerResponse,
 ): Promise<void> {
-  if (prodStatus === 'running') {
-    forwardToPort(upstreamPort, clientReq, clientRes);
+  entry.lastActivityMs = Date.now();
+  if (entry.status === 'running') {
+    forwardToPort(entry.port, clientReq, clientRes);
     return;
   }
 
-  const bodyBuffer = await readRequestBodyForQueuedStart(clientReq, clientRes, 'production');
+  const bodyBuffer = await readRequestBodyForQueuedStart(clientReq, clientRes, serverLabel(entry));
   if (bodyBuffer === null) return;
 
-  if (!prodStartPromise) {
-    startProdServerIfNeeded().catch((err) => logCrashBoundary('production lazy start failed', err));
+  if (!entry.startPromise) {
+    startManagedServer(entry).catch((err) => logCrashBoundary(`${serverLabel(entry)} lazy start failed`, err));
   }
 
   await new Promise<void>((resolve) => {
@@ -689,7 +530,7 @@ async function handleProdRequest(
         clientRes.writeHead(503, { 'content-type': 'text/html; charset=utf-8' });
         safeEnd(clientRes,
           '<html><head><title>Server Starting</title></head><body>' +
-          '<h2>Production server is starting…</h2>' +
+          `<h2>${entry.kind === 'production' ? 'Production' : 'Preview'} server is starting…</h2>` +
           '<p>Please wait a moment and refresh.</p>' +
           '</body></html>',
         );
@@ -697,22 +538,78 @@ async function handleProdRequest(
       resolve();
     }, PREVIEW_START_TIMEOUT_MS);
 
-    prodStartWaiters.push({
+    entry.startWaiters.push({
       resolve: () => {
         clearTimeout(timeoutId);
-        forwardToPort(upstreamPort, clientReq, clientRes, bodyBuffer);
+        entry.lastActivityMs = Date.now();
+        forwardToPort(entry.port, clientReq, clientRes, bodyBuffer);
         resolve();
       },
       reject: (err) => {
         clearTimeout(timeoutId);
         if (!clientRes.headersSent) {
           clientRes.writeHead(503, { 'content-type': 'text/plain' });
-          safeEnd(clientRes, `Production server failed to start: ${err.message}\n`);
+          safeEnd(clientRes, `${serverLabel(entry)} server failed to start: ${err.message}\n`);
         }
         resolve();
       },
     });
   });
+}
+
+async function handlePreviewRequest(
+  sessionId: string,
+  clientReq: http.IncomingMessage,
+  clientRes: http.ServerResponse,
+): Promise<void> {
+  let entry = previewProcesses.get(sessionId);
+  if (entry) {
+    await forwardWhenReady(entry, clientReq, clientRes);
+    return;
+  }
+
+  let info = sessionWorktreeCache[sessionId];
+  if (!info) {
+    readAllPorts();
+    info = sessionWorktreeCache[sessionId];
+  }
+  if (!info) {
+    // Unknown session — forward to upstream (will produce a useful 404 from Next.js)
+    forwardToPort(upstreamPort, clientReq, clientRes);
+    return;
+  }
+  if (isProductionTarget(sessionId, info.port)) {
+    console.warn(`[proxy] refusing preview for session ${sessionId}: worktree is the current production server (port :${info.port})`);
+    clientRes.writeHead(409, { 'content-type': 'text/plain' });
+    clientRes.end(`This session's branch is now the production server and cannot be previewed as a dev server.\n`);
+    return;
+  }
+
+  entry = {
+    id: sessionId,
+    kind: 'preview',
+    mode: 'dev',
+    port: info.port,
+    worktreePath: info.worktreePath,
+    lastActivityMs: Date.now(),
+    status: 'stopped',
+    startWaiters: [],
+    startPromise: null,
+  };
+  previewProcesses.set(sessionId, entry);
+  await forwardWhenReady(entry, clientReq, clientRes);
+}
+
+async function handleProdRequest(
+  clientReq: http.IncomingMessage,
+  clientRes: http.ServerResponse,
+): Promise<void> {
+  const entry = getProdEntry();
+  if (!entry) {
+    sendPlainError(clientRes, 503, 'Production upstream is not configured');
+    return;
+  }
+  await forwardWhenReady(entry, clientReq, clientRes);
 }
 
 // ─── Routing ──────────────────────────────────────────────────────────────────
@@ -799,7 +696,8 @@ function handleWsUpgrade(rawSocket: net.Socket, reqBuf: Buffer): void {
     const cached = sessionPortCache[previewMatch[1]];
     if (cached) targetPort = cached;
   } else {
-    if (prodStatus !== 'running') {
+    const entry = getProdEntry();
+    if (entry?.status !== 'running') {
       startProdServerIfNeeded().catch((err) => logCrashBoundary('production lazy start for websocket failed', err));
     }
   }
@@ -838,7 +736,10 @@ function handleWsUpgrade(rawSocket: net.Socket, reqBuf: Buffer): void {
   });
   upstreamSocket.on('error', (err) => {
     console.error(`[proxy] WS upstream error on port ${targetPort}:`, err.message);
-    if (targetPort === upstreamPort) prodStatus = 'stopped';
+    if (targetPort === upstreamPort) {
+      const entry = getProdEntry();
+      if (entry) entry.status = 'stopped';
+    }
     if (!rawSocket.destroyed) rawSocket.destroy();
   });
 }
