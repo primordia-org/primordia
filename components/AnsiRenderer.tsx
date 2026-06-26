@@ -209,7 +209,7 @@ export function AnsiRenderer({ text, className }: AnsiRendererProps) {
   return (
     // whitespace-pre is required so that spaces inside span text nodes are
     // not collapsed by the browser's normal HTML whitespace rules.
-    <div className={`font-mono text-xs leading-5 whitespace-pre ${className ?? ""}`}>
+    <div className={`max-w-full overflow-x-auto font-mono text-xs leading-5 whitespace-pre ${className ?? ""}`}>
       {lines.map((line, li) => {
         // Empty line → thin vertical spacer
         if (line.spans.length === 0) {
