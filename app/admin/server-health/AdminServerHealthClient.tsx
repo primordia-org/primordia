@@ -64,7 +64,6 @@ export default function AdminServerHealthClient() {
   // Configurable proxy settings
   const [diskCleanupThresholdPct, setDiskCleanupThresholdPct] = useState(90);
   const [previewInactivityMin, setPreviewInactivityMin] = useState(30);
-  const [prodInactivityMin, setProdInactivityMin] = useState<number | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -87,7 +86,6 @@ export default function AdminServerHealthClient() {
         if (s) {
           if (typeof s.diskCleanupThresholdPct === "number") setDiskCleanupThresholdPct(s.diskCleanupThresholdPct);
           if (typeof s.previewInactivityMin === "number") setPreviewInactivityMin(s.previewInactivityMin);
-          if (typeof s.prodInactivityMin === "number" || s.prodInactivityMin === null) setProdInactivityMin(s.prodInactivityMin);
         }
       }
     } catch (e) {
@@ -102,7 +100,7 @@ export default function AdminServerHealthClient() {
     loadData();
   }, [loadData]);
 
-  function scheduleSettingsSave(patch: { diskCleanupThresholdPct?: number; previewInactivityMin?: number; prodInactivityMin?: number | null }) {
+  function scheduleSettingsSave(patch: { diskCleanupThresholdPct?: number; previewInactivityMin?: number }) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     if (savedTimer.current) clearTimeout(savedTimer.current);
     setSaveStatus("saving");
@@ -214,7 +212,7 @@ export default function AdminServerHealthClient() {
                 onChange={(e) => {
                   const v = Number(e.target.value);
                   setDiskCleanupThresholdPct(v);
-                  scheduleSettingsSave({ diskCleanupThresholdPct: v, previewInactivityMin, prodInactivityMin });
+                  scheduleSettingsSave({ diskCleanupThresholdPct: v, previewInactivityMin });
                 }}
                 className="w-full h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer accent-blue-500"
               />
@@ -270,7 +268,7 @@ export default function AdminServerHealthClient() {
                 onChange={(e) => {
                   const v = Number(e.target.value);
                   setPreviewInactivityMin(v);
-                  scheduleSettingsSave({ diskCleanupThresholdPct, previewInactivityMin: v, prodInactivityMin });
+                  scheduleSettingsSave({ diskCleanupThresholdPct, previewInactivityMin: v });
                 }}
                 className="w-full h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer accent-blue-500"
               />
@@ -283,55 +281,6 @@ export default function AdminServerHealthClient() {
               </p>
             </div>
 
-            <div className="mt-4 pt-4 border-t border-gray-800">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs text-gray-400">
-                  Production server idle shutdown
-                </label>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-200 tabular-nums w-20 text-right">
-                    {prodInactivityMin === null ? "Off" : `${prodInactivityMin} min`}
-                  </span>
-                  {saveIndicator}
-                </div>
-              </div>
-              <label className="mb-3 flex items-center gap-2 text-xs text-gray-400">
-                <input
-                  data-id="admin-health/prod-idle-enabled"
-                  type="checkbox"
-                  checked={prodInactivityMin !== null}
-                  onChange={(e) => {
-                    const v = e.target.checked ? 720 : null;
-                    setProdInactivityMin(v);
-                    scheduleSettingsSave({ diskCleanupThresholdPct, previewInactivityMin, prodInactivityMin: v });
-                  }}
-                  className="accent-blue-500"
-                />
-                Stop production after a long idle period; the proxy will start it again on the next request.
-              </label>
-              <input
-                data-id="admin-health/prod-inactivity-timeout"
-                type="range"
-                min={60}
-                max={10080}
-                step={60}
-                value={prodInactivityMin ?? 720}
-                disabled={prodInactivityMin === null}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setProdInactivityMin(v);
-                  scheduleSettingsSave({ diskCleanupThresholdPct, previewInactivityMin, prodInactivityMin: v });
-                }}
-                className="w-full h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer accent-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
-              />
-              <div className="flex justify-between text-xs text-gray-600 mt-1">
-                <span>1 hour</span>
-                <span>7 days</span>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                Leave this off for always-warm production. When enabled, idle shutdown only targets the configured production branch, never a preview by port coincidence.
-              </p>
-            </div>
           </div>
         ) : (
           <p className="text-sm text-gray-500">Memory info unavailable.</p>

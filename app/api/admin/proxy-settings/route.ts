@@ -13,15 +13,12 @@ import { getSessionUser, isAdmin } from '@/lib/auth';
 export interface ProxySettings {
   /** Minutes of inactivity before a preview server is stopped. Default: 30. */
   previewInactivityMin: number;
-  /** Minutes of inactivity before production is stopped. Null disables prod idle shutdown. */
-  prodInactivityMin: number | null;
   /** Disk usage % at which automatic worktree cleanup is triggered. Default: 90. */
   diskCleanupThresholdPct: number;
 }
 
 const DEFAULTS: ProxySettings = {
   previewInactivityMin: 30,
-  prodInactivityMin: null,
   diskCleanupThresholdPct: 90,
 };
 
@@ -57,8 +54,6 @@ export async function GET() {
   const settings: ProxySettings = {
     previewInactivityMin:
       readGitConfigInt('primordia.previewInactivityMin', repoRoot) ?? DEFAULTS.previewInactivityMin,
-    prodInactivityMin:
-      readGitConfigInt('primordia.prodInactivityMin', repoRoot) ?? DEFAULTS.prodInactivityMin,
     diskCleanupThresholdPct:
       readGitConfigInt('primordia.diskCleanupThresholdPct', repoRoot) ?? DEFAULTS.diskCleanupThresholdPct,
   };
@@ -69,7 +64,6 @@ export async function GET() {
 /** JSON body for PATCH /admin/proxy-settings */
 export interface ProxySettingsPatch {
   previewInactivityMin?: number; // Minutes of inactivity before a preview server is stopped. Must be 1–1440.
-  prodInactivityMin?: number | null; // Minutes of inactivity before production is stopped. Null disables this. Number must be 15–10080.
   diskCleanupThresholdPct?: number; // Disk usage % at which automatic worktree cleanup is triggered. Must be 1–100.
 }
 
@@ -103,19 +97,6 @@ export async function PATCH(req: Request) {
     }
   }
 
-  if (body.prodInactivityMin !== undefined) {
-    if (body.prodInactivityMin === null) {
-      writeGitConfig('primordia.prodInactivityMin', '', repoRoot);
-    } else {
-      const v = Number(body.prodInactivityMin);
-      if (!Number.isInteger(v) || v < 15 || v > 10080) {
-        errors.push('prodInactivityMin must be null or an integer between 15 and 10080');
-      } else {
-        writeGitConfig('primordia.prodInactivityMin', String(v), repoRoot);
-      }
-    }
-  }
-
   if (body.diskCleanupThresholdPct !== undefined) {
     const v = Number(body.diskCleanupThresholdPct);
     if (!Number.isInteger(v) || v < 1 || v > 100) {
@@ -133,8 +114,6 @@ export async function PATCH(req: Request) {
   const updated: ProxySettings = {
     previewInactivityMin:
       readGitConfigInt('primordia.previewInactivityMin', repoRoot) ?? DEFAULTS.previewInactivityMin,
-    prodInactivityMin:
-      readGitConfigInt('primordia.prodInactivityMin', repoRoot) ?? DEFAULTS.prodInactivityMin,
     diskCleanupThresholdPct:
       readGitConfigInt('primordia.diskCleanupThresholdPct', repoRoot) ?? DEFAULTS.diskCleanupThresholdPct,
   };

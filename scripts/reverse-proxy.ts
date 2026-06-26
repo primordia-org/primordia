@@ -7,8 +7,7 @@
 //
 // On startup and on demand, if the production Next.js server is not already
 // running, the proxy asks lib/process-manager.ts to start it as a detached
-// process. The proxy itself owns no app server child processes. Production can
-// optionally be stopped after a long idle period and restarted on next access.
+// process. The proxy itself owns no app server child processes.
 //
 // Preview server management: the proxy routes preview traffic and delegates
 // dev-server start/stop/log handling to lib/process-manager.ts. When a request
@@ -160,9 +159,6 @@ let watchedConfigPath: string | null = null;
 // ─── Preview server registry ─────────────────────────────────────────────────
 /** Inactivity timeout in minutes before a preview server is stopped (configurable via git config primordia.previewInactivityMin). */
 let previewInactivityMin = 30;
-/** Optional inactivity timeout in minutes before the production server is stopped (configurable via git config primordia.prodInactivityMin). */
-let prodInactivityMin: number | null = null;
-let prodLastActivityMs = Date.now();
 let prodStatus: 'starting' | 'running' | 'stopped' = 'stopped';
 const prodStartWaiters: StartWaiter[] = [];
 let prodStartPromise: Promise<void> | null = null;
@@ -223,7 +219,6 @@ function readAllPorts(): void {
   }
 
   if (state.previewInactivityMin) previewInactivityMin = state.previewInactivityMin;
-  prodInactivityMin = state.prodInactivityMin;
 
   for (const [sessionId, entry] of previewProcesses.entries()) {
     if (isProductionTarget(sessionId, entry.port)) {
@@ -363,10 +358,6 @@ setInterval(() => {
     }
   }
 
-  if (prodInactivityMin !== null && prodStatus === 'running') {
-    const prodCutoff = Date.now() - prodInactivityMin * 60 * 1000;
-    if (prodLastActivityMs < prodCutoff) stopProdServerForIdle();
-  }
 }, 60_000).unref();
 
 // ─── Production server ────────────────────────────────────────────────────────
@@ -452,15 +443,6 @@ async function startProdServerIfNeeded(): Promise<void> {
   });
 
   return prodStartPromise;
-}
-
-function stopProdServerForIdle(): void {
-  if (!currentProdBranch || prodStatus !== 'running') return;
-  console.log(`[proxy] stopping idle production server ${currentProdBranch} (${prodInactivityMin} min inactivity)`);
-  prodStatus = 'stopped';
-  void stopWorktreeServer(currentProdBranch, MAIN_REPO).catch((err) => {
-    logCrashBoundary(`process-manager stop failed for production ${currentProdBranch}`, err);
-  });
 }
 
 try {
@@ -689,8 +671,6 @@ async function handleProdRequest(
   clientReq: http.IncomingMessage,
   clientRes: http.ServerResponse,
 ): Promise<void> {
-  prodLastActivityMs = Date.now();
-
   if (prodStatus === 'running') {
     forwardToPort(upstreamPort, clientReq, clientRes);
     return;
@@ -720,7 +700,6 @@ async function handleProdRequest(
     prodStartWaiters.push({
       resolve: () => {
         clearTimeout(timeoutId);
-        prodLastActivityMs = Date.now();
         forwardToPort(upstreamPort, clientReq, clientRes, bodyBuffer);
         resolve();
       },
@@ -820,7 +799,6 @@ function handleWsUpgrade(rawSocket: net.Socket, reqBuf: Buffer): void {
     const cached = sessionPortCache[previewMatch[1]];
     if (cached) targetPort = cached;
   } else {
-    prodLastActivityMs = Date.now();
     if (prodStatus !== 'running') {
       startProdServerIfNeeded().catch((err) => logCrashBoundary('production lazy start for websocket failed', err));
     }
