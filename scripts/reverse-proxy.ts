@@ -5,15 +5,18 @@
 // the upstream port stored in git config as branch.{currentBranch}.port for
 // the branch stored in git config as primordia.productionBranch.
 //
-// On startup, if the production Next.js server is not already running, the
-// proxy asks lib/process-manager.ts to start it as a detached process. The proxy
-// itself owns no app server child processes.
+// On startup and on demand, if the production Next.js server is not already
+// running, the proxy asks lib/process-manager.ts to start it as a detached
+// process. The proxy itself owns no app server child processes. Production can
+// optionally be stopped after a long idle period and restarted on next access.
 //
 // Preview server management: the proxy routes preview traffic and delegates
 // dev-server start/stop/log handling to lib/process-manager.ts. When a request
 // arrives for /preview/{sessionId} and no server is running for that session,
 // the proxy starts one lazily, queuing the first request until it is ready.
-// Preview servers are automatically stopped after 30 minutes of inactivity.
+// Preview servers are automatically stopped after 30 minutes of inactivity,
+// except entries matching the current production branch/port are never stopped
+// by the preview idle sweeper.
 //
 // Session routing: requests to /preview/{branchName}/... are routed to the
 // port associated with that branch. The mapping is derived from git config:
@@ -157,7 +160,13 @@ let watchedConfigPath: string | null = null;
 // ─── Preview server registry ─────────────────────────────────────────────────
 /** Inactivity timeout in minutes before a preview server is stopped (configurable via git config primordia.previewInactivityMin). */
 let previewInactivityMin = 30;
-/** How long to wait for a preview server to become ready before giving up (2 min). */
+/** Optional inactivity timeout in minutes before the production server is stopped (configurable via git config primordia.prodInactivityMin). */
+let prodInactivityMin: number | null = null;
+let prodLastActivityMs = Date.now();
+let prodStatus: 'starting' | 'running' | 'stopped' = 'stopped';
+const prodStartWaiters: StartWaiter[] = [];
+let prodStartPromise: Promise<void> | null = null;
+/** How long to wait for a server to become ready before giving up (2 min). */
 const PREVIEW_START_TIMEOUT_MS = 2 * 60 * 1000;
 /** Maximum request header bytes buffered by the raw TCP classifier before HTTP parsing. */
 const MAX_REQUEST_HEADER_BYTES = 64 * 1024;
@@ -214,6 +223,15 @@ function readAllPorts(): void {
   }
 
   if (state.previewInactivityMin) previewInactivityMin = state.previewInactivityMin;
+  prodInactivityMin = state.prodInactivityMin;
+
+  for (const [sessionId, entry] of previewProcesses.entries()) {
+    if (isProductionTarget(sessionId, entry.port)) {
+      console.warn(`[proxy] evicting preview registry entry for production branch ${sessionId} on :${entry.port}`);
+      entry.status = 'stopped';
+      previewProcesses.delete(sessionId);
+    }
+  }
 
 }
 
@@ -305,9 +323,19 @@ async function startPreviewServer(
 /**
  * Kills the preview server for the given session, if running.
  */
+function isProductionTarget(branch: string, port: number): boolean {
+  return Boolean(currentProdBranch && branch === currentProdBranch) || Boolean(upstreamPort && port === upstreamPort);
+}
+
 function stopPreviewServer(sessionId: string): void {
   const entry = previewProcesses.get(sessionId);
   if (!entry || entry.status === 'stopped') return;
+  if (isProductionTarget(sessionId, entry.port)) {
+    console.warn(`[proxy] refusing to stop preview ${sessionId}: it matches the current production target on :${entry.port}`);
+    entry.status = 'stopped';
+    previewProcesses.delete(sessionId);
+    return;
+  }
   console.log(`[proxy] stopping preview server for session ${sessionId}`);
   entry.status = 'stopped';
   previewProcesses.delete(sessionId);
@@ -324,11 +352,20 @@ setInterval(() => {
     if (entry.lastActivityMs < cutoff) {
       if (entry.status === 'stopped') {
         previewProcesses.delete(sessionId);
+      } else if (isProductionTarget(sessionId, entry.port)) {
+        console.warn(`[proxy] idle preview cleanup skipped ${sessionId}: it matches production on :${entry.port}`);
+        entry.status = 'stopped';
+        previewProcesses.delete(sessionId);
       } else {
         console.log(`[proxy] stopping idle preview server ${sessionId} (${previewInactivityMin} min inactivity)`);
         stopPreviewServer(sessionId);
       }
     }
+  }
+
+  if (prodInactivityMin !== null && prodStatus === 'running') {
+    const prodCutoff = Date.now() - prodInactivityMin * 60 * 1000;
+    if (prodLastActivityMs < prodCutoff) stopProdServerForIdle();
   }
 }, 60_000).unref();
 
@@ -340,32 +377,90 @@ setInterval(() => {
  * This makes the proxy responsible for the production server lifecycle so no
  * separate primordia.service systemd unit is needed.
  */
-async function startProdServerIfNeeded(): Promise<void> {
-  if (!currentProdBranch || !upstreamPort) return;
-
-  // Check if the production server is already running.
+async function isPortReady(port: number, timeoutMs = 2_000): Promise<boolean> {
   try {
-    await fetch(`http://localhost:${upstreamPort}/`, {
-      signal: AbortSignal.timeout(2_000),
+    await fetch(`http://127.0.0.1:${port}/`, {
+      signal: AbortSignal.timeout(timeoutMs),
       redirect: 'manual',
     });
-    console.log(`[proxy] production server already running on :${upstreamPort}`);
-    return;
+    return true;
   } catch {
-    // Not running — need to start it.
+    return false;
   }
+}
 
-  console.log(`[proxy] asking process-manager to start production server (${currentProdBranch}) on :${upstreamPort}`);
-  try {
-    const result = await startWorktreeServer(currentProdBranch, 'prod', MAIN_REPO);
-    console.log(`[proxy] ${result.message}`);
-  } catch (err) {
-    if (errorMessage(err).includes('already has running server process')) {
-      console.log(`[proxy] production server already managed for ${currentProdBranch}`);
-    } else {
-      console.error(`[proxy] production server start failed: ${errorMessage(err)}`);
+function settleProdWaiters(err?: Error): void {
+  const waiters = prodStartWaiters.splice(0);
+  for (const waiter of waiters) {
+    try {
+      if (err) waiter.reject(err);
+      else waiter.resolve();
+    } catch (waiterErr) {
+      logCrashBoundary('production start waiter failed', waiterErr);
     }
   }
+}
+
+async function waitForProdReady(): Promise<void> {
+  if (!upstreamPort) throw new Error('No production upstream port configured');
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= PREVIEW_START_TIMEOUT_MS) {
+    if (await isPortReady(upstreamPort)) {
+      prodStatus = 'running';
+      console.log(`[proxy] production server ready on :${upstreamPort}`);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  prodStatus = 'stopped';
+  throw new Error('Production server did not become ready before timeout');
+}
+
+/**
+ * If the production Next.js server is not already running on the upstream port,
+ * find the production worktree and spawn `bun run start` there. Multiple callers
+ * share one in-flight start and may wait until the port is ready.
+ */
+async function startProdServerIfNeeded(): Promise<void> {
+  if (!currentProdBranch || !upstreamPort) return;
+  if (prodStartPromise) return prodStartPromise;
+
+  prodStartPromise = (async () => {
+    if (await isPortReady(upstreamPort, 750)) {
+      prodStatus = 'running';
+      console.log(`[proxy] production server already running on :${upstreamPort}`);
+      settleProdWaiters();
+      return;
+    }
+
+    prodStatus = 'starting';
+    console.log(`[proxy] asking process-manager to start production server (${currentProdBranch}) on :${upstreamPort}`);
+    try {
+      const result = await startWorktreeServer(currentProdBranch, 'prod', MAIN_REPO);
+      console.log(`[proxy] ${result.message}`);
+      await waitForProdReady();
+      settleProdWaiters();
+    } catch (err) {
+      const startErr = new Error(`Production server failed to start: ${errorMessage(err)}`);
+      prodStatus = 'stopped';
+      console.error(`[proxy] ${startErr.message}`);
+      settleProdWaiters(startErr);
+      throw startErr;
+    }
+  })().finally(() => {
+    prodStartPromise = null;
+  });
+
+  return prodStartPromise;
+}
+
+function stopProdServerForIdle(): void {
+  if (!currentProdBranch || prodStatus !== 'running') return;
+  console.log(`[proxy] stopping idle production server ${currentProdBranch} (${prodInactivityMin} min inactivity)`);
+  prodStatus = 'stopped';
+  void stopWorktreeServer(currentProdBranch, MAIN_REPO).catch((err) => {
+    logCrashBoundary(`process-manager stop failed for production ${currentProdBranch}`, err);
+  });
 }
 
 try {
@@ -443,6 +538,7 @@ function forwardToPort(
 
   upstreamReq.on('error', (err) => {
     console.error(`[proxy] upstream error on port ${port}:`, err.message);
+    if (port === upstreamPort) prodStatus = 'stopped';
     if (!clientRes.headersSent) {
       sendPlainError(clientRes, 502, 'Bad Gateway - upstream server unavailable');
     } else {
@@ -497,7 +593,7 @@ async function handlePreviewRequest(
     // serving production. This can happen when a session branch is accepted and
     // becomes the production branch — its sessionWorktreeCache entry remains
     // valid, but spawning a dev server would stop the process on that branch port and take down prod.
-    if (info.port === upstreamPort) {
+    if (isProductionTarget(sessionId, info.port)) {
       console.warn(`[proxy] refusing preview for session ${sessionId}: worktree is the current production server (port :${info.port})`);
       clientRes.writeHead(409, { 'content-type': 'text/plain' });
       clientRes.end(`This session's branch is now the production server and cannot be previewed as a dev server.\n`);
@@ -563,14 +659,84 @@ async function handlePreviewRequest(
   });
 }
 
-// ─── Routing ──────────────────────────────────────────────────────────────────
+// ─── Production request handler (auto-start + queue) ─────────────────────────
 
-/**
- * Resolves the target port for a non-preview request.
- */
-function resolveUpstreamPort(): number {
-  return upstreamPort;
+async function readRequestBodyForQueuedStart(
+  clientReq: http.IncomingMessage,
+  clientRes: http.ServerResponse,
+  label: string,
+): Promise<Buffer | null> {
+  const chunks: Buffer[] = [];
+  let bodyBytes = 0;
+  try {
+    for await (const chunk of clientReq as AsyncIterable<Buffer>) {
+      bodyBytes += chunk.length;
+      if (bodyBytes > MAX_PROXY_BODY_BYTES) {
+        sendPlainError(clientRes, 413, `Request body too large while ${label} server is starting`);
+        return null;
+      }
+      chunks.push(chunk);
+    }
+  } catch (err) {
+    logCrashBoundary(`${label} request body read failed`, err);
+    sendPlainError(clientRes, 400, 'Request body could not be read');
+    return null;
+  }
+  return Buffer.concat(chunks);
 }
+
+async function handleProdRequest(
+  clientReq: http.IncomingMessage,
+  clientRes: http.ServerResponse,
+): Promise<void> {
+  prodLastActivityMs = Date.now();
+
+  if (prodStatus === 'running') {
+    forwardToPort(upstreamPort, clientReq, clientRes);
+    return;
+  }
+
+  const bodyBuffer = await readRequestBodyForQueuedStart(clientReq, clientRes, 'production');
+  if (bodyBuffer === null) return;
+
+  if (!prodStartPromise) {
+    startProdServerIfNeeded().catch((err) => logCrashBoundary('production lazy start failed', err));
+  }
+
+  await new Promise<void>((resolve) => {
+    const timeoutId = setTimeout(() => {
+      if (!clientRes.headersSent) {
+        clientRes.writeHead(503, { 'content-type': 'text/html; charset=utf-8' });
+        safeEnd(clientRes,
+          '<html><head><title>Server Starting</title></head><body>' +
+          '<h2>Production server is starting…</h2>' +
+          '<p>Please wait a moment and refresh.</p>' +
+          '</body></html>',
+        );
+      }
+      resolve();
+    }, PREVIEW_START_TIMEOUT_MS);
+
+    prodStartWaiters.push({
+      resolve: () => {
+        clearTimeout(timeoutId);
+        prodLastActivityMs = Date.now();
+        forwardToPort(upstreamPort, clientReq, clientRes, bodyBuffer);
+        resolve();
+      },
+      reject: (err) => {
+        clearTimeout(timeoutId);
+        if (!clientRes.headersSent) {
+          clientRes.writeHead(503, { 'content-type': 'text/plain' });
+          safeEnd(clientRes, `Production server failed to start: ${err.message}\n`);
+        }
+        resolve();
+      },
+    });
+  });
+}
+
+// ─── Routing ──────────────────────────────────────────────────────────────────
 
 // ─── HTTP server ──────────────────────────────────────────────────────────────
 
@@ -593,8 +759,8 @@ async function handleRequest(
       return;
     }
 
-    // Default: forward to production upstream
-    forwardToPort(resolveUpstreamPort(), clientReq, clientRes);
+    // Default: forward to production upstream, lazily starting it if idle/down.
+    await handleProdRequest(clientReq, clientRes);
   } catch (err) {
     logCrashBoundary('request handler failed', err);
     sendPlainError(clientRes, 500, 'Internal proxy error');
@@ -653,6 +819,11 @@ function handleWsUpgrade(rawSocket: net.Socket, reqBuf: Buffer): void {
   if (previewMatch) {
     const cached = sessionPortCache[previewMatch[1]];
     if (cached) targetPort = cached;
+  } else {
+    prodLastActivityMs = Date.now();
+    if (prodStatus !== 'running') {
+      startProdServerIfNeeded().catch((err) => logCrashBoundary('production lazy start for websocket failed', err));
+    }
   }
 
   const upstreamSocket = net.createConnection(targetPort, '127.0.0.1');
@@ -689,6 +860,7 @@ function handleWsUpgrade(rawSocket: net.Socket, reqBuf: Buffer): void {
   });
   upstreamSocket.on('error', (err) => {
     console.error(`[proxy] WS upstream error on port ${targetPort}:`, err.message);
+    if (targetPort === upstreamPort) prodStatus = 'stopped';
     if (!rawSocket.destroyed) rawSocket.destroy();
   });
 }

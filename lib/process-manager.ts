@@ -38,6 +38,7 @@ export interface ProxyRoutingState {
   branchPorts: Map<string, number>;
   previewTargets: Record<string, { worktreePath: string; port: number }>;
   previewInactivityMin: number | null;
+  prodInactivityMin: number | null;
   diskCleanupThresholdPct: number | null;
   gitConfigPath: string | null;
 }
@@ -457,12 +458,14 @@ export function ensureBranchPort(branch: string, cwd = process.cwd(), startFrom?
   return port;
 }
 
-export function readProcessManagerConfig(cwd = process.cwd()): { previewInactivityMin: number | null; diskCleanupThresholdPct: number | null } {
+export function readProcessManagerConfig(cwd = process.cwd()): { previewInactivityMin: number | null; prodInactivityMin: number | null; diskCleanupThresholdPct: number | null } {
   const repoRoot = getGitRepoRoot(cwd);
   const previewInactivityMin = Number.parseInt(readGitConfigValue(repoRoot, 'primordia.previewInactivityMin') ?? '', 10);
+  const prodInactivityMin = Number.parseInt(readGitConfigValue(repoRoot, 'primordia.prodInactivityMin') ?? '', 10);
   const diskCleanupThresholdPct = Number.parseInt(readGitConfigValue(repoRoot, 'primordia.diskCleanupThresholdPct') ?? '', 10);
   return {
     previewInactivityMin: Number.isFinite(previewInactivityMin) && previewInactivityMin > 0 ? previewInactivityMin : null,
+    prodInactivityMin: Number.isFinite(prodInactivityMin) && prodInactivityMin > 0 ? prodInactivityMin : null,
     diskCleanupThresholdPct: Number.isFinite(diskCleanupThresholdPct) && diskCleanupThresholdPct > 0 && diskCleanupThresholdPct <= 100 ? diskCleanupThresholdPct : null,
   };
 }

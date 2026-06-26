@@ -14,7 +14,7 @@ Primordia uses `.git/config` as a lightweight key-value store for **non-sensitiv
 |---|---|---|
 | `primordia.*` | `primordia.productionBranch` | App-wide settings; proxy reads these live via `fs.watch` on `.git/config` |
 | `primordia.*` | `primordia.productionHistory` | Multi-value list of previous production branch names (written with `--add`) |
-| `primordia.*` | `primordia.previewInactivityMin` | Proxy tuning knobs (see `app/api/admin/proxy-settings/route.ts`) |
+| `primordia.*` | `primordia.previewInactivityMin`, `primordia.prodInactivityMin` | Proxy tuning knobs (see `app/api/admin/proxy-settings/route.ts`) |
 | `branch.{name}.*` | `branch.main.port` | Per-branch ephemeral port; proxy discovers preview servers this way |
 | `branch.{name}.*` | `branch.feature-x.parent` | Legacy parent branch metadata; still written while branch-marker commit trailer tracking (`lib/branch-parent.ts`) is validated via a user-toggleable source setting |
 | `remote.{name}.*` | `remote.primordia-official.updateSource` | Update source metadata extending the standard git remote section (see `lib/update-sources.ts`) |
