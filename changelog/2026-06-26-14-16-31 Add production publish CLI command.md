@@ -7,3 +7,5 @@ The new command resolves the target worktree the same way as the existing `start
 Updated `scripts/install.sh` to use this official publish command during both zero-downtime slot swaps and restart/start deployments, replacing the previous hand-written git config writes with the shared health-checked abstraction.
 
 Confirmed `bun run primordia start --prod` already assigns and persists a branch port through the shared process-manager path when one does not exist. Also updated `bun run primordia status` so both table and JSON output include the current production branch from git config, making it visible without calling `git config` directly.
+
+Made the publish health check wait up to 30 seconds instead of doing a single immediate request, which avoids failing while a just-started production server is still booting. The installer now also includes the captured process-manager command output in failure diagnostics, so publish/start failures show the underlying health-check or CLI error instead of only the failing shell command.

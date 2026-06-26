@@ -539,22 +539,26 @@ export function setProductionBranch(branch: string, cwd = process.cwd(), addToHi
   if (addToHistory) addGitConfigValue(repoRoot, 'primordia.productionHistory', branch);
 }
 
-async function checkWorktreeHealth(port: number, timeoutMs = 5000): Promise<{ url: string; status: number }> {
+async function checkWorktreeHealth(port: number, timeoutMs = 30_000): Promise<{ url: string; status: number }> {
   const url = `http://127.0.0.1:${port}/`;
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      redirect: 'manual',
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Health check failed for ${url}: ${message}`);
+  const deadline = Date.now() + timeoutMs;
+  let lastError = 'not checked yet';
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, {
+        redirect: 'manual',
+        signal: AbortSignal.timeout(3000),
+      });
+      if (response.status < 500) return { url, status: response.status };
+      lastError = `HTTP ${response.status}`;
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  if (response.status >= 500) {
-    throw new Error(`Health check failed for ${url}: HTTP ${response.status}`);
-  }
-  return { url, status: response.status };
+
+  throw new Error(`Health check failed for ${url} after ${timeoutMs / 1000}s: ${lastError}`);
 }
 
 export async function publishProductionBranch(name: string, cwd = process.cwd()): Promise<PublishProductionResult> {

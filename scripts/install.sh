@@ -100,6 +100,7 @@ _CURRENT_STEP="(initialising)"
 _INSTALL_FAILURE_REPORTED=false
 _LAST_FAILURE_LINE=""
 _LAST_FAILURE_COMMAND=""
+_INSTALL_COMMAND_OUTPUT_FILE=""
 
 report_install_failure() {
   local exit_code="$1"
@@ -115,6 +116,11 @@ report_install_failure() {
   echo -e "\n${RED}✗ Install failed${RESET} at step: ${BOLD}${_CURRENT_STEP}${RESET} (line ${line}, exit ${exit_code})" >&2
   echo -e "${DIM}  Failed command: ${command}${RESET}" >&2
   server_diagnostics >&2
+  if [[ -n "${_INSTALL_COMMAND_OUTPUT_FILE}" && -f "${_INSTALL_COMMAND_OUTPUT_FILE}" ]]; then
+    echo -e "${DIM}  Command output (last 80 lines):${RESET}" >&2
+    tail -80 "${_INSTALL_COMMAND_OUTPUT_FILE}" >&2 || true
+    echo "" >&2
+  fi
   echo "" >&2
   echo -e "${DIM}  Service logs (last 30 lines):${RESET}" >&2
   journalctl -u primordia -n 30 --no-pager 2>/dev/null >&2 || true
@@ -748,6 +754,7 @@ if [[ "${SERVICE_READY}" == "false" ]]; then
   _CURRENT_STEP="restart path: start production server"
   _step "Starting production server..."
   _PROCESS_JSON="$(mktemp)"
+  _INSTALL_COMMAND_OUTPUT_FILE="$_PROCESS_JSON"
   diag "restart path: bun run primordia start --prod --worktree ${BRANCH}"
   ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia start --prod --json --worktree "${BRANCH}" >"$_PROCESS_JSON" 2>&1
   _done "Production server started"
@@ -756,6 +763,7 @@ if [[ "${SERVICE_READY}" == "false" ]]; then
   _step "Publishing production branch..."
   diag "restart path: bun run primordia publish --worktree ${BRANCH}"
   ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia publish --json --worktree "${BRANCH}" >"$_PROCESS_JSON" 2>&1
+  _INSTALL_COMMAND_OUTPUT_FILE=""
   rm -f "$_PROCESS_JSON"
   _done "Production branch published"
 
