@@ -21,6 +21,17 @@ export type ServerEnv = 'prod' | 'dev' | 'unknown';
 export type ServerStartMode = 'dev' | 'prod';
 export type ProcessAction = 'start' | 'stop' | 'restart';
 
+export interface PublishProductionResult {
+  action: 'publish';
+  worktree: string;
+  branch: string;
+  port: number;
+  previousProductionBranch: string | null;
+  healthCheckUrl: string;
+  status: number;
+  message: string;
+}
+
 export interface ProcessActionResult {
   action: ProcessAction;
   worktree: string;
@@ -524,6 +535,42 @@ export function setProductionBranch(branch: string, cwd = process.cwd(), addToHi
   const repoRoot = getGitRepoRoot(cwd);
   writeGitConfigValue(repoRoot, 'primordia.productionBranch', branch);
   if (addToHistory) addGitConfigValue(repoRoot, 'primordia.productionHistory', branch);
+}
+
+async function checkWorktreeHealth(port: number, timeoutMs = 5000): Promise<{ url: string; status: number }> {
+  const url = `http://127.0.0.1:${port}/`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Health check failed for ${url}: ${message}`);
+  }
+  if (response.status >= 500) {
+    throw new Error(`Health check failed for ${url}: HTTP ${response.status}`);
+  }
+  return { url, status: response.status };
+}
+
+export async function publishProductionBranch(name: string, cwd = process.cwd()): Promise<PublishProductionResult> {
+  const report = getProcessStatusReport(cwd);
+  const worktree = findWorktree(report, name, cwd);
+  const health = await checkWorktreeHealth(worktree.port);
+  const previousProductionBranch = readProductionBranch(getGitRepoRoot(cwd));
+  setProductionBranch(worktree.branch, cwd, previousProductionBranch !== worktree.branch);
+  return {
+    action: 'publish',
+    worktree: worktree.path,
+    branch: worktree.branch,
+    port: worktree.port,
+    previousProductionBranch,
+    healthCheckUrl: health.url,
+    status: health.status,
+    message: `published ${worktree.branch} as production after health check ${health.url} returned HTTP ${health.status}`,
+  };
 }
 
 export function touchBranchPort(branch: string, port: number, cwd = process.cwd()): void {

@@ -7,6 +7,7 @@ import {
   formatProcessStatusReport,
   getProcessStatusReport,
   readWorktreeLogLines,
+  publishProductionBranch,
   restartWorktreeServer,
   startWorktreeServer,
   stopWorktreeServer,
@@ -15,7 +16,7 @@ import {
 } from '@/lib/process-manager';
 
 interface Args {
-  command: 'status' | 'start' | 'stop' | 'restart' | 'logs' | null;
+  command: 'status' | 'start' | 'stop' | 'restart' | 'logs' | 'publish' | null;
   json: boolean;
   follow: boolean;
   worktreeName: string | null;
@@ -29,6 +30,7 @@ function printUsage(): void {
   bun run primordia stop [--json] [--worktree <worktreename>]
   bun run primordia restart [--dev|--prod] [--json] [--worktree <worktreename>]
   bun run primordia logs [--follow] [--json] [--worktree <worktreename>]
+  bun run primordia publish [--json] [--worktree <worktreename>]
 
 Commands:
   status      List reverse proxy, worktrees, Next.js servers, and active agents.
@@ -36,6 +38,7 @@ Commands:
   stop        Stop a worktree's active server process(es).
   restart     Stop, then start, a worktree's server.
   logs        Print a worktree's server log file.
+  publish     Health-check, then mark a worktree branch as production.
 
 Options:
   --worktree  Worktree branch, basename, or path. Defaults to the worktree containing cwd.
@@ -66,7 +69,7 @@ function parseArgs(argv: string[]): Args {
     } else if (arg === '--help' || arg === '-h') {
       printUsage();
       process.exit(0);
-    } else if ((arg === 'status' || arg === 'start' || arg === 'stop' || arg === 'restart' || arg === 'logs') && !args.command) {
+    } else if ((arg === 'status' || arg === 'start' || arg === 'stop' || arg === 'restart' || arg === 'logs' || arg === 'publish') && !args.command) {
       args.command = arg;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
@@ -142,11 +145,16 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (args.command === 'start' || args.command === 'stop' || args.command === 'restart' || args.command === 'logs') {
+  if (args.command === 'start' || args.command === 'stop' || args.command === 'restart' || args.command === 'logs' || args.command === 'publish') {
     const report = getProcessStatusReport();
     const worktreeName = resolveWorktreeName(args.worktreeName, report);
 
-    if (args.command === 'start') {
+    if (args.command === 'publish') {
+      if (args.follow) throw new Error('--follow is only supported for logs');
+      const result = await publishProductionBranch(worktreeName);
+      if (args.json) printJson(result);
+      else console.log(result.message);
+    } else if (args.command === 'start') {
       const result = await startWorktreeServer(worktreeName, args.mode);
       if (args.json) printJson(result);
       else console.log(result.message);
