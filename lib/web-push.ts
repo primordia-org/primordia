@@ -22,16 +22,18 @@ export interface SendWebPushOptions {
   tag?: string;
 }
 
-export const WEB_PUSH_CATEGORIES = ["security-vulnerabilities", "primordia-updates"] as const satisfies readonly WebPushCategory[];
+export const WEB_PUSH_CATEGORIES = ["security-vulnerabilities", "primordia-updates", "server-health-alerts"] as const satisfies readonly WebPushCategory[];
 
 export const WEB_PUSH_CATEGORY_LABELS: Record<WebPushCategory, string> = {
   "security-vulnerabilities": "Security Vulnerabilities",
   "primordia-updates": "Primordia Updates",
+  "server-health-alerts": "Server Health Alerts",
 };
 
 export const WEB_PUSH_CATEGORY_TAGS: Record<WebPushCategory, string> = {
   "security-vulnerabilities": "primordia-security-vulnerabilities",
   "primordia-updates": "primordia-updates",
+  "server-health-alerts": "primordia-server-health-alerts",
 };
 
 export function isWebPushCategory(value: unknown): value is WebPushCategory {

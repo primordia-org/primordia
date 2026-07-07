@@ -26,10 +26,19 @@ interface NonProdWorktree {
   ctimeMs: number;
 }
 
+interface LeakDiagnosticsInfo {
+  exists: boolean;
+  path: string;
+  capturedAt: number | null;
+  sizeBytes: number | null;
+  reason: string | null;
+}
+
 interface HealthData {
   disk: DiskInfo | null;
   memory: MemoryInfo | null;
   oldestNonProdWorktree: NonProdWorktree | null;
+  leakDiagnostics: LeakDiagnosticsInfo;
 }
 
 function formatBytes(bytes: number): string {
@@ -60,6 +69,8 @@ export default function AdminServerHealthClient() {
   const [deleting, setDeleting] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [creatingLeakSession, setCreatingLeakSession] = useState(false);
+  const [leakSessionError, setLeakSessionError] = useState<string | null>(null);
 
   // Configurable proxy settings
   const [diskCleanupThresholdPct, setDiskCleanupThresholdPct] = useState(90);
@@ -123,6 +134,25 @@ export default function AdminServerHealthClient() {
     }, 500);
   }
 
+  async function handleCreateLeakSession() {
+    trackEvent("admin/leak-diagnostics-session-created/v1", { path: data?.leakDiagnostics.path });
+    setCreatingLeakSession(true);
+    setLeakSessionError(null);
+    try {
+      const res = await fetch(withBasePath("/api/admin/server-health"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create-leak-diagnostics-session" }),
+      });
+      const body = await res.json().catch(() => ({})) as { sessionId?: string; error?: string };
+      if (!res.ok || !body.sessionId) throw new Error(body.error ?? `HTTP ${res.status}`);
+      window.location.href = withBasePath(`/evolve/session/${body.sessionId}`);
+    } catch (e) {
+      setLeakSessionError(String(e));
+      setCreatingLeakSession(false);
+    }
+  }
+
   async function handleDeleteOldest() {
     if (!data?.oldestNonProdWorktree) return;
     const { branch, path } = data.oldestNonProdWorktree;
@@ -163,7 +193,7 @@ export default function AdminServerHealthClient() {
 
   if (!data) return null;
 
-  const { disk, memory, oldestNonProdWorktree } = data;
+  const { disk, memory, oldestNonProdWorktree, leakDiagnostics } = data;
 
   const saveIndicator =
     saveStatus === "saving" ? (
@@ -285,6 +315,41 @@ export default function AdminServerHealthClient() {
         ) : (
           <p className="text-sm text-gray-500">Memory info unavailable.</p>
         )}
+      </section>
+
+      {/* Leak diagnostics */}
+      <section>
+        <h2 className="text-base font-medium text-gray-200 mb-1">Diagnose CPU usage / memory leaks</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Primordia checks for sustained high load or memory pressure while the app should be idle. When detected, it writes a diagnostics bundle to disk and notifies subscribed admins.
+        </p>
+        <div className="p-4 rounded border border-gray-700 bg-gray-900">
+          {leakDiagnostics.exists ? (
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-amber-200">Diagnostics captured</p>
+                {leakDiagnostics.reason && (
+                  <p className="mt-1 text-sm text-gray-400">{leakDiagnostics.reason}</p>
+                )}
+                <p className="mt-2 truncate font-mono text-xs text-gray-500" title={leakDiagnostics.path}>{leakDiagnostics.path}</p>
+                {leakDiagnostics.capturedAt && (
+                  <p className="mt-1 text-xs text-gray-600">Captured {new Date(leakDiagnostics.capturedAt).toLocaleString()}</p>
+                )}
+              </div>
+              <button
+                data-id="admin-health/create-leak-diagnostics-session"
+                onClick={handleCreateLeakSession}
+                disabled={creatingLeakSession}
+                className="shrink-0 rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {creatingLeakSession ? "Creating session…" : "Investigate and fix"}
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">No CPU or memory leak diagnostics have been captured.</p>
+          )}
+          {leakSessionError && <p className="mt-3 text-sm text-red-400">{leakSessionError}</p>}
+        </div>
       </section>
 
       {/* Worktree cleanup */}
