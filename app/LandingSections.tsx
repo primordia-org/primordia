@@ -20,9 +20,9 @@ const FEATURES = [
     accent: "text-violet-400",
     ring: "ring-violet-500/20",
     bg: "bg-violet-500/5",
-    title: "Self-Evolving",
+    title: "Agentic Coding Built In",
     description:
-      "Don't like something? Describe the change you want in plain English. An AI agent rewrites the app and spins up a live preview — no coding required.",
+      "Describe the change you want in plain English. An AI coding agent updates the app and spins up a live preview — no separate coding tool required.",
   },
   {
     icon: <GitBranch size={28} strokeWidth={1.5} aria-hidden="true" />,
@@ -40,7 +40,7 @@ const FEATURES = [
 const STEPS = [
   { n: "01", label: "Propose", detail: "See something you'd like to change? Open the menu and propose it." },
   { n: "02", label: "Review", detail: "An AI agent writes the code and spins up a live preview — inspect it in your browser." },
-  { n: "03", label: "Accept", detail: "Accept the change, and your app updates itself — instantly." },
+  { n: "03", label: "Accept", detail: "Accept the change, and Primordia deploys it into your running app." },
 ];
 
 // ── Sections ─────────────────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ export function HeroSection({ installUrl, defaultVmName, installBranch }: { inst
 
       {/* Sub-headline */}
       <p className="animate-fade-up-3 relative max-w-xl text-lg sm:text-xl text-gray-400 leading-relaxed mb-10">
-        The web application that writes itself.
+        The anything app with agentic coding built in.
       </p>
 
       {/* Primary CTA — two-step install */}
@@ -113,8 +113,8 @@ export function FeaturesSection() {
           What is Primordia?
         </h2>
         <p className="text-gray-400 max-w-2xl mx-auto leading-relaxed">
-          It&apos;s the app that builds itself. You interact with it, you shape it —
-          and it evolves to become whatever you need.
+          Primordia brings an AI coding agent directly into the product, so you
+          can request changes, review real previews, and ship updates from the app itself.
         </p>
       </div>
 
@@ -248,8 +248,8 @@ export function OutOfTheBoxSection() {
             Everything you need, out of the box
           </h2>
           <p className="text-gray-400 max-w-2xl mx-auto leading-relaxed">
-            Primordia ships as a complete foundation — not a starter kit that
-            leaves the hard parts to you.
+            Primordia ships as a complete application foundation with agentic
+            coding built in — not another external tool to wire up.
           </p>
         </div>
 
@@ -357,7 +357,7 @@ export function LandingFooter() {
   return (
     <footer className="border-t border-white/5 px-6 py-10">
       <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500 font-mono">
-        <span>Primordia — the self-modifying web application</span>
+        <span>Primordia — agentic coding built into your app</span>
         <div className="flex items-center gap-6">
           <Link data-id="landing/footer-evolve" href="/evolve" className="hover:text-gray-300 transition-colors">Evolve</Link>
           <Link data-id="landing/footer-changelog" href="/changelog" className="hover:text-gray-300 transition-colors">Changelog</Link>
