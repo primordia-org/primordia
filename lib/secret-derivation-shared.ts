@@ -13,7 +13,19 @@ export type StoredSecretPayload = {
   iv: string;
   ciphertext: string;
   keyVersion?: string;
+  versions?: Partial<Record<typeof SECRET_KEY_VERSION, {
+    iv: string;
+    ciphertext: string;
+    keyVersion: typeof SECRET_KEY_VERSION;
+  }>>;
 };
+
+export function selectCurrentSecretPayload(payload: StoredSecretPayload): { iv: string; ciphertext: string } | null {
+  const current = payload.versions?.[SECRET_KEY_VERSION];
+  if (current?.iv && current.ciphertext) return current;
+  if (payload.keyVersion === SECRET_KEY_VERSION && payload.iv && payload.ciphertext) return payload;
+  return null;
+}
 
 export type DecryptionKeyPayload = {
   secretPublicKey: JsonWebKey;

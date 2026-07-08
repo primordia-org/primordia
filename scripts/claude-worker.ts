@@ -78,8 +78,8 @@ interface WorkerConfig {
   model?: string;
   /** When true, continue the most recent Claude Code session in the worktree directory. */
   useContinue?: boolean;
+  userId?: string;
   authSource?: string | null;
-  encryptedSecretPayload?: string;
 }
 
 function makeWorktreeBoundaryHook(worktreePath: string, repoRoot: string): HookCallback {

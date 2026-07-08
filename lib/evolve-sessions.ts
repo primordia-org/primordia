@@ -79,8 +79,6 @@ export interface LocalSession {
    * harness for `openai-codex:*` models via Pi's openai-codex OAuth provider.
    */
   chatGptOAuth?: string;
-  /** Encrypted selected secret payload from SQLite. Decrypted only by the worker. */
-  encryptedSecretPayload?: string;
   /** Raw derived AES key passed to workers as PRIMORDIA_DECRYPTION_KEY. */
   decryptionKey?: string;
   /** Preset-selected billing/auth source. Used to prevent silent gateway fallback. */
@@ -195,8 +193,6 @@ interface WorkerConfig {
   credentials?: string;
   /** Decrypted ChatGPT subscription OAuth credentials for Pi/Codex ChatGPT subscription models. */
   chatGptOAuth?: string;
-  /** Encrypted selected secret payload from SQLite. Safe to write to the worker config. */
-  encryptedSecretPayload?: string;
   /** Raw derived AES key. NOT written to the JSON config file on disk. */
   decryptionKey?: string;
   /** Preset-selected billing/auth source. Used to prevent silent gateway fallback. */
@@ -1003,7 +999,6 @@ export async function startLocalEvolve(
         apiKey: resolvedApiKey,
         credentials: resolvedCredentials,
         chatGptOAuth: resolvedChatGptOAuth,
-        encryptedSecretPayload: session.encryptedSecretPayload,
         decryptionKey: session.decryptionKey,
         authSource: session.authSource,
         userId: session.userId,
@@ -1173,7 +1168,6 @@ export async function runFollowupInWorktree(
           const r = resolveAgentAuth(session.credentials, session.apiKey, fuHarnessId, session.chatGptOAuth, fuModelId, session.authSource);
           return { apiKey: r.resolvedApiKey, credentials: r.resolvedCredentials, chatGptOAuth: r.resolvedChatGptOAuth };
         })(),
-        encryptedSecretPayload: session.encryptedSecretPayload,
         decryptionKey: session.decryptionKey,
         authSource: session.authSource,
         userId: session.userId,
@@ -1231,7 +1225,7 @@ export async function resolveConflictsWithAgent(
   mergeRoot: string,
   branch: string,
   parentBranch: string,
-  sessionContext: { id: string; harness?: string; model?: string; apiKey?: string; credentials?: string; chatGptOAuth?: string; encryptedSecretPayload?: string; decryptionKey?: string; authSource?: string | null; userId: string },
+  sessionContext: { id: string; harness?: string; model?: string; apiKey?: string; credentials?: string; chatGptOAuth?: string; decryptionKey?: string; authSource?: string | null; userId: string },
   repoRoot?: string,
 ): Promise<{ success: boolean; log: string }> {
   const root = repoRoot ?? process.cwd();
@@ -1282,7 +1276,6 @@ export async function resolveConflictsWithAgent(
           const r = resolveAgentAuth(sessionContext.credentials, sessionContext.apiKey, harnessId, sessionContext.chatGptOAuth, sessionContext.model, sessionContext.authSource);
           return { apiKey: r.resolvedApiKey, credentials: r.resolvedCredentials, chatGptOAuth: r.resolvedChatGptOAuth };
         })(),
-        encryptedSecretPayload: sessionContext.encryptedSecretPayload,
         decryptionKey: sessionContext.decryptionKey,
         authSource: sessionContext.authSource,
         userId: sessionContext.userId,

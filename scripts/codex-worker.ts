@@ -24,8 +24,8 @@ interface WorkerConfig {
   timeoutMs?: number;
   model?: string;
   useContinue?: boolean;
+  userId?: string;
   authSource?: string | null;
-  encryptedSecretPayload?: string;
 }
 
 function normalizeModelId(model: string | undefined): string | undefined {

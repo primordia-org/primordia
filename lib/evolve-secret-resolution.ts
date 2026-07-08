@@ -4,8 +4,7 @@ import { isSecretAuthSource, type PresetAuthSource, type SecretAuthSource } from
 
 export type ResolvedEvolveSecret = {
   decryptionKey?: string;
-  encryptedSecretPayload?: string;
-  plaintext?: string;
+  hasStoredSecret: boolean;
 };
 
 export function parseSecretPublicKey(value: unknown): JsonWebKey | null {
@@ -27,33 +26,49 @@ export function secretSourceForAuthSource(authSource: PresetAuthSource | null | 
   return authSource && isSecretAuthSource(authSource) ? authSource : null;
 }
 
+export async function deriveEvolveDecryptionKey(secretPublicKeyInput: unknown): Promise<string | undefined> {
+  const envDecryptionKey = process.env.PRIMORDIA_DECRYPTION_KEY;
+  if (envDecryptionKey) return envDecryptionKey;
+  const secretPublicKey = parseSecretPublicKey(secretPublicKeyInput);
+  return secretPublicKey ? deriveDecryptionKey(secretPublicKey) : undefined;
+}
+
 export async function resolveStoredSecretForWorker(
   userId: string,
   authSource: PresetAuthSource | null | undefined,
   secretPublicKeyInput: unknown,
 ): Promise<ResolvedEvolveSecret> {
   const source = secretSourceForAuthSource(authSource);
-  if (!source) return {};
+  if (!source) return { hasStoredSecret: false };
   const db = await getDb();
   const encryptedSecretPayload = await db.getEncryptedCredential(userId, source);
-  if (!encryptedSecretPayload) return {};
+  if (!encryptedSecretPayload) return { hasStoredSecret: false };
 
-  const envDecryptionKey = process.env.PRIMORDIA_DECRYPTION_KEY;
-  if (envDecryptionKey) return { decryptionKey: envDecryptionKey, encryptedSecretPayload };
-
-  const secretPublicKey = parseSecretPublicKey(secretPublicKeyInput);
-  if (!secretPublicKey) return {};
-
-  const decryptionKey = await deriveDecryptionKey(secretPublicKey);
-  return { decryptionKey, encryptedSecretPayload };
+  const decryptionKey = await deriveEvolveDecryptionKey(secretPublicKeyInput);
+  return { decryptionKey, hasStoredSecret: true };
 }
 
-export async function resolveStoredSecretPlaintext(
+/**
+ * Resolve a user's selected stored credential to plaintext.
+ *
+ * This is intentionally small and CLI-friendly: provide the Primordia user ID,
+ * the browser/CLI ECDH public key (or set PRIMORDIA_DECRYPTION_KEY), and the
+ * preset auth source. The encrypted payload is read from SQLite and decrypted
+ * server-side with the derived key.
+ */
+export async function getPlaintextCredentialsForUser(
   userId: string,
+  publicKey: unknown,
   authSource: PresetAuthSource | null | undefined,
-  secretPublicKeyInput: unknown,
 ): Promise<string | undefined> {
-  const resolved = await resolveStoredSecretForWorker(userId, authSource, secretPublicKeyInput);
-  if (!resolved.encryptedSecretPayload || !resolved.decryptionKey) return undefined;
-  return decryptStoredSecretPayload(resolved.encryptedSecretPayload, resolved.decryptionKey);
+  const source = secretSourceForAuthSource(authSource);
+  if (!source) return undefined;
+  const decryptionKey = await deriveEvolveDecryptionKey(publicKey);
+  if (!decryptionKey) return undefined;
+  const db = await getDb();
+  const encryptedSecretPayload = await db.getEncryptedCredential(userId, source);
+  if (!encryptedSecretPayload) return undefined;
+  return decryptStoredSecretPayload(encryptedSecretPayload, decryptionKey);
 }
+
+export const resolveStoredSecretPlaintext = getPlaintextCredentialsForUser;

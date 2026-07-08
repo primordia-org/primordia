@@ -13,10 +13,12 @@
 //     the same raw PRIMORDIA_DECRYPTION_KEY. Evolve requests can therefore pass
 //     only the local public key; the server/worker decrypts the selected DB
 //     ciphertext without round-tripping plaintext through the browser.
-//   - Legacy localStorage AES keys are still readable for existing devices.
+//   - Legacy localStorage AES keys are migrated to the ECDH format in-place.
+//     The migration adds a versioned ECDH payload while keeping the previous
+//     top-level ciphertext so rollbacks can still decrypt old saves.
 
 import { withBasePath } from './base-path';
-import { isUserSecretMaterial, SECRET_KEY_VERSION, USER_SECRET_STORAGE } from './secret-derivation-shared';
+import { isUserSecretMaterial, SECRET_KEY_VERSION, selectCurrentSecretPayload, USER_SECRET_STORAGE, type StoredSecretPayload, type UserSecretMaterial } from './secret-derivation-shared';
 import type { SecretAuthSource } from './presets';
 
 export type { SecretAuthSource } from './presets';
@@ -57,12 +59,70 @@ async function deriveAesKey(material: { privateKey: JsonWebKey; publicKey: JsonW
   const privateKey = await importUserSecretPrivateKey(material);
   const serverPublicKey = await fetchServerEcdhPublicKey();
   const sharedBits = await crypto.subtle.deriveBits({ name: 'ECDH', public: serverPublicKey }, privateKey, 256);
-  const digestInput = new Uint8Array(new TextEncoder().encode('primordia-secret-encryption-v1').length + sharedBits.byteLength);
-  digestInput.set(new TextEncoder().encode('primordia-secret-encryption-v1'));
-  digestInput.set(new Uint8Array(sharedBits), new TextEncoder().encode('primordia-secret-encryption-v1').length);
+  const domain = new TextEncoder().encode('primordia-secret-encryption-v1');
+  const digestInput = new Uint8Array(domain.length + sharedBits.byteLength);
+  digestInput.set(domain);
+  digestInput.set(new Uint8Array(sharedBits), domain.length);
   const rawKey = await crypto.subtle.digest('SHA-256', digestInput);
   cachedSecretPublicKey = material.publicKey;
   return crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+async function encryptPayload(aesKey: CryptoKey, value: string | ArrayBuffer): Promise<{ iv: string; ciphertext: string; keyVersion: typeof SECRET_KEY_VERSION }> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = typeof value === 'string' ? new TextEncoder().encode(value) : value;
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, plaintext);
+  return {
+    iv: btoa(String.fromCharCode(...iv)),
+    ciphertext: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
+    keyVersion: SECRET_KEY_VERSION,
+  };
+}
+
+async function migrateLegacyAesSecret(legacyJwk: JsonWebKey): Promise<CryptoKey> {
+  const legacyKey = await crypto.subtle.importKey('jwk', legacyJwk, { name: 'AES-GCM' }, false, ['decrypt']);
+  const pair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const material: UserSecretMaterial = {
+    version: SECRET_KEY_VERSION,
+    privateKey: await crypto.subtle.exportKey('jwk', pair.privateKey),
+    publicKey: await crypto.subtle.exportKey('jwk', pair.publicKey),
+  };
+  const newKey = await deriveAesKey(material);
+
+  let sources: SecretAuthSource[] = [];
+  try {
+    const listRes = await fetch(withBasePath('/api/secrets'));
+    if (listRes.ok) sources = ((await listRes.json()) as { sources: SecretAuthSource[] }).sources;
+  } catch {}
+
+  for (const source of sources) {
+    try {
+      const res = await fetch(withBasePath(`/api/secrets/${source}`));
+      if (!res.ok) continue;
+      const data = (await res.json()) as { ciphertext: string | null };
+      if (!data.ciphertext) continue;
+      const stored = JSON.parse(data.ciphertext) as StoredSecretPayload;
+      if (selectCurrentSecretPayload(stored)) continue;
+      const iv = Uint8Array.from(atob(stored.iv), (c) => c.charCodeAt(0));
+      const ct = Uint8Array.from(atob(stored.ciphertext), (c) => c.charCodeAt(0));
+      const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, legacyKey, ct);
+      const migrated = await encryptPayload(newKey, plaintext);
+      await fetch(withBasePath(`/api/secrets/${source}`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...stored,
+          versions: { ...(stored.versions ?? {}), [SECRET_KEY_VERSION]: migrated },
+        }),
+      });
+    } catch {
+      // Leave the legacy ciphertext untouched; the user can reconnect this source.
+    }
+  }
+
+  localStorage.setItem(AES_KEY_STORAGE, JSON.stringify(material));
+  clearLegacyAesKey();
+  return newKey;
 }
 
 async function loadAesKey(): Promise<CryptoKey | null> {
@@ -77,14 +137,10 @@ async function loadAesKey(): Promise<CryptoKey | null> {
       cachedAesKey = await deriveAesKey(parsed);
       return cachedAesKey;
     }
-    // Backward compatibility: older browsers stored an AES-GCM JWK directly.
-    cachedAesKey = await crypto.subtle.importKey(
-      'jwk',
-      parsed as JsonWebKey,
-      { name: 'AES-GCM' },
-      false,
-      ['encrypt', 'decrypt'],
-    );
+    // One-time migration: older browsers stored an AES-GCM JWK directly.
+    // Convert it to an ECDH user secret and add versioned ciphertexts without
+    // deleting the top-level legacy payloads.
+    cachedAesKey = await migrateLegacyAesSecret(parsed as JsonWebKey);
     return cachedAesKey;
   } catch {
     return null;
@@ -150,20 +206,12 @@ export async function setSecret(source: SecretAuthSource, value: string): Promis
   if (typeof window === 'undefined') return;
 
   const aesKey = await getOrCreateAesKey();
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    aesKey,
-    new TextEncoder().encode(value),
-  );
-
-  const ivB64 = btoa(String.fromCharCode(...iv));
-  const ctB64 = btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
+  const payload = await encryptPayload(aesKey, value);
 
   const res = await fetch(withBasePath(`/api/secrets/${source}`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ iv: ivB64, ciphertext: ctB64 }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     throw new Error(`Failed to store ${source} on server: ${res.statusText}`);
@@ -178,21 +226,12 @@ export async function setSecret(source: SecretAuthSource, value: string): Promis
  */
 export async function updateSecret(source: SecretAuthSource, value: string): Promise<void> {
   const aesKey = await getOrCreateAesKey();
-
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    aesKey,
-    new TextEncoder().encode(value),
-  );
-
-  const ivB64 = btoa(String.fromCharCode(...iv));
-  const ctB64 = btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
+  const payload = await encryptPayload(aesKey, value);
 
   const res = await fetch(withBasePath(`/api/secrets/${source}`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ iv: ivB64, ciphertext: ctB64 }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`Failed to update ${source} on server: ${res.statusText}`);
 }
@@ -350,13 +389,11 @@ export async function getSecret(source: SecretAuthSource): Promise<string | null
     const data = (await res.json()) as { ciphertext: string | null };
     if (!data.ciphertext) return null;
 
-    const { iv: ivB64, ciphertext: ctB64 } = JSON.parse(data.ciphertext) as {
-      iv: string;
-      ciphertext: string;
-    };
+    const payload = selectCurrentSecretPayload(JSON.parse(data.ciphertext) as StoredSecretPayload);
+    if (!payload) return null;
 
-    const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
-    const ct = Uint8Array.from(atob(ctB64), (c) => c.charCodeAt(0));
+    const iv = Uint8Array.from(atob(payload.iv), (c) => c.charCodeAt(0));
+    const ct = Uint8Array.from(atob(payload.ciphertext), (c) => c.charCodeAt(0));
     const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
 
     return new TextDecoder().decode(plaintext);
@@ -372,13 +409,11 @@ export async function decryptStoredSecretPayload(ciphertextPayload: string | nul
     const aesKey = await loadAesKey();
     if (!aesKey) return null;
 
-    const { iv: ivB64, ciphertext: ctB64 } = JSON.parse(ciphertextPayload) as {
-      iv: string;
-      ciphertext: string;
-    };
+    const payload = selectCurrentSecretPayload(JSON.parse(ciphertextPayload) as StoredSecretPayload);
+    if (!payload) return null;
 
-    const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
-    const ct = Uint8Array.from(atob(ctB64), (c) => c.charCodeAt(0));
+    const iv = Uint8Array.from(atob(payload.iv), (c) => c.charCodeAt(0));
+    const ct = Uint8Array.from(atob(payload.ciphertext), (c) => c.charCodeAt(0));
     const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
 
     return new TextDecoder().decode(plaintext);
@@ -413,13 +448,11 @@ export async function encryptSecretForTransmission(source: SecretAuthSource): Pr
     const data = (await res.json()) as { ciphertext: string | null };
     if (!data.ciphertext) return null;
 
-    const { iv: ivB64, ciphertext: ctB64 } = JSON.parse(data.ciphertext) as {
-      iv: string;
-      ciphertext: string;
-    };
+    const payload = selectCurrentSecretPayload(JSON.parse(data.ciphertext) as StoredSecretPayload);
+    if (!payload) return null;
 
-    const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
-    const ct = Uint8Array.from(atob(ctB64), (c) => c.charCodeAt(0));
+    const iv = Uint8Array.from(atob(payload.iv), (c) => c.charCodeAt(0));
+    const ct = Uint8Array.from(atob(payload.ciphertext), (c) => c.charCodeAt(0));
     const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
 
     const ephemeralKey = await crypto.subtle.generateKey(

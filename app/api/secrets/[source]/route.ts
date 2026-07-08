@@ -48,6 +48,8 @@ export async function GET(
 export interface StoreSecretBody {
   iv: string; // Base64-encoded AES-GCM initialisation vector.
   ciphertext: string; // Base64-encoded AES-GCM ciphertext.
+  keyVersion?: string;
+  versions?: Record<string, { iv: string; ciphertext: string; keyVersion?: string }>;
 }
 
 /**
@@ -82,10 +84,10 @@ export async function POST(
     return Response.json({ error: 'iv and ciphertext strings required' }, { status: 400 });
   }
 
-  const { iv, ciphertext } = body as { iv: string; ciphertext: string };
+  const { iv, ciphertext, keyVersion, versions } = body as StoreSecretBody;
 
   const db = await getDb();
-  await db.setEncryptedCredential(user.id, source, JSON.stringify({ iv, ciphertext }));
+  await db.setEncryptedCredential(user.id, source, JSON.stringify({ iv, ciphertext, ...(keyVersion ? { keyVersion } : {}), ...(versions ? { versions } : {}) }));
 
   return Response.json({ ok: true });
 }

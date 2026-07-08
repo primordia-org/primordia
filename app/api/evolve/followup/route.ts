@@ -114,17 +114,17 @@ export async function POST(request: Request) {
     if (body.secretPublicKey) secretPublicKey = body.secretPublicKey;
   }
 
-  let encryptedSecretPayload: string | undefined;
   let decryptionKey: string | undefined;
+  let hasStoredSecret = false;
   try {
     const resolvedSecret = await resolveStoredSecretForWorker(user.id, authSource, secretPublicKey);
-    encryptedSecretPayload = resolvedSecret.encryptedSecretPayload;
     decryptionKey = resolvedSecret.decryptionKey;
+    hasStoredSecret = resolvedSecret.hasStoredSecret;
   } catch {
     return Response.json({ error: 'Could not derive the decryption key for your selected billing source. Please reconnect it in Settings → Billing sources, then try again.' }, { status: 400 });
   }
 
-  if (authSource && authSource !== 'exe-dev-gateway' && (!encryptedSecretPayload || !decryptionKey)) {
+  if (authSource && authSource !== 'exe-dev-gateway' && (!hasStoredSecret || !decryptionKey)) {
     return Response.json(
       { error: 'Selected billing source has no decryptable stored secret on this device. Reconnect it in Settings → Billing sources, then try again.' },
       { status: 400 },
@@ -157,7 +157,6 @@ export async function POST(request: Request) {
     createdAt: record.createdAt,
     harness,
     model,
-    encryptedSecretPayload,
     decryptionKey,
     authSource,
     userId: user.id,

@@ -77,8 +77,8 @@ interface WorkerConfig {
   model?: string;
   /** When true, continue the most recent pi session in the worktree directory. */
   useContinue?: boolean;
+  userId?: string;
   authSource?: string | null;
-  encryptedSecretPayload?: string;
 }
 
 // ---------------------------------------------------------------------------

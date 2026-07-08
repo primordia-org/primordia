@@ -243,7 +243,6 @@ async function runAcceptAsync(
   parentBranch: string,
   repoRoot: string,
   userId: string,
-  encryptedSecretPayload?: string,
   decryptionKey?: string,
   authSource?: PresetAuthSource | null,
 ): Promise<void> {
@@ -317,7 +316,6 @@ async function runAcceptAsync(
           request: sessionSnap.request,
           createdAt: sessionSnap.createdAt,
           userId,
-          encryptedSecretPayload,
           decryptionKey,
           authSource,
         };
@@ -449,17 +447,17 @@ export async function POST(request: Request) {
   }
 
   const authSource: PresetAuthSource | null = body.authSource ? normalizeAuthSource(body.authSource) : null;
-  let encryptedSecretPayload: string | undefined;
   let decryptionKey: string | undefined;
+  let hasStoredSecret = false;
   try {
     const resolvedSecret = await resolveStoredSecretForWorker(user.id, authSource, body.secretPublicKey);
-    encryptedSecretPayload = resolvedSecret.encryptedSecretPayload;
     decryptionKey = resolvedSecret.decryptionKey;
+    hasStoredSecret = resolvedSecret.hasStoredSecret;
   } catch {
     return Response.json({ error: 'Could not derive the decryption key for your selected billing source. Please reconnect it in Settings → Billing sources, then try again.' }, { status: 400 });
   }
 
-  if (authSource && authSource !== 'exe-dev-gateway' && (!encryptedSecretPayload || !decryptionKey)) {
+  if (authSource && authSource !== 'exe-dev-gateway' && (!hasStoredSecret || !decryptionKey)) {
     return Response.json(
       { error: 'Selected billing source has no decryptable stored secret on this device. Reconnect it in Settings → Billing sources, then try again.' },
       { status: 400 },
@@ -515,7 +513,6 @@ export async function POST(request: Request) {
         const sessionContext = {
           id: body.sessionId,
           userId: user.id,
-          encryptedSecretPayload,
           decryptionKey,
           authSource,
         };
@@ -558,7 +555,6 @@ export async function POST(request: Request) {
           request: session.request,
           createdAt: session.createdAt,
           userId: user.id,
-          encryptedSecretPayload,
           decryptionKey,
           authSource,
         };
@@ -599,7 +595,7 @@ export async function POST(request: Request) {
           appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'deploy', label: isProduction ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``, ts: Date.now() });
         }
       }
-      void runAcceptAsync(body.sessionId, worktreePath, branch, parentBranch, repoRoot, user.id, encryptedSecretPayload, decryptionKey, authSource);
+      void runAcceptAsync(body.sessionId, worktreePath, branch, parentBranch, repoRoot, user.id, decryptionKey, authSource);
       return Response.json({ outcome: 'accepting' });
     }
 

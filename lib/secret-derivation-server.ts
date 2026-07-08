@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { createHash, createPrivateKey, createPublicKey, diffieHellman, webcrypto, type JsonWebKey as NodeJsonWebKey } from 'crypto';
-import { base64ToBytes, bytesToBase64, type StoredSecretPayload } from '@/lib/secret-derivation-shared';
+import { base64ToBytes, bytesToBase64, SECRET_KEY_VERSION, selectCurrentSecretPayload, type StoredSecretPayload } from '@/lib/secret-derivation-shared';
 
 const SECRET_FILE = '.primordia-server-ecdh-secret.json';
 const subtle = webcrypto.subtle;
@@ -58,7 +58,8 @@ export async function deriveDecryptionKey(secretPublicKey: JsonWebKey): Promise<
 }
 
 export async function decryptStoredSecretPayload(payloadJson: string, decryptionKey: string): Promise<string> {
-  const payload = JSON.parse(payloadJson) as StoredSecretPayload;
+  const payload = selectCurrentSecretPayload(JSON.parse(payloadJson) as StoredSecretPayload);
+  if (!payload) throw new Error(`Stored secret is not migrated to ${SECRET_KEY_VERSION}.`);
   const keyBytes = Buffer.from(decryptionKey, 'base64url');
   const key = await subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
   const plaintext = await subtle.decrypt(
@@ -79,5 +80,5 @@ export async function encryptStoredSecretPayloadForTests(plaintext: string, decr
   const key = await subtle.importKey('raw', Buffer.from(decryptionKey, 'base64url'), { name: 'AES-GCM' }, false, ['encrypt']);
   const iv = webcrypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext));
-  return JSON.stringify({ iv: bytesToBase64(iv), ciphertext: bytesToBase64(new Uint8Array(ciphertext)), keyVersion: 'ecdh-p256-v1' });
+  return JSON.stringify({ iv: bytesToBase64(iv), ciphertext: bytesToBase64(new Uint8Array(ciphertext)), keyVersion: SECRET_KEY_VERSION });
 }

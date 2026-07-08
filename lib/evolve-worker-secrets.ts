@@ -1,9 +1,9 @@
-import { decryptStoredSecretPayloadFromEnv } from '@/lib/secret-derivation-server';
+import { getPlaintextCredentialsForUser } from '@/lib/evolve-secret-resolution';
 import { type PresetAuthSource } from '@/lib/presets';
 
 export type WorkerSecretConfig = {
+  userId?: string;
   authSource?: string | null;
-  encryptedSecretPayload?: string;
 };
 
 export type WorkerSecretValues = {
@@ -13,8 +13,13 @@ export type WorkerSecretValues = {
 };
 
 export async function resolveWorkerSecrets(config: WorkerSecretConfig): Promise<WorkerSecretValues> {
-  if (!config.authSource || config.authSource === 'exe-dev-gateway' || !config.encryptedSecretPayload) return {};
-  const plaintext = await decryptStoredSecretPayloadFromEnv(config.encryptedSecretPayload);
+  if (!config.userId || !config.authSource || config.authSource === 'exe-dev-gateway') return {};
+  const plaintext = await getPlaintextCredentialsForUser(
+    config.userId,
+    null,
+    config.authSource as PresetAuthSource,
+  );
+  if (!plaintext) return {};
   const authSource = config.authSource as PresetAuthSource;
   if (authSource === 'claude-subscription') return { credentials: plaintext };
   if (authSource === 'chatgpt-subscription') return { chatGptOAuth: plaintext };
