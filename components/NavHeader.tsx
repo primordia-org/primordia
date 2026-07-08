@@ -48,7 +48,7 @@ export function NavHeader({
           <>
             {" "}·{" "}
             <Link data-id="nav/branches-link" href="/branches" className="text-blue-400 hover:text-blue-300">
-              Branches
+              Threads
             </Link>
           </>
         )}

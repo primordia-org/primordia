@@ -49,7 +49,7 @@ export default function AdminRollbackClient() {
   }, []);
 
   async function applyRollback(target: RollbackTarget) {
-    if (!confirm(`Roll back production to "${target.branch}"?\n\nThis will start the server in that worktree and switch traffic to it.`)) return;
+    if (!confirm(`Roll back production to thread "${target.branch}"?\n\nThis will start its server and switch traffic to it.`)) return;
     trackEvent("admin/rollback-applied/v1", { targetBranch: target.branch, worktreePath: target.worktreePath });
     setRolling(true);
     setMessage(null);
@@ -65,7 +65,7 @@ export default function AdminRollbackClient() {
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
       setMessage(
-        `Rolling back to "${target.branch}"… the server is starting. This may take up to 30 seconds.`,
+        `Rolling back to thread "${target.branch}"… the server is starting. This may take up to 30 seconds.`,
       );
       // Refresh the target list after the rollback completes
       setTimeout(() => loadTargets(), 6_000);

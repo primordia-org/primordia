@@ -72,7 +72,7 @@ async function handlePost(request: Request) {
 
   if (action === "create-session") {
     if (!(await hasEvolvePermission(user!.id))) {
-      return Response.json({ error: "You need the evolve permission to create sessions." }, { status: 403 });
+      return Response.json({ error: "You need the evolve permission to create threads." }, { status: 403 });
     }
 
     const result = runBunAudit();
@@ -113,7 +113,7 @@ async function handlePost(request: Request) {
     }
 
     if (!evolveRes.ok || !data.sessionId) {
-      return Response.json({ error: data.error ?? "Failed to create evolve session" }, { status: evolveRes.status || 500 });
+      return Response.json({ error: data.error ?? "Failed to create thread" }, { status: evolveRes.status || 500 });
     }
     return Response.json({ sessionId: data.sessionId });
   }

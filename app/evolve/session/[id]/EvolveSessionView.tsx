@@ -96,7 +96,7 @@ function detectChatGptReloginReason(events: SessionEvent[], resultMessage?: stri
   const normalized = text.toLowerCase();
 
   if (normalized.includes('no api key for provider: openai-codex')) {
-    return 'This ChatGPT subscription run could not start because the OpenAI Codex provider credentials were unavailable. Reconnect ChatGPT, then retry the session.';
+    return 'This ChatGPT subscription run could not start because the OpenAI Codex provider credentials were unavailable. Reconnect ChatGPT, then retry the thread.';
   }
   if (
     normalized.includes('chatgpt session expired') ||
@@ -107,7 +107,7 @@ function detectChatGptReloginReason(events: SessionEvent[], resultMessage?: stri
     normalized.includes('token_expired') ||
     (normalized.includes('401 unauthorized') && normalized.includes('chatgpt.com/backend-api/codex'))
   ) {
-    return 'Your ChatGPT session expired or was replaced by another sign-in. Reconnect ChatGPT, then retry the session.';
+    return 'Your ChatGPT session expired or was replaced by another sign-in. Reconnect ChatGPT, then retry the thread.';
   }
   return null;
 }
@@ -1200,7 +1200,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
           <ChatGptSubscriptionAuthCard
             title="Sign in to ChatGPT again"
             description={chatGptReloginReason}
-            connectedMessage="ChatGPT is connected again. Retry this evolve session when you are ready."
+            connectedMessage="ChatGPT is connected again. Retry this thread when you are ready."
             reconnectButtonLabel="Re-login to ChatGPT"
             startButtonLabel="Re-login to ChatGPT"
             showStoredCredentials={false}
@@ -1398,10 +1398,10 @@ function StructuredSection({
         <div className="px-4 py-4">
           <p className="text-green-200 font-semibold">{doneTitle}</p>
           <p className="text-green-300/80 text-xs mt-1">
-            {isProduction ? "The branch was deployed to production."
+            {isProduction ? "This thread was deployed to production."
               : mergedIntoBranch
-                ? <>The branch was merged into <code className="bg-green-950/60 px-1 rounded">{mergedIntoBranch}</code> and the worktree has been removed.</>
-                : "The branch was accepted and the worktree has been removed."}
+                ? <>This thread was merged into <code className="bg-green-950/60 px-1 rounded">{mergedIntoBranch}</code> and its workspace has been removed.</>
+                : "This thread was accepted and its workspace has been removed."}
           </p>
         </div>
         {rawLog && (
@@ -1650,9 +1650,9 @@ function CopyBranchName({ branch }: { branch: string }) {
       <code className="font-mono text-amber-200 text-sm">{branch}</code>
       <button
         onClick={handleCopy}
-        title={copied ? "Copied!" : "Copy branch name"}
+        title={copied ? "Copied!" : "Copy thread id"}
         className="flex-shrink-0 p-1 rounded text-amber-500 hover:text-amber-200 hover:bg-amber-700/40 transition-colors"
-        aria-label={copied ? "Copied!" : "Copy branch name"}
+        aria-label={copied ? "Copied!" : "Copy thread id"}
       >
         {copied ? <Check size={14} /> : <Copy size={14} />}
       </button>
@@ -2241,7 +2241,7 @@ export default function EvolveSessionView({
     >
       {/* Header */}
       <header className="flex items-center justify-between mb-8 flex-shrink-0">
-        <NavHeader branch={branch} subtitle="Session" />
+        <NavHeader branch={branch} subtitle="Thread" />
         <HamburgerMenu
           sessionUser={sessionUser}
           onLogout={handleLogout}
@@ -2292,19 +2292,19 @@ export default function EvolveSessionView({
         );
       })()}
 
-      {/* Created branch — setup steps fold into this card */}
+      {/* Created thread — setup steps fold into this card */}
       <div className="mb-6 px-4 py-4 rounded-lg bg-amber-900/40 border border-amber-700/50 text-sm">
         <p className="text-amber-300 font-semibold mb-1 flex items-center gap-1.5">
           <GitBranch size={14} strokeWidth={2} aria-hidden="true" />
           {isSetupActive ? (
             <>
-              Creating branch…
+              Creating thread…
               <span className="ml-1 flex items-center gap-1 text-amber-600/70 text-xs animate-pulse">
                 <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
               </span>
             </>
           ) : (
-            "Created branch"
+            "Created thread"
           )}
         </p>
         <CopyBranchName branch={sessionBranch} />
@@ -2350,7 +2350,7 @@ export default function EvolveSessionView({
           <div className="px-4 py-4 rounded-lg bg-red-900/40 border border-red-700/50 text-sm">
             <p className="text-red-200 font-semibold">🗑️ Changes rejected</p>
             <p className="text-red-300/80 text-xs mt-1">
-              The branch and worktree have been discarded.
+              This thread and its workspace have been discarded.
             </p>
           </div>
         )}
@@ -2358,7 +2358,7 @@ export default function EvolveSessionView({
       </div>
       <div ref={messagesEndRef} />
 
-      {/* Git diff summary — shown when session is done and there are file changes */}
+      {/* Git diff summary — shown when thread is done and there are file changes */}
       {(status === "ready" || status === "accepted" || status === "rejected") && liveDiffSummary.length > 0 && (() => {
         const totalAdditions = liveDiffSummary.reduce((s, f) => s + f.additions, 0);
         const totalDeletions = liveDiffSummary.reduce((s, f) => s + f.deletions, 0);
@@ -2394,7 +2394,7 @@ export default function EvolveSessionView({
         );
       })()}
 
-      {/* Upstream Changes — shown when the parent branch has commits not yet in the session branch; hidden for non-evolvers */}
+      {/* Upstream Changes — shown when the parent branch has commits not yet in the thread; hidden for non-evolvers */}
       {canEvolve && remainingUpstream > 0 && status !== "accepted" && status !== "rejected" && (
         <div className="mb-6 rounded-lg bg-blue-950/40 border border-blue-700/50 text-sm overflow-hidden">
           <div className="px-4 py-3 flex items-start justify-between gap-4">
@@ -2406,12 +2406,12 @@ export default function EvolveSessionView({
                 {parentBranch ? (
                   <code className="bg-blue-950/60 px-1 rounded">{parentBranch}</code>
                 ) : (
-                  <span className="text-yellow-400">[parent branch unknown]</span>
+                  <span className="text-yellow-400">[parent thread unknown]</span>
                 )}{" "}
                 is{" "}
                 <strong>{remainingUpstream}</strong> commit{remainingUpstream === 1 ? "" : "s"} ahead
-                of <code className="bg-blue-950/60 px-1 rounded">{sessionBranch}</code>.
-                Bring those changes into the session branch before accepting.
+                of thread <code className="bg-blue-950/60 px-1 rounded">{sessionBranch}</code>.
+                Bring those updates into this thread before accepting.
               </p>
               {upstreamSyncError && (
                 <p className="text-red-400 text-xs mt-2 whitespace-pre-wrap">{upstreamSyncError}</p>
@@ -2620,7 +2620,7 @@ export default function EvolveSessionView({
                   <p className="text-gray-300 text-sm mb-4">
                     {isProduction ? (
                       <>
-                        Accepting will deploy{" "}
+                        Accepting will deploy thread{" "}
                         <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code>{" "}
                         to production with zero-downtime cutover.{" "}
                         {branch ? (
@@ -2629,12 +2629,12 @@ export default function EvolveSessionView({
                             registered for rollback.
                           </>
                         ) : (
-                          <>The previous branch stays registered for rollback.</>
+                          <>The previous production version stays registered for rollback.</>
                         )}
                       </>
                     ) : (
                       <>
-                        Accepting will merge the preview branch{" "}
+                        Accepting will merge thread{" "}
                         <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code> into{" "}
                         <code className="bg-gray-800 px-1 rounded">{branch ?? "main"}</code>.
                       </>
@@ -2657,7 +2657,7 @@ export default function EvolveSessionView({
                             href={withBasePath(`/evolve/session/${stuckBlockingSessionId}`)}
                             className="text-xs text-blue-400 hover:text-blue-300 underline"
                           >
-                            Go to stuck session →
+                            Go to stuck thread →
                           </Link>
                           <span className="text-gray-600 text-xs">or</span>
                           <button
@@ -2665,7 +2665,7 @@ export default function EvolveSessionView({
                             disabled={isResettingStuck}
                             className="text-xs px-2 py-1 rounded border border-red-700 text-red-400 hover:bg-red-900/30 hover:text-red-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {isResettingStuck ? "Resetting…" : "Force Reset stuck session"}
+                            {isResettingStuck ? "Resetting…" : "Force Reset stuck thread"}
                           </button>
                         </div>
                       )}
@@ -2677,8 +2677,8 @@ export default function EvolveSessionView({
                 </>
               ) : (
                 <p className="text-gray-500 text-xs">
-                  Accept is unavailable — this session&apos;s branch is not based on the currently
-                  checked-out branch.
+                  Accept is unavailable — this thread is not based on the currently
+                  checked-out version.
                 </p>
               )}
             </div>
@@ -2690,8 +2690,8 @@ export default function EvolveSessionView({
               {canAcceptReject ? (
                 <>
                   <p className="text-gray-300 text-sm mb-4">
-                    Rejecting will discard the worktree and delete the{" "}
-                    <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code> branch.
+                    Rejecting will discard this thread&apos;s workspace and delete thread{" "}
+                    <code className="bg-gray-800 px-1 rounded">{sessionBranch}</code>.
                   </p>
                   <button
                     data-id="session/confirm-reject"
@@ -2707,8 +2707,8 @@ export default function EvolveSessionView({
                 </>
               ) : (
                 <p className="text-gray-500 text-xs">
-                  Reject is unavailable — this session&apos;s branch is not based on the currently
-                  checked-out branch.
+                  Reject is unavailable — this thread is not based on the currently
+                  checked-out version.
                 </p>
               )}
             </div>
@@ -2740,7 +2740,7 @@ export default function EvolveSessionView({
         {canEvolve && (
           <div className="flex gap-4">
             <Link data-id="session/new-request-link" href="/evolve" className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
-              ← Submit another request
+              ← Start another thread
             </Link>
           </div>
         )}
@@ -2751,7 +2751,7 @@ export default function EvolveSessionView({
             </Link>
             {" "}·{" "}
             <Link data-id="session/branches-link" href="/branches" className="text-blue-400 hover:text-blue-300">
-              Branches
+              Threads
             </Link>
           </span>
           <code className="font-mono text-amber-300/60">
@@ -2798,7 +2798,7 @@ export default function EvolveSessionView({
         >
           <h2 className="text-white font-semibold text-base mb-2">Force Reset?</h2>
           <p className="text-gray-400 text-sm mb-5">
-            No progress has been logged for over 30 seconds. This resets the session to{" "}
+            No progress has been logged for over 30 seconds. This resets the thread to{" "}
             <span className="text-amber-300">ready</span> so you can retry or make a follow-up
             request. Use this only if the pipeline appears genuinely stuck (e.g. the server was
             restarted mid-deploy).

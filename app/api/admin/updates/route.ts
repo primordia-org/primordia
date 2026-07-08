@@ -301,7 +301,7 @@ export async function POST(request: Request) {
   if (action === "create-session") {
     if (!(await hasEvolvePermission(user!.id))) {
       return Response.json(
-        { error: "You need the evolve permission to create sessions." },
+        { error: "You need the evolve permission to create threads." },
         { status: 403 },
       );
     }
@@ -380,7 +380,7 @@ export async function POST(request: Request) {
 
     const wtResult = await runGit(["worktree", "add", worktreePath, "-b", sessionBranch], repoRoot);
     if (wtResult.code !== 0) {
-      return Response.json({ error: `Failed to create worktree: ${wtResult.stderr}` }, { status: 500 });
+      return Response.json({ error: `Failed to create thread workspace: ${wtResult.stderr}` }, { status: 500 });
     }
 
     const parentConfigResult = await runGit(["config", `branch.${sessionBranch}.parent`, parentBranch], repoRoot);

@@ -155,7 +155,7 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-colors"
               >
                 {busy ? <Loader size={14} className="animate-spin" /> : <WandSparkles size={14} />}
-                Create fix session
+                Create fix thread
               </button>
             )}
           </div>

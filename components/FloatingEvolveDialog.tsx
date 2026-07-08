@@ -456,13 +456,13 @@ export function EvolveSubmitToast({
       }}
       className="fixed top-6 right-6 z-[9999] flex touch-pan-y items-center gap-3 rounded-xl border border-amber-600/60 bg-gray-900 px-4 py-3 text-sm text-gray-100 shadow-2xl whitespace-nowrap pointer-events-auto"
     >
-      <span className="text-amber-400 font-medium">Request submitted!</span>
+      <span className="text-amber-400 font-medium">Thread started!</span>
       <a
         href={sessionUrl}
         data-id="evolve-dialog/view-session"
         className="flex items-center gap-1.5 text-amber-300 hover:text-amber-200 underline underline-offset-2 transition-colors"
       >
-        View session
+        View thread
         <ExternalLink size={13} strokeWidth={2} aria-hidden="true" />
       </a>
       <button

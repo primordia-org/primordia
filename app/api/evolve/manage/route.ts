@@ -435,8 +435,8 @@ export interface EvolveManageBody {
 }
 
 /**
- * Accept or reject an evolve session
- * @description POST to accept (deploy) or reject (discard) a ready evolve session. Requires `can_evolve` or `admin` role.
+ * Accept or reject a thread
+ * @description POST to accept (deploy) or reject (discard) a ready thread. Requires `can_evolve` or `admin` role.
  * @tag Evolve
  * @body EvolveManageBody
  */
@@ -451,7 +451,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'action must be "accept" or "reject"' }, { status: 400 });
   }
   if (!body.sessionId) {
-    return Response.json({ error: 'sessionId is required' }, { status: 400 });
+    return Response.json({ error: 'thread id is required' }, { status: 400 });
   }
 
   const authSource: PresetAuthSource | null = body.authSource ? normalizeAuthSource(body.authSource) : null;
@@ -510,7 +510,7 @@ export async function POST(request: Request) {
   const repoRoot = process.cwd();
   const session = getSessionFromFilesystem(body.sessionId, repoRoot);
   if (!session) {
-    return Response.json({ error: 'Session not found' }, { status: 404 });
+    return Response.json({ error: 'Thread not found' }, { status: 404 });
   }
 
   const { branch, worktreePath } = session;
@@ -570,7 +570,7 @@ export async function POST(request: Request) {
           if (!resolution.success) {
             await runGit(['merge', '--abort'], worktreePath);
             return Response.json(
-              { error: `Cannot accept: session branch is not up-to-date with "${parentBranch}" and automatic merge failed:\n${resolution.log}` },
+              { error: `Cannot accept: thread is not up-to-date with "${parentBranch}" and automatic merge failed:\n${resolution.log}` },
               { status: 400 },
             );
           }
@@ -584,7 +584,7 @@ export async function POST(request: Request) {
       if (worktreeStatus.stdout.trim()) {
         const uncommittedFiles = worktreeStatus.stdout.trim();
         const commitPrompt =
-          `The session has uncommitted changes that must be committed before the branch can be accepted into production. ` +
+          `This thread has uncommitted changes that must be committed before it can be accepted into production. ` +
           `Please commit all uncommitted changes with a clear, descriptive git commit message. ` +
           `Do not modify any files — only stage and commit the existing changes.\n\n` +
           `Uncommitted changes:\n\`\`\`\n${uncommittedFiles}\n\`\`\`\n\n` +
@@ -622,7 +622,7 @@ export async function POST(request: Request) {
         return Response.json(
           {
             error:
-              `A deploy is already in progress (session "${concurrentDeploy.branch}"). ` +
+              `A deploy is already in progress (thread "${concurrentDeploy.branch}"). ` +
               `Please wait for it to finish, then try again.`,
             stuckSessionId: concurrentDeploy.id,
             stuckSessionBranch: concurrentDeploy.branch,

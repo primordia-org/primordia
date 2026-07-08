@@ -8,7 +8,7 @@
 
 /** JSON body for POST /evolve/abort */
 export interface EvolveAbortBody {
-  sessionId: string; // The session ID (git branch name) of the running session to abort.
+  sessionId: string; // The thread id of the running thread to abort.
 }
 
 import { getSessionUser } from '@/lib/auth';
@@ -21,7 +21,7 @@ import {
 
 /**
  * Abort the running AI Agent
- * @description Signals the active AI Agent process to stop and transitions the session back to 'ready' with whatever work was completed.
+ * @description Signals the active AI Agent process to stop and transitions the thread back to 'ready' with whatever work was completed.
  * @tag Evolve
  * @body EvolveAbortBody
  */
@@ -33,13 +33,13 @@ export async function POST(request: Request) {
 
   const body = (await request.json()) as { sessionId?: string };
   if (!body.sessionId || typeof body.sessionId !== 'string') {
-    return Response.json({ error: 'sessionId string required' }, { status: 400 });
+    return Response.json({ error: 'thread id string required' }, { status: 400 });
   }
 
   const repoRoot = process.cwd();
   const record = getSessionFromFilesystem(body.sessionId, repoRoot);
   if (!record) {
-    return Response.json({ error: 'Session not found' }, { status: 404 });
+    return Response.json({ error: 'Thread not found' }, { status: 404 });
   }
 
   if (
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     record.status !== 'fixing-types'
   ) {
     return Response.json(
-      { error: `Session is not running (status: ${record.status})` },
+      { error: `Thread is not running (status: ${record.status})` },
       { status: 409 },
     );
   }
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
       type: 'result',
       subtype: 'aborted',
       message:
-        '🛑 Session recovered. The server restarted while AI Agent was running. ' +
+        '🛑 Thread recovered. The server restarted while AI Agent was running. ' +
         'Moving to ready state with work completed so far.' +
         (record.status === 'fixing-types' ? ' (Auto-accept was cancelled — you can accept or reject manually.)' : ''),
       ts: Date.now(),

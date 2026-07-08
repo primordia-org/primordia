@@ -107,7 +107,7 @@ export async function POST(request: Request) {
   if (!worktreeAlreadyCreated) {
     const wtResult = await runGit(['worktree', 'add', actualWorktreePath, branchName], repoRoot);
     if (wtResult.code !== 0) {
-      return Response.json({ error: `Failed to create session worktree: ${wtResult.stderr}` }, { status: 500 });
+      return Response.json({ error: `Failed to create thread workspace: ${wtResult.stderr}` }, { status: 500 });
     }
   }
 

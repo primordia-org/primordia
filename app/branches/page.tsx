@@ -27,7 +27,7 @@ import { BranchParentSourceToggle } from "./BranchParentSourceToggle";
 export const dynamic = "force-dynamic";
 
 export function generateMetadata(): Metadata {
-  return { title: buildPageTitle("Branches") };
+  return { title: buildPageTitle("Threads") };
 }
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -472,7 +472,7 @@ export default async function BranchesPage() {
 
       {/* Header */}
       <PageNavBar
-        subtitle="Local Branches"
+        subtitle="Threads"
         currentPage="branches"
         initialSession={sessionUser}
         initialHarness={evolvePrefs?.initialHarness}
@@ -499,7 +499,7 @@ export default async function BranchesPage() {
           />
         ) : (
           <p className="text-gray-500 text-sm font-mono">
-            No production branch found.
+            No production thread found.
           </p>
         )}
       </div>
@@ -507,11 +507,11 @@ export default async function BranchesPage() {
       {/* Legend */}
       <div className="mt-8 border-t border-gray-800 pt-4 text-xs text-gray-600 font-mono space-y-1">
         <p>
-          ● green = preview server active · ● dim = no active session · unicode
-          connectors show branch parentage and merge hints · branch name links to session ·{" "}
+          ● green = preview server active · ● dim = no active thread · unicode
+          connectors show thread parentage and merge hints · thread id links to thread ·{" "}
           <span className="text-blue-400"><ExternalLink size={10} className="inline" /></span> = open
-          branch · <span className="text-purple-500">+ session</span> = start new
-          session on existing branch
+          preview · <span className="text-purple-500">+ thread</span> = start a new
+          thread from an existing version
         </p>
         <p>
           Clone:{" "}
@@ -525,9 +525,9 @@ export default async function BranchesPage() {
       {userIsAdmin && (
         <details className="mt-6 text-xs font-mono open:ring-1 open:ring-gray-800 open:rounded open:p-3">
           <summary className="text-gray-600 cursor-pointer hover:text-gray-400 select-none py-1">
-            Diagnostics ({branches.length} branch
-            {branches.length === 1 ? "" : "es"} found,{" "}
-            {diag.activeSessions} active session
+            Diagnostics ({branches.length} thread
+            {branches.length === 1 ? "" : "s"} found,{" "}
+            {diag.activeSessions} active thread
             {diag.activeSessions === 1 ? "" : "s"})
           </summary>
           <div className="mt-3 space-y-3 text-gray-500">
@@ -538,7 +538,7 @@ export default async function BranchesPage() {
               <span className="text-gray-400">NODE_ENV:</span> {diag.nodeEnv}
             </p>
             <p>
-              <span className="text-gray-400">production branch:</span>{" "}
+              <span className="text-gray-400">production thread:</span>{" "}
               <span className="text-blue-400">{productionBranch}</span>
             </p>
             <GitResultRow label="git --version" result={diag.gitVersion} />
@@ -552,7 +552,7 @@ export default async function BranchesPage() {
             />
             <div>
               <p className="text-gray-400">
-                evolve sessions ({diag.sessions.length})
+                threads ({diag.sessions.length})
               </p>
               {diag.sessions.length === 0 ? (
                 <pre className="text-gray-700 pl-2">(none)</pre>
@@ -560,8 +560,8 @@ export default async function BranchesPage() {
                 <table className="mt-1 pl-2 w-full border-collapse">
                   <thead>
                     <tr className="text-gray-500">
-                      <th className="text-left pr-4 font-normal">id</th>
-                      <th className="text-left pr-4 font-normal">branch</th>
+                      <th className="text-left pr-4 font-normal">thread id</th>
+                      <th className="text-left pr-4 font-normal">git branch</th>
                       <th className="text-left pr-4 font-normal">status</th>
                       <th className="text-left font-normal">port</th>
                     </tr>

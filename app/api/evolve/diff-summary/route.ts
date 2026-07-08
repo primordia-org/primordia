@@ -14,8 +14,8 @@ import { getParentBranch } from "@/lib/branch-parent";
 import { getBranchParentSource } from "@/lib/user-prefs";
 
 /**
- * Get diff summary for a session
- * @description Returns per-file additions/deletions for all files changed in the session branch vs its parent. Pass `sessionId` as a query parameter.
+ * Get diff summary for a thread
+ * @description Returns per-file additions/deletions for all files changed in the thread vs its parent. Pass `sessionId` as the thread id query parameter.
  * @tag Evolve
  */
 export async function GET(req: NextRequest) {
@@ -23,12 +23,12 @@ export async function GET(req: NextRequest) {
   const sessionId = searchParams.get("sessionId");
 
   if (!sessionId) {
-    return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
+    return NextResponse.json({ error: "thread id is required" }, { status: 400 });
   }
 
   const session = getSessionFromFilesystem(sessionId, process.cwd());
   if (!session) {
-    return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    return NextResponse.json({ error: "Thread not found" }, { status: 404 });
   }
 
   try {

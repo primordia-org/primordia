@@ -13,7 +13,7 @@ import { withSocketStatusHint } from '@/lib/socket-status';
 
 /** JSON body for POST /evolve/upstream-sync */
 export interface EvolveUpstreamSyncBody {
-  sessionId: string; // The session ID (git branch name) to sync upstream changes into.
+  sessionId: string; // The thread id to sync upstream changes into.
   action: 'merge'; // The sync strategy. Currently only 'merge' is supported.
 }
 
@@ -27,8 +27,8 @@ async function runBunInstallAfterMerge(worktreePath: string): Promise<string> {
 }
 
 /**
- * Merge parent branch into a session
- * @description Merges the session's parent branch into the session worktree to pick up upstream changes. Auto-resolves conflicts via Claude if needed.
+ * Merge parent branch into a thread
+ * @description Merges the thread's parent branch into the thread workspace to pick up upstream changes. Auto-resolves conflicts via Claude if needed.
  * @tag Evolve
  * @body EvolveUpstreamSyncBody
  */
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
 
   const body = (await request.json()) as { sessionId?: string; action?: string };
   if (!body.sessionId) {
-    return Response.json({ error: 'sessionId is required' }, { status: 400 });
+    return Response.json({ error: 'thread id is required' }, { status: 400 });
   }
   if (body.action !== 'merge') {
     return Response.json({ error: 'action must be "merge"' }, { status: 400 });
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   const repoRoot = process.cwd();
   const session = getSessionFromFilesystem(body.sessionId, repoRoot);
   if (!session) {
-    return Response.json({ error: 'Session not found' }, { status: 404 });
+    return Response.json({ error: 'Thread not found' }, { status: 404 });
   }
 
   const { worktreePath, branch } = session;
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
   const parentSource = await getBranchParentSource(user.id);
   const parentBranch = getParentBranch(branch, undefined, parentSource);
   if (!parentBranch) {
-    return Response.json({ error: 'Could not determine parent branch' }, { status: 400 });
+    return Response.json({ error: 'Could not determine parent thread' }, { status: 400 });
   }
 
   try {
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
       const installLog = await runBunInstallAfterMerge(worktreePath);
       const dbCopy = await hotswapProductionDbIntoWorktree(repoRoot, worktreePath, session.port);
       const dbCopyLog = dbCopy.copied
-        ? '\nHot-swapped a production DB snapshot into this branch.'
+        ? '\nHot-swapped a production DB snapshot into this thread.'
         : dbCopy.error === 'production DB not found'
           ? '\nSkipped production DB hotswap: production DB not found.'
           : `\nSkipped production DB hotswap: ${dbCopy.error ?? 'unknown error'}.`;
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
     const installLog = await runBunInstallAfterMerge(worktreePath);
     const dbCopy = await hotswapProductionDbIntoWorktree(repoRoot, worktreePath, session.port);
     const dbCopyLog = dbCopy.copied
-      ? '\nHot-swapped a production DB snapshot into this branch.'
+      ? '\nHot-swapped a production DB snapshot into this thread.'
       : dbCopy.error === 'production DB not found'
         ? '\nSkipped production DB hotswap: production DB not found.'
         : `\nSkipped production DB hotswap: ${dbCopy.error ?? 'unknown error'}.`;

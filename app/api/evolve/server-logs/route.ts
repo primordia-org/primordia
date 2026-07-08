@@ -69,16 +69,16 @@ function readFromOffset(logPath: string, offset: number): { exists: boolean; tex
 
 /**
  * Stream evolve preview server logs
- * @description SSE stream of a session worktree's `.primordia-next-server.log`. Pass `sessionId`; add `n=0` to skip the initial tail and only follow newly appended bytes. Emits a missing status while the log file does not exist yet.
+ * @description SSE stream of a thread preview server's `.primordia-next-server.log`. Pass `sessionId` as the thread id; add `n=0` to skip the initial tail and only follow newly appended bytes. Emits a missing status while the log file does not exist yet.
  * @tag Evolve
  */
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const sessionId = url.searchParams.get("sessionId");
-  if (!sessionId) return new Response("Missing sessionId", { status: 400 });
+  if (!sessionId) return new Response("Missing thread id", { status: 400 });
 
   const session = getSessionFromFilesystem(sessionId, process.cwd());
-  if (!session) return new Response("Session not found", { status: 404 });
+  if (!session) return new Response("Thread not found", { status: 404 });
 
   let logPath: string;
   try {

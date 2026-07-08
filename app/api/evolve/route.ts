@@ -183,8 +183,8 @@ export interface EvolvePostFormData {
 }
 
 /**
- * Start a new evolve session
- * @description Start a new AI-powered code-change session. Accepts multipart/form-data (supports file attachments) or JSON `{ request, encryptedApiKey? }`. Requires `can_evolve` or `admin` role.
+ * Start a new thread
+ * @description Start a new AI-powered code-change thread. Accepts multipart/form-data (supports file attachments) or JSON `{ request, encryptedApiKey? }`. Requires `can_evolve` or `admin` role.
  * @tag Evolve
  * @contentType multipart/form-data
  * @body EvolvePostFormData
@@ -426,7 +426,7 @@ export async function createEvolveSessionFromText({
   // is immediately reachable when the client navigates to it after the redirect.
   const wtResult = await runGit(['worktree', 'add', worktreePath, '-b', branch], repoRoot);
   if (wtResult.code !== 0) {
-    return Response.json({ error: `Failed to create session worktree: ${wtResult.stderr}` }, { status: 500 });
+    return Response.json({ error: `Failed to create thread workspace: ${wtResult.stderr}` }, { status: 500 });
   }
 
   const parentConfigResult = await runGit(['config', `branch.${branch}.parent`, parentBranch], repoRoot);
@@ -505,8 +505,8 @@ export async function createEvolveSessionFromText({
 }
 
 /**
- * Poll evolve session status
- * @description Returns the current status, port, preview URL, branch, and original request for a session. Pass `sessionId` as a query parameter.
+ * Poll thread status
+ * @description Returns the current status, port, preview URL, thread id, and original request for a thread. Pass `sessionId` as the thread id query parameter.
  * @tag Evolve
  */
 export async function GET(request: Request) {
@@ -526,13 +526,13 @@ async function handleGet(request: Request) {
 
   const sessionId = new URL(request.url).searchParams.get('sessionId');
   if (!sessionId) {
-    return Response.json({ error: 'sessionId query param required' }, { status: 400 });
+    return Response.json({ error: 'thread id query param required' }, { status: 400 });
   }
 
   const repoRoot = process.cwd();
   const session = getSessionFromFilesystem(sessionId, repoRoot);
   if (!session) {
-    return Response.json({ error: 'Session not found' }, { status: 404 });
+    return Response.json({ error: 'Thread not found' }, { status: 404 });
   }
 
   return Response.json({

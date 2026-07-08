@@ -158,7 +158,7 @@ export default function AdminServerHealthClient() {
     const { branch, path } = data.oldestNonProdWorktree;
     if (
       !confirm(
-        `Delete worktree for branch "${branch}"?\n\nPath: ${path}\n\nThis will kill its dev server, remove the worktree, and delete the branch. This cannot be undone.`,
+        `Delete thread "${branch}"?\n\nPath: ${path}\n\nThis will kill its preview server and remove its workspace. This cannot be undone.`,
       )
     )
       return;
@@ -174,7 +174,7 @@ export default function AdminServerHealthClient() {
         throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
       }
       const result = (await res.json()) as { deleted: { branch: string; path: string } };
-      setDeleteMessage(`Deleted worktree for branch "${result.deleted.branch}".`);
+      setDeleteMessage(`Deleted thread "${result.deleted.branch}".`);
       await loadData();
     } catch (e) {
       setDeleteError(String(e));
@@ -251,7 +251,7 @@ export default function AdminServerHealthClient() {
                 <span>99%</span>
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                When disk usage reaches this level, the oldest non-production worktrees are deleted automatically. Checked every 5 minutes.
+                When disk usage reaches this level, the oldest non-production thread workspaces are deleted automatically. Checked every 5 minutes.
               </p>
             </div>
           </div>
@@ -342,7 +342,7 @@ export default function AdminServerHealthClient() {
                 disabled={creatingLeakSession}
                 className="shrink-0 rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {creatingLeakSession ? "Creating session…" : "Investigate and fix"}
+                {creatingLeakSession ? "Creating thread…" : "Investigate and fix"}
               </button>
             </div>
           ) : (
@@ -352,11 +352,11 @@ export default function AdminServerHealthClient() {
         </div>
       </section>
 
-      {/* Worktree cleanup */}
+      {/* Thread cleanup */}
       <section>
-        <h2 className="text-base font-medium text-gray-200 mb-1">Worktree cleanup</h2>
+        <h2 className="text-base font-medium text-gray-200 mb-1">Thread cleanup</h2>
         <p className="text-sm text-gray-500 mb-4">
-          Old non-prod worktrees accumulate on disk after evolve sessions are accepted or
+          Old non-production thread workspaces accumulate on disk after threads are accepted or
           abandoned. Deleting the oldest one frees disk space.
         </p>
         {oldestNonProdWorktree ? (
@@ -381,7 +381,7 @@ export default function AdminServerHealthClient() {
             </button>
           </div>
         ) : (
-          <p className="text-sm text-gray-500">No non-prod worktrees found.</p>
+          <p className="text-sm text-gray-500">No non-production threads found.</p>
         )}
 
         {deleteMessage && (

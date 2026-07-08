@@ -15,11 +15,11 @@ export async function POST(req: NextRequest) {
   const category = isWebPushCategory(body.category) ? body.category : null;
   const defaultTitle = category ? WEB_PUSH_CATEGORY_LABELS[category] : "Primordia test notification";
   const defaultBody = category === "security-vulnerabilities"
-    ? "1 critical, 2 high dependency issues found. Affected: next, protobufjs, ws. Open Dependency Security to review the audit and start a fix session."
+    ? "1 critical, 2 high dependency issues found. Affected: next, protobufjs, ws. Open Dependency Security to review the audit and start a fix thread."
     : category === "primordia-updates"
-      ? "5 upstream commits available from Primordia Official. Changelog: Improve session logs; Fix install health checks +1 more. Open Updates to review and create a merge session."
+      ? "5 upstream commits available from Primordia Official. Changelog: Improve thread logs; Fix install health checks +1 more. Open Updates to review and create a merge thread."
       : category === "server-health-alerts"
-        ? "Primordia captured diagnostics for possible CPU or memory leakage. Open Server Health to start an investigation session."
+        ? "Primordia captured diagnostics for possible CPU or memory leakage. Open Server Health to start an investigation thread."
         : "Web Push infrastructure is connected.";
   const title = typeof body?.title === "string" && body.title.trim()
     ? body.title.trim()

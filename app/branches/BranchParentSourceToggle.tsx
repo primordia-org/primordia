@@ -37,7 +37,7 @@ export function BranchParentSourceToggle({
         });
         if (!res.ok) {
           const data = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(data?.error ?? "Could not save branch parent source");
+          throw new Error(data?.error ?? "Could not save thread parent source");
         }
         router.refresh();
       } catch (err) {
@@ -51,14 +51,14 @@ export function BranchParentSourceToggle({
     <div className="mt-4 rounded-lg border border-gray-800 bg-gray-950/60 p-3 font-mono text-xs text-gray-400">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-gray-300">Branch parent source</p>
+          <p className="text-gray-300">Thread parent source</p>
           <p className="mt-1 text-gray-600">
-            Toggle between legacy git config and branch-marker commit trailers.
+            Toggle between legacy git config and thread-marker commit trailers.
           </p>
         </div>
         <button
           type="button"
-          title={usesBranchMarkers ? "Use legacy git config" : "Use branch marker trailers"}
+          title={usesBranchMarkers ? "Use legacy git config" : "Use thread marker trailers"}
           disabled={disabled || isPending}
           onClick={() => updateSource(usesBranchMarkers ? "git-config" : "branch-marker")}
           className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
@@ -70,7 +70,7 @@ export function BranchParentSourceToggle({
             <ToggleLeft size={18} strokeWidth={2} />
           )}
           <span className="text-xs text-gray-300">
-            {usesBranchMarkers ? "branch marker" : "git config"}
+            {usesBranchMarkers ? "thread marker" : "git config"}
           </span>
         </button>
       </div>

@@ -351,11 +351,11 @@ function SourceCard({ source, onFetch, onToggle, onRemove, onCreateSession, onSa
             <RefreshCw size={14} strokeWidth={2} />
           </button>
 
-          {/* Create session — only when there are updates */}
+          {/* Create thread — only when there are updates */}
           {source.hasUpdates && source.enabled && (
             <button
               type="button"
-              title="Create merge session"
+              title="Create merge thread"
               onClick={() => onCreateSession(source.id)}
               disabled={busy}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white transition-colors"

@@ -88,7 +88,7 @@ export function buildStandardMenuItems({
       icon: <Edit size={16} strokeWidth={2} aria-hidden="true" />,
     },
     {
-      label: "Branches",
+      label: "Threads",
       className: "hover:text-green-400",
       href: "/branches",
       dataId: "nav-menu/branches",

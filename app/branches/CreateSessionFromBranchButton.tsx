@@ -33,7 +33,7 @@ export function CreateSessionFromBranchButton({ branchName }: Props) {
       });
       const data = (await res.json()) as { sessionId?: string; error?: string };
       if (!res.ok || !data.sessionId) {
-        setError(data.error ?? "Failed to create session");
+        setError(data.error ?? "Failed to start thread");
         setLoading(false);
         return;
       }
@@ -51,9 +51,9 @@ export function CreateSessionFromBranchButton({ branchName }: Props) {
         onClick={handleClick}
         disabled={loading}
         className="text-purple-500 hover:text-purple-300 text-xs disabled:opacity-50"
-        title={`Create evolve session for ${branchName}`}
+        title={`Start thread from ${branchName}`}
       >
-        {loading ? "creating…" : "+ session"}
+        {loading ? "creating…" : "+ thread"}
       </button>
       {error && <span className="text-xs text-red-400">{error}</span>}
     </span>

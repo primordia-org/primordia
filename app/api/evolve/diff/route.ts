@@ -14,7 +14,7 @@ import { getBranchParentSource } from "@/lib/user-prefs";
 
 /**
  * Get raw diff for a single file
- * @description Returns the unified diff for one file in the session branch vs its parent. Pass `sessionId` and `file` (relative path) as query parameters.
+ * @description Returns the unified diff for one file in the thread vs its parent. Pass `sessionId` (thread id) and `file` (relative path) as query parameters.
  * @tag Evolve
  */
 export async function GET(req: NextRequest) {
@@ -23,12 +23,12 @@ export async function GET(req: NextRequest) {
   const file = searchParams.get("file");
 
   if (!sessionId || !file) {
-    return NextResponse.json({ error: "sessionId and file are required" }, { status: 400 });
+    return NextResponse.json({ error: "thread id and file are required" }, { status: 400 });
   }
 
   const session = getSessionFromFilesystem(sessionId, process.cwd());
   if (!session) {
-    return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    return NextResponse.json({ error: "Thread not found" }, { status: 404 });
   }
 
   try {
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     const parentBranch = getParentBranch(session.branch, undefined, parentSource);
 
     if (!parentBranch) {
-      return NextResponse.json({ error: "No parent branch found" }, { status: 404 });
+      return NextResponse.json({ error: "No parent thread found" }, { status: 404 });
     }
 
     const diff = execSync(

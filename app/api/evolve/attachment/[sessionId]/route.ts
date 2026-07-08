@@ -38,8 +38,8 @@ function mimeType(filename: string): string {
 }
 
 /**
- * Serve a session attachment file
- * @description Streams an uploaded attachment from the session worktree. Pass `file` (filename) as a query parameter. Images and text files are served inline; others as downloads.
+ * Serve a thread attachment file
+ * @description Streams an uploaded attachment from the thread workspace. Pass `file` (filename) as a query parameter. Images and text files are served inline; others as downloads.
  * @tag Evolve
  */
 export async function GET(
@@ -66,7 +66,7 @@ export async function GET(
 
   const session = getSessionFromFilesystem(sessionId, process.cwd());
   if (!session) {
-    return new Response('Session not found', { status: 404 });
+    return new Response('Thread not found', { status: 404 });
   }
 
   const filePath = path.join(session.worktreePath, 'attachments', safeName);

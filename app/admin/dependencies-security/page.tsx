@@ -17,7 +17,7 @@ import DependenciesSecurityClient from "./DependenciesSecurityClient";
 export function generateMetadata(): Metadata {
   return {
     title: buildPageTitle("Dependency Security"),
-    description: "Review bun audit output and create sessions to fix vulnerable packages.",
+    description: "Review bun audit output and create threads to fix vulnerable packages.",
   };
 }
 
@@ -42,7 +42,7 @@ export default async function DependenciesSecurityPage() {
   if (!adminCheck) {
     return (
       <ForbiddenPage
-        pageDescription="This page lets admins review dependency security findings from bun audit and start an evolve session to update vulnerable packages."
+        pageDescription="This page lets admins review dependency security findings from bun audit and start a thread to update vulnerable packages."
         requiredConditions={["Be logged in", `Have the "${adminRoleName}" role`]}
         metConditions={["You are logged in"]}
         unmetConditions={[`You don't have the "${adminRoleName}" role`]}

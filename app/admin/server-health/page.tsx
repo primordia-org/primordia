@@ -16,7 +16,7 @@ import AdminServerHealthClient from "./AdminServerHealthClient";
 export function generateMetadata(): Metadata {
   return {
     title: buildPageTitle("Server Health"),
-    description: "View server resource usage and clean up old worktrees.",
+    description: "View server resource usage and clean up old thread workspaces.",
   };
 }
 
@@ -35,7 +35,7 @@ export default async function AdminServerHealthPage() {
   if (!adminCheck) {
     return (
       <ForbiddenPage
-        pageDescription="This page shows server resource usage (disk and memory) and lets you delete old non-prod worktrees to free up disk space."
+        pageDescription="This page shows server resource usage (disk and memory) and lets you delete old non-production thread workspaces to free up disk space."
         requiredConditions={["Be logged in", `Have the "${adminRoleName}" role`]}
         metConditions={["You are logged in"]}
         unmetConditions={[`You don't have the "${adminRoleName}" role`]}

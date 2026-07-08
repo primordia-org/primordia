@@ -189,7 +189,7 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
                 </Link>
               )}
 
-              {/* Active sessions */}
+              {/* Active threads */}
               {data?.sessions.length ? (
                 data.sessions.map((s) => (
                   <Link
@@ -208,7 +208,7 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
                   </Link>
                 ))
               ) : !data?.hasUpdates && !data?.hasDependencyAlert && !data?.hasLeakDiagnostics ? (
-                <div className="px-4 py-3 text-sm text-gray-500">No active sessions</div>
+                <div className="px-4 py-3 text-sm text-gray-500">No active threads</div>
               ) : null}
             </>
           )}

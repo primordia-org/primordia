@@ -129,7 +129,7 @@ export default async function AdminUpdatesPage() {
   if (!adminCheck) {
     return (
       <ForbiddenPage
-        pageDescription="This page lets admins fetch upstream Primordia updates from configured sources and create AI-assisted merge sessions to apply them."
+        pageDescription="This page lets admins fetch upstream Primordia updates from configured sources and create AI-assisted merge threads to apply them."
         requiredConditions={["Be logged in", `Have the "${adminRoleName}" role`]}
         metConditions={["You are logged in"]}
         unmetConditions={[`You don't have the "${adminRoleName}" role`]}
