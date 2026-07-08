@@ -66,7 +66,8 @@ import {
   getSessionNdjsonPath,
 } from '@/lib/session-events';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
-import { resolveWorkerSecrets } from '@/lib/evolve-worker-secrets';
+import { getPlaintextCredentialsForUser } from '@/lib/evolve-secret-resolution';
+import { type PresetAuthSource } from '@/lib/presets';
 
 interface WorkerConfig {
   sessionId: string;
@@ -131,9 +132,13 @@ async function main(): Promise<void> {
   let config: WorkerConfig;
   try {
     config = JSON.parse(fs.readFileSync(configFile, 'utf8')) as WorkerConfig;
-    const { apiKey, credentials } = await resolveWorkerSecrets(config);
-    _userApiKey = _userApiKey ?? apiKey ?? null;
-    _userCredentialsJson = _userCredentialsJson ?? credentials ?? null;
+    const plaintext = config.userId && config.authSource && config.authSource !== 'exe-dev-gateway'
+      ? await getPlaintextCredentialsForUser(config.userId, null, config.authSource as PresetAuthSource)
+      : undefined;
+    if (plaintext) {
+      if (config.authSource === 'claude-subscription') _userCredentialsJson = _userCredentialsJson ?? plaintext;
+      else _userApiKey = _userApiKey ?? plaintext;
+    }
     if (_userCredentialsJson) {
       delete process.env.ANTHROPIC_API_KEY;
       delete process.env.ANTHROPIC_BASE_URL;

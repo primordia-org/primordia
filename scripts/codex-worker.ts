@@ -7,7 +7,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { appendSessionEvent, getSessionNdjsonPath, type SessionEvent } from '@/lib/session-events';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
-import { resolveWorkerSecrets } from '@/lib/evolve-worker-secrets';
+import { getPlaintextCredentialsForUser } from '@/lib/evolve-secret-resolution';
+import { type PresetAuthSource } from '@/lib/presets';
 
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai/v1';
 
@@ -314,9 +315,13 @@ async function main(): Promise<void> {
   }
 
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8')) as WorkerConfig;
-  const { apiKey, chatGptOAuth } = await resolveWorkerSecrets(config);
-  _userApiKey = _userApiKey ?? apiKey;
-  _chatGptOAuth = _chatGptOAuth ?? chatGptOAuth;
+  const plaintext = config.userId && config.authSource && config.authSource !== 'exe-dev-gateway'
+    ? await getPlaintextCredentialsForUser(config.userId, null, config.authSource as PresetAuthSource)
+    : undefined;
+  if (plaintext) {
+    if (config.authSource === 'chatgpt-subscription') _chatGptOAuth = _chatGptOAuth ?? plaintext;
+    else _userApiKey = _userApiKey ?? plaintext;
+  }
   delete process.env.PRIMORDIA_DECRYPTION_KEY;
   const { sessionId, worktreePath, prompt, useContinue } = config;
   const timeoutMs = config.timeoutMs ?? 20 * 60 * 1000;

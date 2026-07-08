@@ -34,7 +34,8 @@ import {
 } from '@/lib/session-events';
 import { ensurePrimordiaPiModelsJson } from '@/lib/pi-custom-models';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
-import { resolveWorkerSecrets } from '@/lib/evolve-worker-secrets';
+import { getPlaintextCredentialsForUser } from '@/lib/evolve-secret-resolution';
+import { type PresetAuthSource } from '@/lib/presets';
 
 // ---------------------------------------------------------------------------
 // LLM backend configuration
@@ -201,9 +202,13 @@ async function main(): Promise<void> {
 
   const { sessionId, worktreePath, prompt, useContinue } = config;
   const timeoutMs = config.timeoutMs ?? 20 * 60 * 1000;
-  const { apiKey, chatGptOAuth } = await resolveWorkerSecrets(config);
-  _userApiKey = _userApiKey ?? apiKey;
-  _chatGptOAuth = _chatGptOAuth ?? chatGptOAuth;
+  const plaintext = config.userId && config.authSource && config.authSource !== 'exe-dev-gateway'
+    ? await getPlaintextCredentialsForUser(config.userId, null, config.authSource as PresetAuthSource)
+    : undefined;
+  if (plaintext) {
+    if (config.authSource === 'chatgpt-subscription') _chatGptOAuth = _chatGptOAuth ?? plaintext;
+    else _userApiKey = _userApiKey ?? plaintext;
+  }
   delete process.env.PRIMORDIA_DECRYPTION_KEY;
 
   const { provider: modelProvider, modelId } = normalizeModelSelection(config.model);
