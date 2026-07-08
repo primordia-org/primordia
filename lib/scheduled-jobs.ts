@@ -1,5 +1,6 @@
 import { startDiskCleanupJobScheduler } from './disk-space-management';
 import { startDependencyAuditScheduler } from './dependency-audit-scheduler';
+import { startLeakDiagnosticsScheduler } from './leak-diagnostics-scheduler';
 import { startUpdateSourceScheduler } from './update-source-scheduler';
 
 export interface ScheduledJobsOptions {
@@ -23,6 +24,7 @@ export function runScheduledJobs(options: ScheduledJobsOptions = {}): void {
   const repoRoot = options.repoRoot ?? process.cwd();
   startUpdateSourceScheduler(repoRoot);
   startDependencyAuditScheduler(repoRoot);
+  startLeakDiagnosticsScheduler(repoRoot);
   startDiskCleanupJobScheduler({
     repoRoot,
     listenPort: options.listenPort,

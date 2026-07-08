@@ -6,7 +6,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
-import { Bell, ArrowUpCircle, GitBranch, ShieldAlert } from "lucide-react";
+import { Activity, Bell, ArrowUpCircle, GitBranch, ShieldAlert } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import type { SessionUser } from "@/lib/hooks";
 
@@ -42,6 +42,7 @@ interface BellData {
   hasUpdates: boolean;
   hasDependencyAlert: boolean;
   dependencySevereCount: number;
+  hasLeakDiagnostics: boolean;
   sessions: BellSession[];
 }
 
@@ -68,10 +69,11 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [sessionsRes, updatesRes, dependencyRes] = await Promise.all([
+      const [sessionsRes, updatesRes, dependencyRes, leakRes] = await Promise.all([
         canEvolve || isAdmin ? fetch(withBasePath("/api/evolve/sessions")) : null,
         isAdmin ? fetch(withBasePath("/api/admin/updates/has-updates")) : null,
         isAdmin ? fetch(withBasePath("/api/admin/dependencies-security/has-alert")) : null,
+        isAdmin ? fetch(withBasePath("/api/admin/server-health/leak-alert")) : null,
       ]);
       const sessions: BellSession[] = sessionsRes?.ok
         ? (await sessionsRes.json()).sessions ?? []
@@ -82,9 +84,11 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
       const dependencyData = dependencyRes?.ok ? await dependencyRes.json() : null;
       const hasDependencyAlert: boolean = dependencyData?.hasAlert ?? false;
       const dependencySevereCount: number = dependencyData?.severeCount ?? 0;
-      setData({ hasUpdates, hasDependencyAlert, dependencySevereCount, sessions });
+      const leakData = leakRes?.ok ? await leakRes.json() : null;
+      const hasLeakDiagnostics: boolean = leakData?.hasAlert ?? false;
+      setData({ hasUpdates, hasDependencyAlert, dependencySevereCount, hasLeakDiagnostics, sessions });
     } catch {
-      setData({ hasUpdates: false, hasDependencyAlert: false, dependencySevereCount: 0, sessions: [] });
+      setData({ hasUpdates: false, hasDependencyAlert: false, dependencySevereCount: 0, hasLeakDiagnostics: false, sessions: [] });
     } finally {
       setLoading(false);
     }
@@ -111,7 +115,7 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
 
   if (!canShow) return null;
 
-  const hasAnything = data && (data.hasUpdates || data.hasDependencyAlert || data.sessions.length > 0);
+  const hasAnything = data && (data.hasUpdates || data.hasDependencyAlert || data.hasLeakDiagnostics || data.sessions.length > 0);
   if (!hasAnything && !menuOpen) return null;
 
   const RUNNING_STATUSES = new Set(["starting", "running-claude", "fixing-types", "accepting"]);
@@ -173,6 +177,18 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
                 </Link>
               )}
 
+              {/* Leak diagnostics row — admin only */}
+              {isAdmin && data?.hasLeakDiagnostics && (
+                <Link
+                  href="/admin/server-health"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex items-center gap-3 px-4 py-3 text-sm text-amber-400 hover:text-amber-300 hover:bg-gray-800 transition-colors border-b border-gray-800"
+                >
+                  <Activity size={16} strokeWidth={2} aria-hidden="true" />
+                  <span className="flex-1">CPU / memory diagnostics</span>
+                </Link>
+              )}
+
               {/* Active sessions */}
               {data?.sessions.length ? (
                 data.sessions.map((s) => (
@@ -191,7 +207,7 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
                     </span>
                   </Link>
                 ))
-              ) : !data?.hasUpdates && !data?.hasDependencyAlert ? (
+              ) : !data?.hasUpdates && !data?.hasDependencyAlert && !data?.hasLeakDiagnostics ? (
                 <div className="px-4 py-3 text-sm text-gray-500">No active sessions</div>
               ) : null}
             </>

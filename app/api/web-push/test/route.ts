@@ -18,7 +18,9 @@ export async function POST(req: NextRequest) {
     ? "1 critical, 2 high dependency issues found. Affected: next, protobufjs, ws. Open Dependency Security to review the audit and start a fix session."
     : category === "primordia-updates"
       ? "5 upstream commits available from Primordia Official. Changelog: Improve session logs; Fix install health checks +1 more. Open Updates to review and create a merge session."
-      : "Web Push infrastructure is connected.";
+      : category === "server-health-alerts"
+        ? "Primordia captured diagnostics for possible CPU or memory leakage. Open Server Health to start an investigation session."
+        : "Web Push infrastructure is connected.";
   const title = typeof body?.title === "string" && body.title.trim()
     ? body.title.trim()
     : defaultTitle;
@@ -29,7 +31,9 @@ export async function POST(req: NextRequest) {
     ? "/admin/dependencies-security"
     : category === "primordia-updates"
       ? "/admin/updates"
-      : "/test-pages/web-push-test";
+      : category === "server-health-alerts"
+        ? "/admin/server-health"
+        : "/test-pages/web-push-test";
   const tag = category ? WEB_PUSH_CATEGORY_TAGS[category] : `primordia-web-push-test-${Date.now()}`;
 
   const db = await getDb();

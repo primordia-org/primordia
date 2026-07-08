@@ -234,7 +234,7 @@ export default function WebPushTestClient({
     }
   }
 
-  async function sendTest(category?: "security-vulnerabilities" | "primordia-updates") {
+  async function sendTest(category?: "security-vulnerabilities" | "primordia-updates" | "server-health-alerts") {
     setBusy(true);
     setError("");
     setStatus(category ? "Sending simulated category push…" : "Sending test push…");
@@ -361,6 +361,15 @@ export default function WebPushTestClient({
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />}
             Simulate Primordia Update
+          </button>
+          <button
+            type="button"
+            onClick={() => sendTest("server-health-alerts")}
+            disabled={!isSignedIn || subscriptions.length === 0 || busy}
+            className="inline-flex items-center gap-2 rounded-lg border border-amber-800/70 bg-amber-950/40 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />}
+            Simulate Server Health Alert
           </button>
           <button
             type="button"

@@ -1,6 +1,6 @@
 "use client";
 
-import { BellRing, ShieldAlert, Sparkles } from "lucide-react";
+import { Activity, BellRing, ShieldAlert, Sparkles } from "lucide-react";
 import WebPushCategoryButton from "@/components/WebPushCategoryButton";
 import type { WebPushCategory } from "@/lib/db/types";
 
@@ -8,7 +8,7 @@ const CATEGORIES: Array<{
   category: WebPushCategory;
   title: string;
   description: string;
-  icon: "shield" | "sparkles";
+  icon: "shield" | "sparkles" | "activity";
 }> = [
   {
     category: "security-vulnerabilities",
@@ -21,6 +21,12 @@ const CATEGORIES: Array<{
     title: "Primordia Updates",
     description: "Get notified when scheduled update checks find upstream Primordia commits so you can review the changelog and create a merge session.",
     icon: "sparkles",
+  },
+  {
+    category: "server-health-alerts",
+    title: "Server Health Alerts",
+    description: "Get notified when Primordia captures diagnostics for possible CPU leaks or memory leaks so you can open Server Health and start a fix session.",
+    icon: "activity",
   },
 ];
 
@@ -51,7 +57,7 @@ export default function PushNotificationsSettingsClient({
 
       <div className="space-y-3">
         {CATEGORIES.map((item) => {
-          const Icon = item.icon === "shield" ? ShieldAlert : Sparkles;
+          const Icon = item.icon === "shield" ? ShieldAlert : item.icon === "activity" ? Activity : Sparkles;
           return (
             <div key={item.category} className="rounded-xl border border-gray-700 bg-gray-900 p-4">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

@@ -6,8 +6,10 @@
 
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
-import { getSessionUser, isAdmin } from '@/lib/auth';
+import { createEvolveSessionFromText } from '@/app/api/evolve/route';
+import { getSessionUser, isAdmin, hasEvolvePermission } from '@/lib/auth';
 import { archiveSessionNdjsonLog } from '@/lib/session-archive';
+import { readLatestLeakDiagnostics, readLeakDiagnosticsSummary } from '@/lib/leak-diagnostics';
 
 interface WorktreeInfo {
   path: string;
@@ -146,8 +148,9 @@ export async function GET() {
   const disk = getDiskInfo();
   const memory = getMemoryInfo();
   const oldestNonProdWorktree = getOldestNonProdWorktree(repoRoot);
+  const leakDiagnostics = readLeakDiagnosticsSummary(repoRoot);
 
-  return Response.json({ disk, memory, oldestNonProdWorktree });
+  return Response.json({ disk, memory, oldestNonProdWorktree, leakDiagnostics });
 }
 
 /**
@@ -155,10 +158,58 @@ export async function GET() {
  * @description Removes the oldest non-production git worktree and its branch to free disk space. Admin only.
  * @tag Admin
  */
-export async function POST() {
+export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });
   if (!(await isAdmin(user.id))) return Response.json({ error: 'Admin required' }, { status: 403 });
+
+  let action = 'delete-oldest-worktree';
+  try {
+    const body = await request.json() as { action?: unknown };
+    if (typeof body.action === 'string') action = body.action;
+  } catch {
+    // Preserve the historical empty-body POST behavior: delete the oldest non-prod worktree.
+  }
+
+  if (action === 'create-leak-diagnostics-session') {
+    if (!(await hasEvolvePermission(user.id))) {
+      return Response.json({ error: 'You need the evolve permission to create sessions.' }, { status: 403 });
+    }
+
+    const repoRoot = process.cwd();
+    const summary = readLeakDiagnosticsSummary(repoRoot);
+    const diagnostics = readLatestLeakDiagnostics(repoRoot);
+    if (!summary.exists || !diagnostics) {
+      return Response.json({ error: 'No CPU/memory diagnostics file exists yet.' }, { status: 404 });
+    }
+
+    const requestText =
+      `Investigate and fix the suspected Primordia CPU usage or memory leak captured by automatic diagnostics.\n\n` +
+      `Goals:\n` +
+      `1. Read the diagnostics below and identify why Primordia was consuming CPU or memory while it should have been idle.\n` +
+      `2. Fix the leak or runaway background work with the smallest safe code change.\n` +
+      `3. Add or update safeguards so this class of leak is less likely to recur.\n` +
+      `4. Run \`bun run typecheck\` and any targeted validation that fits the fix.\n\n` +
+      `Diagnostics file path on the production instance: ${summary.path}\n\n` +
+      `Captured diagnostics:\n\n${diagnostics}`;
+
+    const evolveRes = await createEvolveSessionFromText({ userId: user.id, requestText });
+    let data: { sessionId?: string; error?: string } = {};
+    try {
+      const text = await evolveRes.text();
+      data = text ? JSON.parse(text) : { error: `Server returned empty response with status ${evolveRes.status}` };
+    } catch {
+      data = { error: `Server returned non-JSON response with status ${evolveRes.status}` };
+    }
+    if (!evolveRes.ok || !data.sessionId) {
+      return Response.json({ error: data.error ?? 'Failed to create evolve session' }, { status: evolveRes.status || 500 });
+    }
+    return Response.json({ sessionId: data.sessionId });
+  }
+
+  if (action !== 'delete-oldest-worktree') {
+    return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });
+  }
 
   const repoRoot = process.cwd();
   const target = getOldestNonProdWorktree(repoRoot);

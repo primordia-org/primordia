@@ -32,7 +32,7 @@ export async function GET() {
 
 /**
  * Subscribe the current user to a Web Push category.
- * @description Body: { category } where category is security-vulnerabilities or primordia-updates.
+ * @description Body: { category } where category is security-vulnerabilities, primordia-updates, or server-health-alerts.
  */
 export async function POST(req: NextRequest) {
   const auth = await requireEvolver();
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
 /**
  * Unsubscribe the current user from a Web Push category.
- * @description Body: { category } where category is security-vulnerabilities or primordia-updates.
+ * @description Body: { category } where category is security-vulnerabilities, primordia-updates, or server-health-alerts.
  */
 export async function DELETE(req: NextRequest) {
   const auth = await requireEvolver();

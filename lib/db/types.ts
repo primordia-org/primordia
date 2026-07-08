@@ -152,7 +152,7 @@ export interface WebPushVapidKeys {
   createdAt: number;
 }
 
-export type WebPushCategory = "security-vulnerabilities" | "primordia-updates";
+export type WebPushCategory = "security-vulnerabilities" | "primordia-updates" | "server-health-alerts";
 
 export interface WebPushSubscription {
   id: string;
