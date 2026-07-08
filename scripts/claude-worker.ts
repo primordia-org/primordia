@@ -27,8 +27,8 @@ const GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
 
 // Stash both auth env vars and clear them immediately so child processes
 // spawned by Claude Code (e.g. bash tool) never see them.
-const _userApiKey = process.env.PRIMORDIA_USER_API_KEY ?? null;
-const _userCredentialsJson = process.env.PRIMORDIA_USER_CREDENTIALS ?? null;
+let _userApiKey = process.env.PRIMORDIA_USER_API_KEY ?? null;
+let _userCredentialsJson = process.env.PRIMORDIA_USER_CREDENTIALS ?? null;
 delete process.env.PRIMORDIA_USER_API_KEY;
 delete process.env.PRIMORDIA_USER_CREDENTIALS;
 
@@ -66,6 +66,7 @@ import {
   getSessionNdjsonPath,
 } from '@/lib/session-events';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
+import { resolveWorkerSecrets } from '@/lib/evolve-worker-secrets';
 
 interface WorkerConfig {
   sessionId: string;
@@ -77,6 +78,8 @@ interface WorkerConfig {
   model?: string;
   /** When true, continue the most recent Claude Code session in the worktree directory. */
   useContinue?: boolean;
+  authSource?: string | null;
+  encryptedSecretPayload?: string;
 }
 
 function makeWorktreeBoundaryHook(worktreePath: string, repoRoot: string): HookCallback {
@@ -128,6 +131,17 @@ async function main(): Promise<void> {
   let config: WorkerConfig;
   try {
     config = JSON.parse(fs.readFileSync(configFile, 'utf8')) as WorkerConfig;
+    const { apiKey, credentials } = await resolveWorkerSecrets(config);
+    _userApiKey = _userApiKey ?? apiKey ?? null;
+    _userCredentialsJson = _userCredentialsJson ?? credentials ?? null;
+    if (_userCredentialsJson) {
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.ANTHROPIC_BASE_URL;
+    } else if (_userApiKey) {
+      process.env.ANTHROPIC_API_KEY = _userApiKey;
+      delete process.env.ANTHROPIC_BASE_URL;
+    }
+    delete process.env.PRIMORDIA_DECRYPTION_KEY;
   } catch (err) {
     process.stderr.write(`Failed to read config file: ${err}\n`);
     process.exit(1);

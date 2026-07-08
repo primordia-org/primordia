@@ -5,25 +5,23 @@
 // (API keys and Claude Code credentials).
 //
 // Architecture:
-//   - ONE AES-256-GCM key per user stored in localStorage ('primordia_aes_key').
-//     All secret sources share this key — simplifies cross-device AES key sync.
-//   - Each secret source is stored server-side in encrypted_credentials by
-//     authSource (see /api/secrets/[source]) using AES-GCM with a per-save random IV.
-//   - No local presence index — always ask the server whether a secret is set.
-//   - For transmission, every secret uses the same hybrid envelope:
-//     ephemeral AES-256-GCM encrypts the secret, RSA-OAEP wraps that AES key.
-//     This avoids RSA plaintext-size limits and keeps one code path for all
-//     credential material.
-//
-// Key that never leaves the browser: the AES-256-GCM key in localStorage.
-// Key that never leaves the server process: the RSA-OAEP private key.
+//   - ONE user secret per browser stored in localStorage ('primordia_aes_key').
+//     New installs store a P-256 ECDH keypair there. The browser combines that
+//     private key with the server public key to derive the AES-GCM key used for
+//     all secret sources.
+//   - The server combines its private key with the browser public key to derive
+//     the same raw PRIMORDIA_DECRYPTION_KEY. Evolve requests can therefore pass
+//     only the local public key; the server/worker decrypts the selected DB
+//     ciphertext without round-tripping plaintext through the browser.
+//   - Legacy localStorage AES keys are still readable for existing devices.
 
 import { withBasePath } from './base-path';
+import { isUserSecretMaterial, SECRET_KEY_VERSION, USER_SECRET_STORAGE } from './secret-derivation-shared';
 import type { SecretAuthSource } from './presets';
 
 export type { SecretAuthSource } from './presets';
 
-const AES_KEY_STORAGE = 'primordia_aes_key';
+const AES_KEY_STORAGE = USER_SECRET_STORAGE;
 const LEGACY_CREDENTIALS_AES_KEY_STORAGE = 'primordia_credentials_aes_key';
 
 function clearLegacyAesKey(): void {
@@ -38,10 +36,34 @@ export type HybridEncryptedSecret = {
   ciphertext: string;
 };
 
-// Module-level cache for the user's local AES key — reset on page load / module re-import.
+// Module-level cache for the user's derived AES key — reset on page load / module re-import.
 let cachedAesKey: CryptoKey | null = null;
+let cachedSecretPublicKey: JsonWebKey | null = null;
 
 // ── AES-GCM key management ──────────────────────────────────────────────────
+
+async function fetchServerEcdhPublicKey(): Promise<CryptoKey> {
+  const res = await fetch(withBasePath('/api/credential-encryption/server-public-key'));
+  if (!res.ok) throw new Error(`Failed to fetch server ECDH public key: ${res.statusText}`);
+  const data = (await res.json()) as { publicKey: JsonWebKey };
+  return crypto.subtle.importKey('jwk', data.publicKey, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+}
+
+async function importUserSecretPrivateKey(material: { privateKey: JsonWebKey }): Promise<CryptoKey> {
+  return crypto.subtle.importKey('jwk', material.privateKey, { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
+}
+
+async function deriveAesKey(material: { privateKey: JsonWebKey; publicKey: JsonWebKey }): Promise<CryptoKey> {
+  const privateKey = await importUserSecretPrivateKey(material);
+  const serverPublicKey = await fetchServerEcdhPublicKey();
+  const sharedBits = await crypto.subtle.deriveBits({ name: 'ECDH', public: serverPublicKey }, privateKey, 256);
+  const digestInput = new Uint8Array(new TextEncoder().encode('primordia-secret-encryption-v1').length + sharedBits.byteLength);
+  digestInput.set(new TextEncoder().encode('primordia-secret-encryption-v1'));
+  digestInput.set(new Uint8Array(sharedBits), new TextEncoder().encode('primordia-secret-encryption-v1').length);
+  const rawKey = await crypto.subtle.digest('SHA-256', digestInput);
+  cachedSecretPublicKey = material.publicKey;
+  return crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
 
 async function loadAesKey(): Promise<CryptoKey | null> {
   if (cachedAesKey) return cachedAesKey;
@@ -50,12 +72,17 @@ async function loadAesKey(): Promise<CryptoKey | null> {
     clearLegacyAesKey();
     const jwkStr = localStorage.getItem(AES_KEY_STORAGE);
     if (!jwkStr) return null;
-    const jwk = JSON.parse(jwkStr) as JsonWebKey;
+    const parsed = JSON.parse(jwkStr) as unknown;
+    if (isUserSecretMaterial(parsed)) {
+      cachedAesKey = await deriveAesKey(parsed);
+      return cachedAesKey;
+    }
+    // Backward compatibility: older browsers stored an AES-GCM JWK directly.
     cachedAesKey = await crypto.subtle.importKey(
       'jwk',
-      jwk,
+      parsed as JsonWebKey,
       { name: 'AES-GCM' },
-      false, // not extractable after import — prevents JS exfiltration
+      false,
       ['encrypt', 'decrypt'],
     );
     return cachedAesKey;
@@ -66,17 +93,29 @@ async function loadAesKey(): Promise<CryptoKey | null> {
 
 async function getOrCreateAesKey(): Promise<CryptoKey> {
   const existing = await loadAesKey();
-  if (existing) return existing;
-  const key = await crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    true, // extractable so we can export to localStorage
-    ['encrypt', 'decrypt'],
-  );
-  const jwk = await crypto.subtle.exportKey('jwk', key);
-  localStorage.setItem(AES_KEY_STORAGE, JSON.stringify(jwk));
+  if (existing && cachedSecretPublicKey) return existing;
+  const pair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const privateKey = await crypto.subtle.exportKey('jwk', pair.privateKey);
+  const publicKey = await crypto.subtle.exportKey('jwk', pair.publicKey);
+  const material = { version: SECRET_KEY_VERSION, privateKey, publicKey };
+  localStorage.setItem(AES_KEY_STORAGE, JSON.stringify(material));
   clearLegacyAesKey();
-  cachedAesKey = key;
-  return key;
+  cachedAesKey = await deriveAesKey(material);
+  return cachedAesKey;
+}
+
+export async function getSecretPublicKeyForServer(): Promise<JsonWebKey | null> {
+  if (typeof window === 'undefined') return null;
+  try {
+    await getOrCreateAesKey();
+    if (cachedSecretPublicKey) return cachedSecretPublicKey;
+    const raw = localStorage.getItem(AES_KEY_STORAGE);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    return isUserSecretMaterial(parsed) ? parsed.publicKey : null;
+  } catch {
+    return null;
+  }
 }
 
 // ── RSA-OAEP public key ─────────────────────────────────────────────────────
@@ -138,8 +177,7 @@ export async function setSecret(source: SecretAuthSource, value: string): Promis
  * Falls back to setSecret() if no AES key exists yet.
  */
 export async function updateSecret(source: SecretAuthSource, value: string): Promise<void> {
-  const aesKey = await loadAesKey();
-  if (!aesKey) return setSecret(source, value);
+  const aesKey = await getOrCreateAesKey();
 
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await crypto.subtle.encrypt(

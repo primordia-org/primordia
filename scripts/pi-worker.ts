@@ -34,6 +34,7 @@ import {
 } from '@/lib/session-events';
 import { ensurePrimordiaPiModelsJson } from '@/lib/pi-custom-models';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
+import { resolveWorkerSecrets } from '@/lib/evolve-worker-secrets';
 
 // ---------------------------------------------------------------------------
 // LLM backend configuration
@@ -59,12 +60,10 @@ function normalizeModelSelection(modelId: string | undefined): { provider: 'anth
 
 // Capture and immediately clear the injected user API key so it does not
 // persist in process.env (and cannot leak to child processes).
-const _userApiKey = process.env.PRIMORDIA_USER_API_KEY;
+let _userApiKey = process.env.PRIMORDIA_USER_API_KEY;
 delete process.env.PRIMORDIA_USER_API_KEY;
-const _chatGptOAuth = process.env.PRIMORDIA_CHATGPT_OAUTH;
+let _chatGptOAuth = process.env.PRIMORDIA_CHATGPT_OAUTH;
 delete process.env.PRIMORDIA_CHATGPT_OAUTH;
-const _requiredAuthSource = process.env.PRIMORDIA_REQUIRED_AUTH_SOURCE;
-delete process.env.PRIMORDIA_REQUIRED_AUTH_SOURCE;
 
 const CHATGPT_RELOGIN_ERROR = 'ChatGPT session expired. Reconnect ChatGPT in Settings → Billing sources, then retry this evolve session.';
 
@@ -78,6 +77,8 @@ interface WorkerConfig {
   model?: string;
   /** When true, continue the most recent pi session in the worktree directory. */
   useContinue?: boolean;
+  authSource?: string | null;
+  encryptedSecretPayload?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +201,11 @@ async function main(): Promise<void> {
 
   const { sessionId, worktreePath, prompt, useContinue } = config;
   const timeoutMs = config.timeoutMs ?? 20 * 60 * 1000;
+  const { apiKey, chatGptOAuth } = await resolveWorkerSecrets(config);
+  _userApiKey = _userApiKey ?? apiKey;
+  _chatGptOAuth = _chatGptOAuth ?? chatGptOAuth;
+  delete process.env.PRIMORDIA_DECRYPTION_KEY;
+
   const { provider: modelProvider, modelId } = normalizeModelSelection(config.model);
   const hideDollarCost = modelProvider === 'openai-codex' && Boolean(_chatGptOAuth);
   const metricCost = (cost: number | null): number | null => hideDollarCost ? null : cost;
@@ -281,16 +287,16 @@ async function main(): Promise<void> {
   }, timeoutMs);
 
   try {
-    if (_requiredAuthSource === 'chatgpt-subscription' && !_chatGptOAuth) {
+    if (config.authSource === 'chatgpt-subscription' && !_chatGptOAuth) {
       throw new Error('ChatGPT subscription was selected, but ChatGPT credentials were not provided. Refusing to fall back to the exe.dev LLM gateway.');
     }
-    if (_requiredAuthSource === 'chatgpt-subscription' && modelProvider !== 'openai-codex') {
+    if (config.authSource === 'chatgpt-subscription' && modelProvider !== 'openai-codex') {
       throw new Error('ChatGPT subscription was selected, but the Pi model is not an openai-codex model. Refusing to fall back to the exe.dev LLM gateway.');
     }
-    if (_requiredAuthSource === 'gemini-api-key' && !_userApiKey) {
+    if (config.authSource === 'gemini-api-key' && !_userApiKey) {
       throw new Error('Google Gemini API key was selected, but no API key was provided. Refusing to fall back to the exe.dev LLM gateway.');
     }
-    if (_requiredAuthSource === 'gemini-api-key' && modelProvider !== 'google') {
+    if (config.authSource === 'gemini-api-key' && modelProvider !== 'google') {
       throw new Error('Google Gemini API key was selected, but the Pi model is not a Gemini model. Refusing to fall back to the exe.dev LLM gateway.');
     }
 
@@ -354,7 +360,7 @@ async function main(): Promise<void> {
     // routing because billing-provider errors should surface directly.
     // extensionFactories are always applied even when noExtensions is true
     // (which only disables file-based extension discovery).
-    const extensionFactories: ExtensionFactory[] = _userApiKey || _requiredAuthSource === 'chatgpt-subscription'
+    const extensionFactories: ExtensionFactory[] = _userApiKey || config.authSource === 'chatgpt-subscription'
       ? [] // direct provider API or ChatGPT OAuth — no gateway fallback/baseUrl needed
       : [
           (pi: Parameters<ExtensionFactory>[0]) => {

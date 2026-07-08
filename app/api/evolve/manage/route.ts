@@ -30,7 +30,7 @@ import {
   type LocalSession,
 } from '@/lib/evolve-sessions';
 import { getSessionUser } from '@/lib/auth';
-import { decryptApiKey, decryptHybridCredentials } from '@/lib/llm-encryption';
+import { resolveStoredSecretForWorker } from '@/lib/evolve-secret-resolution';
 import { normalizeAuthSource, type PresetAuthSource } from '@/lib/presets';
 import {
   appendSessionEvent,
@@ -243,9 +243,8 @@ async function runAcceptAsync(
   parentBranch: string,
   repoRoot: string,
   userId: string,
-  credentials?: string,
-  apiKey?: string,
-  chatGptOAuth?: string,
+  encryptedSecretPayload?: string,
+  decryptionKey?: string,
   authSource?: PresetAuthSource | null,
 ): Promise<void> {
   const step = (text: string) => appendLogLine(sessionId, text);
@@ -318,9 +317,8 @@ async function runAcceptAsync(
           request: sessionSnap.request,
           createdAt: sessionSnap.createdAt,
           userId,
-          credentials,
-          apiKey,
-          chatGptOAuth,
+          encryptedSecretPayload,
+          decryptionKey,
           authSource,
         };
         console.log(`[runAcceptAsync] typecheck failed for session ${sessionId}, starting auto-fix`);
@@ -426,12 +424,8 @@ async function runAcceptAsync(
 export interface EvolveManageBody {
   action: 'accept' | 'reject'; // Whether to accept (deploy) or reject (discard) the session.
   sessionId: string; // The session ID (git branch name) to accept or reject.
-  /** Optional hybrid-encrypted Claude Code credentials.json (JSON: { wrappedKey, iv, ciphertext }). Passed to type-fix and auto-commit agent sessions. */
-  encryptedCredentials?: string;
-  /** Optional hybrid-encrypted API key (JSON: { wrappedKey, iv, ciphertext }). Used if encryptedCredentials is absent. */
-  encryptedApiKey?: string;
-  /** Optional hybrid-encrypted ChatGPT subscription OAuth credentials for Pi openai-codex models. */
-  encryptedChatGptOAuth?: string;
+  /** Browser ECDH public key used by the server to derive PRIMORDIA_DECRYPTION_KEY. */
+  secretPublicKey?: string;
 }
 
 /**
@@ -446,7 +440,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
 
-  const body = (await request.json()) as { action?: string; sessionId?: string; authSource?: string; encryptedCredentials?: string; encryptedApiKey?: string; encryptedChatGptOAuth?: string };
+  const body = (await request.json()) as { action?: string; sessionId?: string; authSource?: string; secretPublicKey?: string };
   if (body.action !== 'accept' && body.action !== 'reject') {
     return Response.json({ error: 'action must be "accept" or "reject"' }, { status: 400 });
   }
@@ -455,56 +449,21 @@ export async function POST(request: Request) {
   }
 
   const authSource: PresetAuthSource | null = body.authSource ? normalizeAuthSource(body.authSource) : null;
-  let encryptedCredentials = body.encryptedCredentials ?? null;
-  let encryptedApiKey = body.encryptedApiKey ?? null;
-  let encryptedChatGptOAuth = body.encryptedChatGptOAuth ?? null;
-  if (authSource === 'exe-dev-gateway') {
-    encryptedApiKey = null;
-    encryptedCredentials = null;
-    encryptedChatGptOAuth = null;
-  } else if (authSource === 'claude-subscription') {
-    encryptedApiKey = null;
-    encryptedChatGptOAuth = null;
-  } else if (authSource === 'chatgpt-subscription') {
-    encryptedApiKey = null;
-    encryptedCredentials = null;
-  } else if (authSource === 'openrouter-api-key' || authSource === 'openai-api-key' || authSource === 'anthropic-api-key') {
-    encryptedCredentials = null;
-    encryptedChatGptOAuth = null;
+  let encryptedSecretPayload: string | undefined;
+  let decryptionKey: string | undefined;
+  try {
+    const resolvedSecret = await resolveStoredSecretForWorker(user.id, authSource, body.secretPublicKey);
+    encryptedSecretPayload = resolvedSecret.encryptedSecretPayload;
+    decryptionKey = resolvedSecret.decryptionKey;
+  } catch {
+    return Response.json({ error: 'Could not derive the decryption key for your selected billing source. Please reconnect it in Settings → Billing sources, then try again.' }, { status: 400 });
   }
 
-  if (authSource === 'chatgpt-subscription' && !encryptedChatGptOAuth) {
+  if (authSource && authSource !== 'exe-dev-gateway' && (!encryptedSecretPayload || !decryptionKey)) {
     return Response.json(
-      { error: 'ChatGPT subscription preset selected, but no ChatGPT credentials were sent. Reconnect ChatGPT in Settings → Billing sources, then try again.' },
+      { error: 'Selected billing source has no decryptable stored secret on this device. Reconnect it in Settings → Billing sources, then try again.' },
       { status: 400 },
     );
-  }
-
-  // Decrypt credentials/API key up front so they can be forwarded to any
-  // agent sessions spawned during accept (type-fix, auto-commit).
-  let decryptedCredentials: string | undefined;
-  let decryptedApiKey: string | undefined;
-  let decryptedChatGptOAuth: string | undefined;
-  if (encryptedCredentials) {
-    try {
-      const payload = JSON.parse(encryptedCredentials) as { wrappedKey: string; iv: string; ciphertext: string };
-      decryptedCredentials = await decryptHybridCredentials(payload);
-    } catch {
-      return Response.json({ error: 'Could not decrypt credentials. Please try submitting again.' }, { status: 400 });
-    }
-  } else if (encryptedChatGptOAuth) {
-    try {
-      const payload = JSON.parse(encryptedChatGptOAuth) as { wrappedKey: string; iv: string; ciphertext: string };
-      decryptedChatGptOAuth = await decryptHybridCredentials(payload);
-    } catch {
-      return Response.json({ error: 'Could not decrypt ChatGPT credentials. Please try submitting again.' }, { status: 400 });
-    }
-  } else if (encryptedApiKey) {
-    try {
-      decryptedApiKey = await decryptApiKey(encryptedApiKey);
-    } catch {
-      return Response.json({ error: 'Could not decrypt API key. Please try submitting again.' }, { status: 400 });
-    }
   }
 
   const repoRoot = process.cwd();
@@ -556,9 +515,8 @@ export async function POST(request: Request) {
         const sessionContext = {
           id: body.sessionId,
           userId: user.id,
-          credentials: decryptedCredentials,
-          apiKey: decryptedApiKey,
-          chatGptOAuth: decryptedChatGptOAuth,
+          encryptedSecretPayload,
+          decryptionKey,
           authSource,
         };
         const mergeResult = await runGit(
@@ -600,9 +558,8 @@ export async function POST(request: Request) {
           request: session.request,
           createdAt: session.createdAt,
           userId: user.id,
-          credentials: decryptedCredentials,
-          apiKey: decryptedApiKey,
-          chatGptOAuth: decryptedChatGptOAuth,
+          encryptedSecretPayload,
+          decryptionKey,
           authSource,
         };
         // runFollowupInWorktree will emit the 'auto_commit' section_start itself.
@@ -642,7 +599,7 @@ export async function POST(request: Request) {
           appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'deploy', label: isProduction ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``, ts: Date.now() });
         }
       }
-      void runAcceptAsync(body.sessionId, worktreePath, branch, parentBranch, repoRoot, user.id, decryptedCredentials, decryptedApiKey, decryptedChatGptOAuth, authSource);
+      void runAcceptAsync(body.sessionId, worktreePath, branch, parentBranch, repoRoot, user.id, encryptedSecretPayload, decryptionKey, authSource);
       return Response.json({ outcome: 'accepting' });
     }
 

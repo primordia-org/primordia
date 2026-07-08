@@ -79,6 +79,10 @@ export interface LocalSession {
    * harness for `openai-codex:*` models via Pi's openai-codex OAuth provider.
    */
   chatGptOAuth?: string;
+  /** Encrypted selected secret payload from SQLite. Decrypted only by the worker. */
+  encryptedSecretPayload?: string;
+  /** Raw derived AES key passed to workers as PRIMORDIA_DECRYPTION_KEY. */
+  decryptionKey?: string;
   /** Preset-selected billing/auth source. Used to prevent silent gateway fallback. */
   authSource?: string | null;
   /**
@@ -191,6 +195,10 @@ interface WorkerConfig {
   credentials?: string;
   /** Decrypted ChatGPT subscription OAuth credentials for Pi/Codex ChatGPT subscription models. */
   chatGptOAuth?: string;
+  /** Encrypted selected secret payload from SQLite. Safe to write to the worker config. */
+  encryptedSecretPayload?: string;
+  /** Raw derived AES key. NOT written to the JSON config file on disk. */
+  decryptionKey?: string;
   /** Preset-selected billing/auth source. Used to prevent silent gateway fallback. */
   authSource?: string | null;
   /**
@@ -322,7 +330,7 @@ async function spawnAgentWorker(
   // Strip sensitive fields (API key, credentials) from the JSON config file so
   // they are never written to disk in plaintext. Pass them instead as process
   // environment variables. The worker reads and immediately deletes each var.
-  const { apiKey: workerApiKey, credentials: workerCredentials, chatGptOAuth: workerChatGptOAuth, ...configWithoutSensitive } = config;
+  const { apiKey: workerApiKey, credentials: workerCredentials, chatGptOAuth: workerChatGptOAuth, decryptionKey: workerDecryptionKey, ...configWithoutSensitive } = config;
   const configFile = `/tmp/primordia-worker-${config.sessionId}.json`;
   fs.writeFileSync(configFile, JSON.stringify(configWithoutSensitive), 'utf8');
 
@@ -338,8 +346,8 @@ async function spawnAgentWorker(
   if (workerChatGptOAuth) {
     workerEnv['PRIMORDIA_CHATGPT_OAUTH'] = workerChatGptOAuth;
   }
-  if (config.authSource) {
-    workerEnv['PRIMORDIA_REQUIRED_AUTH_SOURCE'] = config.authSource;
+  if (workerDecryptionKey) {
+    workerEnv['PRIMORDIA_DECRYPTION_KEY'] = workerDecryptionKey;
   }
   const homeDir = process.env.HOME ?? '/home/exedev';
   workerEnv['CLAUDE_CONFIG_DIR'] = path.join(homeDir, '.claude-users', config.userId);
@@ -995,6 +1003,8 @@ export async function startLocalEvolve(
         apiKey: resolvedApiKey,
         credentials: resolvedCredentials,
         chatGptOAuth: resolvedChatGptOAuth,
+        encryptedSecretPayload: session.encryptedSecretPayload,
+        decryptionKey: session.decryptionKey,
         authSource: session.authSource,
         userId: session.userId,
       },
@@ -1163,6 +1173,8 @@ export async function runFollowupInWorktree(
           const r = resolveAgentAuth(session.credentials, session.apiKey, fuHarnessId, session.chatGptOAuth, fuModelId, session.authSource);
           return { apiKey: r.resolvedApiKey, credentials: r.resolvedCredentials, chatGptOAuth: r.resolvedChatGptOAuth };
         })(),
+        encryptedSecretPayload: session.encryptedSecretPayload,
+        decryptionKey: session.decryptionKey,
         authSource: session.authSource,
         userId: session.userId,
       },
@@ -1219,7 +1231,7 @@ export async function resolveConflictsWithAgent(
   mergeRoot: string,
   branch: string,
   parentBranch: string,
-  sessionContext: { id: string; harness?: string; model?: string; apiKey?: string; credentials?: string; chatGptOAuth?: string; authSource?: string | null; userId: string },
+  sessionContext: { id: string; harness?: string; model?: string; apiKey?: string; credentials?: string; chatGptOAuth?: string; encryptedSecretPayload?: string; decryptionKey?: string; authSource?: string | null; userId: string },
   repoRoot?: string,
 ): Promise<{ success: boolean; log: string }> {
   const root = repoRoot ?? process.cwd();
@@ -1270,6 +1282,8 @@ export async function resolveConflictsWithAgent(
           const r = resolveAgentAuth(sessionContext.credentials, sessionContext.apiKey, harnessId, sessionContext.chatGptOAuth, sessionContext.model, sessionContext.authSource);
           return { apiKey: r.resolvedApiKey, credentials: r.resolvedCredentials, chatGptOAuth: r.resolvedChatGptOAuth };
         })(),
+        encryptedSecretPayload: sessionContext.encryptedSecretPayload,
+        decryptionKey: sessionContext.decryptionKey,
         authSource: sessionContext.authSource,
         userId: sessionContext.userId,
       },
