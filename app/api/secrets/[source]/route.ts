@@ -49,7 +49,8 @@ export interface StoreSecretBody {
   iv: string; // Base64-encoded AES-GCM initialisation vector.
   ciphertext: string; // Base64-encoded AES-GCM ciphertext.
   keyVersion?: string;
-  versions?: Record<string, { iv: string; ciphertext: string; keyVersion?: string }>;
+  serverPublicKey?: JsonWebKey;
+  versions?: Record<string, { iv: string; ciphertext: string; keyVersion?: string; serverPublicKey?: JsonWebKey }>;
 }
 
 /**
@@ -84,10 +85,10 @@ export async function POST(
     return Response.json({ error: 'iv and ciphertext strings required' }, { status: 400 });
   }
 
-  const { iv, ciphertext, keyVersion, versions } = body as StoreSecretBody;
+  const { iv, ciphertext, keyVersion, serverPublicKey, versions } = body as StoreSecretBody;
 
   const db = await getDb();
-  await db.setEncryptedCredential(user.id, source, JSON.stringify({ iv, ciphertext, ...(keyVersion ? { keyVersion } : {}), ...(versions ? { versions } : {}) }));
+  await db.setEncryptedCredential(user.id, source, JSON.stringify({ iv, ciphertext, ...(keyVersion ? { keyVersion } : {}), ...(serverPublicKey ? { serverPublicKey } : {}), ...(versions ? { versions } : {}) }));
 
   return Response.json({ ok: true });
 }

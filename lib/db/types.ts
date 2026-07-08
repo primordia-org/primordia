@@ -216,6 +216,8 @@ export interface DbAdapter {
 
   // Encrypted credentials (server stores ciphertext only; browser owns AES key)
   getEncryptedCredential(userId: string, authSource: string): Promise<string | null>;
+  getEncryptedCredentialServerKey(userId: string, authSource: string): Promise<{ publicJwk: string; privateJwk: string } | null>;
+  setEncryptedCredentialServerKey(userId: string, authSource: string, publicJwk: string, privateJwk: string): Promise<void>;
   setEncryptedCredential(userId: string, authSource: string, value: string): Promise<void>;
   deleteEncryptedCredential(userId: string, authSource: string): Promise<void>;
   listEncryptedCredentialSources(userId: string): Promise<string[]>;

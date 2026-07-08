@@ -1,7 +1,7 @@
 // Shared helpers for deriving the per-user secret decryption key.
 
 export const USER_SECRET_STORAGE = 'primordia_aes_key';
-export const SECRET_KEY_VERSION = 'ecdh-p256-v1';
+export const SECRET_KEY_VERSION = 'ecdh-p256-row-v1';
 
 export type UserSecretMaterial = {
   version: typeof SECRET_KEY_VERSION;
@@ -13,14 +13,16 @@ export type StoredSecretPayload = {
   iv: string;
   ciphertext: string;
   keyVersion?: string;
+  serverPublicKey?: JsonWebKey;
   versions?: Partial<Record<typeof SECRET_KEY_VERSION, {
     iv: string;
     ciphertext: string;
     keyVersion: typeof SECRET_KEY_VERSION;
+    serverPublicKey?: JsonWebKey;
   }>>;
 };
 
-export function selectCurrentSecretPayload(payload: StoredSecretPayload): { iv: string; ciphertext: string } | null {
+export function selectCurrentSecretPayload(payload: StoredSecretPayload): { iv: string; ciphertext: string; serverPublicKey?: JsonWebKey } | null {
   const current = payload.versions?.[SECRET_KEY_VERSION];
   if (current?.iv && current.ciphertext) return current;
   if (payload.keyVersion === SECRET_KEY_VERSION && payload.iv && payload.ciphertext) return payload;

@@ -1,57 +1,60 @@
 // Server-side half of Primordia secret key derivation.
 //
-// The browser keeps a per-user ECDH private key in localStorage. The server keeps
-// one instance ECDH private key on disk (or PRIMORDIA_SERVER_SECRET). Both sides
-// derive the same AES-256-GCM key via ECDH + SHA-256. The derived raw key is the
-// PRIMORDIA_DECRYPTION_KEY passed to detached workers.
+// The browser keeps a per-user ECDH private key in localStorage. Each stored
+// credential row keeps its own server ECDH keypair in SQLite. The server derives
+// PRIMORDIA_DECRYPTION_KEY for that single row from the row's private key and
+// the browser/CLI public key.
 
-import fs from 'fs';
-import path from 'path';
 import { createHash, createPrivateKey, createPublicKey, diffieHellman, webcrypto, type JsonWebKey as NodeJsonWebKey } from 'crypto';
+import { getDb } from '@/lib/db';
 import { base64ToBytes, bytesToBase64, SECRET_KEY_VERSION, selectCurrentSecretPayload, type StoredSecretPayload } from '@/lib/secret-derivation-shared';
 
-const SECRET_FILE = '.primordia-server-ecdh-secret.json';
 const subtle = webcrypto.subtle;
 
-function secretFilePath(): string {
-  const root = process.env.PRIMORDIA_DIR || process.cwd();
-  return path.join(root, SECRET_FILE);
-}
-
-async function generateServerSecret(): Promise<JsonWebKey> {
+export async function generateServerKeyPair(): Promise<{ publicJwk: JsonWebKey; privateJwk: JsonWebKey }> {
   const pair = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
-  return await subtle.exportKey('jwk', pair.privateKey);
+  return {
+    publicJwk: await subtle.exportKey('jwk', pair.publicKey),
+    privateJwk: await subtle.exportKey('jwk', pair.privateKey),
+  };
 }
 
-let cachedPrivateJwk: JsonWebKey | null = null;
+export async function getOrCreateCredentialServerPublicJwk(userId: string, authSource: string): Promise<JsonWebKey> {
+  const db = await getDb();
+  const existing = await db.getEncryptedCredentialServerKey(userId, authSource);
+  if (existing) return JSON.parse(existing.publicJwk) as JsonWebKey;
 
-export async function getServerPrivateJwk(): Promise<JsonWebKey> {
-  if (cachedPrivateJwk) return cachedPrivateJwk;
-
-  const fromEnv = process.env.PRIMORDIA_SERVER_SECRET;
-  if (fromEnv) {
-    cachedPrivateJwk = JSON.parse(Buffer.from(fromEnv, 'base64url').toString('utf8')) as JsonWebKey;
-    return cachedPrivateJwk;
-  }
-
-  const file = secretFilePath();
-  try {
-    cachedPrivateJwk = JSON.parse(fs.readFileSync(file, 'utf8')) as JsonWebKey;
-    return cachedPrivateJwk;
-  } catch {}
-
-  cachedPrivateJwk = await generateServerSecret();
-  fs.writeFileSync(file, JSON.stringify(cachedPrivateJwk), { mode: 0o600 });
-  return cachedPrivateJwk;
+  const generated = await generateServerKeyPair();
+  await db.setEncryptedCredentialServerKey(
+    userId,
+    authSource,
+    JSON.stringify(generated.publicJwk),
+    JSON.stringify(generated.privateJwk),
+  );
+  return generated.publicJwk;
 }
 
-export async function getServerPublicJwk(): Promise<JsonWebKey> {
-  const privateKey = createPrivateKey({ key: await getServerPrivateJwk() as NodeJsonWebKey, format: 'jwk' });
-  return createPublicKey(privateKey).export({ format: 'jwk' }) as JsonWebKey;
+export async function rotateCredentialServerKeyPair(userId: string, authSource: string): Promise<JsonWebKey> {
+  const db = await getDb();
+  const generated = await generateServerKeyPair();
+  await db.setEncryptedCredentialServerKey(
+    userId,
+    authSource,
+    JSON.stringify(generated.publicJwk),
+    JSON.stringify(generated.privateJwk),
+  );
+  return generated.publicJwk;
 }
 
-export async function deriveDecryptionKey(secretPublicKey: JsonWebKey): Promise<string> {
-  const privateKey = createPrivateKey({ key: await getServerPrivateJwk() as NodeJsonWebKey, format: 'jwk' });
+export async function deriveDecryptionKeyForCredential(
+  userId: string,
+  authSource: string,
+  secretPublicKey: JsonWebKey,
+): Promise<string | undefined> {
+  const db = await getDb();
+  const serverKey = await db.getEncryptedCredentialServerKey(userId, authSource);
+  if (!serverKey) return undefined;
+  const privateKey = createPrivateKey({ key: JSON.parse(serverKey.privateJwk) as NodeJsonWebKey, format: 'jwk' });
   const publicKey = createPublicKey({ key: secretPublicKey as NodeJsonWebKey, format: 'jwk' });
   const shared = diffieHellman({ privateKey, publicKey });
   return createHash('sha256').update('primordia-secret-encryption-v1').update(shared).digest('base64url');

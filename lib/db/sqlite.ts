@@ -80,7 +80,9 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     CREATE TABLE IF NOT EXISTS encrypted_credentials (
       user_id TEXT NOT NULL REFERENCES users(id),
       auth_source TEXT NOT NULL,
-      value TEXT NOT NULL,
+      value TEXT NOT NULL DEFAULT '',
+      server_public_jwk TEXT,
+      server_private_jwk TEXT,
       updated_at INTEGER NOT NULL,
       PRIMARY KEY (user_id, auth_source)
     );
@@ -151,6 +153,12 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
   } catch {
     // Column already exists — ignore
   }
+
+  // Migration: per-credential ECDH server keys. Existing encrypted values are
+  // kept untouched; each row gets its own server keypair the next time that
+  // source is saved or used for evolve auth.
+  try { db.exec("ALTER TABLE encrypted_credentials ADD COLUMN server_public_jwk TEXT"); } catch {}
+  try { db.exec("ALTER TABLE encrypted_credentials ADD COLUMN server_private_jwk TEXT"); } catch {}
 
   // Migration: clear subscriptions created by the experimental no-payload/custom-crypto push sender.
   const webPushClearKey = "web_push_cleared_experimental_subscriptions_v1";
@@ -523,7 +531,24 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       const row = db
         .prepare("SELECT value FROM encrypted_credentials WHERE user_id = ? AND auth_source = ?")
         .get(userId, authSource) as { value: string } | null;
-      return row?.value ?? null;
+      return row?.value && row.value.length > 0 ? row.value : null;
+    },
+    async getEncryptedCredentialServerKey(userId: string, authSource: string) {
+      const row = db
+        .prepare("SELECT server_public_jwk, server_private_jwk FROM encrypted_credentials WHERE user_id = ? AND auth_source = ?")
+        .get(userId, authSource) as { server_public_jwk: string | null; server_private_jwk: string | null } | null;
+      if (!row?.server_public_jwk || !row.server_private_jwk) return null;
+      return { publicJwk: row.server_public_jwk, privateJwk: row.server_private_jwk };
+    },
+    async setEncryptedCredentialServerKey(userId: string, authSource: string, publicJwk: string, privateJwk: string) {
+      db.prepare(
+        `INSERT INTO encrypted_credentials (user_id, auth_source, value, server_public_jwk, server_private_jwk, updated_at)
+         VALUES (?, ?, '', ?, ?, ?)
+         ON CONFLICT (user_id, auth_source) DO UPDATE SET
+           server_public_jwk = excluded.server_public_jwk,
+           server_private_jwk = excluded.server_private_jwk,
+           updated_at = excluded.updated_at`
+      ).run(userId, authSource, publicJwk, privateJwk, Date.now());
     },
     async setEncryptedCredential(userId: string, authSource: string, value: string) {
       db.prepare(
@@ -537,7 +562,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     },
     async listEncryptedCredentialSources(userId: string) {
       const rows = db
-        .prepare("SELECT auth_source FROM encrypted_credentials WHERE user_id = ? ORDER BY auth_source ASC")
+        .prepare("SELECT auth_source FROM encrypted_credentials WHERE user_id = ? AND value <> '' ORDER BY auth_source ASC")
         .all(userId) as Array<{ auth_source: string }>;
       return rows.map((r) => r.auth_source);
     },

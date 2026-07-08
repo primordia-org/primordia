@@ -1,5 +1,5 @@
 import { getDb } from '@/lib/db';
-import { decryptStoredSecretPayload, deriveDecryptionKey } from '@/lib/secret-derivation-server';
+import { decryptStoredSecretPayload, deriveDecryptionKeyForCredential } from '@/lib/secret-derivation-server';
 import { isSecretAuthSource, type PresetAuthSource, type SecretAuthSource } from '@/lib/presets';
 
 export type ResolvedEvolveSecret = {
@@ -26,11 +26,11 @@ export function secretSourceForAuthSource(authSource: PresetAuthSource | null | 
   return authSource && isSecretAuthSource(authSource) ? authSource : null;
 }
 
-export async function deriveEvolveDecryptionKey(secretPublicKeyInput: unknown): Promise<string | undefined> {
+export async function deriveEvolveDecryptionKey(userId: string, authSource: SecretAuthSource, secretPublicKeyInput: unknown): Promise<string | undefined> {
   const envDecryptionKey = process.env.PRIMORDIA_DECRYPTION_KEY;
   if (envDecryptionKey) return envDecryptionKey;
   const secretPublicKey = parseSecretPublicKey(secretPublicKeyInput);
-  return secretPublicKey ? deriveDecryptionKey(secretPublicKey) : undefined;
+  return secretPublicKey ? deriveDecryptionKeyForCredential(userId, authSource, secretPublicKey) : undefined;
 }
 
 export async function resolveStoredSecretForWorker(
@@ -44,7 +44,7 @@ export async function resolveStoredSecretForWorker(
   const encryptedSecretPayload = await db.getEncryptedCredential(userId, source);
   if (!encryptedSecretPayload) return { hasStoredSecret: false };
 
-  const decryptionKey = await deriveEvolveDecryptionKey(secretPublicKeyInput);
+  const decryptionKey = await deriveEvolveDecryptionKey(userId, source, secretPublicKeyInput);
   return { decryptionKey, hasStoredSecret: true };
 }
 
@@ -63,7 +63,7 @@ export async function getPlaintextCredentialsForUser(
 ): Promise<string | undefined> {
   const source = secretSourceForAuthSource(authSource);
   if (!source) return undefined;
-  const decryptionKey = await deriveEvolveDecryptionKey(publicKey);
+  const decryptionKey = await deriveEvolveDecryptionKey(userId, source, publicKey);
   if (!decryptionKey) return undefined;
   const db = await getDb();
   const encryptedSecretPayload = await db.getEncryptedCredential(userId, source);
