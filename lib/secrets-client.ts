@@ -1,8 +1,27 @@
 "use client";
 
-// Unified client-side helpers for storing and encrypting user secrets.
-// A single local user secret in localStorage is expanded with PBKDF2 + auth
-// source into a deterministic X25519 keypair per credential source.
+// Unified client-side helpers for storing and encrypting user secrets
+// (API keys and Claude/ChatGPT subscription credentials).
+//
+// Architecture:
+//   - ONE local user secret is stored in localStorage under `primordia_aes_key`.
+//     Despite the historic name, new values are opaque seed material, not a
+//     reusable AES key.
+//   - For each billing/auth source, the seed is expanded with PBKDF2 using the
+//     auth-source identifier as part of the salt. That produces deterministic,
+//     source-specific WebCrypto key material:
+//       • X25519 keypair for Diffie-Hellman with that credential row's server key
+//       • Ed25519 keypair for signing server-issued nonces
+//   - Each SQLite credential row has its own server X25519 keypair. Stored
+//     ciphertext is encrypted with AES-GCM using SHA-256(X25519 shared secret).
+//   - Evolve requests never decrypt-and-resend plaintext credentials. The
+//     browser sends a signed nonce proof (`CredentialProof`); the server verifies
+//     it, derives `PRIMORDIA_DECRYPTION_KEY`, and workers read/decrypt SQLite.
+//   - WebCrypto X25519/Ed25519 is required. There is intentionally no fallback;
+//     unsupported browsers fail loudly so there is one credential path only.
+//   - Legacy localStorage AES JWKs are treated as seed material and rewritten to
+//     the new versioned seed shape. Old top-level ciphertexts are left in SQLite
+//     for rollback compatibility when newer versioned payloads are added.
 
 import { withBasePath } from './base-path';
 import {
@@ -47,6 +66,9 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+// WebCrypto can generate X25519/Ed25519 keys but does not expose a direct
+// "import raw seed as private key" API. PKCS#8 with the RFC 8410 algorithm OID
+// is the standard import wrapper for a 32-byte private seed.
 const X25519_PKCS8_PREFIX = '302e020100300506032b656e04220420';
 const ED25519_PKCS8_PREFIX = '302e020100300506032b657004220420';
 
@@ -177,11 +199,6 @@ export async function getCredentialProofForServer(source: SecretAuthSource): Pro
   }
 }
 
-export async function getSecretPublicKeyForServer(): Promise<JsonWebKey | null> {
-  const proof = await getCredentialProofForServer('anthropic-api-key');
-  return proof?.secretPublicKey ?? null;
-}
-
 /** No-op: kept for backward compatibility. */
 export function bustPublicKeyCache(): void {}
 
@@ -192,6 +209,10 @@ async function fetchPublicKey(): Promise<CryptoKey> {
   return crypto.subtle.importKey('jwk', data.publicKey, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
 }
 
+/**
+ * Encrypts and stores a secret server-side.
+ * Generates the local seed if this is the first secret set on this device.
+ */
 export async function setSecret(source: SecretAuthSource, value: string): Promise<void> {
   if (typeof window === 'undefined') return;
   const payload = await encryptPayload(source, value);
@@ -203,10 +224,18 @@ export async function setSecret(source: SecretAuthSource, value: string): Promis
   if (!res.ok) throw new Error(`Failed to store ${source} on server: ${res.statusText}`);
 }
 
+/**
+ * Re-encrypts a refreshed secret (for example an OAuth token refresh) using
+ * the same source-specific derived key. The local seed remains stable.
+ */
 export async function updateSecret(source: SecretAuthSource, value: string): Promise<void> {
   return setSecret(source, value);
 }
 
+/**
+ * Removes one encrypted secret from the server. If no secrets remain, also
+ * removes the local seed so a future setup starts cleanly.
+ */
 export async function clearSecret(source: SecretAuthSource): Promise<void> {
   if (typeof window === 'undefined') return;
   try { await fetch(withBasePath(`/api/secrets/${source}`), { method: 'DELETE' }); } catch {}
@@ -229,6 +258,10 @@ export function clearOrphanedSecretsKey(): void {
   } catch {}
 }
 
+/**
+ * Called after cross-device QR sync. The transferred value may be a current
+ * seed object or a legacy AES JWK; normalize it to the current seed format.
+ */
 export async function adoptNewAesKey(newKeyJwkStr: string): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
@@ -255,6 +288,10 @@ async function decryptPayloadWithSource(source: SecretAuthSource, ciphertextPayl
   return new TextDecoder().decode(plaintext);
 }
 
+/**
+ * Decrypts and returns the plaintext value of a stored secret for display or
+ * local refresh flows. Returns null if ciphertext/key material is unavailable.
+ */
 export async function getSecret(source: SecretAuthSource): Promise<string | null> {
   try {
     const res = await fetch(withBasePath(`/api/secrets/${source}`));
