@@ -1,17 +1,17 @@
 // lib/preset-credentials-client.ts
 // Client-side helpers for attaching exactly the credential selected by an evolve preset.
 
-import { getSecretPublicKeyForServer } from './secrets-client';
+import { getCredentialProofForServer } from './secrets-client';
 import type { PresetAuthSource } from './presets';
 
 export type PresetCredentialFields = Partial<{
-  secretPublicKey: string;
+  credentialProof: string;
 }>;
 
 export async function getCredentialFieldsForAuthSource(authSource: PresetAuthSource | null | undefined): Promise<PresetCredentialFields> {
   if (!authSource || authSource === 'exe-dev-gateway') return {};
-  const secretPublicKey = await getSecretPublicKeyForServer();
-  return secretPublicKey ? { secretPublicKey: JSON.stringify(secretPublicKey) } : {};
+  const credentialProof = await getCredentialProofForServer(authSource);
+  return credentialProof ? { credentialProof: JSON.stringify(credentialProof) } : {};
 }
 
 export async function appendCredentialFieldsForAuthSource(formData: FormData, authSource: PresetAuthSource | null | undefined): Promise<void> {

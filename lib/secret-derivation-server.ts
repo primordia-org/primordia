@@ -1,21 +1,60 @@
 // Server-side half of Primordia secret key derivation.
 //
-// The browser keeps a per-user ECDH private key in localStorage. Each stored
-// credential row keeps its own server ECDH keypair in SQLite. The server derives
-// PRIMORDIA_DECRYPTION_KEY for that single row from the row's private key and
-// the browser/CLI public key.
+// The browser deterministically derives one Curve25519/X25519 keypair per
+// auth source from its local user secret. Each stored credential row keeps its
+// own server X25519 keypair in SQLite. The server derives
+// PRIMORDIA_DECRYPTION_KEY for that single row from the row private key and the
+// browser/CLI public key, after verifying a one-time nonce signature.
 
-import { createHash, createPrivateKey, createPublicKey, diffieHellman, webcrypto, type JsonWebKey as NodeJsonWebKey } from 'crypto';
+import { createHash, createHmac, randomBytes, webcrypto } from 'crypto';
 import { getDb } from '@/lib/db';
-import { base64ToBytes, bytesToBase64, SECRET_KEY_VERSION, selectCurrentSecretPayload, type StoredSecretPayload } from '@/lib/secret-derivation-shared';
+import { x25519, x25519PublicKey } from '@/lib/curve25519';
+import { base64ToBytes, base64UrlToBytes, bytesToBase64, bytesToBase64Url, SECRET_KEY_VERSION, selectCurrentSecretPayload, type CredentialProof, type StoredSecretPayload } from '@/lib/secret-derivation-shared';
 
 const subtle = webcrypto.subtle;
+const nonceTtlMs = 5 * 60 * 1000;
+const issuedNonces = new Map<string, number>();
+
+function makeX25519Jwk(publicBytes: Uint8Array, privateBytes?: Uint8Array): JsonWebKey {
+  return {
+    kty: 'OKP',
+    crv: 'X25519',
+    x: bytesToBase64Url(publicBytes),
+    ...(privateBytes ? { d: bytesToBase64Url(privateBytes) } : {}),
+  };
+}
+
+function privateBytesFromJwk(jwk: JsonWebKey): Uint8Array {
+  if (typeof jwk.d !== 'string') throw new Error('X25519 private JWK missing d.');
+  return base64UrlToBytes(jwk.d);
+}
+
+function publicBytesFromJwk(jwk: JsonWebKey): Uint8Array {
+  if (typeof jwk.x !== 'string') throw new Error('X25519 public JWK missing x.');
+  return base64UrlToBytes(jwk.x);
+}
+
+export function issueCredentialNonce(userId: string, authSource: string): string {
+  const nonce = bytesToBase64Url(randomBytes(32));
+  issuedNonces.set(`${userId}:${authSource}:${nonce}`, Date.now() + nonceTtlMs);
+  return nonce;
+}
+
+function consumeCredentialNonce(userId: string, authSource: string, nonce: string): boolean {
+  const key = `${userId}:${authSource}:${nonce}`;
+  const expires = issuedNonces.get(key);
+  issuedNonces.delete(key);
+  if (!expires || expires < Date.now()) return false;
+  for (const [k, exp] of issuedNonces) if (exp < Date.now()) issuedNonces.delete(k);
+  return true;
+}
 
 export async function generateServerKeyPair(): Promise<{ publicJwk: JsonWebKey; privateJwk: JsonWebKey }> {
-  const pair = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const privateBytes = randomBytes(32);
+  const publicBytes = x25519PublicKey(privateBytes);
   return {
-    publicJwk: await subtle.exportKey('jwk', pair.publicKey),
-    privateJwk: await subtle.exportKey('jwk', pair.privateKey),
+    publicJwk: makeX25519Jwk(publicBytes),
+    privateJwk: makeX25519Jwk(publicBytes, privateBytes),
   };
 }
 
@@ -25,24 +64,14 @@ export async function getOrCreateCredentialServerPublicJwk(userId: string, authS
   if (existing) return JSON.parse(existing.publicJwk) as JsonWebKey;
 
   const generated = await generateServerKeyPair();
-  await db.setEncryptedCredentialServerKey(
-    userId,
-    authSource,
-    JSON.stringify(generated.publicJwk),
-    JSON.stringify(generated.privateJwk),
-  );
+  await db.setEncryptedCredentialServerKey(userId, authSource, JSON.stringify(generated.publicJwk), JSON.stringify(generated.privateJwk));
   return generated.publicJwk;
 }
 
 export async function rotateCredentialServerKeyPair(userId: string, authSource: string): Promise<JsonWebKey> {
   const db = await getDb();
   const generated = await generateServerKeyPair();
-  await db.setEncryptedCredentialServerKey(
-    userId,
-    authSource,
-    JSON.stringify(generated.publicJwk),
-    JSON.stringify(generated.privateJwk),
-  );
+  await db.setEncryptedCredentialServerKey(userId, authSource, JSON.stringify(generated.publicJwk), JSON.stringify(generated.privateJwk));
   return generated.publicJwk;
 }
 
@@ -54,10 +83,25 @@ export async function deriveDecryptionKeyForCredential(
   const db = await getDb();
   const serverKey = await db.getEncryptedCredentialServerKey(userId, authSource);
   if (!serverKey) return undefined;
-  const privateKey = createPrivateKey({ key: JSON.parse(serverKey.privateJwk) as NodeJsonWebKey, format: 'jwk' });
-  const publicKey = createPublicKey({ key: secretPublicKey as NodeJsonWebKey, format: 'jwk' });
-  const shared = diffieHellman({ privateKey, publicKey });
+  const serverPrivate = privateBytesFromJwk(JSON.parse(serverKey.privateJwk) as JsonWebKey);
+  const clientPublic = publicBytesFromJwk(secretPublicKey);
+  const shared = x25519(serverPrivate, clientPublic);
   return createHash('sha256').update('primordia-secret-encryption-v1').update(shared).digest('base64url');
+}
+
+export async function verifyCredentialProofAndDeriveKey(
+  userId: string,
+  authSource: string,
+  proof: CredentialProof,
+): Promise<string | undefined> {
+  if (!consumeCredentialNonce(userId, authSource, proof.nonce)) return undefined;
+  const decryptionKey = await deriveDecryptionKeyForCredential(userId, authSource, proof.secretPublicKey);
+  if (!decryptionKey) return undefined;
+  const key = Buffer.from(decryptionKey, 'base64url');
+  const expectedForUser = createHmac('sha256', key).update(`${userId}:${authSource}:${proof.nonce}`).digest('base64url');
+  const expectedForBrowser = createHmac('sha256', key).update(`:${authSource}:${proof.nonce}`).digest('base64url');
+  if (expectedForUser !== proof.signature && expectedForBrowser !== proof.signature) return undefined;
+  return decryptionKey;
 }
 
 export async function decryptStoredSecretPayload(payloadJson: string, decryptionKey: string): Promise<string> {

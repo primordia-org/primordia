@@ -1,24 +1,24 @@
 "use client";
 
-// lib/secrets-client.ts
-// Unified client-side helpers for storing and encrypting user secrets
-// (API keys and Claude Code credentials).
-//
-// Architecture:
-//   - ONE user secret per browser stored in localStorage ('primordia_aes_key').
-//     New installs store a P-256 ECDH keypair there. The browser combines that
-//     private key with the server public key to derive the AES-GCM key used for
-//     all secret sources.
-//   - The server combines its private key with the browser public key to derive
-//     the same raw PRIMORDIA_DECRYPTION_KEY. Evolve requests can therefore pass
-//     only the local public key; the server/worker decrypts the selected DB
-//     ciphertext without round-tripping plaintext through the browser.
-//   - Legacy localStorage AES keys are migrated to the ECDH format in-place.
-//     The migration adds a versioned ECDH payload while keeping the previous
-//     top-level ciphertext so rollbacks can still decrypt old saves.
+// Unified client-side helpers for storing and encrypting user secrets.
+// A single local user secret in localStorage is expanded with PBKDF2 + auth
+// source into a deterministic X25519 keypair per credential source.
 
 import { withBasePath } from './base-path';
-import { isUserSecretMaterial, SECRET_KEY_VERSION, selectCurrentSecretPayload, USER_SECRET_STORAGE, type StoredSecretPayload, type UserSecretMaterial } from './secret-derivation-shared';
+import {
+  base64ToBytes,
+  base64UrlToBytes,
+  bytesToBase64Url,
+  isUserSecretMaterial,
+  SECRET_DERIVATION_PBKDF_ITERATIONS,
+  SECRET_KEY_VERSION,
+  selectCurrentSecretPayload,
+  USER_SECRET_STORAGE,
+  type CredentialProof,
+  type StoredSecretPayload,
+  type UserSecretMaterial,
+} from './secret-derivation-shared';
+import { clampX25519PrivateKey, x25519, x25519PublicKey } from './curve25519';
 import type { SecretAuthSource } from './presets';
 
 export type { SecretAuthSource } from './presets';
@@ -26,383 +26,209 @@ export type { SecretAuthSource } from './presets';
 const AES_KEY_STORAGE = USER_SECRET_STORAGE;
 const LEGACY_CREDENTIALS_AES_KEY_STORAGE = 'primordia_credentials_aes_key';
 
-function clearLegacyAesKey(): void {
-  try {
-    localStorage.removeItem(LEGACY_CREDENTIALS_AES_KEY_STORAGE);
-  } catch {}
-}
-
 export type HybridEncryptedSecret = {
   wrappedKey: string;
   iv: string;
   ciphertext: string;
 };
 
-// Module-level cache for derived AES keys — reset on page load / module re-import.
-let cachedSecretPublicKey: JsonWebKey | null = null;
-const cachedAesKeysByServerPublicKey = new Map<string, CryptoKey>();
+const cachedAesKeysBySourceAndServer = new Map<string, CryptoKey>();
 
-// ── AES-GCM key management ──────────────────────────────────────────────────
+function clearLegacyAesKey(): void {
+  try { localStorage.removeItem(LEGACY_CREDENTIALS_AES_KEY_STORAGE); } catch {}
+}
 
-async function fetchServerEcdhPublicJwk(source: SecretAuthSource): Promise<JsonWebKey> {
+function asBufferSource(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function jwkFromX25519(publicBytes: Uint8Array, privateBytes?: Uint8Array): JsonWebKey {
+  return { kty: 'OKP', crv: 'X25519', x: bytesToBase64Url(publicBytes), ...(privateBytes ? { d: bytesToBase64Url(privateBytes) } : {}) };
+}
+
+function publicBytesFromJwk(jwk: JsonWebKey): Uint8Array {
+  if (typeof jwk.x !== 'string') throw new Error('X25519 public JWK missing x.');
+  return base64UrlToBytes(jwk.x);
+}
+
+function seedFromStoredLocalSecret(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  if (isUserSecretMaterial(value)) return value.seed;
+  const record = value as Record<string, unknown>;
+  if (typeof record.k === 'string') return record.k; // legacy AES-GCM JWK material
+  const privateKey = record.privateKey as Record<string, unknown> | undefined;
+  if (typeof privateKey?.d === 'string') return privateKey.d; // previous migration material
+  return null;
+}
+
+async function getOrCreateUserSecret(): Promise<UserSecretMaterial> {
+  if (typeof window === 'undefined') throw new Error('localStorage unavailable');
+  clearLegacyAesKey();
+  const raw = localStorage.getItem(AES_KEY_STORAGE);
+  if (raw) {
+    const seed = seedFromStoredLocalSecret(JSON.parse(raw) as unknown);
+    if (seed) {
+      const material: UserSecretMaterial = { version: SECRET_KEY_VERSION, seed };
+      localStorage.setItem(AES_KEY_STORAGE, JSON.stringify(material));
+      return material;
+    }
+  }
+  const seed = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const material: UserSecretMaterial = { version: SECRET_KEY_VERSION, seed };
+  localStorage.setItem(AES_KEY_STORAGE, JSON.stringify(material));
+  return material;
+}
+
+async function fetchServerEcdh(source: SecretAuthSource): Promise<{ publicKey: JsonWebKey; nonce?: string }> {
   const res = await fetch(withBasePath(`/api/secrets/${source}/server-public-key`));
-  if (!res.ok) throw new Error(`Failed to fetch credential server ECDH public key: ${res.statusText}`);
-  const data = (await res.json()) as { publicKey: JsonWebKey };
-  return data.publicKey;
+  if (!res.ok) throw new Error(`Failed to fetch credential server key: ${res.statusText}`);
+  return (await res.json()) as { publicKey: JsonWebKey; nonce?: string };
 }
 
-async function importUserSecretPrivateKey(material: { privateKey: JsonWebKey }): Promise<CryptoKey> {
-  return crypto.subtle.importKey('jwk', material.privateKey, { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
+async function deriveSourcePrivateKey(source: SecretAuthSource): Promise<Uint8Array> {
+  const material = await getOrCreateUserSecret();
+  const key = await crypto.subtle.importKey('raw', asBufferSource(base64UrlToBytes(material.seed)), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({
+    name: 'PBKDF2',
+    hash: 'SHA-256',
+    salt: new TextEncoder().encode(`primordia:${SECRET_KEY_VERSION}:${source}`),
+    iterations: SECRET_DERIVATION_PBKDF_ITERATIONS,
+  }, key, 256);
+  return clampX25519PrivateKey(new Uint8Array(bits));
 }
 
-async function deriveAesKey(material: { privateKey: JsonWebKey; publicKey: JsonWebKey }, serverPublicJwk: JsonWebKey): Promise<CryptoKey> {
-  const cacheKey = JSON.stringify(serverPublicJwk);
-  const cached = cachedAesKeysByServerPublicKey.get(cacheKey);
-  if (cached) return cached;
-  const privateKey = await importUserSecretPrivateKey(material);
-  const serverPublicKey = await crypto.subtle.importKey('jwk', serverPublicJwk, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
-  const sharedBits = await crypto.subtle.deriveBits({ name: 'ECDH', public: serverPublicKey }, privateKey, 256);
+async function deriveSourceKeyMaterial(source: SecretAuthSource, serverPublicKey: JsonWebKey): Promise<{ aesKey: CryptoKey; publicKey: JsonWebKey; decryptionKey: string }> {
+  const privateBytes = await deriveSourcePrivateKey(source);
+  const publicBytes = x25519PublicKey(privateBytes);
+  const shared = x25519(privateBytes, publicBytesFromJwk(serverPublicKey));
   const domain = new TextEncoder().encode('primordia-secret-encryption-v1');
-  const digestInput = new Uint8Array(domain.length + sharedBits.byteLength);
+  const digestInput = new Uint8Array(domain.length + shared.length);
   digestInput.set(domain);
-  digestInput.set(new Uint8Array(sharedBits), domain.length);
-  const rawKey = await crypto.subtle.digest('SHA-256', digestInput);
-  cachedSecretPublicKey = material.publicKey;
-  const aesKey = await crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
-  cachedAesKeysByServerPublicKey.set(cacheKey, aesKey);
-  return aesKey;
+  digestInput.set(shared, domain.length);
+  const rawKey = new Uint8Array(await crypto.subtle.digest('SHA-256', digestInput));
+  const decryptionKey = bytesToBase64Url(rawKey);
+  const cacheKey = `${source}:${JSON.stringify(serverPublicKey)}`;
+  let aesKey = cachedAesKeysBySourceAndServer.get(cacheKey);
+  if (!aesKey) {
+    aesKey = await crypto.subtle.importKey('raw', asBufferSource(rawKey), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+    cachedAesKeysBySourceAndServer.set(cacheKey, aesKey);
+  }
+  return { aesKey, publicKey: jwkFromX25519(publicBytes), decryptionKey };
 }
 
-async function encryptPayload(aesKey: CryptoKey, value: string | ArrayBuffer, serverPublicKey: JsonWebKey): Promise<{ iv: string; ciphertext: string; keyVersion: typeof SECRET_KEY_VERSION; serverPublicKey: JsonWebKey }> {
+async function signNonce(decryptionKey: string, source: SecretAuthSource, nonce: string): Promise<string> {
+  const key = await crypto.subtle.importKey('raw', asBufferSource(base64UrlToBytes(decryptionKey)), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`:${source}:${nonce}`));
+  return bytesToBase64Url(new Uint8Array(signature));
+}
+
+async function encryptPayload(source: SecretAuthSource, value: string | ArrayBuffer): Promise<StoredSecretPayload> {
+  const { publicKey: serverPublicKey } = await fetchServerEcdh(source);
+  const { aesKey } = await deriveSourceKeyMaterial(source, serverPublicKey);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plaintext = typeof value === 'string' ? new TextEncoder().encode(value) : value;
   const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, plaintext);
   return {
-    iv: btoa(String.fromCharCode(...iv)),
-    ciphertext: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
+    iv: bytesToBase64(iv),
+    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
     keyVersion: SECRET_KEY_VERSION,
+    authSource: source,
     serverPublicKey,
   };
 }
 
-async function migrateLegacyAesSecret(legacyJwk: JsonWebKey): Promise<CryptoKey> {
-  const legacyKey = await crypto.subtle.importKey('jwk', legacyJwk, { name: 'AES-GCM' }, false, ['decrypt']);
-  const pair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
-  const material: UserSecretMaterial = {
-    version: SECRET_KEY_VERSION,
-    privateKey: await crypto.subtle.exportKey('jwk', pair.privateKey),
-    publicKey: await crypto.subtle.exportKey('jwk', pair.publicKey),
-  };
-
-  let sources: SecretAuthSource[] = [];
+export async function getCredentialProofForServer(source: SecretAuthSource): Promise<CredentialProof | null> {
   try {
-    const listRes = await fetch(withBasePath('/api/secrets'));
-    if (listRes.ok) sources = ((await listRes.json()) as { sources: SecretAuthSource[] }).sources;
-  } catch {}
-
-  for (const source of sources) {
-    try {
-      const res = await fetch(withBasePath(`/api/secrets/${source}`));
-      if (!res.ok) continue;
-      const data = (await res.json()) as { ciphertext: string | null };
-      if (!data.ciphertext) continue;
-      const stored = JSON.parse(data.ciphertext) as StoredSecretPayload;
-      if (selectCurrentSecretPayload(stored)) continue;
-      const serverPublicKey = await fetchServerEcdhPublicJwk(source);
-      const newKey = await deriveAesKey(material, serverPublicKey);
-      const iv = Uint8Array.from(atob(stored.iv), (c) => c.charCodeAt(0));
-      const ct = Uint8Array.from(atob(stored.ciphertext), (c) => c.charCodeAt(0));
-      const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, legacyKey, ct);
-      const migrated = await encryptPayload(newKey, plaintext, serverPublicKey);
-      await fetch(withBasePath(`/api/secrets/${source}`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...stored,
-          versions: { ...(stored.versions ?? {}), [SECRET_KEY_VERSION]: migrated },
-        }),
-      });
-    } catch {
-      // Leave the legacy ciphertext untouched; the user can reconnect this source.
-    }
-  }
-
-  localStorage.setItem(AES_KEY_STORAGE, JSON.stringify(material));
-  clearLegacyAesKey();
-  const firstSource = sources[0];
-  return firstSource
-    ? deriveAesKey(material, await fetchServerEcdhPublicJwk(firstSource))
-    : deriveAesKey(material, await fetchServerEcdhPublicJwk('anthropic-api-key'));
-}
-
-async function loadUserSecretMaterial(): Promise<UserSecretMaterial | JsonWebKey | null> {
-  if (typeof window === 'undefined') return null;
-  try {
-    clearLegacyAesKey();
-    const jwkStr = localStorage.getItem(AES_KEY_STORAGE);
-    if (!jwkStr) return null;
-    const parsed = JSON.parse(jwkStr) as unknown;
-    return parsed as UserSecretMaterial | JsonWebKey;
+    const { publicKey: serverPublicKey, nonce } = await fetchServerEcdh(source);
+    if (!nonce) return null;
+    const { publicKey, decryptionKey } = await deriveSourceKeyMaterial(source, serverPublicKey);
+    return { secretPublicKey: publicKey, nonce, signature: await signNonce(decryptionKey, source, nonce) };
   } catch {
     return null;
   }
-}
-
-async function getOrCreateAesKey(source: SecretAuthSource): Promise<CryptoKey> {
-  const existingMaterial = await loadUserSecretMaterial();
-  const serverPublicKey = await fetchServerEcdhPublicJwk(source);
-  if (existingMaterial && isUserSecretMaterial(existingMaterial)) return deriveAesKey(existingMaterial, serverPublicKey);
-  if (existingMaterial) return migrateLegacyAesSecret(existingMaterial as JsonWebKey);
-  const pair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
-  const privateKey = await crypto.subtle.exportKey('jwk', pair.privateKey);
-  const publicKey = await crypto.subtle.exportKey('jwk', pair.publicKey);
-  const material = { version: SECRET_KEY_VERSION, privateKey, publicKey };
-  localStorage.setItem(AES_KEY_STORAGE, JSON.stringify(material));
-  clearLegacyAesKey();
-  return deriveAesKey(material, serverPublicKey);
 }
 
 export async function getSecretPublicKeyForServer(): Promise<JsonWebKey | null> {
-  if (typeof window === 'undefined') return null;
-  try {
-    const existing = await loadUserSecretMaterial();
-    if (existing && isUserSecretMaterial(existing)) {
-      cachedSecretPublicKey = existing.publicKey;
-      return existing.publicKey;
-    }
-    if (existing) await migrateLegacyAesSecret(existing as JsonWebKey);
-    const migrated = await loadUserSecretMaterial();
-    if (migrated && isUserSecretMaterial(migrated)) return migrated.publicKey;
-
-    const pair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
-    const material: UserSecretMaterial = {
-      version: SECRET_KEY_VERSION,
-      privateKey: await crypto.subtle.exportKey('jwk', pair.privateKey),
-      publicKey: await crypto.subtle.exportKey('jwk', pair.publicKey),
-    };
-    localStorage.setItem(AES_KEY_STORAGE, JSON.stringify(material));
-    cachedSecretPublicKey = material.publicKey;
-    return material.publicKey;
-  } catch {
-    return null;
-  }
+  const proof = await getCredentialProofForServer('anthropic-api-key');
+  return proof?.secretPublicKey ?? null;
 }
 
-// ── RSA-OAEP public key ─────────────────────────────────────────────────────
-
-/** No-op: kept for backward compatibility. The public key is always fetched fresh. */
+/** No-op: kept for backward compatibility. */
 export function bustPublicKeyCache(): void {}
 
 async function fetchPublicKey(): Promise<CryptoKey> {
-  // Fetch on every transmission instead of reusing a module-level RSA key.
-  // Already-open tabs can span a blue/green deploy; a fresh fetch avoids using
-  // a stale transport key if the server key ever rotates.
   const res = await fetch(withBasePath('/api/credential-encryption/public-key'));
   if (!res.ok) throw new Error(`Failed to fetch server public key: ${res.statusText}`);
   const data = (await res.json()) as { publicKey: JsonWebKey };
-  const key = await crypto.subtle.importKey(
-    'jwk',
-    data.publicKey,
-    { name: 'RSA-OAEP', hash: 'SHA-256' },
-    false,
-    ['encrypt'],
-  );
-  return key;
+  return crypto.subtle.importKey('jwk', data.publicKey, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
 }
 
-// ── Public API ──────────────────────────────────────────────────────────────
-
-/**
- * Encrypts and stores a secret server-side.
- * Generates the shared AES key if this is the first secret set on this device.
- */
 export async function setSecret(source: SecretAuthSource, value: string): Promise<void> {
   if (typeof window === 'undefined') return;
-
-  const serverPublicKey = await fetchServerEcdhPublicJwk(source);
-  const aesKey = await getOrCreateAesKey(source);
-  const payload = await encryptPayload(aesKey, value, serverPublicKey);
-
+  const payload = await encryptPayload(source, value);
   const res = await fetch(withBasePath(`/api/secrets/${source}`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) {
-    throw new Error(`Failed to store ${source} on server: ${res.statusText}`);
-  }
+  if (!res.ok) throw new Error(`Failed to store ${source} on server: ${res.statusText}`);
 }
 
-/**
- * Re-encrypts a secret using the EXISTING AES key without changing it.
- * Use for server-side refreshes (e.g. OAuth token rotation) where the key
- * must remain stable so other browser contexts can still decrypt.
- * Falls back to setSecret() if no AES key exists yet.
- */
 export async function updateSecret(source: SecretAuthSource, value: string): Promise<void> {
-  const serverPublicKey = await fetchServerEcdhPublicJwk(source);
-  const aesKey = await getOrCreateAesKey(source);
-  const payload = await encryptPayload(aesKey, value, serverPublicKey);
-
-  const res = await fetch(withBasePath(`/api/secrets/${source}`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error(`Failed to update ${source} on server: ${res.statusText}`);
+  return setSecret(source, value);
 }
 
-/**
- * Removes a secret from the server. If this was the last secret stored for
- * this user, also removes the shared AES key from localStorage.
- */
 export async function clearSecret(source: SecretAuthSource): Promise<void> {
   if (typeof window === 'undefined') return;
-
-  try {
-    await fetch(withBasePath(`/api/secrets/${source}`), { method: 'DELETE' });
-  } catch {
-    // Best-effort — continue to check remaining secrets
-  }
-
-  // If no secrets remain on the server, remove the local AES key.
+  try { await fetch(withBasePath(`/api/secrets/${source}`), { method: 'DELETE' }); } catch {}
   try {
     const res = await fetch(withBasePath('/api/secrets'));
-    if (res.ok) {
-      const data = (await res.json()) as { sources: SecretAuthSource[] };
-      if (data.sources.length === 0) {
-        cachedAesKeysByServerPublicKey.clear();
-        localStorage.removeItem(AES_KEY_STORAGE);
-        clearLegacyAesKey();
-      }
+    if (res.ok && ((await res.json()) as { sources: SecretAuthSource[] }).sources.length === 0) {
+      cachedAesKeysBySourceAndServer.clear();
+      localStorage.removeItem(AES_KEY_STORAGE);
+      clearLegacyAesKey();
     }
-  } catch {
-    // Best-effort
-  }
+  } catch {}
 }
 
-/**
- * Removes the local AES key without touching the server.
- * Use when the server has no ciphertext for this user (e.g. account reset)
- * and the local key is orphaned.
- */
 export function clearOrphanedSecretsKey(): void {
   if (typeof window === 'undefined') return;
   try {
-    cachedAesKeysByServerPublicKey.clear();
+    cachedAesKeysBySourceAndServer.clear();
     localStorage.removeItem(AES_KEY_STORAGE);
     clearLegacyAesKey();
   } catch {}
 }
 
-/**
- * Called after receiving a foreign AES key via cross-device QR sync.
- *
- * Fetches all secrets currently stored on the server for this user and
- * tries to re-encrypt each one under the incoming key. Secrets that were
- * already encrypted with the new key (the sender's own credentials) fail
- * the decrypt step and are skipped — only this device's own secrets
- * (encrypted with its old key) get migrated. Then saves the new key.
- *
- * The result: all secrets in the DB end up under a single AES key that
- * both devices now hold.
- */
 export async function adoptNewAesKey(newKeyJwkStr: string): Promise<void> {
   if (typeof window === 'undefined') return;
-
-  const oldKeyJwkStr = localStorage.getItem(AES_KEY_STORAGE);
-
-  if (!oldKeyJwkStr || oldKeyJwkStr === newKeyJwkStr) {
-    localStorage.setItem(AES_KEY_STORAGE, newKeyJwkStr);
-    clearLegacyAesKey();
-    cachedAesKeysByServerPublicKey.clear();
-    return;
-  }
-
-  let oldKey: CryptoKey;
-  let newKey: CryptoKey;
   try {
-    oldKey = await crypto.subtle.importKey(
-      'jwk',
-      JSON.parse(oldKeyJwkStr) as JsonWebKey,
-      { name: 'AES-GCM' },
-      false,
-      ['decrypt'],
-    );
-    newKey = await crypto.subtle.importKey(
-      'jwk',
-      JSON.parse(newKeyJwkStr) as JsonWebKey,
-      { name: 'AES-GCM' },
-      false,
-      ['encrypt'],
-    );
+    const seed = seedFromStoredLocalSecret(JSON.parse(newKeyJwkStr) as unknown);
+    if (seed) localStorage.setItem(AES_KEY_STORAGE, JSON.stringify({ version: SECRET_KEY_VERSION, seed } satisfies UserSecretMaterial));
+    else localStorage.setItem(AES_KEY_STORAGE, newKeyJwkStr);
+    cachedAesKeysBySourceAndServer.clear();
+    clearLegacyAesKey();
   } catch {
-    // Can't import keys — just adopt the new key without migrating.
     localStorage.setItem(AES_KEY_STORAGE, newKeyJwkStr);
-    clearLegacyAesKey();
-    cachedAesKeysByServerPublicKey.clear();
-    return;
   }
-
-  // Ask the server which sources have ciphertext so we know what to migrate.
-  let sources: SecretAuthSource[] = [];
-  try {
-    const listRes = await fetch(withBasePath('/api/secrets'));
-    if (listRes.ok) {
-      const data = (await listRes.json()) as { sources: SecretAuthSource[] };
-      sources = data.sources;
-    }
-  } catch {}
-
-  for (const source of sources) {
-    try {
-      const res = await fetch(withBasePath(`/api/secrets/${source}`));
-      if (!res.ok) continue;
-      const data = (await res.json()) as { ciphertext: string | null };
-      if (!data.ciphertext) continue;
-
-      const { iv: ivB64, ciphertext: ctB64 } = JSON.parse(data.ciphertext) as {
-        iv: string;
-        ciphertext: string;
-      };
-      const iv = Uint8Array.from(atob(ivB64), (c) => c.charCodeAt(0));
-      const ct = Uint8Array.from(atob(ctB64), (c) => c.charCodeAt(0));
-      const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, oldKey, ct);
-
-      const newIv = crypto.getRandomValues(new Uint8Array(12));
-      const newCt = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: newIv }, newKey, plaintext);
-      const newIvB64 = btoa(String.fromCharCode(...newIv));
-      const newCtB64 = btoa(String.fromCharCode(...new Uint8Array(newCt)));
-
-      await fetch(withBasePath(`/api/secrets/${source}`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ iv: newIvB64, ciphertext: newCtB64 }),
-      });
-    } catch {
-      // Decrypt failed (already uses new key) or network error — skip.
-    }
-  }
-
-  localStorage.setItem(AES_KEY_STORAGE, newKeyJwkStr);
-  clearLegacyAesKey();
-  cachedAesKeysByServerPublicKey.clear();
 }
 
-/**
- * Decrypts and returns the plaintext value of a stored secret.
- * Returns null if no AES key is in localStorage, the type has no ciphertext
- * on the server, or decryption fails for any reason.
- */
-async function decryptPayloadWithUserSecret(ciphertextPayload: string): Promise<string | null> {
-  const material = await loadUserSecretMaterial();
-  if (!material || !isUserSecretMaterial(material)) return null;
-  const payload = selectCurrentSecretPayload(JSON.parse(ciphertextPayload) as StoredSecretPayload);
+async function decryptPayloadWithSource(source: SecretAuthSource, ciphertextPayload: string): Promise<string | null> {
+  const stored = JSON.parse(ciphertextPayload) as StoredSecretPayload;
+  const payload = selectCurrentSecretPayload(stored);
   if (!payload?.serverPublicKey) return null;
-  const aesKey = await deriveAesKey(material, payload.serverPublicKey);
-  const iv = Uint8Array.from(atob(payload.iv), (c) => c.charCodeAt(0));
-  const ct = Uint8Array.from(atob(payload.ciphertext), (c) => c.charCodeAt(0));
-  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, ct);
+  const { aesKey } = await deriveSourceKeyMaterial(source, payload.serverPublicKey);
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: asBufferSource(base64ToBytes(payload.iv)) },
+    aesKey,
+    asBufferSource(base64ToBytes(payload.ciphertext)),
+  );
   return new TextDecoder().decode(plaintext);
 }
 
@@ -411,7 +237,7 @@ export async function getSecret(source: SecretAuthSource): Promise<string | null
     const res = await fetch(withBasePath(`/api/secrets/${source}`));
     if (!res.ok) return null;
     const data = (await res.json()) as { ciphertext: string | null };
-    return data.ciphertext ? decryptPayloadWithUserSecret(data.ciphertext) : null;
+    return data.ciphertext ? decryptPayloadWithSource(source, data.ciphertext) : null;
   } catch {
     return null;
   }
@@ -419,57 +245,28 @@ export async function getSecret(source: SecretAuthSource): Promise<string | null
 
 export async function decryptStoredSecretPayload(ciphertextPayload: string | null | undefined): Promise<string | null> {
   try {
-    return ciphertextPayload ? decryptPayloadWithUserSecret(ciphertextPayload) : null;
+    if (!ciphertextPayload) return null;
+    const source = (JSON.parse(ciphertextPayload) as StoredSecretPayload).authSource;
+    return source ? decryptPayloadWithSource(source, ciphertextPayload) : null;
   } catch {
     return null;
   }
 }
 
-/**
- * Returns a stored secret ready for secure transmission using hybrid
- * encryption:
- *   1. Load the shared AES key from localStorage.
- *   2. Fetch + decrypt the AES-encrypted secret from the server.
- *   3. Generate a fresh ephemeral AES key, encrypt the secret with it.
- *   4. Wrap the ephemeral AES key with the server's RSA-OAEP public key.
- *
- * Returns null if no secret is configured on this device or any step fails.
- * The plaintext exists only as a transient ArrayBuffer in memory.
- *
- * Returned shape: { wrappedKey, iv, ciphertext } — all base64-encoded.
- * The server decrypts wrappedKey with its RSA private key to recover the
- * ephemeral AES key, then uses it to decrypt the ciphertext.
- */
 export async function encryptSecretForTransmission(source: SecretAuthSource): Promise<HybridEncryptedSecret | null> {
   try {
     const plaintextString = await getSecret(source);
     if (!plaintextString) return null;
-    const plaintext = new TextEncoder().encode(plaintextString);
-
-    const ephemeralKey = await crypto.subtle.generateKey(
-      { name: 'AES-GCM', length: 256 },
-      true,
-      ['encrypt'],
-    );
+    const ephemeralKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
     const ephemeralIv = crypto.getRandomValues(new Uint8Array(12));
-    const encryptedPayload = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv: ephemeralIv },
-      ephemeralKey,
-      plaintext,
-    );
-
+    const encryptedPayload = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: ephemeralIv }, ephemeralKey, new TextEncoder().encode(plaintextString));
     const publicKey = await fetchPublicKey();
     const ephemeralKeyRaw = await crypto.subtle.exportKey('raw', ephemeralKey);
-    const wrappedKey = await crypto.subtle.encrypt(
-      { name: 'RSA-OAEP' },
-      publicKey,
-      ephemeralKeyRaw,
-    );
-
+    const wrappedKey = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, publicKey, ephemeralKeyRaw);
     return {
-      wrappedKey: btoa(String.fromCharCode(...new Uint8Array(wrappedKey))),
-      iv: btoa(String.fromCharCode(...ephemeralIv)),
-      ciphertext: btoa(String.fromCharCode(...new Uint8Array(encryptedPayload))),
+      wrappedKey: bytesToBase64(new Uint8Array(wrappedKey)),
+      iv: bytesToBase64(ephemeralIv),
+      ciphertext: bytesToBase64(new Uint8Array(encryptedPayload)),
     };
   } catch (err) {
     console.error(`[secrets-client] Failed to encrypt ${source} for transmission:`, err);

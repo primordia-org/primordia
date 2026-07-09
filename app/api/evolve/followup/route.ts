@@ -23,7 +23,7 @@ export interface EvolveFollowupFormData {
   request: string; // The follow-up change request text for Claude Code.
   harness?: string; // Agent harness override for this follow-up run.
   model?: string; // AI model override for this follow-up run.
-  secretPublicKey?: string; // Browser ECDH public key used by the server to derive PRIMORDIA_DECRYPTION_KEY.
+  credentialProof?: string; // Signed credential proof used by the server to derive PRIMORDIA_DECRYPTION_KEY.
   attachments?: string; // Optional additional file attachments to include in this follow-up run.
 }
 
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
   let model: string | undefined;
   let authSource: PresetAuthSource | null = null;
   let presetId: string | undefined;
-  let secretPublicKey: string | null = null;
+  let credentialProof: string | null = null;
   const savedAttachmentPaths: string[] = [];
 
   const contentType = request.headers.get('content-type') ?? '';
@@ -71,8 +71,8 @@ export async function POST(request: Request) {
     if (typeof presetField === 'string' && presetField) presetId = presetField;
     const authSourceField = formData.get('authSource');
     if (typeof authSourceField === 'string') authSource = normalizeAuthSource(authSourceField);
-    const secretPublicKeyField = formData.get('secretPublicKey');
-    if (typeof secretPublicKeyField === 'string' && secretPublicKeyField) secretPublicKey = secretPublicKeyField;
+    const credentialProofField = formData.get('credentialProof');
+    if (typeof credentialProofField === 'string' && credentialProofField) credentialProof = credentialProofField;
 
     const files = formData.getAll('attachments');
     if (files.length > 0) {
@@ -98,7 +98,7 @@ export async function POST(request: Request) {
       }
     }
   } else {
-    const body = (await request.json()) as { sessionId?: string; request?: string; harness?: string; model?: string; presetId?: string; authSource?: string; secretPublicKey?: string };
+    const body = (await request.json()) as { sessionId?: string; request?: string; harness?: string; model?: string; presetId?: string; authSource?: string; credentialProof?: string };
     if (!body.sessionId || typeof body.sessionId !== 'string') {
       return Response.json({ error: 'sessionId string required' }, { status: 400 });
     }
@@ -111,13 +111,13 @@ export async function POST(request: Request) {
     if (body.model) model = body.model;
     if (body.presetId) presetId = body.presetId;
     if (body.authSource) authSource = normalizeAuthSource(body.authSource);
-    if (body.secretPublicKey) secretPublicKey = body.secretPublicKey;
+    if (body.credentialProof) credentialProof = body.credentialProof;
   }
 
   let decryptionKey: string | undefined;
   let hasStoredSecret = false;
   try {
-    const resolvedSecret = await resolveStoredSecretForWorker(user.id, authSource, secretPublicKey);
+    const resolvedSecret = await resolveStoredSecretForWorker(user.id, authSource, credentialProof);
     decryptionKey = resolvedSecret.decryptionKey;
     hasStoredSecret = resolvedSecret.hasStoredSecret;
   } catch {

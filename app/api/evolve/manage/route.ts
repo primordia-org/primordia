@@ -422,8 +422,8 @@ async function runAcceptAsync(
 export interface EvolveManageBody {
   action: 'accept' | 'reject'; // Whether to accept (deploy) or reject (discard) the session.
   sessionId: string; // The session ID (git branch name) to accept or reject.
-  /** Browser ECDH public key used by the server to derive PRIMORDIA_DECRYPTION_KEY. */
-  secretPublicKey?: string;
+  /** Signed credential proof used by the server to derive PRIMORDIA_DECRYPTION_KEY. */
+  credentialProof?: string;
 }
 
 /**
@@ -438,7 +438,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
 
-  const body = (await request.json()) as { action?: string; sessionId?: string; authSource?: string; secretPublicKey?: string };
+  const body = (await request.json()) as { action?: string; sessionId?: string; authSource?: string; credentialProof?: string };
   if (body.action !== 'accept' && body.action !== 'reject') {
     return Response.json({ error: 'action must be "accept" or "reject"' }, { status: 400 });
   }
@@ -450,7 +450,7 @@ export async function POST(request: Request) {
   let decryptionKey: string | undefined;
   let hasStoredSecret = false;
   try {
-    const resolvedSecret = await resolveStoredSecretForWorker(user.id, authSource, body.secretPublicKey);
+    const resolvedSecret = await resolveStoredSecretForWorker(user.id, authSource, body.credentialProof);
     decryptionKey = resolvedSecret.decryptionKey;
     hasStoredSecret = resolvedSecret.hasStoredSecret;
   } catch {

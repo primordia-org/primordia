@@ -176,7 +176,7 @@ export interface EvolvePostFormData {
   model?: string; // AI model identifier to pass to the agent harness.
   cavemanMode?: string; // Enable caveman communication mode. Pass the string 'true' to enable.
   cavemanIntensity?: string; // Caveman intensity: lite, full, ultra, wenyan-lite, wenyan-full, wenyan-ultra.
-  secretPublicKey?: string; // Browser ECDH public key used by the server to derive PRIMORDIA_DECRYPTION_KEY.
+  credentialProof?: string; // Signed credential proof used by the server to derive PRIMORDIA_DECRYPTION_KEY.
   attachments?: string; // Optional file attachments copied into the worktree's attachments/ directory.
 }
 
@@ -214,7 +214,7 @@ async function handlePost(request: Request) {
   let cavemanIntensity: CavemanIntensity = DEFAULT_CAVEMAN_INTENSITY;
   let presetId: string | null = null;
   let authSource: PresetAuthSource | null = null;
-  let secretPublicKey: string | null = null;
+  let credentialProof: string | null = null;
   const savedAttachmentPaths: string[] = [];
 
   const contentType = request.headers.get('content-type') ?? '';
@@ -239,8 +239,8 @@ async function handlePost(request: Request) {
     if (typeof cavemanIntensityField === 'string' && (CAVEMAN_INTENSITIES as readonly string[]).includes(cavemanIntensityField)) {
       cavemanIntensity = cavemanIntensityField as CavemanIntensity;
     }
-    const secretPublicKeyField = formData.get('secretPublicKey');
-    if (typeof secretPublicKeyField === 'string' && secretPublicKeyField) secretPublicKey = secretPublicKeyField;
+    const credentialProofField = formData.get('credentialProof');
+    if (typeof credentialProofField === 'string' && credentialProofField) credentialProof = credentialProofField;
 
     const files = formData.getAll('attachments');
     if (files.length > 0) {
@@ -267,13 +267,13 @@ async function handlePost(request: Request) {
       }
     }
   } else {
-    const body = (await request.json()) as { request?: string; authSource?: string; secretPublicKey?: string };
+    const body = (await request.json()) as { request?: string; authSource?: string; credentialProof?: string };
     if (!body.request || typeof body.request !== 'string') {
       return Response.json({ error: 'request string required' }, { status: 400 });
     }
     requestText = body.request;
     if (body.authSource) authSource = normalizeAuthSource(body.authSource);
-    if (body.secretPublicKey) secretPublicKey = body.secretPublicKey;
+    if (body.credentialProof) credentialProof = body.credentialProof;
   }
 
   return createEvolveSessionFromText({
@@ -285,7 +285,7 @@ async function handlePost(request: Request) {
     cavemanIntensity,
     presetId,
     authSource,
-    secretPublicKey,
+    credentialProof,
     savedAttachmentPaths,
   });
 }
@@ -299,7 +299,7 @@ export interface CreateEvolveSessionFromTextOptions {
   cavemanIntensity?: CavemanIntensity;
   presetId?: string | null;
   authSource?: PresetAuthSource | null;
-  secretPublicKey?: string | null;
+  credentialProof?: string | null;
   savedAttachmentPaths?: string[];
 }
 
@@ -312,13 +312,13 @@ export async function createEvolveSessionFromText({
   cavemanIntensity = DEFAULT_CAVEMAN_INTENSITY,
   presetId = null,
   authSource = null,
-  secretPublicKey = null,
+  credentialProof = null,
   savedAttachmentPaths = [],
 }: CreateEvolveSessionFromTextOptions): Promise<Response> {
   let decryptionKey: string | undefined;
   let hasStoredSecret = false;
   try {
-    const resolvedSecret = await resolveStoredSecretForWorker(userId, authSource, secretPublicKey);
+    const resolvedSecret = await resolveStoredSecretForWorker(userId, authSource, credentialProof);
     decryptionKey = resolvedSecret.decryptionKey;
     hasStoredSecret = resolvedSecret.hasStoredSecret;
   } catch {

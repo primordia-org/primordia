@@ -2,6 +2,8 @@
 
 This file covers shared utilities in `lib/` and the git config key-value store pattern used throughout the codebase.
 
+Cryptographic key agreement code in `lib/` must use Curve25519/X25519. Do not introduce P-256 ECDH for Primordia secret derivation; if WebAuthn/Web Push/browser platform APIs require P-256 elsewhere, keep that usage isolated and documented as protocol-required.
+
 ---
 
 ## Git Config as Key-Value Store

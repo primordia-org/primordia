@@ -1,5 +1,6 @@
 import { getDb } from '@/lib/db';
-import { decryptStoredSecretPayload, deriveDecryptionKeyForCredential } from '@/lib/secret-derivation-server';
+import { decryptStoredSecretPayload, deriveDecryptionKeyForCredential, verifyCredentialProofAndDeriveKey } from '@/lib/secret-derivation-server';
+import type { CredentialProof } from '@/lib/secret-derivation-shared';
 import { isSecretAuthSource, type PresetAuthSource, type SecretAuthSource } from '@/lib/presets';
 
 export type ResolvedEvolveSecret = {
@@ -7,17 +8,14 @@ export type ResolvedEvolveSecret = {
   hasStoredSecret: boolean;
 };
 
-export function parseSecretPublicKey(value: unknown): JsonWebKey | null {
+export function parseCredentialProof(value: unknown): CredentialProof | null {
   const candidate = value ?? process.env.PRIMORDIA_USER_SECRET;
   if (!candidate) return null;
-  if (typeof candidate === 'object') return candidate as JsonWebKey;
+  if (typeof candidate === 'object') return candidate as CredentialProof;
   if (typeof candidate !== 'string' || !candidate.trim()) return null;
   const variants = [candidate, Buffer.from(candidate, 'base64url').toString('utf8')];
   for (const variant of variants) {
-    try {
-      const parsed = JSON.parse(variant) as JsonWebKey | { publicKey?: JsonWebKey };
-      return 'publicKey' in parsed && parsed.publicKey ? parsed.publicKey : parsed as JsonWebKey;
-    } catch {}
+    try { return JSON.parse(variant) as CredentialProof; } catch {}
   }
   return null;
 }
@@ -26,11 +24,11 @@ export function secretSourceForAuthSource(authSource: PresetAuthSource | null | 
   return authSource && isSecretAuthSource(authSource) ? authSource : null;
 }
 
-export async function deriveEvolveDecryptionKey(userId: string, authSource: SecretAuthSource, secretPublicKeyInput: unknown): Promise<string | undefined> {
+export async function deriveEvolveDecryptionKey(userId: string, authSource: SecretAuthSource, proofInput: unknown): Promise<string | undefined> {
   const envDecryptionKey = process.env.PRIMORDIA_DECRYPTION_KEY;
   if (envDecryptionKey) return envDecryptionKey;
-  const secretPublicKey = parseSecretPublicKey(secretPublicKeyInput);
-  return secretPublicKey ? deriveDecryptionKeyForCredential(userId, authSource, secretPublicKey) : undefined;
+  const proof = parseCredentialProof(proofInput);
+  return proof ? verifyCredentialProofAndDeriveKey(userId, authSource, proof) : undefined;
 }
 
 export async function resolveStoredSecretForWorker(
@@ -58,12 +56,15 @@ export async function resolveStoredSecretForWorker(
  */
 export async function getPlaintextCredentialsForUser(
   userId: string,
-  publicKey: unknown,
+  publicKeyOrProof: unknown,
   authSource: PresetAuthSource | null | undefined,
 ): Promise<string | undefined> {
   const source = secretSourceForAuthSource(authSource);
   if (!source) return undefined;
-  const decryptionKey = await deriveEvolveDecryptionKey(userId, source, publicKey);
+  const proof = parseCredentialProof(publicKeyOrProof);
+  const decryptionKey = proof
+    ? await verifyCredentialProofAndDeriveKey(userId, source, proof)
+    : await deriveDecryptionKeyForCredential(userId, source, publicKeyOrProof as JsonWebKey);
   if (!decryptionKey) return undefined;
   const db = await getDb();
   const encryptedSecretPayload = await db.getEncryptedCredential(userId, source);
