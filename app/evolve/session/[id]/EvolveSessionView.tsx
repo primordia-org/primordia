@@ -27,7 +27,7 @@ import { DiffFileExpander } from "./DiffFileExpander";
 import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
 import type { SessionEvent, AgentAuthInfo, ProgressStepStatus } from "@/lib/session-events";
-import { initialProgressState, progressSummary, progressTickMarks, reduceProgressEvent, shouldRenderAgentProgressPanel, shouldRenderFinalSummaryOutsideProgress, type ProgressStateStep } from "@/lib/progress-monitor";
+import { cloneProgressState, initialProgressState, progressStateForNewRun, progressSummary, progressTickMarks, reduceProgressEvent, shouldRenderAgentProgressPanel, shouldRenderFinalSummaryOutsideProgress, type ProgressState, type ProgressStateStep } from "@/lib/progress-monitor";
 import { convertUtcTimeToLocal } from "@/lib/utc-to-local-time";
 import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
 import { normalizeAuthSource, type PresetAuthSource } from "@/lib/presets";
@@ -129,19 +129,29 @@ interface SectionGroup {
   auth?: AgentAuthInfo;
   /** Unix ms timestamp from the section_start event — used for live elapsed-time display. */
   startTs?: number;
+  initialProgressState?: ProgressState;
   events: SessionEvent[];
+}
+
+function isAgentProgressSection(type: SectionGroup['type']): boolean {
+  return type === 'agent' || type === 'claude' || type === 'type_fix' || type === 'auto_commit' || type === 'conflict_resolution';
 }
 
 /** Group a flat list of SessionEvents into display sections. */
 function groupEventsIntoSections(events: SessionEvent[]): SectionGroup[] {
   const sections: SectionGroup[] = [{ type: 'setup', label: 'Setup', events: [] }];
   let pendingAuthSource: PresetAuthSource | undefined;
+  let progressState = initialProgressState();
   for (const event of events) {
     if ((event.type === 'initial_request' || event.type === 'followup_request') && typeof event.authSource === 'string') {
       pendingAuthSource = normalizeAuthSource(event.authSource) ?? pendingAuthSource;
     }
     if (event.type === 'section_start') {
       const group: SectionGroup = { type: event.sectionType, label: event.label, events: [], startTs: event.ts };
+      if (isAgentProgressSection(group.type)) {
+        progressState = progressStateForNewRun(progressState);
+        group.initialProgressState = cloneProgressState(progressState);
+      }
       if (event.sectionType === 'agent') {
         group.harness = event.harness;
         group.model = event.model;
@@ -153,6 +163,7 @@ function groupEventsIntoSections(events: SessionEvent[]): SectionGroup[] {
       sections.push(group);
     } else {
       sections[sections.length - 1].events.push(event);
+      progressState = reduceProgressEvent(progressState, event);
     }
   }
   return sections;
@@ -776,8 +787,8 @@ function progressStepKey(step: ProgressStateStep, index: number): string {
   return `${index}:${step.label}`;
 }
 
-function deriveProgressAccordionItems(events: SessionEvent[]): { items: ProgressAccordionItem[]; stateSteps: ProgressStateStep[]; currentKey: string | null } {
-  let state = initialProgressState();
+function deriveProgressAccordionItems(events: SessionEvent[], initialState: ProgressState = initialProgressState()): { items: ProgressAccordionItem[]; stateSteps: ProgressStateStep[]; currentKey: string | null } {
+  let state = cloneProgressState(initialState);
   const eventsByKey = new Map<string, RenderableEvent[]>();
   eventsByKey.set(progressStepKey(state.steps[0], 0), []);
   eventsByKey.set('wrap-up', []);
@@ -824,13 +835,14 @@ function deriveProgressAccordionItems(events: SessionEvent[]): { items: Progress
   return { items, stateSteps: state.steps, currentKey: activeKey() };
 }
 
-function ProgressAccordionEvents({ events, sessionId, worktreePath, isStreaming = false }: {
+function ProgressAccordionEvents({ events, sessionId, worktreePath, isStreaming = false, initialState }: {
   events: SessionEvent[];
   sessionId: string;
   worktreePath?: string;
   isStreaming?: boolean;
+  initialState?: ProgressState;
 }) {
-  const { items, stateSteps, currentKey } = deriveProgressAccordionItems(events);
+  const { items, stateSteps, currentKey } = deriveProgressAccordionItems(events, initialState);
   const [isExpanded, setIsExpanded] = useState(false);
   const [openStepKeys, setOpenStepKeys] = useState<Set<string>>(() => new Set());
   const summary = progressSummary({ steps: stateSteps, currentIndex: stateSteps.findIndex((step) => step.status === 'active') >= 0 ? stateSteps.findIndex((step) => step.status === 'active') : null });
@@ -918,17 +930,18 @@ function ProgressAccordionEvents({ events, sessionId, worktreePath, isStreaming 
   );
 }
 
-function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = false }: {
+function TaskAccordionEvents({ events, sessionId, worktreePath, isStreaming = false, initialProgressState: initialState }: {
   events: SessionEvent[];
   sessionId: string;
   worktreePath?: string;
   isStreaming?: boolean;
+  initialProgressState?: ProgressState;
   legacyClassName?: string;
 }) {
   const { todos, hasTodoEvents } = deriveCurrentTodoList(events);
   const hasProgressEvents = events.some((event) => event.type === 'progress_plan' || event.type === 'progress_step');
   if (hasProgressEvents || !hasTodoEvents) {
-    return <ProgressAccordionEvents events={events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming} />;
+    return <ProgressAccordionEvents events={events} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming} initialState={initialState} />;
   }
   return <LegacyTaskAccordionEvents events={events} todos={todos} sessionId={sessionId} worktreePath={worktreePath} isStreaming={isStreaming} />;
 }
@@ -1064,7 +1077,7 @@ function LegacyTaskAccordionEvents({ events, todos, sessionId, worktreePath, isS
 }
 
 /** Render a running agent/type-fix/auto-commit section (streaming events live). */
-function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, sessionId, worktreePath, harness, model, authSource, auth, startTs }: {
+function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSection, sessionId, worktreePath, harness, model, authSource, auth, startTs, initialProgressState }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
@@ -1076,6 +1089,7 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
   authSource?: PresetAuthSource;
   auth?: AgentAuthInfo;
   startTs?: number;
+  initialProgressState?: ProgressState;
 }) {
   const borderClass = isAutoCommitSection ? "border-green-700/50" : isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
   const headingClass = isAutoCommitSection ? "text-green-300" : isTypeFixSection ? "text-orange-300" : "text-blue-300";
@@ -1109,7 +1123,7 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
           </span>
         </span>
       </div>
-      <TaskAccordionEvents events={events} sessionId={sessionId} worktreePath={worktreePath} isStreaming />
+      <TaskAccordionEvents events={events} sessionId={sessionId} worktreePath={worktreePath} isStreaming initialProgressState={initialProgressState} />
       {latestMetrics && (
         <MetricsRow
           hideCost={auth?.source === 'chatgpt-subscription'}
@@ -1126,7 +1140,7 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
 }
 
 /** Render a completed agent/type-fix/auto-commit section with tool calls collapsed. */
-function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessionId, worktreePath, harness, model, authSource, auth, startTs }: {
+function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessionId, worktreePath, harness, model, authSource, auth, startTs, initialProgressState }: {
   events: SessionEvent[];
   label: string;
   isTypeFixSection: boolean;
@@ -1138,6 +1152,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
   authSource?: PresetAuthSource;
   auth?: AgentAuthInfo;
   startTs?: number;
+  initialProgressState?: ProgressState;
 }) {
   const resultEvent = events.find((e): e is Extract<SessionEvent, { type: 'result' }> => e.type === 'result');
   // Use the LAST metrics event — the final one written after the result event
@@ -1188,7 +1203,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
         {!isTypeFixSection && !isAutoCommitSection && <span className="ml-auto text-xs text-gray-500">{hasError ? "errored" : "finished"}</span>}
       </div>
       {showProgressPanel && (
-        <TaskAccordionEvents events={progressPanelEvents} sessionId={sessionId} worktreePath={worktreePath} legacyClassName="px-4 py-3 space-y-2 border-b border-gray-800" />
+        <TaskAccordionEvents events={progressPanelEvents} sessionId={sessionId} worktreePath={worktreePath} legacyClassName="px-4 py-3 space-y-2 border-b border-gray-800" initialProgressState={initialProgressState} />
       )}
       {showRawFinalEvents && (
         <div className="px-4 py-3 space-y-2 border-t border-gray-800">
@@ -1303,8 +1318,8 @@ function StructuredSection({
         )}
         {agentEvents.length > 0 && (
           isActive && !hasResult
-            ? <RunningAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} sessionId={sessionId} worktreePath={worktreePath} harness={harness} model={model} authSource={section.authSource} auth={section.auth} startTs={startTs} />
-            : <DoneAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} sessionId={sessionId} worktreePath={worktreePath} harness={harness} model={model} authSource={section.authSource} auth={section.auth} startTs={startTs} />
+            ? <RunningAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} sessionId={sessionId} worktreePath={worktreePath} harness={harness} model={model} authSource={section.authSource} auth={section.auth} startTs={startTs} initialProgressState={section.initialProgressState} />
+            : <DoneAgentSection events={agentEvents} label={label} isTypeFixSection={false} isAutoCommitSection={false} sessionId={sessionId} worktreePath={worktreePath} harness={harness} model={model} authSource={section.authSource} auth={section.auth} startTs={startTs} initialProgressState={section.initialProgressState} />
         )}
       </>
     );
@@ -1314,9 +1329,9 @@ function StructuredSection({
   if (type === 'agent' || type === 'claude' || type === 'type_fix' || type === 'auto_commit' || type === 'conflict_resolution') {
     const hasResult = events.some((e) => e.type === 'result');
     if (isActive && !hasResult) {
-      return <RunningAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} sessionId={sessionId} worktreePath={worktreePath} harness={harness} model={model} authSource={section.authSource} auth={section.auth} startTs={startTs} />;
+      return <RunningAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} sessionId={sessionId} worktreePath={worktreePath} harness={harness} model={model} authSource={section.authSource} auth={section.auth} startTs={startTs} initialProgressState={section.initialProgressState} />;
     }
-    return <DoneAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} sessionId={sessionId} worktreePath={worktreePath} harness={harness} model={model} authSource={section.authSource} auth={section.auth} startTs={startTs} />;
+    return <DoneAgentSection events={events} label={label} isTypeFixSection={type === 'type_fix'} isAutoCommitSection={type === 'auto_commit'} sessionId={sessionId} worktreePath={worktreePath} harness={harness} model={model} authSource={section.authSource} auth={section.auth} startTs={startTs} initialProgressState={section.initialProgressState} />;
   }
 
   // ── Deploy ───────────────────────────────────────────────────────────────

@@ -18,10 +18,26 @@ import { HARNESS_OPTIONS, DEFAULT_HARNESS, DEFAULT_MODEL } from './agent-config'
 import { MODEL_OPTIONS } from './agent-config';
 import { withSocketStatusHint } from './socket-status';
 import { restartWorktreeServer } from './process-manager';
+import { progressSummary, reduceProgressEventsAcrossRuns, type ProgressStateStep } from './progress-monitor';
 
 /** Look up the human-readable label for a model ID within a given harness. Falls back to the raw ID. */
 function getModelLabel(harnessId: string, modelId: string): string {
   return MODEL_OPTIONS[harnessId]?.find((m) => m.id === modelId)?.label ?? modelId;
+}
+
+function formatProgressStepForPrompt(step: ProgressStateStep, index: number, currentIndex: number | null): string {
+  const marker = currentIndex === index ? ' (current)' : '';
+  const weight = step.weight !== 1 ? `, weight ${step.weight}` : '';
+  return `- ${step.label}: ${step.status}${marker}${weight}`;
+}
+
+function incompleteProgressPromptSection(events: SessionEvent[]): string {
+  if (!events.some((event) => event.type === 'progress_plan' || event.type === 'progress_step')) return '';
+  const state = reduceProgressEventsAcrossRuns(events);
+  if (state.currentIndex == null) return '';
+  const summary = progressSummary(state);
+  const currentLabel = state.steps[state.currentIndex]?.label ?? 'unknown';
+  return `\n\nProgress task list note: the previous agent turn did not finish its progress task list. Continue from the current task list state instead of starting a new \`Make a plan\` list. Current task: \`${currentLabel}\`. Completion: ${summary.completeSteps}/${summary.totalSteps} steps (${summary.weightedPercent}% weighted).\n${state.steps.map((step, index) => formatProgressStepForPrompt(step, index, state.currentIndex)).join('\n')}`;
 }
 
 const MARKDOWN_SCREENSHOT_INSTRUCTION = `If you capture screenshots or create image files under the worktree's \`attachments/\` folder, you may include them in your final text output using Markdown image syntax like \`![description](attachments/screenshot.png)\`; put the image syntax on its own line/paragraph, not inside a list item or inline code span. The session page renders final text as Markdown and will display those images inline with a figure caption from the alt text.`;
@@ -980,6 +996,8 @@ export async function runFollowupInWorktree(
   const fuModelId = session.model ?? DEFAULT_MODEL;
 
   try {
+    const progressCarryoverSection = incompleteProgressPromptSection(readSessionEvents(ndjsonPath).events);
+
     if (internalSectionType) {
       const sectionLabels: Record<'type_fix' | 'auto_commit', string> = {
         type_fix: '🔧 Fixing type errors…',
@@ -1055,7 +1073,7 @@ export async function runFollowupInWorktree(
 
     const prompt =
       `Address the following follow-up request:\n\n` +
-      `${followupRequest}${attachmentSection}\n\n` +
+      `${followupRequest}${attachmentSection}${progressCarryoverSection}\n\n` +
       `${previewPathInstruction}\n\n${changelogInstruction} Commit all changes with a descriptive message.`;
 
     const fuWorkerScript = fuHarnessId === 'pi'
