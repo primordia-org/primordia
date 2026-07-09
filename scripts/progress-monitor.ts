@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import { appendSessionEvent, getSessionNdjsonPath, readSessionEvents, type SessionEvent } from '@/lib/session-events';
-import { progressSummary, reduceProgressEvents, validateProgressSteps } from '@/lib/progress-monitor';
+import { progressSummary, reduceProgressEventsAcrossRuns, validateProgressSteps } from '@/lib/progress-monitor';
 
 function say(message: string, code = 0): never {
   const stream = code === 0 ? process.stdout : process.stderr;
@@ -19,14 +19,9 @@ function sessionLogPath(): string | null {
   return fs.existsSync(candidate) ? candidate : null;
 }
 
-function currentRunEvents(events: SessionEvent[]): SessionEvent[] {
-  const lastSectionStartIndex = events.findLastIndex((event) => event.type === 'section_start');
-  return lastSectionStartIndex >= 0 ? events.slice(lastSectionStartIndex + 1) : events;
-}
-
 function currentProgress(ndjsonPath: string) {
   const { events } = readSessionEvents(ndjsonPath);
-  return reduceProgressEvents(currentRunEvents(events));
+  return reduceProgressEventsAcrossRuns(events);
 }
 
 function ensureActive(ndjsonPath: string) {
@@ -48,8 +43,8 @@ if (family === 'plan') {
   if (!payload) say(`usage: bun run progress plan ${action} ${shellQuote('[{"label":"Inspect relevant files","weight":1}]')}`, 1);
   const validated = validateProgressSteps(payload);
   if (!validated.ok) say(validated.error, 1);
-  const { state, currentIndex } = ensureActive(ndjsonPath);
-  const currentLabel = state.steps[currentIndex].label;
+  const state = currentProgress(ndjsonPath);
+  const currentLabel = state.currentIndex == null ? 'Wrap-up' : state.steps[state.currentIndex].label;
   const event: SessionEvent = {
     type: 'progress_plan',
     mode: action === 'insert' ? 'insert' : 'replace_future',
@@ -58,7 +53,9 @@ if (family === 'plan') {
   };
   appendSessionEvent(ndjsonPath, event);
   const verb = action === 'insert' ? 'inserted' : 'replaced';
-  say(`${verb} ${validated.steps.length} future steps after '${currentLabel}'. current step '${currentLabel}'.`);
+  const nextState = reduceProgressEventsAcrossRuns(readSessionEvents(ndjsonPath).events);
+  const activeLabel = nextState.currentIndex == null ? currentLabel : nextState.steps[nextState.currentIndex]?.label ?? currentLabel;
+  say(`${verb} ${validated.steps.length} future steps after '${currentLabel}'. current step '${activeLabel}'.`);
 }
 
 if (family === 'step') {
@@ -69,7 +66,7 @@ if (family === 'step') {
   const { state, currentIndex } = ensureActive(ndjsonPath);
   const currentLabel = state.steps[currentIndex].label;
   const previewEvent: SessionEvent = { type: 'progress_step', status: action, ts: Date.now() };
-  const nextState = reduceProgressEvents([...currentRunEvents(readSessionEvents(ndjsonPath).events), previewEvent]);
+  const nextState = reduceProgressEventsAcrossRuns([...readSessionEvents(ndjsonPath).events, previewEvent]);
   const nextLabel = nextState.currentIndex == null ? null : nextState.steps[nextState.currentIndex]?.label ?? null;
   appendSessionEvent(ndjsonPath, { ...previewEvent, activatedNextLabel: nextLabel });
   const summary = progressSummary(nextState);

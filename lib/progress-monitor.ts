@@ -44,6 +44,27 @@ export function initialProgressState(): ProgressState {
   };
 }
 
+export function cloneProgressState(state: ProgressState): ProgressState {
+  return {
+    steps: state.steps.map((step) => ({ ...step })),
+    currentIndex: state.currentIndex,
+  };
+}
+
+function isAgentRunSection(event: SessionEvent): boolean {
+  return event.type === 'section_start' && (
+    event.sectionType === 'agent' ||
+    event.sectionType === 'claude' ||
+    event.sectionType === 'type_fix' ||
+    event.sectionType === 'auto_commit' ||
+    event.sectionType === 'conflict_resolution'
+  );
+}
+
+export function progressStateForNewRun(previousState: ProgressState): ProgressState {
+  return previousState.currentIndex == null ? initialProgressState() : cloneProgressState(previousState);
+}
+
 function normalizeWeight(weight: number | undefined): number {
   return weight == null ? 1 : weight;
 }
@@ -65,13 +86,18 @@ function withSingleActiveStep(steps: ProgressStateStep[], currentIndex: number |
 
 export function reduceProgressEvent(state: ProgressState, event: SessionEvent): ProgressState {
   if (event.type === 'progress_plan') {
-    if (state.currentIndex == null) return state;
-    const currentIndex = state.currentIndex;
     const newSteps = event.steps.map((step) => ({
       label: step.label,
       weight: normalizeWeight(step.weight),
       status: 'pending' as const,
     }));
+
+    if (state.currentIndex == null) {
+      const firstNewIndex = state.steps.length;
+      return withSingleActiveStep([...state.steps, ...newSteps], newSteps.length > 0 ? firstNewIndex : null);
+    }
+
+    const currentIndex = state.currentIndex;
     const prefix = state.steps.slice(0, currentIndex + 1);
     const suffix = event.mode === 'insert'
       ? state.steps.slice(currentIndex + 1)
@@ -90,8 +116,20 @@ export function reduceProgressEvent(state: ProgressState, event: SessionEvent): 
   return state;
 }
 
-export function reduceProgressEvents(events: SessionEvent[]): ProgressState {
-  return events.reduce(reduceProgressEvent, initialProgressState());
+export function reduceProgressEvents(events: SessionEvent[], initialState: ProgressState = initialProgressState()): ProgressState {
+  return events.reduce(reduceProgressEvent, cloneProgressState(initialState));
+}
+
+export function reduceProgressEventsAcrossRuns(events: SessionEvent[]): ProgressState {
+  let state = initialProgressState();
+  for (const event of events) {
+    if (isAgentRunSection(event)) {
+      state = progressStateForNewRun(state);
+      continue;
+    }
+    state = reduceProgressEvent(state, event);
+  }
+  return state;
 }
 
 export function progressSummary(state: ProgressState): ProgressSummary {
