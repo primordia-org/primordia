@@ -1727,6 +1727,8 @@ export default function EvolveSessionView({
   const [upstreamSyncLoading, setUpstreamSyncLoading] = useState<"merge" | null>(null);
   const [upstreamSyncError, setUpstreamSyncError] = useState<string | null>(null);
   const [liveDiffSummary, setLiveDiffSummary] = useState<DiffFileSummary[]>(diffSummary);
+  const [isDiffSummaryRefreshing, setIsDiffSummaryRefreshing] = useState(false);
+  const [diffSummaryError, setDiffSummaryError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   /** Tracks how many NDJSON lines the client has received, for SSE reconnection offset. */
   const lineCountRef = useRef(initialLineCount);
@@ -1833,18 +1835,27 @@ export default function EvolveSessionView({
     return () => clearInterval(interval);
   }, [status]);
 
+  const refreshDiffSummary = useCallback(async () => {
+    setIsDiffSummaryRefreshing(true);
+    setDiffSummaryError(null);
+    try {
+      const res = await fetch(withBasePath(`/api/evolve/diff-summary?sessionId=${sessionId}`));
+      if (!res.ok) throw new Error(`Refresh failed (${res.status})`);
+      const data = await res.json() as { files?: DiffFileSummary[] };
+      if (data.files) setLiveDiffSummary(data.files);
+    } catch (error) {
+      setDiffSummaryError(error instanceof Error ? error.message : "Could not refresh changed files.");
+    } finally {
+      setIsDiffSummaryRefreshing(false);
+    }
+  }, [sessionId]);
+
   // When the session becomes ready (e.g. after Claude finishes), refresh the
   // diff summary so the "Files changed" section reflects the latest commits.
   useEffect(() => {
     if (status !== "ready") return;
-    void fetch(withBasePath(`/api/evolve/diff-summary?sessionId=${sessionId}`))
-      .then((res) => res.ok ? res.json() : null)
-      .then((data: { files?: DiffFileSummary[] } | null) => {
-        if (data?.files) setLiveDiffSummary(data.files);
-      })
-      .catch(() => {/* leave existing summary unchanged on error */});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+    void refreshDiffSummary();
+  }, [status, refreshDiffSummary]);
 
   // Reconnect / restart streaming when the tab regains focus, in case the
   // browser paused the SSE connection while the tab was in the background.
@@ -2358,18 +2369,27 @@ export default function EvolveSessionView({
       </div>
       <div ref={messagesEndRef} />
 
-      {/* Git diff summary — shown when thread is done and there are file changes */}
-      {(status === "ready" || status === "accepted" || status === "rejected") && liveDiffSummary.length > 0 && (() => {
+      {/* Git diff summary — kept visible while the agent is running, but marked as possibly stale. */}
+      {(() => {
+        const isAgentRunning = status === "starting" || status === "running-claude" || status === "fixing-types";
+        const shouldShowDiffSummary = liveDiffSummary.length > 0 || isAgentRunning;
+        if (!shouldShowDiffSummary) return null;
+
         const totalAdditions = liveDiffSummary.reduce((s, f) => s + f.additions, 0);
         const totalDeletions = liveDiffSummary.reduce((s, f) => s + f.deletions, 0);
         return (
-          <details className="group mb-6 rounded-lg border border-gray-700 bg-gray-900 text-sm overflow-hidden">
+          <details className={`group mb-6 rounded-lg border text-sm overflow-hidden ${isAgentRunning ? "border-amber-700/60 bg-amber-950/20" : "border-gray-700 bg-gray-900"}`}>
             <summary
               onClick={() => trackEvent("session/diff-summary-toggled/v1", { sessionId, fileCount: liveDiffSummary.length })}
-              className="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none"
+              className="flex flex-wrap items-center gap-2 px-4 py-2.5 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none"
             >
               <span className="text-gray-600 group-open:rotate-90 transition-transform flex-shrink-0 text-xs">▶</span>
               <span className="font-semibold text-xs text-gray-300 flex-shrink-0">📄 Files changed</span>
+              {isAgentRunning && (
+                <span className="rounded-full border border-amber-600/50 bg-amber-900/30 px-2 py-0.5 text-[11px] text-amber-200">
+                  May be stale while agent runs
+                </span>
+              )}
               <span className="ml-auto text-xs text-gray-500 flex-shrink-0">
                 {liveDiffSummary.length} file{liveDiffSummary.length !== 1 ? "s" : ""}
                 {" · "}
@@ -2377,9 +2397,29 @@ export default function EvolveSessionView({
                 {" "}
                 <span className="text-red-400">-{totalDeletions}</span>
               </span>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void refreshDiffSummary();
+                }}
+                disabled={isDiffSummaryRefreshing}
+                className="inline-flex items-center gap-1 rounded-md border border-gray-700 bg-gray-950/70 px-2 py-1 text-xs text-gray-300 transition-colors hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <RotateCw size={12} className={isDiffSummaryRefreshing ? "animate-spin" : ""} />
+                {isDiffSummaryRefreshing ? "Reloading…" : "Reload"}
+              </button>
             </summary>
             <div className="border-t border-gray-800">
-              {liveDiffSummary.map((f, i) => (
+              {diffSummaryError && (
+                <p className="border-b border-gray-800 px-4 py-2 text-xs text-red-300">{diffSummaryError}</p>
+              )}
+              {liveDiffSummary.length === 0 ? (
+                <p className="px-4 py-3 text-xs text-gray-500">
+                  No changed files detected yet. Reload while the agent is running to check for newly written files.
+                </p>
+              ) : liveDiffSummary.map((f, i) => (
                 <DiffFileExpander
                   key={i}
                   sessionId={sessionId}
