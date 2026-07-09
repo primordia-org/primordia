@@ -18,7 +18,6 @@ import {
   type StoredSecretPayload,
   type UserSecretMaterial,
 } from './secret-derivation-shared';
-import { clampX25519PrivateKey, x25519, x25519PublicKey } from './curve25519';
 import type { SecretAuthSource } from './presets';
 
 export type { SecretAuthSource } from './presets';
@@ -48,13 +47,18 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function jwkFromX25519(publicBytes: Uint8Array, privateBytes?: Uint8Array): JsonWebKey {
-  return { kty: 'OKP', crv: 'X25519', x: bytesToBase64Url(publicBytes), ...(privateBytes ? { d: bytesToBase64Url(privateBytes) } : {}) };
+const X25519_PKCS8_PREFIX = '302e020100300506032b656e04220420';
+const ED25519_PKCS8_PREFIX = '302e020100300506032b657004220420';
+
+function hexToBytes(hex: string): Uint8Array {
+  return Uint8Array.from(hex.match(/../g) ?? [], (byte) => parseInt(byte, 16));
 }
 
-function publicBytesFromJwk(jwk: JsonWebKey): Uint8Array {
-  if (typeof jwk.x !== 'string') throw new Error('X25519 public JWK missing x.');
-  return base64UrlToBytes(jwk.x);
+function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a);
+  out.set(b, a.length);
+  return out;
 }
 
 function seedFromStoredLocalSecret(value: unknown): string | null {
@@ -91,26 +95,39 @@ async function fetchServerEcdh(source: SecretAuthSource): Promise<{ publicKey: J
   return (await res.json()) as { publicKey: JsonWebKey; nonce?: string };
 }
 
-async function deriveSourcePrivateKey(source: SecretAuthSource): Promise<Uint8Array> {
+async function deriveSourceSeed(source: SecretAuthSource, purpose: 'x25519' | 'ed25519'): Promise<Uint8Array> {
   const material = await getOrCreateUserSecret();
   const key = await crypto.subtle.importKey('raw', asBufferSource(base64UrlToBytes(material.seed)), 'PBKDF2', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits({
     name: 'PBKDF2',
     hash: 'SHA-256',
-    salt: new TextEncoder().encode(`primordia:${SECRET_KEY_VERSION}:${source}`),
+    salt: new TextEncoder().encode(`primordia:${SECRET_KEY_VERSION}:${source}:${purpose}`),
     iterations: SECRET_DERIVATION_PBKDF_ITERATIONS,
   }, key, 256);
-  return clampX25519PrivateKey(new Uint8Array(bits));
+  return new Uint8Array(bits);
+}
+
+async function importDeterministicPrivateKey(source: SecretAuthSource, purpose: 'x25519' | 'ed25519'): Promise<CryptoKey> {
+  const seed = await deriveSourceSeed(source, purpose);
+  const prefix = purpose === 'x25519' ? X25519_PKCS8_PREFIX : ED25519_PKCS8_PREFIX;
+  return crypto.subtle.importKey(
+    'pkcs8',
+    asBufferSource(concatBytes(hexToBytes(prefix), seed)),
+    { name: purpose === 'x25519' ? 'X25519' : 'Ed25519' },
+    true,
+    purpose === 'x25519' ? ['deriveBits'] : ['sign'],
+  );
 }
 
 async function deriveSourceKeyMaterial(source: SecretAuthSource, serverPublicKey: JsonWebKey): Promise<{ aesKey: CryptoKey; publicKey: JsonWebKey; decryptionKey: string }> {
-  const privateBytes = await deriveSourcePrivateKey(source);
-  const publicBytes = x25519PublicKey(privateBytes);
-  const shared = x25519(privateBytes, publicBytesFromJwk(serverPublicKey));
+  const privateKey = await importDeterministicPrivateKey(source, 'x25519');
+  const publicKey = await crypto.subtle.importKey('jwk', serverPublicKey, { name: 'X25519' }, false, []);
+  const shared = await crypto.subtle.deriveBits({ name: 'X25519', public: publicKey }, privateKey, 256);
   const domain = new TextEncoder().encode('primordia-secret-encryption-v1');
-  const digestInput = new Uint8Array(domain.length + shared.length);
+  const sharedBytes = new Uint8Array(shared);
+  const digestInput = new Uint8Array(domain.length + sharedBytes.length);
   digestInput.set(domain);
-  digestInput.set(shared, domain.length);
+  digestInput.set(sharedBytes, domain.length);
   const rawKey = new Uint8Array(await crypto.subtle.digest('SHA-256', digestInput));
   const decryptionKey = bytesToBase64Url(rawKey);
   const cacheKey = `${source}:${JSON.stringify(serverPublicKey)}`;
@@ -119,13 +136,19 @@ async function deriveSourceKeyMaterial(source: SecretAuthSource, serverPublicKey
     aesKey = await crypto.subtle.importKey('raw', asBufferSource(rawKey), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
     cachedAesKeysBySourceAndServer.set(cacheKey, aesKey);
   }
-  return { aesKey, publicKey: jwkFromX25519(publicBytes), decryptionKey };
+  const privateJwk = await crypto.subtle.exportKey('jwk', privateKey);
+  return { aesKey, publicKey: { kty: 'OKP', crv: 'X25519', x: privateJwk.x }, decryptionKey };
 }
 
-async function signNonce(decryptionKey: string, source: SecretAuthSource, nonce: string): Promise<string> {
-  const key = await crypto.subtle.importKey('raw', asBufferSource(base64UrlToBytes(decryptionKey)), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`:${source}:${nonce}`));
-  return bytesToBase64Url(new Uint8Array(signature));
+async function signNonce(source: SecretAuthSource, nonce: string, publicKey: JsonWebKey): Promise<{ signature: string; signingPublicKey: JsonWebKey }> {
+  const privateKey = await importDeterministicPrivateKey(source, 'ed25519');
+  const signature = await crypto.subtle.sign(
+    { name: 'Ed25519' },
+    privateKey,
+    new TextEncoder().encode(`${source}:${nonce}:${publicKey.x ?? ''}`),
+  );
+  const privateJwk = await crypto.subtle.exportKey('jwk', privateKey);
+  return { signature: bytesToBase64Url(new Uint8Array(signature)), signingPublicKey: { kty: 'OKP', crv: 'Ed25519', x: privateJwk.x } };
 }
 
 async function encryptPayload(source: SecretAuthSource, value: string | ArrayBuffer): Promise<StoredSecretPayload> {
@@ -147,8 +170,8 @@ export async function getCredentialProofForServer(source: SecretAuthSource): Pro
   try {
     const { publicKey: serverPublicKey, nonce } = await fetchServerEcdh(source);
     if (!nonce) return null;
-    const { publicKey, decryptionKey } = await deriveSourceKeyMaterial(source, serverPublicKey);
-    return { secretPublicKey: publicKey, nonce, signature: await signNonce(decryptionKey, source, nonce) };
+    const { publicKey } = await deriveSourceKeyMaterial(source, serverPublicKey);
+    return { secretPublicKey: publicKey, nonce, ...(await signNonce(source, nonce, publicKey)) };
   } catch {
     return null;
   }

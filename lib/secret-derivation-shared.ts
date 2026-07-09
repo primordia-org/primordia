@@ -26,6 +26,7 @@ export type StoredSecretPayload = {
 
 export type CredentialProof = {
   secretPublicKey: JsonWebKey;
+  signingPublicKey: JsonWebKey;
   nonce: string;
   signature: string;
 };

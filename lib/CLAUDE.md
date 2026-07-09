@@ -2,7 +2,7 @@
 
 This file covers shared utilities in `lib/` and the git config key-value store pattern used throughout the codebase.
 
-Cryptographic key agreement code in `lib/` must use Curve25519/X25519. Do not introduce P-256 ECDH for Primordia secret derivation; if WebAuthn/Web Push/browser platform APIs require P-256 elsewhere, keep that usage isolated and documented as protocol-required.
+Cryptographic key agreement code in `lib/` must use WebCrypto Curve25519 primitives (`X25519` for key agreement and `Ed25519` for signatures). Do not implement Curve25519 manually and do not introduce P-256 ECDH for Primordia secret derivation; if WebAuthn/Web Push/browser platform APIs require P-256 elsewhere, keep that usage isolated and documented as protocol-required. Fail loudly when WebCrypto X25519/Ed25519 support is unavailable.
 
 ---
 
