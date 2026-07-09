@@ -20,36 +20,19 @@
 // Session status is inferred from the NDJSON log by the server — no status
 // files are written by this worker.
 
-// Configure the LLM backend before any SDK import resolves its config.
-// If the caller injected PRIMORDIA_USER_API_KEY via env, use the direct
-// Anthropic API with that key.  Otherwise fall back to the exe.dev gateway.
+// Configure the default LLM backend before any SDK import resolves its config.
+// User credentials are resolved later through PRIMORDIA_DECRYPTION_KEY only.
 const GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
 
-// Stash both auth env vars and clear them immediately so child processes
-// spawned by Claude Code (e.g. bash tool) never see them.
-let _userApiKey = process.env.PRIMORDIA_USER_API_KEY ?? null;
-let _userCredentialsJson = process.env.PRIMORDIA_USER_CREDENTIALS ?? null;
-delete process.env.PRIMORDIA_USER_API_KEY;
-delete process.env.PRIMORDIA_USER_CREDENTIALS;
-
-// Enforce auth exclusivity — credentials beat API key; both beat the gateway.
-// The server already enforces this via resolveAgentAuth(), but the worker
-// applies the same rule defensively in case of future callers.
-if (_userCredentialsJson) {
-  // Claude Credentials (OAuth): let Claude Code read its own credentials.json.
-  // Clear any leftover API key / base URL so the SDK doesn’t short-circuit to
-  // the API or gateway before Claude Code can load the credentials file.
-  delete process.env.ANTHROPIC_API_KEY;
-  delete process.env.ANTHROPIC_BASE_URL;
-} else if (_userApiKey) {
-  // Direct Anthropic API — set the key and make sure no gateway URL is set.
-  process.env.ANTHROPIC_API_KEY = _userApiKey;
-  delete process.env.ANTHROPIC_BASE_URL;
-} else {
-  // exe.dev LLM gateway — no real API key required.
-  process.env.ANTHROPIC_BASE_URL = GATEWAY_BASE_URL;
-  process.env.ANTHROPIC_API_KEY = 'gateway'; // SDK requires non-empty
+if (process.env.PRIMORDIA_USER_API_KEY || process.env.PRIMORDIA_USER_CREDENTIALS || process.env.PRIMORDIA_CHATGPT_OAUTH) {
+  throw new Error('Worker credential override env vars are no longer supported. Use PRIMORDIA_DECRYPTION_KEY.');
 }
+
+let _userApiKey: string | null = null;
+let _userCredentialsJson: string | null = null;
+
+process.env.ANTHROPIC_BASE_URL = GATEWAY_BASE_URL;
+process.env.ANTHROPIC_API_KEY = 'gateway'; // SDK requires non-empty
 
 // Module-level paths so cleanup() can reference them regardless of where it exits.
 let _credentialsFilePath: string | null = null;
@@ -135,9 +118,12 @@ async function main(): Promise<void> {
     const plaintext = config.userId && config.authSource && config.authSource !== 'exe-dev-gateway'
       ? await getPlaintextCredentialsForUser(config.userId, null, config.authSource as PresetAuthSource)
       : undefined;
+    if (config.authSource && config.authSource !== 'exe-dev-gateway' && !plaintext) {
+      throw new Error(`${config.authSource} was selected, but credentials could not be decrypted with PRIMORDIA_DECRYPTION_KEY.`);
+    }
     if (plaintext) {
-      if (config.authSource === 'claude-subscription') _userCredentialsJson = _userCredentialsJson ?? plaintext;
-      else _userApiKey = _userApiKey ?? plaintext;
+      if (config.authSource === 'claude-subscription') _userCredentialsJson = plaintext;
+      else _userApiKey = plaintext;
     }
     if (_userCredentialsJson) {
       delete process.env.ANTHROPIC_API_KEY;

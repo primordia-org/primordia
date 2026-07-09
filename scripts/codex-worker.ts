@@ -12,10 +12,12 @@ import { type PresetAuthSource } from '@/lib/presets';
 
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai/v1';
 
-let _userApiKey = process.env.PRIMORDIA_USER_API_KEY;
-delete process.env.PRIMORDIA_USER_API_KEY;
-let _chatGptOAuth = process.env.PRIMORDIA_CHATGPT_OAUTH;
-delete process.env.PRIMORDIA_CHATGPT_OAUTH;
+if (process.env.PRIMORDIA_USER_API_KEY || process.env.PRIMORDIA_USER_CREDENTIALS || process.env.PRIMORDIA_CHATGPT_OAUTH) {
+  throw new Error('Worker credential override env vars are no longer supported. Use PRIMORDIA_DECRYPTION_KEY.');
+}
+
+let _userApiKey: string | undefined;
+let _chatGptOAuth: string | undefined;
 
 interface WorkerConfig {
   sessionId: string;
@@ -318,9 +320,12 @@ async function main(): Promise<void> {
   const plaintext = config.userId && config.authSource && config.authSource !== 'exe-dev-gateway'
     ? await getPlaintextCredentialsForUser(config.userId, null, config.authSource as PresetAuthSource)
     : undefined;
+  if (config.authSource && config.authSource !== 'exe-dev-gateway' && !plaintext) {
+    throw new Error(`${config.authSource} was selected, but credentials could not be decrypted with PRIMORDIA_DECRYPTION_KEY.`);
+  }
   if (plaintext) {
-    if (config.authSource === 'chatgpt-subscription') _chatGptOAuth = _chatGptOAuth ?? plaintext;
-    else _userApiKey = _userApiKey ?? plaintext;
+    if (config.authSource === 'chatgpt-subscription') _chatGptOAuth = plaintext;
+    else _userApiKey = plaintext;
   }
   delete process.env.PRIMORDIA_DECRYPTION_KEY;
   const { sessionId, worktreePath, prompt, useContinue } = config;
