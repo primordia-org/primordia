@@ -20,36 +20,12 @@
 // Session status is inferred from the NDJSON log by the server — no status
 // files are written by this worker.
 
-// Configure the LLM backend before any SDK import resolves its config.
-// If the caller injected PRIMORDIA_USER_API_KEY via env, use the direct
-// Anthropic API with that key.  Otherwise fall back to the exe.dev gateway.
 const GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
 
-// Stash both auth env vars and clear them immediately so child processes
-// spawned by Claude Code (e.g. bash tool) never see them.
-const _userApiKey = process.env.PRIMORDIA_USER_API_KEY ?? null;
-const _userCredentialsJson = process.env.PRIMORDIA_USER_CREDENTIALS ?? null;
-delete process.env.PRIMORDIA_USER_API_KEY;
-delete process.env.PRIMORDIA_USER_CREDENTIALS;
-
-// Enforce auth exclusivity — credentials beat API key; both beat the gateway.
-// The server already enforces this via resolveAgentAuth(), but the worker
-// applies the same rule defensively in case of future callers.
-if (_userCredentialsJson) {
-  // Claude Credentials (OAuth): let Claude Code read its own credentials.json.
-  // Clear any leftover API key / base URL so the SDK doesn’t short-circuit to
-  // the API or gateway before Claude Code can load the credentials file.
-  delete process.env.ANTHROPIC_API_KEY;
-  delete process.env.ANTHROPIC_BASE_URL;
-} else if (_userApiKey) {
-  // Direct Anthropic API — set the key and make sure no gateway URL is set.
-  process.env.ANTHROPIC_API_KEY = _userApiKey;
-  delete process.env.ANTHROPIC_BASE_URL;
-} else {
-  // exe.dev LLM gateway — no real API key required.
-  process.env.ANTHROPIC_BASE_URL = GATEWAY_BASE_URL;
-  process.env.ANTHROPIC_API_KEY = 'gateway'; // SDK requires non-empty
-}
+const _primordiaAesKey = process.env.PRIMORDIA_AES_KEY;
+delete process.env.PRIMORDIA_AES_KEY;
+let _userApiKey: string | null = null;
+let _userCredentialsJson: string | null = null;
 
 // Module-level paths so cleanup() can reference them regardless of where it exits.
 let _credentialsFilePath: string | null = null;
@@ -66,6 +42,7 @@ import {
   getSessionNdjsonPath,
 } from '@/lib/session-events';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
+import { decryptWorkerSecret } from '@/lib/worker-secret-env';
 
 interface WorkerConfig {
   sessionId: string;
@@ -77,6 +54,8 @@ interface WorkerConfig {
   model?: string;
   /** When true, continue the most recent Claude Code session in the worktree directory. */
   useContinue?: boolean;
+  encryptedSecret?: string;
+  authSource?: string | null;
 }
 
 function makeWorktreeBoundaryHook(worktreePath: string, repoRoot: string): HookCallback {
@@ -131,6 +110,25 @@ async function main(): Promise<void> {
   } catch (err) {
     process.stderr.write(`Failed to read config file: ${err}\n`);
     process.exit(1);
+  }
+
+  try {
+    const secret = decryptWorkerSecret(config.encryptedSecret, _primordiaAesKey, config.authSource);
+    _userApiKey = secret.apiKey ?? null;
+    _userCredentialsJson = secret.credentials ?? null;
+  } catch (err) {
+    throw new Error(`Could not decrypt selected billing source with PRIMORDIA_AES_KEY: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  if (_userCredentialsJson) {
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_BASE_URL;
+  } else if (_userApiKey) {
+    process.env.ANTHROPIC_API_KEY = _userApiKey;
+    delete process.env.ANTHROPIC_BASE_URL;
+  } else {
+    process.env.ANTHROPIC_BASE_URL = GATEWAY_BASE_URL;
+    process.env.ANTHROPIC_API_KEY = 'gateway';
   }
 
   const { sessionId, worktreePath, repoRoot, prompt, useContinue } = config;

@@ -34,6 +34,7 @@ import {
 } from '@/lib/session-events';
 import { ensurePrimordiaPiModelsJson } from '@/lib/pi-custom-models';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
+import { decryptWorkerSecret } from '@/lib/worker-secret-env';
 
 // ---------------------------------------------------------------------------
 // LLM backend configuration
@@ -57,14 +58,11 @@ function normalizeModelSelection(modelId: string | undefined): { provider: 'anth
   return { provider: 'anthropic', modelId };
 }
 
-// Capture and immediately clear the injected user API key so it does not
-// persist in process.env (and cannot leak to child processes).
-const _userApiKey = process.env.PRIMORDIA_USER_API_KEY;
-delete process.env.PRIMORDIA_USER_API_KEY;
-const _chatGptOAuth = process.env.PRIMORDIA_CHATGPT_OAUTH;
-delete process.env.PRIMORDIA_CHATGPT_OAUTH;
-const _requiredAuthSource = process.env.PRIMORDIA_REQUIRED_AUTH_SOURCE;
-delete process.env.PRIMORDIA_REQUIRED_AUTH_SOURCE;
+const _primordiaAesKey = process.env.PRIMORDIA_AES_KEY;
+delete process.env.PRIMORDIA_AES_KEY;
+let _userApiKey: string | undefined;
+let _chatGptOAuth: string | undefined;
+let _requiredAuthSource: string | null | undefined;
 
 const CHATGPT_RELOGIN_ERROR = 'ChatGPT session expired. Reconnect ChatGPT in Settings → Billing sources, then retry this evolve session.';
 
@@ -78,6 +76,8 @@ interface WorkerConfig {
   model?: string;
   /** When true, continue the most recent pi session in the worktree directory. */
   useContinue?: boolean;
+  encryptedSecret?: string;
+  authSource?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +196,15 @@ async function main(): Promise<void> {
   } catch (err) {
     process.stderr.write(`Failed to read config file: ${err}\n`);
     process.exit(1);
+  }
+
+  _requiredAuthSource = config.authSource;
+  try {
+    const secret = decryptWorkerSecret(config.encryptedSecret, _primordiaAesKey, config.authSource);
+    _userApiKey = secret.apiKey;
+    _chatGptOAuth = secret.chatGptOAuth;
+  } catch (err) {
+    throw new Error(`Could not decrypt selected billing source with PRIMORDIA_AES_KEY: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   const { sessionId, worktreePath, prompt, useContinue } = config;

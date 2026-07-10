@@ -25,7 +25,7 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 | Frontend framework | Next.js 16 (App Router) | AI models write Next.js well |
 | Styling | Tailwind CSS | AI models write Tailwind well; no CSS files to manage |
 | Language | TypeScript | Catches mistakes; Claude Code understands it well |
-| AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Routes through exe.dev LLM gateway by default; users may override with their own Anthropic API key or Claude Code credentials.json (stored in localStorage/DB, encrypted in transit via one hybrid AES-GCM + RSA-OAEP envelope for all credential types) |
+| AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Routes through exe.dev LLM gateway by default; users may override with their own API keys, Claude Code credentials.json, or ChatGPT subscription OAuth. Secrets are stored encrypted in SQLite with the browser-held `primordia_aes_key`; evolve requests send that AES key to the server, which passes it to workers via `PRIMORDIA_AES_KEY` so workers decrypt only the selected stored secret. |
 | Hosting | exe.dev | Production builds via `bun run build && bun run start`; the Next CLI is invoked directly with `bun --bun ./node_modules/next/dist/bin/next ...` so long-running app servers do not fall through the package-bin `node` shebang; single systemd service (`primordia-proxy`) manages both proxy and production app; blue/green slot swap on accept |
 | Runtime versioning | mise (`mise.toml`) | Pins Bun per worktree; evolve setup trusts `mise.toml`, and the reverse proxy launches worktree servers with `mise exec -C <worktree>` |
 | AI code gen | `@anthropic-ai/claude-agent-sdk` | `query()` runs Claude Code in git worktrees for evolve requests |

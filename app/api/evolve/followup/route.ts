@@ -7,7 +7,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { getSessionUser } from '@/lib/auth';
-import { decryptApiKey, decryptHybridCredentials } from '@/lib/llm-encryption';
+import { getEncryptedSecretForUser } from '@/lib/server-secrets';
 import {
   runFollowupInWorktree,
   type LocalSession,
@@ -23,15 +23,13 @@ export interface EvolveFollowupFormData {
   request: string; // The follow-up change request text for Claude Code.
   harness?: string; // Agent harness override for this follow-up run.
   model?: string; // AI model override for this follow-up run.
-  encryptedApiKey?: string; // Optional hybrid-encrypted API key (JSON: { wrappedKey, iv, ciphertext }).
-  encryptedCredentials?: string; // Optional hybrid-encrypted Claude Code credentials.json (JSON: { wrappedKey, iv, ciphertext }).
-  encryptedChatGptOAuth?: string; // Optional hybrid-encrypted ChatGPT subscription OAuth credentials for Pi openai-codex models.
+  primordiaAesKey?: string; // Optional localStorage primordia_aes_key JWK used by the worker to decrypt the selected stored secret.
   attachments?: string; // Optional additional file attachments to include in this follow-up run.
 }
 
 /**
  * Submit a follow-up evolve request
- * @description Send an additional change request to an already-ready evolve session. Accepts multipart/form-data (supports file attachments) or JSON `{ sessionId, request, encryptedApiKey? }`.
+ * @description Send an additional change request to an already-ready evolve session. Accepts multipart/form-data (supports file attachments) or JSON `{ sessionId, request, primordiaAesKey? }`.
  * @tag Evolve
  * @contentType multipart/form-data
  * @body EvolveFollowupFormData
@@ -49,9 +47,7 @@ export async function POST(request: Request) {
   let model: string | undefined;
   let authSource: PresetAuthSource | null = null;
   let presetId: string | undefined;
-  let encryptedApiKey: string | null = null;
-  let encryptedCredentials: string | null = null;
-  let encryptedChatGptOAuth: string | null = null;
+  let primordiaAesKey: string | null = null;
   const savedAttachmentPaths: string[] = [];
 
   const contentType = request.headers.get('content-type') ?? '';
@@ -75,12 +71,8 @@ export async function POST(request: Request) {
     if (typeof presetField === 'string' && presetField) presetId = presetField;
     const authSourceField = formData.get('authSource');
     if (typeof authSourceField === 'string') authSource = normalizeAuthSource(authSourceField);
-    const encKeyField = formData.get('encryptedApiKey');
-    if (typeof encKeyField === 'string' && encKeyField) encryptedApiKey = encKeyField;
-    const encCredsField = formData.get('encryptedCredentials');
-    if (typeof encCredsField === 'string' && encCredsField) encryptedCredentials = encCredsField;
-    const encChatGptField = formData.get('encryptedChatGptOAuth');
-    if (typeof encChatGptField === 'string' && encChatGptField) encryptedChatGptOAuth = encChatGptField;
+    const aesKeyField = formData.get('primordiaAesKey');
+    if (typeof aesKeyField === 'string' && aesKeyField) primordiaAesKey = aesKeyField;
 
     const files = formData.getAll('attachments');
     if (files.length > 0) {
@@ -106,7 +98,7 @@ export async function POST(request: Request) {
       }
     }
   } else {
-    const body = (await request.json()) as { sessionId?: string; request?: string; harness?: string; model?: string; presetId?: string; authSource?: string; encryptedApiKey?: string; encryptedCredentials?: string; encryptedChatGptOAuth?: string };
+    const body = (await request.json()) as { sessionId?: string; request?: string; harness?: string; model?: string; presetId?: string; authSource?: string; primordiaAesKey?: string };
     if (!body.sessionId || typeof body.sessionId !== 'string') {
       return Response.json({ error: 'sessionId string required' }, { status: 400 });
     }
@@ -119,66 +111,17 @@ export async function POST(request: Request) {
     if (body.model) model = body.model;
     if (body.presetId) presetId = body.presetId;
     if (body.authSource) authSource = normalizeAuthSource(body.authSource);
-    if (body.encryptedApiKey) encryptedApiKey = body.encryptedApiKey;
-    if (body.encryptedCredentials) encryptedCredentials = body.encryptedCredentials;
-    if (body.encryptedChatGptOAuth) encryptedChatGptOAuth = body.encryptedChatGptOAuth;
+    if (body.primordiaAesKey) primordiaAesKey = body.primordiaAesKey;
   }
 
-  if (authSource === 'exe-dev-gateway') {
-    encryptedApiKey = null;
-    encryptedCredentials = null;
-    encryptedChatGptOAuth = null;
-  } else if (authSource === 'claude-subscription') {
-    encryptedApiKey = null;
-    encryptedChatGptOAuth = null;
-  } else if (authSource === 'chatgpt-subscription') {
-    encryptedApiKey = null;
-    encryptedCredentials = null;
-  } else if (authSource === 'openrouter-api-key' || authSource === 'openai-api-key' || authSource === 'anthropic-api-key') {
-    encryptedCredentials = null;
-    encryptedChatGptOAuth = null;
+  const needsStoredSecret = authSource !== null && authSource !== 'exe-dev-gateway';
+  if (needsStoredSecret && !primordiaAesKey) {
+    return Response.json({ error: 'Selected billing source requires this device’s Primordia AES key. Reconnect the billing source in Settings, then try again.' }, { status: 400 });
   }
 
-  // Decrypt the user's API key right before use.
-  let decryptedApiKey: string | undefined;
-  if (encryptedApiKey) {
-    try {
-      decryptedApiKey = await decryptApiKey(encryptedApiKey);
-    } catch {
-      return Response.json({ error: 'Could not decrypt API key. Please try submitting again.' }, { status: 400 });
-    }
-    encryptedApiKey = null;
-  }
-
-  // Decrypt the user's Claude Code credentials (if provided).
-  let decryptedCredentials: string | undefined;
-  if (encryptedCredentials) {
-    try {
-      const payload = JSON.parse(encryptedCredentials) as { wrappedKey: string; iv: string; ciphertext: string };
-      decryptedCredentials = await decryptHybridCredentials(payload);
-    } catch {
-      return Response.json({ error: 'Could not decrypt credentials. Please try submitting again.' }, { status: 400 });
-    }
-    encryptedCredentials = null;
-  }
-
-  if (authSource === 'chatgpt-subscription' && !encryptedChatGptOAuth) {
-    return Response.json(
-      { error: 'ChatGPT subscription preset selected, but no ChatGPT credentials were sent. Reconnect ChatGPT in Settings → Billing sources, then try again.' },
-      { status: 400 },
-    );
-  }
-
-  // Decrypt the user's ChatGPT subscription OAuth credentials (if provided).
-  let decryptedChatGptOAuth: string | undefined;
-  if (encryptedChatGptOAuth) {
-    try {
-      const payload = JSON.parse(encryptedChatGptOAuth) as { wrappedKey: string; iv: string; ciphertext: string };
-      decryptedChatGptOAuth = await decryptHybridCredentials(payload);
-    } catch {
-      return Response.json({ error: 'Could not decrypt ChatGPT credentials. Please try submitting again.' }, { status: 400 });
-    }
-    encryptedChatGptOAuth = null;
+  const encryptedSecret = await getEncryptedSecretForUser(user.id, authSource);
+  if (needsStoredSecret && !encryptedSecret) {
+    return Response.json({ error: 'Selected billing source has no stored secret. Reconnect it in Settings, then try again.' }, { status: 400 });
   }
 
   const repoRoot = process.cwd();
@@ -207,15 +150,12 @@ export async function POST(request: Request) {
     createdAt: record.createdAt,
     harness,
     model,
-    apiKey: decryptedApiKey,
-    credentials: decryptedCredentials,
-    chatGptOAuth: decryptedChatGptOAuth,
+    encryptedSecret: encryptedSecret ?? undefined,
+    aesKey: primordiaAesKey ?? undefined,
     authSource,
     userId: user.id,
   };
-  decryptedApiKey = undefined;
-  decryptedCredentials = undefined;
-  decryptedChatGptOAuth = undefined;
+  primordiaAesKey = null;
 
   // Fire-and-forget — runFollowupInWorktree handles all state transitions and
   // error cases internally, writing events to the NDJSON log.
