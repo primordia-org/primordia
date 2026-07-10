@@ -2,6 +2,7 @@
 // Uses bun:sqlite which is built into Bun and requires no npm package.
 // Only imported when DATABASE_URL is not set (i.e., local dev without Neon).
 
+import type { SQLQueryBindings } from "bun:sqlite";
 import type { DbAdapter, User, Passkey, Challenge, Session, CrossDeviceToken, InstanceConfig, GraphNode, GraphEdge, WebPushSubscription, WebPushCategory } from "./types";
 import { generateUuid7 } from "@/lib/uuid7";
 
@@ -616,7 +617,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
 
     async queryEvents({ limit = 100, offset = 0, event: eventFilter, userId } = {}) {
       let sql = `SELECT id, ts, user_id, event, props FROM events`;
-      const params: unknown[] = [];
+      const params: SQLQueryBindings[] = [];
       const wheres: string[] = [];
       if (eventFilter) { wheres.push(`event = ?`); params.push(eventFilter); }
       if (userId)      { wheres.push(`user_id = ?`); params.push(userId); }
@@ -635,7 +636,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
 
     async countEvents({ event: eventFilter, userId } = {}) {
       let sql = `SELECT COUNT(*) as n FROM events`;
-      const params: unknown[] = [];
+      const params: SQLQueryBindings[] = [];
       const wheres: string[] = [];
       if (eventFilter) { wheres.push(`event = ?`); params.push(eventFilter); }
       if (userId)      { wheres.push(`user_id = ?`); params.push(userId); }
