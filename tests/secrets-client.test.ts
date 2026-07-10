@@ -23,14 +23,13 @@ const _serverKeys: Map<string, JsonWebKey> = new Map(); // source → X25519 pub
 const _nonces: Map<string, string> = new Map(); // source → nonce
 
 function bytesToBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  return (bytes as Uint8Array & { toBase64(options?: { alphabet?: "base64url"; omitPadding?: boolean }): string })
+    .toBase64({ alphabet: "base64url", omitPadding: true });
 }
 
 function base64UrlToBytes(value: string): Uint8Array {
-  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (value.length % 4)) % 4);
-  return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+  return (Uint8Array as typeof Uint8Array & { fromBase64(encoded: string, options?: { alphabet?: "base64url" }): Uint8Array })
+    .fromBase64(value, { alphabet: "base64url" });
 }
 
 async function getServerPublicKey(source: string): Promise<JsonWebKey> {

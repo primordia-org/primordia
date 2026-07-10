@@ -49,12 +49,13 @@ export function base64ToBytes(value: string): Uint8Array {
 }
 
 export function bytesToBase64Url(bytes: Uint8Array): string {
-  return bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return (bytes as Uint8Array & { toBase64(options?: { alphabet?: 'base64url'; omitPadding?: boolean }): string })
+    .toBase64({ alphabet: 'base64url', omitPadding: true });
 }
 
 export function base64UrlToBytes(value: string): Uint8Array {
-  const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (value.length % 4)) % 4);
-  return base64ToBytes(padded);
+  return (Uint8Array as typeof Uint8Array & { fromBase64(encoded: string, options?: { alphabet?: 'base64url' }): Uint8Array })
+    .fromBase64(value, { alphabet: 'base64url' });
 }
 
 export function isUserSecretMaterial(value: unknown): value is UserSecretMaterial {
