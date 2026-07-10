@@ -38,26 +38,6 @@ export function selectCurrentSecretPayload(payload: StoredSecretPayload): { iv: 
   return null;
 }
 
-export function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
-export function base64ToBytes(value: string): Uint8Array {
-  return Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
-}
-
-export function bytesToBase64Url(bytes: Uint8Array): string {
-  return (bytes as Uint8Array & { toBase64(options?: { alphabet?: 'base64url'; omitPadding?: boolean }): string })
-    .toBase64({ alphabet: 'base64url', omitPadding: true });
-}
-
-export function base64UrlToBytes(value: string): Uint8Array {
-  return (Uint8Array as typeof Uint8Array & { fromBase64(encoded: string, options?: { alphabet?: 'base64url' }): Uint8Array })
-    .fromBase64(value, { alphabet: 'base64url' });
-}
-
 export function isUserSecretMaterial(value: unknown): value is UserSecretMaterial {
   return !!value && typeof value === 'object' &&
     (value as { version?: unknown }).version === SECRET_KEY_VERSION &&

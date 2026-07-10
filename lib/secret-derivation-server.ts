@@ -8,7 +8,7 @@
 
 import { createHash, randomBytes, webcrypto } from 'crypto';
 import { getDb } from '@/lib/db';
-import { base64ToBytes, bytesToBase64, bytesToBase64Url, SECRET_KEY_VERSION, selectCurrentSecretPayload, type CredentialProof, type StoredSecretPayload } from '@/lib/secret-derivation-shared';
+import { SECRET_KEY_VERSION, selectCurrentSecretPayload, type CredentialProof, type StoredSecretPayload } from '@/lib/secret-derivation-shared';
 
 const subtle = webcrypto.subtle;
 const nonceTtlMs = 5 * 60 * 1000;
@@ -19,7 +19,8 @@ function asBufferSource(bytes: Uint8Array): ArrayBuffer {
 }
 
 export function issueCredentialNonce(userId: string, authSource: string): string {
-  const nonce = bytesToBase64Url(randomBytes(32));
+  const nonce = (randomBytes(32) as unknown as Uint8Array & { toBase64(options?: { alphabet?: 'base64url'; omitPadding?: boolean }): string })
+    .toBase64({ alphabet: 'base64url', omitPadding: true });
   issuedNonces.set(`${userId}:${authSource}:${nonce}`, Date.now() + nonceTtlMs);
   return nonce;
 }
@@ -96,9 +97,9 @@ export async function decryptStoredSecretPayload(payloadJson: string, decryption
   const keyBytes = Buffer.from(decryptionKey, 'base64url');
   const key = await subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
   const plaintext = await subtle.decrypt(
-    { name: 'AES-GCM', iv: base64ToBytes(payload.iv) },
+    { name: 'AES-GCM', iv: (Uint8Array as typeof Uint8Array & { fromBase64(encoded: string): Uint8Array }).fromBase64(payload.iv) },
     key,
-    base64ToBytes(payload.ciphertext),
+    (Uint8Array as typeof Uint8Array & { fromBase64(encoded: string): Uint8Array }).fromBase64(payload.ciphertext),
   );
   return new TextDecoder().decode(plaintext);
 }
@@ -113,5 +114,9 @@ export async function encryptStoredSecretPayloadForTests(plaintext: string, decr
   const key = await subtle.importKey('raw', Buffer.from(decryptionKey, 'base64url'), { name: 'AES-GCM' }, false, ['encrypt']);
   const iv = webcrypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext));
-  return JSON.stringify({ iv: bytesToBase64(iv), ciphertext: bytesToBase64(new Uint8Array(ciphertext)), keyVersion: SECRET_KEY_VERSION });
+  return JSON.stringify({
+    iv: (iv as Uint8Array & { toBase64(): string }).toBase64(),
+    ciphertext: (new Uint8Array(ciphertext) as Uint8Array & { toBase64(): string }).toBase64(),
+    keyVersion: SECRET_KEY_VERSION,
+  });
 }

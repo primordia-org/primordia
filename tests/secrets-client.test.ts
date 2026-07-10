@@ -22,16 +22,6 @@ const _serverStore: Map<string, string> = new Map(); // source → JSON cipherte
 const _serverKeys: Map<string, JsonWebKey> = new Map(); // source → X25519 public JWK
 const _nonces: Map<string, string> = new Map(); // source → nonce
 
-function bytesToBase64Url(bytes: Uint8Array): string {
-  return (bytes as Uint8Array & { toBase64(options?: { alphabet?: "base64url"; omitPadding?: boolean }): string })
-    .toBase64({ alphabet: "base64url", omitPadding: true });
-}
-
-function base64UrlToBytes(value: string): Uint8Array {
-  return (Uint8Array as typeof Uint8Array & { fromBase64(encoded: string, options?: { alphabet?: "base64url" }): Uint8Array })
-    .fromBase64(value, { alphabet: "base64url" });
-}
-
 async function getServerPublicKey(source: string): Promise<JsonWebKey> {
   const existing = _serverKeys.get(source);
   if (existing) return existing;
@@ -49,7 +39,8 @@ function makeFetch() {
     const keyMatch = url.match(/\/api\/secrets\/([a-z-]+)\/server-public-key$/);
     if (keyMatch && method === "GET") {
       const source = keyMatch[1];
-      const nonce = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+      const nonce = (crypto.getRandomValues(new Uint8Array(32)) as Uint8Array & { toBase64(options?: { alphabet?: "base64url"; omitPadding?: boolean }): string })
+        .toBase64({ alphabet: "base64url", omitPadding: true });
       _nonces.set(source, nonce);
       return Response.json({ publicKey: await getServerPublicKey(source), nonce });
     }
@@ -142,7 +133,8 @@ describe("secrets-client", () => {
     const ok = await crypto.subtle.verify(
       { name: "Ed25519" },
       verifyKey,
-      base64UrlToBytes(proof!.signature),
+      (Uint8Array as typeof Uint8Array & { fromBase64(encoded: string, options?: { alphabet?: "base64url" }): Uint8Array })
+        .fromBase64(proof!.signature, { alphabet: "base64url" }),
       new TextEncoder().encode(`anthropic-api-key:${proof!.nonce}:${proof!.secretPublicKey.x ?? ""}`),
     );
     expect(ok).toBe(true);

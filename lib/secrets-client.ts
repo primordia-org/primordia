@@ -25,9 +25,6 @@
 
 import { withBasePath } from './base-path';
 import {
-  base64ToBytes,
-  base64UrlToBytes,
-  bytesToBase64Url,
   isUserSecretMaterial,
   SECRET_DERIVATION_PBKDF_ITERATIONS,
   SECRET_KEY_VERSION,
@@ -58,12 +55,6 @@ function clearLegacyAesKey(): void {
 
 function asBufferSource(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
 }
 
 // WebCrypto can generate X25519/Ed25519 keys but does not expose a direct
@@ -105,7 +96,8 @@ async function getOrCreateUserSecret(): Promise<UserSecretMaterial> {
       return material;
     }
   }
-  const seed = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const seed = (crypto.getRandomValues(new Uint8Array(32)) as Uint8Array & { toBase64(options?: { alphabet?: 'base64url'; omitPadding?: boolean }): string })
+    .toBase64({ alphabet: 'base64url', omitPadding: true });
   const material: UserSecretMaterial = { version: SECRET_KEY_VERSION, seed };
   localStorage.setItem(AES_KEY_STORAGE, JSON.stringify(material));
   return material;
@@ -119,7 +111,13 @@ async function fetchServerEcdh(source: SecretAuthSource): Promise<{ publicKey: J
 
 async function deriveSourceSeed(source: SecretAuthSource, purpose: 'x25519' | 'ed25519'): Promise<Uint8Array> {
   const material = await getOrCreateUserSecret();
-  const key = await crypto.subtle.importKey('raw', asBufferSource(base64UrlToBytes(material.seed)), 'PBKDF2', false, ['deriveBits']);
+  const key = await crypto.subtle.importKey(
+    'raw',
+    asBufferSource((Uint8Array as typeof Uint8Array & { fromBase64(encoded: string, options?: { alphabet?: 'base64url' }): Uint8Array }).fromBase64(material.seed, { alphabet: 'base64url' })),
+    'PBKDF2',
+    false,
+    ['deriveBits'],
+  );
   const bits = await crypto.subtle.deriveBits({
     name: 'PBKDF2',
     hash: 'SHA-256',
@@ -151,7 +149,8 @@ async function deriveSourceKeyMaterial(source: SecretAuthSource, serverPublicKey
   digestInput.set(domain);
   digestInput.set(sharedBytes, domain.length);
   const rawKey = new Uint8Array(await crypto.subtle.digest('SHA-256', digestInput));
-  const decryptionKey = bytesToBase64Url(rawKey);
+  const decryptionKey = (rawKey as Uint8Array & { toBase64(options?: { alphabet?: 'base64url'; omitPadding?: boolean }): string })
+    .toBase64({ alphabet: 'base64url', omitPadding: true });
   const cacheKey = `${source}:${JSON.stringify(serverPublicKey)}`;
   let aesKey = cachedAesKeysBySourceAndServer.get(cacheKey);
   if (!aesKey) {
@@ -170,7 +169,11 @@ async function signNonce(source: SecretAuthSource, nonce: string, publicKey: Jso
     new TextEncoder().encode(`${source}:${nonce}:${publicKey.x ?? ''}`),
   );
   const privateJwk = await crypto.subtle.exportKey('jwk', privateKey);
-  return { signature: bytesToBase64Url(new Uint8Array(signature)), signingPublicKey: { kty: 'OKP', crv: 'Ed25519', x: privateJwk.x } };
+  return {
+    signature: (new Uint8Array(signature) as Uint8Array & { toBase64(options?: { alphabet?: 'base64url'; omitPadding?: boolean }): string })
+      .toBase64({ alphabet: 'base64url', omitPadding: true }),
+    signingPublicKey: { kty: 'OKP', crv: 'Ed25519', x: privateJwk.x },
+  };
 }
 
 async function encryptPayload(source: SecretAuthSource, value: string | ArrayBuffer): Promise<StoredSecretPayload> {
@@ -180,8 +183,8 @@ async function encryptPayload(source: SecretAuthSource, value: string | ArrayBuf
   const plaintext = typeof value === 'string' ? new TextEncoder().encode(value) : value;
   const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, plaintext);
   return {
-    iv: bytesToBase64(iv),
-    ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
+    iv: (iv as Uint8Array & { toBase64(): string }).toBase64(),
+    ciphertext: (new Uint8Array(ciphertext) as Uint8Array & { toBase64(): string }).toBase64(),
     keyVersion: SECRET_KEY_VERSION,
     authSource: source,
     serverPublicKey,
@@ -281,9 +284,9 @@ async function decryptPayloadWithSource(source: SecretAuthSource, ciphertextPayl
   if (!payload?.serverPublicKey) return null;
   const { aesKey } = await deriveSourceKeyMaterial(source, payload.serverPublicKey);
   const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: asBufferSource(base64ToBytes(payload.iv)) },
+    { name: 'AES-GCM', iv: asBufferSource((Uint8Array as typeof Uint8Array & { fromBase64(encoded: string): Uint8Array }).fromBase64(payload.iv)) },
     aesKey,
-    asBufferSource(base64ToBytes(payload.ciphertext)),
+    asBufferSource((Uint8Array as typeof Uint8Array & { fromBase64(encoded: string): Uint8Array }).fromBase64(payload.ciphertext)),
   );
   return new TextDecoder().decode(plaintext);
 }
@@ -324,9 +327,9 @@ export async function encryptSecretForTransmission(source: SecretAuthSource): Pr
     const ephemeralKeyRaw = await crypto.subtle.exportKey('raw', ephemeralKey);
     const wrappedKey = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, publicKey, ephemeralKeyRaw);
     return {
-      wrappedKey: bytesToBase64(new Uint8Array(wrappedKey)),
-      iv: bytesToBase64(ephemeralIv),
-      ciphertext: bytesToBase64(new Uint8Array(encryptedPayload)),
+      wrappedKey: (new Uint8Array(wrappedKey) as Uint8Array & { toBase64(): string }).toBase64(),
+      iv: (ephemeralIv as Uint8Array & { toBase64(): string }).toBase64(),
+      ciphertext: (new Uint8Array(encryptedPayload) as Uint8Array & { toBase64(): string }).toBase64(),
     };
   } catch (err) {
     console.error(`[secrets-client] Failed to encrypt ${source} for transmission:`, err);
