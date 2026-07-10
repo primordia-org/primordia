@@ -14,12 +14,6 @@ interface DecryptedWorkerSecret {
   chatGptOAuth?: string;
 }
 
-function base64UrlToBuffer(value: string): Buffer {
-  let normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  while (normalized.length % 4 !== 0) normalized += '=';
-  return Buffer.from(normalized, 'base64');
-}
-
 export function decryptWorkerSecret(encryptedSecret: string | undefined, aesKeyJwkJson: string | undefined, authSource: string | null | undefined): DecryptedWorkerSecret {
   if (!encryptedSecret || !aesKeyJwkJson || !authSource || authSource === 'exe-dev-gateway') return {};
 
@@ -27,9 +21,9 @@ export function decryptWorkerSecret(encryptedSecret: string | undefined, aesKeyJ
   if (jwk.kty !== 'oct' || typeof jwk.k !== 'string') throw new Error('Invalid PRIMORDIA_AES_KEY');
 
   const payload = JSON.parse(encryptedSecret) as StoredSecretPayload;
-  const encrypted = Buffer.from(payload.ciphertext, 'base64');
-  const iv = Buffer.from(payload.iv, 'base64');
-  const key = base64UrlToBuffer(jwk.k);
+  const encrypted = Uint8Array.fromBase64(payload.ciphertext);
+  const iv = Uint8Array.fromBase64(payload.iv);
+  const key = Uint8Array.fromBase64(jwk.k, { alphabet: 'base64url' });
   const authTag = encrypted.subarray(encrypted.length - 16);
   const body = encrypted.subarray(0, encrypted.length - 16);
   const decipher = createDecipheriv('aes-256-gcm', key, iv);

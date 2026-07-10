@@ -9,11 +9,6 @@ interface StoredSecretPayload {
   ciphertext: string;
 }
 
-function base64ToArrayBuffer(value: string): ArrayBuffer {
-  const buffer = Buffer.from(value, 'base64');
-  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
-}
-
 function normalizeAesKeyJwk(raw: string): JsonWebKey {
   const parsed = JSON.parse(raw) as JsonWebKey;
   if (parsed.kty !== 'oct' || typeof parsed.k !== 'string') {
@@ -36,9 +31,9 @@ export async function decryptStoredSecretPayload(ciphertextJson: string, aesKeyJ
     ['decrypt'],
   );
   const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: base64ToArrayBuffer(payload.iv) },
+    { name: 'AES-GCM', iv: Uint8Array.fromBase64(payload.iv) },
     key,
-    base64ToArrayBuffer(payload.ciphertext),
+    Uint8Array.fromBase64(payload.ciphertext),
   );
   return new TextDecoder().decode(plaintext);
 }

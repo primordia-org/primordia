@@ -217,7 +217,7 @@ const BOX_FEATURES = [
     bg: "bg-rose-500/5",
     title: "Secure Secret Storage",
     description:
-      "API keys and credentials are stored encrypted in SQLite. When an evolve run needs one, your device sends its Primordia AES key so the server can pass it securely to the worker.",
+      "API keys and credentials are stored encrypted in SQLite. Credentials are decrypted right before use and deleted immediately after.",
   },
   {
     icon: <Layers size={22} strokeWidth={1.5} aria-hidden="true" />,
