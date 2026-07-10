@@ -41,7 +41,7 @@ import {
   getSessionNdjsonPath,
 } from '@/lib/session-events';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
-import { decryptWorkerSecret } from '@/lib/worker-secret-env';
+import { decryptWorkerSecretForUser } from '@/lib/worker-secret-env';
 
 interface WorkerConfig {
   sessionId: string;
@@ -53,7 +53,7 @@ interface WorkerConfig {
   model?: string;
   /** When true, continue the most recent Claude Code session in the worktree directory. */
   useContinue?: boolean;
-  encryptedSecret?: string;
+  userId?: string;
   authSource?: string | null;
 }
 
@@ -112,7 +112,7 @@ async function main(): Promise<void> {
   }
 
   try {
-    const secret = await decryptWorkerSecret(config.encryptedSecret, _primordiaAesKey, config.authSource);
+    const secret = await decryptWorkerSecretForUser(config.userId, _primordiaAesKey, config.authSource);
     _userApiKey = secret.apiKey ?? null;
     _userCredentialsJson = secret.credentials ?? null;
   } catch (err) {

@@ -37,6 +37,7 @@ import {
   getSessionNdjsonPath,
   getSessionFromFilesystem,
   listSessionsFromFilesystem,
+  readSessionEvents,
 } from '@/lib/session-events';
 import { getParentBranch } from '@/lib/branch-parent';
 import { getBranchParentSource } from '@/lib/user-prefs';
@@ -73,6 +74,29 @@ function appendLogLine(sessionId: string, content: string): Promise<void> {
   return Promise.resolve();
 }
 
+function getLatestAgentSelection(worktreePath: string): { harness?: string; model?: string } {
+  const ndjsonPath = getSessionNdjsonPath(worktreePath);
+  if (!fs.existsSync(ndjsonPath)) return {};
+  const { events } = readSessionEvents(ndjsonPath);
+
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    if (event.type === 'section_start' && event.sectionType === 'agent') {
+      return {
+        harness: event.harnessId,
+        model: event.modelId,
+      };
+    }
+    if ((event.type === 'followup_request' || event.type === 'initial_request') && (event.harness || event.model)) {
+      return {
+        harness: event.harness,
+        model: event.model,
+      };
+    }
+  }
+
+  return {};
+}
 
 /** Exit code install.sh uses to signal a typecheck failure specifically. */
 const INSTALL_EXIT_TYPECHECK = 2;
@@ -243,9 +267,10 @@ async function runAcceptAsync(
   parentBranch: string,
   repoRoot: string,
   userId: string,
-  encryptedSecret?: string,
   aesKey?: string,
   authSource?: PresetAuthSource | null,
+  harness?: string,
+  model?: string,
 ): Promise<void> {
   const step = (text: string) => appendLogLine(sessionId, text);
 
@@ -317,9 +342,10 @@ async function runAcceptAsync(
           request: sessionSnap.request,
           createdAt: sessionSnap.createdAt,
           userId,
-          encryptedSecret,
           aesKey,
           authSource,
+          harness,
+          model,
         };
         console.log(`[runAcceptAsync] typecheck failed for session ${sessionId}, starting auto-fix`);
         void runFollowupInWorktree(
@@ -466,6 +492,7 @@ export async function POST(request: Request) {
   }
 
   const { branch, worktreePath } = session;
+  const agentSelection = getLatestAgentSelection(worktreePath);
 
   const parentSource = await getBranchParentSource(user.id);
   const parentBranch = getParentBranch(branch, undefined, parentSource) ?? 'main';
@@ -508,9 +535,10 @@ export async function POST(request: Request) {
         const sessionContext = {
           id: body.sessionId,
           userId: user.id,
-          encryptedSecret: encryptedSecret ?? undefined,
           aesKey,
           authSource,
+          harness: agentSelection.harness,
+          model: agentSelection.model,
         };
         const mergeResult = await runGit(
           ['merge', parentBranch, '--no-ff', '-m', `chore: merge ${parentBranch} into ${branch}`],
@@ -551,9 +579,10 @@ export async function POST(request: Request) {
           request: session.request,
           createdAt: session.createdAt,
           userId: user.id,
-          encryptedSecret: encryptedSecret ?? undefined,
           aesKey,
           authSource,
+          harness: agentSelection.harness,
+          model: agentSelection.model,
         };
         // runFollowupInWorktree will emit the 'auto_commit' section_start itself.
         void runFollowupInWorktree(commitSession, commitPrompt, repoRoot, 'running-claude', /* onSuccess */ undefined, /* internalSectionType */ 'auto_commit');
@@ -592,7 +621,7 @@ export async function POST(request: Request) {
           appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'deploy', label: isProduction ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``, ts: Date.now() });
         }
       }
-      void runAcceptAsync(body.sessionId, worktreePath, branch, parentBranch, repoRoot, user.id, encryptedSecret ?? undefined, aesKey, authSource);
+      void runAcceptAsync(body.sessionId, worktreePath, branch, parentBranch, repoRoot, user.id, aesKey, authSource, agentSelection.harness, agentSelection.model);
       return Response.json({ outcome: 'accepting' });
     }
 

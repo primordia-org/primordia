@@ -75,8 +75,6 @@ export interface LocalSession {
   harness?: string;
   /** Model ID to pass to the harness (e.g. 'claude-sonnet-4-6'). Harness default if omitted. */
   model?: string;
-  /** Stored AES-GCM ciphertext for the selected billing source. The worker decrypts it with aesKey. */
-  encryptedSecret?: string;
   /** User's Primordia AES JWK, passed only via PRIMORDIA_AES_KEY to workers. */
   aesKey?: string;
   /** Preset-selected billing/auth source. Used to prevent silent gateway fallback. */
@@ -176,8 +174,6 @@ interface WorkerConfig {
   model?: string;
   /** When true, continue the most recent Claude Code session in the worktree directory. */
   useContinue?: boolean;
-  /** Stored AES-GCM ciphertext for the selected billing source. */
-  encryptedSecret?: string;
   /** User's Primordia AES JWK. NOT written to the JSON config file; passed via PRIMORDIA_AES_KEY. */
   aesKey?: string;
   /** Preset-selected billing/auth source. Used to prevent silent gateway fallback. */
@@ -185,7 +181,7 @@ interface WorkerConfig {
   /**
    * Primordia user ID. CLAUDE_CONFIG_DIR is pointed at a per-user directory
    * so each user's Claude config is isolated.
-   * NOT written to the JSON config file — only used to derive the env var.
+   * Written to the JSON config file so the worker can load the user's selected secret.
    */
   userId: string;
 }
@@ -205,12 +201,11 @@ interface WorkerConfig {
  *    flows must not rely on this as credential selection logic.
  */
 function resolveAgentAuth(
-  encryptedSecret: string | undefined,
   aesKey: string | undefined,
   harnessId: string,
   modelId?: string,
   requestedAuthSource?: string | null,
-): { auth: AgentAuthInfo; resolvedEncryptedSecret: string | undefined; resolvedAesKey: string | undefined } {
+): { auth: AgentAuthInfo; resolvedAesKey: string | undefined } {
   if (requestedAuthSource === 'chatgpt-subscription') {
     if (harnessId !== 'pi' && harnessId !== 'codex') {
       throw new Error('ChatGPT subscription auth is only supported by the Pi and Codex harnesses. Choose a ChatGPT-compatible preset.');
@@ -218,30 +213,30 @@ function resolveAgentAuth(
     if (harnessId === 'pi' && !modelId?.startsWith('openai-codex:')) {
       throw new Error('ChatGPT subscription auth for Pi requires an openai-codex model. Choose a ChatGPT subscription model.');
     }
-    if (!encryptedSecret || !aesKey) {
-      throw new Error('ChatGPT subscription was selected, but its encrypted secret or Primordia AES key was not provided. Reconnect ChatGPT in Settings → Billing sources, then try again.');
+    if (!aesKey) {
+      throw new Error('ChatGPT subscription was selected, but the Primordia AES key was not provided. Reconnect ChatGPT in Settings → Billing sources, then try again.');
     }
-    return { auth: { source: 'chatgpt-subscription' }, resolvedEncryptedSecret: encryptedSecret, resolvedAesKey: aesKey };
+    return { auth: { source: 'chatgpt-subscription' }, resolvedAesKey: aesKey };
   }
 
   if (requestedAuthSource === 'claude-subscription') {
     if (harnessId !== 'claude-code') {
       throw new Error('Claude subscription auth is only supported by the Claude Code harness. Choose a Claude-compatible preset.');
     }
-    if (!encryptedSecret || !aesKey) {
-      throw new Error('Claude subscription was selected, but its encrypted secret or Primordia AES key was not provided. Reconnect Claude in Settings → Billing sources, then try again.');
+    if (!aesKey) {
+      throw new Error('Claude subscription was selected, but the Primordia AES key was not provided. Reconnect Claude in Settings → Billing sources, then try again.');
     }
-    return { auth: { source: 'claude-credentials' }, resolvedEncryptedSecret: encryptedSecret, resolvedAesKey: aesKey };
+    return { auth: { source: 'claude-credentials' }, resolvedAesKey: aesKey };
   }
 
   if (requestedAuthSource && requestedAuthSource !== 'exe-dev-gateway') {
-    if (!encryptedSecret || !aesKey) {
-      throw new Error('The selected API key billing source is missing its encrypted secret or Primordia AES key. Reconnect it in Settings, then try again.');
+    if (!aesKey) {
+      throw new Error('The selected API key billing source is missing the Primordia AES key. Reconnect it in Settings, then try again.');
     }
-    return { auth: { source: 'api-key' }, resolvedEncryptedSecret: encryptedSecret, resolvedAesKey: aesKey };
+    return { auth: { source: 'api-key' }, resolvedAesKey: aesKey };
   }
 
-  return { auth: { source: 'llm-gateway' }, resolvedEncryptedSecret: undefined, resolvedAesKey: undefined };
+  return { auth: { source: 'llm-gateway' }, resolvedAesKey: undefined };
 }
 
 /** Maps session IDs to the PID of their running agent worker process. */
@@ -290,8 +285,8 @@ async function spawnAgentWorker(
   checkWorktreeNotBusy(config.worktreePath);
 
   // Strip the Primordia AES key from the JSON config file so it is never
-  // written to disk. The selected secret remains encrypted in the config and is
-  // decrypted by the worker using PRIMORDIA_AES_KEY.
+  // written to disk. Workers receive only the user/auth-source IDs in config and
+  // use PRIMORDIA_AES_KEY to decrypt the matching stored secret themselves.
   const { aesKey: workerAesKey, ...configWithoutSensitive } = config;
   const configFile = `/tmp/primordia-worker-${config.sessionId}.json`;
   fs.writeFileSync(configFile, JSON.stringify(configWithoutSensitive), 'utf8');
@@ -917,7 +912,7 @@ export async function startLocalEvolve(
     const modelLabel = getModelLabel(harnessId, modelId);
     // Resolve auth source — credentials beat API key; both beat the gateway.
     // This also enforces exclusivity so the worker never receives two sources.
-    const { auth, resolvedEncryptedSecret, resolvedAesKey } = resolveAgentAuth(session.encryptedSecret, session.aesKey, harnessId, modelId, session.authSource);
+    const { auth, resolvedAesKey } = resolveAgentAuth(session.aesKey, harnessId, modelId, session.authSource);
     appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: harnessLabel, model: modelLabel, harnessId, modelId, auth, label: `🤖 ${harnessLabel} (${modelLabel})`, ts: Date.now() });
 
     const attachmentSection = worktreeAttachmentPaths.length > 0
@@ -951,7 +946,6 @@ export async function startLocalEvolve(
         // Use the resolved modelId so the worker always runs with the same
         // model that was logged in the section_start event.
         model: modelId,
-        encryptedSecret: resolvedEncryptedSecret,
         aesKey: resolvedAesKey,
         authSource: session.authSource,
         userId: session.userId,
@@ -1038,7 +1032,7 @@ export async function runFollowupInWorktree(
       const fuHarnessLabel = HARNESS_OPTIONS.find((h) => h.id === fuHarnessId)?.label ?? fuHarnessId;
       const fuModelLabel = getModelLabel(fuHarnessId, fuModelId);
       // Resolve auth — credentials beat API key; both beat the gateway.
-      const fuAuth = resolveAgentAuth(session.encryptedSecret, session.aesKey, fuHarnessId, fuModelId, session.authSource);
+      const fuAuth = resolveAgentAuth(session.aesKey, fuHarnessId, fuModelId, session.authSource);
       appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'agent', harness: fuHarnessLabel, model: fuModelLabel, harnessId: fuHarnessId, modelId: fuModelId, auth: fuAuth.auth, label: `🤖 ${fuHarnessLabel} (${fuModelLabel})`, ts: Date.now() });
     }
     session.status = inProgressStatus;
@@ -1120,8 +1114,8 @@ export async function runFollowupInWorktree(
         // Re-resolve auth to enforce exclusivity (credentials beat API key).
         // fuAuth may not be in scope when internalSectionType is set.
         ...(() => {
-          const r = resolveAgentAuth(session.encryptedSecret, session.aesKey, fuHarnessId, fuModelId, session.authSource);
-          return { encryptedSecret: r.resolvedEncryptedSecret, aesKey: r.resolvedAesKey };
+          const r = resolveAgentAuth(session.aesKey, fuHarnessId, fuModelId, session.authSource);
+          return { aesKey: r.resolvedAesKey };
         })(),
         authSource: session.authSource,
         userId: session.userId,
@@ -1179,7 +1173,7 @@ export async function resolveConflictsWithAgent(
   mergeRoot: string,
   branch: string,
   parentBranch: string,
-  sessionContext: { id: string; harness?: string; model?: string; encryptedSecret?: string; aesKey?: string; authSource?: string | null; userId: string },
+  sessionContext: { id: string; harness?: string; model?: string; aesKey?: string; authSource?: string | null; userId: string },
   repoRoot?: string,
 ): Promise<{ success: boolean; log: string }> {
   const root = repoRoot ?? process.cwd();
@@ -1224,8 +1218,8 @@ export async function resolveConflictsWithAgent(
         timeoutMs: 10 * 60 * 1000,
         model: sessionContext.model,
         ...(() => {
-          const r = resolveAgentAuth(sessionContext.encryptedSecret, sessionContext.aesKey, harnessId, sessionContext.model, sessionContext.authSource);
-          return { encryptedSecret: r.resolvedEncryptedSecret, aesKey: r.resolvedAesKey };
+          const r = resolveAgentAuth(sessionContext.aesKey, harnessId, sessionContext.model, sessionContext.authSource);
+          return { aesKey: r.resolvedAesKey };
         })(),
         authSource: sessionContext.authSource,
         userId: sessionContext.userId,
