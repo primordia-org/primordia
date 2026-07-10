@@ -33,7 +33,6 @@ let _credentialsFilePath: string | null = null;
 // Only deleted in cleanup(); the credentials file itself is only removed when no lock files remain.
 let _credentialsLockPath: string | null = null;
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -113,7 +112,7 @@ async function main(): Promise<void> {
   }
 
   try {
-    const secret = decryptWorkerSecret(config.encryptedSecret, _primordiaAesKey, config.authSource);
+    const secret = await decryptWorkerSecret(config.encryptedSecret, _primordiaAesKey, config.authSource);
     _userApiKey = secret.apiKey ?? null;
     _userCredentialsJson = secret.credentials ?? null;
   } catch (err) {
@@ -229,6 +228,8 @@ async function main(): Promise<void> {
   // sessionId is available in config but not used directly here — status/previewUrl
   // are now inferred from events by the server, not written by the worker.
   void sessionId;
+
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
   try {
     const run = query({

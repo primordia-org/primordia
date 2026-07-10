@@ -317,7 +317,7 @@ async function main(): Promise<void> {
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8')) as WorkerConfig;
   _requiredAuthSource = config.authSource;
   try {
-    const secret = decryptWorkerSecret(config.encryptedSecret, _primordiaAesKey, config.authSource);
+    const secret = await decryptWorkerSecret(config.encryptedSecret, _primordiaAesKey, config.authSource);
     _userApiKey = secret.apiKey;
     _chatGptOAuth = secret.chatGptOAuth;
   } catch (err) {

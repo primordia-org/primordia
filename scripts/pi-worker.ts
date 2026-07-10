@@ -200,7 +200,7 @@ async function main(): Promise<void> {
 
   _requiredAuthSource = config.authSource;
   try {
-    const secret = decryptWorkerSecret(config.encryptedSecret, _primordiaAesKey, config.authSource);
+    const secret = await decryptWorkerSecret(config.encryptedSecret, _primordiaAesKey, config.authSource);
     _userApiKey = secret.apiKey;
     _chatGptOAuth = secret.chatGptOAuth;
   } catch (err) {
