@@ -243,7 +243,6 @@ async function runAcceptAsync(
   parentBranch: string,
   repoRoot: string,
   userId: string,
-  encryptedSecret?: string,
   aesKey?: string,
   authSource?: PresetAuthSource | null,
 ): Promise<void> {
@@ -317,7 +316,6 @@ async function runAcceptAsync(
           request: sessionSnap.request,
           createdAt: sessionSnap.createdAt,
           userId,
-          encryptedSecret,
           aesKey,
           authSource,
         };
@@ -508,7 +506,6 @@ export async function POST(request: Request) {
         const sessionContext = {
           id: body.sessionId,
           userId: user.id,
-          encryptedSecret: encryptedSecret ?? undefined,
           aesKey,
           authSource,
         };
@@ -551,7 +548,6 @@ export async function POST(request: Request) {
           request: session.request,
           createdAt: session.createdAt,
           userId: user.id,
-          encryptedSecret: encryptedSecret ?? undefined,
           aesKey,
           authSource,
         };
@@ -592,7 +588,7 @@ export async function POST(request: Request) {
           appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'deploy', label: isProduction ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``, ts: Date.now() });
         }
       }
-      void runAcceptAsync(body.sessionId, worktreePath, branch, parentBranch, repoRoot, user.id, encryptedSecret ?? undefined, aesKey, authSource);
+      void runAcceptAsync(body.sessionId, worktreePath, branch, parentBranch, repoRoot, user.id, aesKey, authSource);
       return Response.json({ outcome: 'accepting' });
     }
 

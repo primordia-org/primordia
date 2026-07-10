@@ -34,7 +34,7 @@ import {
 } from '@/lib/session-events';
 import { ensurePrimordiaPiModelsJson } from '@/lib/pi-custom-models';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
-import { decryptWorkerSecret } from '@/lib/worker-secret-env';
+import { decryptWorkerSecretForUser } from '@/lib/worker-secret-env';
 
 // ---------------------------------------------------------------------------
 // LLM backend configuration
@@ -76,7 +76,7 @@ interface WorkerConfig {
   model?: string;
   /** When true, continue the most recent pi session in the worktree directory. */
   useContinue?: boolean;
-  encryptedSecret?: string;
+  userId?: string;
   authSource?: string | null;
 }
 
@@ -200,7 +200,7 @@ async function main(): Promise<void> {
 
   _requiredAuthSource = config.authSource;
   try {
-    const secret = await decryptWorkerSecret(config.encryptedSecret, _primordiaAesKey, config.authSource);
+    const secret = await decryptWorkerSecretForUser(config.userId, _primordiaAesKey, config.authSource);
     _userApiKey = secret.apiKey;
     _chatGptOAuth = secret.chatGptOAuth;
   } catch (err) {

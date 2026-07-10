@@ -150,7 +150,6 @@ export async function POST(request: Request) {
     createdAt: record.createdAt,
     harness,
     model,
-    encryptedSecret: encryptedSecret ?? undefined,
     aesKey: primordiaAesKey ?? undefined,
     authSource,
     userId: user.id,

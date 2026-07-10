@@ -1,10 +1,8 @@
 // lib/worker-secret-env.ts
-// Worker-side AES-GCM decryption for secrets stored by lib/secrets-client.
+// Worker-side lookup/decryption for user secrets stored by lib/secrets-client.
 
-interface StoredSecretPayload {
-  iv: string;
-  ciphertext: string;
-}
+import { decryptStoredSecretForUser } from '@/lib/server-secrets';
+import { isSecretAuthSource, type SecretAuthSource } from '@/lib/presets';
 
 interface DecryptedWorkerSecret {
   apiKey?: string;
@@ -12,26 +10,12 @@ interface DecryptedWorkerSecret {
   chatGptOAuth?: string;
 }
 
-export async function decryptWorkerSecret(encryptedSecret: string | undefined, aesKeyJwkJson: string | undefined, authSource: string | null | undefined): Promise<DecryptedWorkerSecret> {
-  if (!encryptedSecret || !aesKeyJwkJson || !authSource || authSource === 'exe-dev-gateway') return {};
+export async function decryptWorkerSecretForUser(userId: string | undefined, aesKeyJwkJson: string | undefined, authSource: string | null | undefined): Promise<DecryptedWorkerSecret> {
+  if (!userId || !aesKeyJwkJson || !authSource || authSource === 'exe-dev-gateway') return {};
+  if (!isSecretAuthSource(authSource)) return {};
 
-  const jwk = JSON.parse(aesKeyJwkJson) as JsonWebKey;
-  if (jwk.kty !== 'oct' || typeof jwk.k !== 'string') throw new Error('Invalid PRIMORDIA_AES_KEY');
-
-  const payload = JSON.parse(encryptedSecret) as StoredSecretPayload;
-  const key = await crypto.subtle.importKey(
-    'jwk',
-    jwk,
-    { name: 'AES-GCM' },
-    false,
-    ['decrypt'],
-  );
-  const plaintextBytes = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: Uint8Array.fromBase64(payload.iv) },
-    key,
-    Uint8Array.fromBase64(payload.ciphertext),
-  );
-  const plaintext = new TextDecoder().decode(plaintextBytes);
+  const plaintext = await decryptStoredSecretForUser(userId, authSource as SecretAuthSource, aesKeyJwkJson);
+  if (!plaintext) return {};
 
   if (authSource === 'claude-subscription') return { credentials: plaintext };
   if (authSource === 'chatgpt-subscription') return { chatGptOAuth: plaintext };

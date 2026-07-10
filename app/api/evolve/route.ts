@@ -414,7 +414,6 @@ export async function createEvolveSessionFromText({
     createdAt: Date.now(),
     harness,
     model,
-    encryptedSecret: encryptedSecret ?? undefined,
     aesKey: primordiaAesKey ?? undefined,
     authSource,
     userId: userId,

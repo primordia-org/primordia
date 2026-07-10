@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { appendSessionEvent, getSessionNdjsonPath, type SessionEvent } from '@/lib/session-events';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
-import { decryptWorkerSecret } from '@/lib/worker-secret-env';
+import { decryptWorkerSecretForUser } from '@/lib/worker-secret-env';
 
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai/v1';
 
@@ -25,7 +25,7 @@ interface WorkerConfig {
   timeoutMs?: number;
   model?: string;
   useContinue?: boolean;
-  encryptedSecret?: string;
+  userId?: string;
   authSource?: string | null;
 }
 
@@ -317,7 +317,7 @@ async function main(): Promise<void> {
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8')) as WorkerConfig;
   _requiredAuthSource = config.authSource;
   try {
-    const secret = await decryptWorkerSecret(config.encryptedSecret, _primordiaAesKey, config.authSource);
+    const secret = await decryptWorkerSecretForUser(config.userId, _primordiaAesKey, config.authSource);
     _userApiKey = secret.apiKey;
     _chatGptOAuth = secret.chatGptOAuth;
   } catch (err) {
