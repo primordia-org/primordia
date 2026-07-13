@@ -301,6 +301,8 @@ export interface CreateEvolveSessionFromTextOptions {
   authSource?: PresetAuthSource | null;
   primordiaAesKey?: string | null;
   savedAttachmentPaths?: string[];
+  /** When false, await setup/agent work before returning. CLI callers use this so the process stays alive. */
+  runInBackground?: boolean;
 }
 
 export async function createEvolveSessionFromText({
@@ -314,6 +316,7 @@ export async function createEvolveSessionFromText({
   authSource = null,
   primordiaAesKey = null,
   savedAttachmentPaths = [],
+  runInBackground = true,
 }: CreateEvolveSessionFromTextOptions): Promise<Response> {
   const needsStoredSecret = authSource !== null && authSource !== 'exe-dev-gateway';
   if (needsStoredSecret && !primordiaAesKey) {
@@ -420,12 +423,19 @@ export async function createEvolveSessionFromText({
   };
   primordiaAesKey = null;
 
-  // Fire-and-forget — run async so POST returns immediately with the session ID.
-  // startLocalEvolve handles all error states internally and writes them to the filesystem.
-  void startLocalEvolve(session, requestText, repoRoot, undefined, savedAttachmentPaths, {
+  const startPromise = startLocalEvolve(session, requestText, repoRoot, undefined, savedAttachmentPaths, {
     worktreeAlreadyCreated: true,
     initialEventAlreadyWritten: true,
   });
+
+  if (runInBackground) {
+    // Fire-and-forget — run async so POST returns immediately with the session ID.
+    // startLocalEvolve handles all error states internally and writes them to the filesystem.
+    void startPromise;
+  } else {
+    // CLI callers must keep the process alive until the worker exits.
+    await startPromise;
+  }
 
   // Persist the chosen harness/model/caveman as the user's sticky preference.
   // Fire-and-forget — a failure here must not break session creation.
