@@ -32,8 +32,8 @@ import { getSessionFromFilesystem, readSessionEvents, getSessionNdjsonPath } fro
 import { runFollowupInWorktree, type LocalSession } from '@/lib/evolve-sessions';
 
 interface Args {
-  command: 'status' | 'start' | 'stop' | 'restart' | 'logs' | 'publish' | 'evolve' | 'new' | 'agent' | 'reply' | null;
-  evolveAction: 'create' | 'run' | 'followup' | null;
+  command: 'status' | 'start' | 'stop' | 'restart' | 'logs' | 'publish' | 'evolve' | 'create' | 'followup' | null;
+  evolveAction: 'create' | 'followup' | null;
   json: boolean;
   follow: boolean;
   worktreeName: string | null;
@@ -43,7 +43,6 @@ interface Args {
   model: string | null;
   presetId: string | null;
   authSource: PresetAuthSource | null;
-  thread: string | null;
   requestParts: string[];
 }
 
@@ -55,10 +54,9 @@ function printUsage(): void {
   bun run primordia restart [--dev|--prod] [--json] [--worktree <worktreename>]
   bun run primordia logs [--follow] [--json] [--worktree <worktreename>]
   bun run primordia publish [--json] [--worktree <worktreename>]
-  bun run primordia new [--user <id-or-username>] [--preset <id>] [--auth-source <source>] "change request"
-  bun run primordia agent [--thread <id>] [--user <id-or-username>]
-  bun run primordia reply [--thread <id>] [--user <id-or-username>] "follow-up request"
-  bun run primordia evolve create|run|followup ...
+  bun run primordia create [--user <id-or-username>] [--preset <id>] [--auth-source <source>] "change request"
+  bun run primordia followup [--user <id-or-username>] "follow-up request"
+  bun run primordia evolve create|followup ...
 
 Commands:
   status      List reverse proxy, worktrees, Next.js servers, and active agents.
@@ -67,10 +65,9 @@ Commands:
   restart     Stop, then start, a worktree's server.
   logs        Print a worktree's server log file.
   publish     Health-check, then mark a worktree branch as production.
-  new         Create an evolve thread and run its initial agent turn.
-  agent       Run the initial request again as an agent turn on a thread.
-  reply       Run a follow-up request on an evolve thread.
-  evolve      Compatibility namespace: create/run/followup aliases.
+  create      Create an evolve thread and run its initial agent turn.
+  followup    Run a follow-up request on the cwd's evolve thread.
+  evolve      Compatibility namespace: create/followup aliases.
 
 Options:
   --worktree     Worktree branch, basename, or path. Defaults to the worktree containing cwd.
@@ -79,10 +76,9 @@ Options:
   --dev          Start with bun run dev (default for start/restart).
   --prod         Start with bun run start.
   --user         Primordia user id or username for evolve commands.
-  --thread       Evolve thread id. Defaults to the cwd's worktree branch for agent/reply.
   --preset       Evolve preset id. Defaults to the user's saved preset when available.
-  --harness      Agent harness id for new/reply when not using a preset.
-  --model        Model id for new/reply when not using a preset.
+  --harness      Agent harness id for create/followup when not using a preset.
+  --model        Model id for create/followup when not using a preset.
   --auth-source  Billing source. Secret-backed sources require PRIMORDIA_AES_KEY.
                  Pass '-' as the request to read it from stdin.`);
 }
@@ -100,7 +96,6 @@ function parseArgs(argv: string[]): Args {
     model: null,
     presetId: null,
     authSource: null,
-    thread: null,
     requestParts: [],
   };
 
@@ -157,21 +152,16 @@ function parseArgs(argv: string[]): Args {
       const value = arg.slice('--auth-source='.length);
       args.authSource = normalizeAuthSource(value);
       if (!args.authSource) throw new Error(`Unknown auth source: ${value}`);
-    } else if (arg === '--thread') {
-      const value = argv[i + 1];
-      if (!value || value.startsWith('--')) throw new Error('--thread requires a value');
-      args.thread = value;
-      i += 1;
-    } else if (arg.startsWith('--thread=')) {
-      args.thread = arg.slice('--thread='.length) || null;
     } else if (arg === '--help' || arg === '-h') {
       printUsage();
       process.exit(0);
-    } else if ((arg === 'status' || arg === 'start' || arg === 'stop' || arg === 'restart' || arg === 'logs' || arg === 'publish' || arg === 'evolve' || arg === 'new' || arg === 'agent' || arg === 'reply') && !args.command) {
+    } else if ((arg === 'status' || arg === 'start' || arg === 'stop' || arg === 'restart' || arg === 'logs' || arg === 'publish' || arg === 'evolve' || arg === 'create' || arg === 'followup') && !args.command) {
       args.command = arg;
-    } else if (args.command === 'evolve' && !args.evolveAction && (arg === 'create' || arg === 'run' || arg === 'followup')) {
+    } else if (args.command === 'evolve' && !args.evolveAction && (arg === 'create' || arg === 'followup')) {
       args.evolveAction = arg;
-    } else if (args.command === 'new' || args.command === 'reply' || (args.command === 'evolve' && (args.evolveAction === 'create' || args.evolveAction === 'followup'))) {
+    } else if (arg.startsWith('--')) {
+      throw new Error(`Unknown argument: ${arg}`);
+    } else if (args.command === 'create' || args.command === 'followup' || (args.command === 'evolve' && (args.evolveAction === 'create' || args.evolveAction === 'followup'))) {
       args.requestParts.push(arg);
     } else {
       throw new Error(`Unknown argument: ${arg}`);
@@ -310,7 +300,7 @@ async function localSessionForThread(threadId: string, userId: string, args: Arg
   };
 }
 
-async function handleNew(args: Args): Promise<void> {
+async function handleCreate(args: Args): Promise<void> {
   const requestText = await readRequest(args.requestParts);
   const user = await resolveCliUser(args.user);
   if (!(await hasEvolvePermission(user.id))) throw new Error(`User ${user.username} does not have evolve permission.`);
@@ -327,36 +317,25 @@ async function handleNew(args: Args): Promise<void> {
   });
   const body = await response.json() as { sessionId?: string; error?: string };
   if (!response.ok) throw new Error(body.error ?? `evolve session creation failed (${response.status})`);
-  if (args.json) printJson({ ok: true, command: 'new', ...body });
+  if (args.json) printJson({ ok: true, command: 'create', ...body });
   else console.log(`Evolve thread ${body.sessionId} complete. Open /evolve/session/${body.sessionId}`);
 }
 
-async function handleAgent(args: Args): Promise<void> {
-  const user = await resolveCliUser(args.user);
-  if (!(await hasEvolvePermission(user.id))) throw new Error(`User ${user.username} does not have evolve permission.`);
-  const threadId = args.thread ?? resolveDefaultThreadId();
-  const session = await localSessionForThread(threadId, user.id, args);
-  await runFollowupInWorktree(session, session.request, process.cwd());
-  if (args.json) printJson({ ok: true, command: 'agent', thread: threadId });
-  else console.log(`Agent turn complete for ${threadId}.`);
-}
-
-async function handleReply(args: Args): Promise<void> {
+async function handleFollowup(args: Args): Promise<void> {
   const requestText = await readRequest(args.requestParts);
   const user = await resolveCliUser(args.user);
   if (!(await hasEvolvePermission(user.id))) throw new Error(`User ${user.username} does not have evolve permission.`);
-  const threadId = args.thread ?? resolveDefaultThreadId();
+  const threadId = resolveDefaultThreadId();
   const session = await localSessionForThread(threadId, user.id, args);
   await runFollowupInWorktree(session, requestText, process.cwd());
-  if (args.json) printJson({ ok: true, command: 'reply', thread: threadId });
+  if (args.json) printJson({ ok: true, command: 'followup', thread: threadId });
   else console.log(`Follow-up complete for ${threadId}.`);
 }
 
 async function handleEvolve(args: Args): Promise<void> {
-  if (!args.evolveAction) throw new Error('evolve requires one of: create, run, followup');
-  if (args.evolveAction === 'create') return handleNew(args);
-  if (args.evolveAction === 'run') return handleAgent(args);
-  return handleReply(args);
+  if (!args.evolveAction) throw new Error('evolve requires one of: create, followup');
+  if (args.evolveAction === 'create') return handleCreate(args);
+  return handleFollowup(args);
 }
 
 async function main(): Promise<void> {
@@ -369,18 +348,13 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (args.command === 'new') {
-    await handleNew(args);
+  if (args.command === 'create') {
+    await handleCreate(args);
     return;
   }
 
-  if (args.command === 'agent') {
-    await handleAgent(args);
-    return;
-  }
-
-  if (args.command === 'reply') {
-    await handleReply(args);
+  if (args.command === 'followup') {
+    await handleFollowup(args);
     return;
   }
 
