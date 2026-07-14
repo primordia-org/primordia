@@ -6,7 +6,7 @@
 
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
-import { createEvolveSessionFromText } from '@/lib/evolve-create';
+import { createThread } from '@/lib/threads';
 import { getSessionUser, isAdmin, hasEvolvePermission } from '@/lib/auth';
 import { archiveSessionNdjsonLog } from '@/lib/session-archive';
 import { readLatestLeakDiagnostics, readLeakDiagnosticsSummary } from '@/lib/leak-diagnostics';
@@ -193,7 +193,7 @@ export async function POST(request: Request) {
       `Diagnostics file path on the production instance: ${summary.path}\n\n` +
       `Captured diagnostics:\n\n${diagnostics}`;
 
-    const evolveResult = await createEvolveSessionFromText({ userId: user.id, requestText });
+    const evolveResult = await createThread({ userId: user.id, requestText });
     if (!evolveResult.ok) {
       return Response.json({ error: evolveResult.error ?? 'Failed to create evolve session' }, { status: evolveResult.status });
     }

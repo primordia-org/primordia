@@ -1,7 +1,7 @@
 // app/api/admin/dependencies-security/route.ts
 // Runs `bun audit` for admins and creates evolve sessions to update vulnerable packages.
 
-import { createEvolveSessionFromText } from "@/lib/evolve-create";
+import { createThread } from "@/lib/threads";
 import { getSessionUser, isAdmin, hasEvolvePermission } from "@/lib/auth";
 import { runBunAudit, writeDependencyAuditNotification, type BunAuditResult } from "@/lib/dependency-audit";
 
@@ -95,7 +95,7 @@ async function handlePost(request: Request) {
     // prompt in a synthetic Request for the evolve route to parse again. This
     // avoids loopback networking issues and preserves the generated prompt
     // exactly as constructed, including the beginning of long audit prompts.
-    const evolveResult = await createEvolveSessionFromText({
+    const evolveResult = await createThread({
       userId: user!.id,
       requestText: evolveRequestText,
     });

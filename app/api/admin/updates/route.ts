@@ -39,7 +39,7 @@ import {
   getRepoRoot,
   getWorktreesDir,
   type LocalSession,
-} from "@/lib/evolve-sessions";
+} from "@/lib/threads";
 import {
   appendSessionEvent,
   getSessionNdjsonPath,

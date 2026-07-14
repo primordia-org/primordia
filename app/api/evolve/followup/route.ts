@@ -9,9 +9,9 @@ import * as fs from 'fs';
 import { getSessionUser } from '@/lib/auth';
 import { getEncryptedSecretForUser } from '@/lib/server-secrets';
 import {
-  runFollowupInWorktree,
+  followupThread,
   type LocalSession,
-} from '@/lib/evolve-sessions';
+} from '@/lib/threads';
 import {
   getSessionFromFilesystem,
 } from '@/lib/session-events';
@@ -156,9 +156,9 @@ export async function POST(request: Request) {
   };
   primordiaAesKey = null;
 
-  // Fire-and-forget — runFollowupInWorktree handles all state transitions and
+  // Fire-and-forget — followupThread handles all state transitions and
   // error cases internally, writing events to the NDJSON log.
-  void runFollowupInWorktree(session, requestText, repoRoot, 'running-claude', undefined, undefined, savedAttachmentPaths, {
+  void followupThread(session, requestText, repoRoot, 'running-claude', undefined, undefined, savedAttachmentPaths, {
     ...(presetId ? { presetId } : {}),
     ...(authSource ? { authSource } : {}),
     ...(harness ? { harness } : {}),

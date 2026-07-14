@@ -25,10 +25,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   runGit,
-  runFollowupInWorktree,
+  followupThread,
   resolveConflictsWithAgent,
   type LocalSession,
-} from '@/lib/evolve-sessions';
+} from '@/lib/threads';
 import { getSessionUser } from '@/lib/auth';
 import { getEncryptedSecretForUser } from '@/lib/server-secrets';
 import { normalizeAuthSource, type PresetAuthSource } from '@/lib/presets';
@@ -348,7 +348,7 @@ async function runAcceptAsync(
           model,
         };
         console.log(`[runAcceptAsync] typecheck failed for session ${sessionId}, starting auto-fix`);
-        void runFollowupInWorktree(
+        void followupThread(
           autoFixSession, fixPrompt, repoRoot, 'fixing-types',
           (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch),
           /* internalSectionType */ 'type_fix',
@@ -584,8 +584,8 @@ export async function POST(request: Request) {
           harness: agentSelection.harness,
           model: agentSelection.model,
         };
-        // runFollowupInWorktree will emit the 'auto_commit' section_start itself.
-        void runFollowupInWorktree(commitSession, commitPrompt, repoRoot, 'running-claude', /* onSuccess */ undefined, /* internalSectionType */ 'auto_commit');
+        // followupThread will emit the 'auto_commit' section_start itself.
+        void followupThread(commitSession, commitPrompt, repoRoot, 'running-claude', /* onSuccess */ undefined, /* internalSectionType */ 'auto_commit');
         return Response.json({ outcome: 'auto-committing' });
       }
 

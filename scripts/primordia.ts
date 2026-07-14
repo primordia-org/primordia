@@ -14,7 +14,7 @@ import {
   type ProcessStatusReport,
   type ServerStartMode,
 } from '@/lib/process-manager';
-import { createEvolveSessionFromText } from '@/lib/evolve-create';
+import { createThread, followupThread, type LocalSession } from '@/lib/threads';
 import { getDb } from '@/lib/db';
 import { hasEvolvePermission } from '@/lib/auth';
 import { DEFAULT_HARNESS, DEFAULT_MODEL } from '@/lib/agent-config';
@@ -29,11 +29,9 @@ import {
   type PresetAuthSource,
 } from '@/lib/presets';
 import { getSessionFromFilesystem, readSessionEvents, getSessionNdjsonPath } from '@/lib/session-events';
-import { runFollowupInWorktree, type LocalSession } from '@/lib/evolve-sessions';
 
 interface Args {
-  command: 'status' | 'start' | 'stop' | 'restart' | 'logs' | 'publish' | 'evolve' | 'create' | 'followup' | null;
-  evolveAction: 'create' | 'followup' | null;
+  command: 'status' | 'start' | 'stop' | 'restart' | 'logs' | 'publish' | 'create' | 'followup' | null;
   json: boolean;
   follow: boolean;
   worktreeName: string | null;
@@ -56,7 +54,6 @@ function printUsage(): void {
   bun run primordia publish [--json] [--worktree <worktreename>]
   bun run primordia create [--user <id-or-username>] [--preset <id>] [--auth-source <source>] "change request"
   bun run primordia followup [--user <id-or-username>] "follow-up request"
-  bun run primordia evolve create|followup ...
 
 Commands:
   status      List reverse proxy, worktrees, Next.js servers, and active agents.
@@ -65,9 +62,8 @@ Commands:
   restart     Stop, then start, a worktree's server.
   logs        Print a worktree's server log file.
   publish     Health-check, then mark a worktree branch as production.
-  create      Create an evolve thread and run its initial agent turn.
-  followup    Run a follow-up request on the cwd's evolve thread.
-  evolve      Compatibility namespace: create/followup aliases.
+  create      Create a thread and run its initial agent turn.
+  followup    Run a follow-up request on the cwd's thread.
 
 Options:
   --worktree     Worktree branch, basename, or path. Defaults to the worktree containing cwd.
@@ -75,8 +71,8 @@ Options:
   --follow       Keep streaming appended log lines (logs command only).
   --dev          Start with bun run dev (default for start/restart).
   --prod         Start with bun run start.
-  --user         Primordia user id or username for evolve commands.
-  --preset       Evolve preset id. Defaults to the user's saved preset when available.
+  --user         Primordia user id or username for thread commands.
+  --preset       Preset id. Defaults to the user's saved preset when available.
   --harness      Agent harness id for create/followup when not using a preset.
   --model        Model id for create/followup when not using a preset.
   --auth-source  Billing source. Secret-backed sources require PRIMORDIA_AES_KEY.
@@ -86,7 +82,6 @@ Options:
 function parseArgs(argv: string[]): Args {
   const args: Args = {
     command: null,
-    evolveAction: null,
     json: false,
     follow: false,
     worktreeName: null,
@@ -155,13 +150,11 @@ function parseArgs(argv: string[]): Args {
     } else if (arg === '--help' || arg === '-h') {
       printUsage();
       process.exit(0);
-    } else if ((arg === 'status' || arg === 'start' || arg === 'stop' || arg === 'restart' || arg === 'logs' || arg === 'publish' || arg === 'evolve' || arg === 'create' || arg === 'followup') && !args.command) {
+    } else if ((arg === 'status' || arg === 'start' || arg === 'stop' || arg === 'restart' || arg === 'logs' || arg === 'publish' || arg === 'create' || arg === 'followup') && !args.command) {
       args.command = arg;
-    } else if (args.command === 'evolve' && !args.evolveAction && (arg === 'create' || arg === 'followup')) {
-      args.evolveAction = arg;
     } else if (arg.startsWith('--')) {
       throw new Error(`Unknown argument: ${arg}`);
-    } else if (args.command === 'create' || args.command === 'followup' || (args.command === 'evolve' && (args.evolveAction === 'create' || args.evolveAction === 'followup'))) {
+    } else if (args.command === 'create' || args.command === 'followup') {
       args.requestParts.push(arg);
     } else {
       throw new Error(`Unknown argument: ${arg}`);
@@ -305,7 +298,7 @@ async function handleCreate(args: Args): Promise<void> {
   const user = await resolveCliUser(args.user);
   if (!(await hasEvolvePermission(user.id))) throw new Error(`User ${user.username} does not have evolve permission.`);
   const selection = await resolveEvolveSelection(args, user.id);
-  const result = await createEvolveSessionFromText({
+  const result = await createThread({
     userId: user.id,
     requestText,
     harness: selection.harness,
@@ -317,7 +310,7 @@ async function handleCreate(args: Args): Promise<void> {
   });
   if (!result.ok) throw new Error(result.error ?? `evolve session creation failed (${result.status})`);
   if (args.json) printJson({ ok: true, command: 'create', sessionId: result.sessionId });
-  else console.log(`Evolve thread ${result.sessionId} complete. Open /evolve/session/${result.sessionId}`);
+  else console.log(`Thread ${result.sessionId} complete. Open /evolve/session/${result.sessionId}`);
 }
 
 async function handleFollowup(args: Args): Promise<void> {
@@ -326,15 +319,9 @@ async function handleFollowup(args: Args): Promise<void> {
   if (!(await hasEvolvePermission(user.id))) throw new Error(`User ${user.username} does not have evolve permission.`);
   const threadId = resolveDefaultThreadId();
   const session = await localSessionForThread(threadId, user.id, args);
-  await runFollowupInWorktree(session, requestText, process.cwd());
+  await followupThread(session, requestText, process.cwd());
   if (args.json) printJson({ ok: true, command: 'followup', thread: threadId });
   else console.log(`Follow-up complete for ${threadId}.`);
-}
-
-async function handleEvolve(args: Args): Promise<void> {
-  if (!args.evolveAction) throw new Error('evolve requires one of: create, followup');
-  if (args.evolveAction === 'create') return handleCreate(args);
-  return handleFollowup(args);
 }
 
 async function main(): Promise<void> {
@@ -354,11 +341,6 @@ async function main(): Promise<void> {
 
   if (args.command === 'followup') {
     await handleFollowup(args);
-    return;
-  }
-
-  if (args.command === 'evolve') {
-    await handleEvolve(args);
     return;
   }
 

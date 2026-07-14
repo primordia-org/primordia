@@ -16,7 +16,7 @@ import { CAVEMAN_INTENSITIES, DEFAULT_CAVEMAN_INTENSITY, type CavemanIntensity }
 import { normalizeAuthSource, type PresetAuthSource } from '@/lib/presets';
 import { getSessionFromFilesystem } from '@/lib/session-events';
 import { DEFAULT_HARNESS, DEFAULT_MODEL } from '@/lib/agent-config';
-import { createEvolveSessionFromText } from '@/lib/evolve-create';
+import { createThread } from '@/lib/threads';
 
 /** Multipart form-data body for POST /evolve */
 export interface EvolvePostFormData {
@@ -125,7 +125,7 @@ async function handlePost(request: Request) {
     if (body.primordiaAesKey) primordiaAesKey = body.primordiaAesKey;
   }
 
-  const result = await createEvolveSessionFromText({
+  const result = await createThread({
     userId: user.id,
     requestText,
     harness,

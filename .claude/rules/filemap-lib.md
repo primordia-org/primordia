@@ -15,8 +15,7 @@ lib/
 ├── branch-parent.ts             ← Branch-marker commit helpers for persistent branch parentage with legacy git-config fallback
 ├── git-runtime.ts               ← Git runtime metadata helpers for worktree enumeration, branch ports, and production branch config
 ├── hooks.ts                     ← Shared React hooks: useSessionUser (fetches session on mount, provides logout)
-├── evolve-sessions.ts           ← Shared local evolve session state, worktree orchestration, workers, previews, accept/reject logic, SQLite persistence
-├── evolve-create.ts             ← Shared evolve thread creation facade used by API routes and CLI commands; CLI scripts must import this instead of app/api/**/route.ts
+├── threads.ts                   ← Shared thread creation/follow-up facade plus worktree orchestration, workers, previews, accept/reject logic; used by API routes and CLI commands so CLI scripts never import app/api/**/route.ts
 ├── page-title.ts                ← buildPageTitle(): formats <title> with branch suffix in development mode
 ├── sounds.ts                    ← Procedural Web Audio UI sound effects and useSounds() hook
 ├── llm-client.ts                ← Creates Anthropic client: exe.dev gateway or direct API key
@@ -85,4 +84,4 @@ Each line is `<key><space><value>` with no `=`. Git **lowercases the section and
 
 ### Code reference
 
-See `lib/update-sources.ts` for the subsection pattern. See `lib/evolve-sessions.ts` (`getOrAssignBranchPort`) for a simple single-key read/write example.
+See `lib/update-sources.ts` for the subsection pattern. See `lib/threads.ts` (`getOrAssignBranchPort`) for a simple single-key read/write example.

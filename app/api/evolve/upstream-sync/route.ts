@@ -4,7 +4,7 @@
 //   Body: { sessionId: string; action: "merge" }
 //   Returns: { outcome: "merged" | "merged-with-conflict-resolution"; log: string }
 
-import { hotswapProductionDbIntoWorktree, runCommand, runGit, resolveConflictsWithAgent } from '@/lib/evolve-sessions';
+import { hotswapProductionDbIntoWorktree, runCommand, runGit, resolveConflictsWithAgent } from '@/lib/threads';
 import { getSessionUser } from '@/lib/auth';
 import { getSessionFromFilesystem } from '@/lib/session-events';
 import { getParentBranch } from '@/lib/branch-parent';
