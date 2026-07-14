@@ -1856,8 +1856,8 @@ export default function EvolveSessionView({
     setDiffSummaryError(null);
     try {
       const res = await fetch(
-        withBasePath(`/api/evolve/diff-summary?sessionId=${sessionId}&t=${Date.now()}`),
-        { cache: "no-store" },
+        withBasePath(`/api/evolve/diff-summary?sessionId=${sessionId}`),
+        { cache: "no-cache" },
       );
       if (!res.ok) throw new Error(`Refresh failed (${res.status})`);
       const data = await res.json() as { files?: DiffFileSummary[] };
@@ -2446,6 +2446,8 @@ export default function EvolveSessionView({
                   key={f.file}
                   sessionId={sessionId}
                   file={f.file}
+                  diffPath={f.diffPath}
+                  oldPath={f.oldPath}
                   additions={f.additions}
                   deletions={f.deletions}
                   isLast={i === liveDiffSummary.length - 1}

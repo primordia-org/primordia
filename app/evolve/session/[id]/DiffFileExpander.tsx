@@ -12,6 +12,8 @@ import { trackEvent } from "@/lib/events-client";
 interface Props {
   sessionId: string;
   file: string;
+  diffPath?: string;
+  oldPath?: string;
   additions: number;
   deletions: number;
   isLast: boolean;
@@ -53,7 +55,7 @@ function ColorizedDiff({ raw }: { raw: string }) {
   );
 }
 
-export function DiffFileExpander({ sessionId, file, additions, deletions, isLast, refreshToken }: Props) {
+export function DiffFileExpander({ sessionId, file, diffPath, oldPath, additions, deletions, isLast, refreshToken }: Props) {
   const [open, setOpen] = useState(false);
   const [diff, setDiff] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -67,9 +69,9 @@ export function DiffFileExpander({ sessionId, file, additions, deletions, isLast
       setLoading(true);
       fetch(
         withBasePath(
-          `/api/evolve/diff?sessionId=${encodeURIComponent(sessionId)}&file=${encodeURIComponent(file)}&t=${Date.now()}`,
+          `/api/evolve/diff?sessionId=${encodeURIComponent(sessionId)}&file=${encodeURIComponent(file)}${diffPath ? `&diffPath=${encodeURIComponent(diffPath)}` : ""}${oldPath ? `&oldPath=${encodeURIComponent(oldPath)}` : ""}`,
         ),
-        { cache: "no-store", signal: controller.signal },
+        { cache: "no-cache", signal: controller.signal },
       )
         .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
         .then((text) => setDiff(text))
@@ -83,7 +85,7 @@ export function DiffFileExpander({ sessionId, file, additions, deletions, isLast
     });
 
     return () => controller.abort();
-  }, [file, open, refreshToken, sessionId]);
+  }, [diffPath, file, oldPath, open, refreshToken, sessionId]);
 
   function handleToggle() {
     const nextOpen = !open;

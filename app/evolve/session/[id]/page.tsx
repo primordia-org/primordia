@@ -46,8 +46,24 @@ function readGitBranch(): string | null {
 
 export interface DiffFileSummary {
   file: string;
+  diffPath?: string;
+  oldPath?: string;
   additions: number;
   deletions: number;
+}
+
+function getRenamePathsFromNumstatFile(file: string): { oldPath: string; newPath: string } | null {
+  if (!file.includes(" => ")) return null;
+
+  const oldPath = file.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, "$1");
+  const newPath = file.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, "$2");
+  if (oldPath !== file || newPath !== file) return { oldPath, newPath };
+
+  const separator = file.lastIndexOf(" => ");
+  return {
+    oldPath: file.slice(0, separator).trim(),
+    newPath: file.slice(separator + " => ".length).trim(),
+  };
 }
 
 function getGitDiffSummary(sessionBranch: string, parentSource: BranchParentSource): DiffFileSummary[] {
@@ -56,7 +72,7 @@ function getGitDiffSummary(sessionBranch: string, parentSource: BranchParentSour
     if (!parentBranch) return [];
 
     const output = execSync(
-      `git diff --numstat -w ${parentBranch}...${sessionBranch}`,
+      `git diff --numstat -M -w ${parentBranch}...${sessionBranch}`,
       { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
     ).trim();
 
@@ -67,10 +83,12 @@ function getGitDiffSummary(sessionBranch: string, parentSource: BranchParentSour
       if (parts.length < 3) return [];
       const file = parts[2].trim();
       if (!file) return [];
+      const renamePaths = getRenamePathsFromNumstatFile(file);
       return [{
         additions: parseInt(parts[0], 10) || 0,
         deletions: parseInt(parts[1], 10) || 0,
         file,
+        ...(renamePaths ? { diffPath: renamePaths.newPath, oldPath: renamePaths.oldPath } : {}),
       }];
     });
   } catch {
