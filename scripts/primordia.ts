@@ -37,7 +37,7 @@ function printUsage(): void {
   bun run primordia logs [--follow] [--json] [--worktree <worktreename>]
   bun run primordia publish [--json] [--worktree <worktreename>]
   bun run primordia create [--user <id-or-username>] [--preset <id>] "change request"
-  bun run primordia followup [--user <id-or-username>] "follow-up request"
+  bun run primordia followup [--user <id-or-username>] [--preset <id>] "follow-up request"
 
 Commands:
   status      List reverse proxy, worktrees, Next.js servers, and active agents.
@@ -58,7 +58,7 @@ Options:
   --user         Primordia user id or username for thread commands.
   --preset       Preset id. Defaults to the user's saved preset when available.
                  Secret-backed presets require PRIMORDIA_AES_KEY.
-                 Pass '-' as the request to read it from stdin.`);
+  request        Pass '-' as the request to read it from stdin.`);
 }
 
 function parseArgs(argv: string[]): Args {
