@@ -11,6 +11,7 @@ import {
   appendSessionEvent,
   readSessionEvents,
   getSessionNdjsonPath,
+  getSessionFromFilesystem,
   listSessionsFromFilesystem,
   type SessionEvent,
   type AgentAuthInfo,
@@ -19,6 +20,7 @@ import { HARNESS_OPTIONS, DEFAULT_HARNESS, DEFAULT_MODEL } from './agent-config'
 import { MODEL_OPTIONS } from './agent-config';
 import { withSocketStatusHint } from './socket-status';
 import { restartWorktreeServer } from './process-manager';
+import { hasEvolvePermission } from './auth';
 import { progressSummary, reduceProgressEventsAcrossRuns, type ProgressStateStep } from './progress-monitor';
 import { decryptStoredSecretForUser, getEncryptedSecretForUser } from './server-secrets';
 import { getDb } from './db';
@@ -990,7 +992,7 @@ export async function startLocalEvolve(
  *   Use for automated fix passes (e.g. type-fix) that are part of the merge pipeline, not
  *   user-visible changes.
  */
-export async function followupThread(
+async function runFollowupThreadInWorktree(
   session: LocalSession,
   followupRequest: string,
   repoRoot: string,
@@ -1154,6 +1156,93 @@ export async function followupThread(
   }
 }
 
+export interface FollowupThreadOptions {
+  userId: string;
+  threadId: string;
+  requestText: string;
+  presetId?: string | null;
+  primordiaAesKey?: string | null;
+  attachmentPaths?: string[];
+  /** When false, await the worker before returning. CLI callers use this so the process stays alive. */
+  runInBackground?: boolean;
+}
+
+export async function followupThread(
+  options: FollowupThreadOptions,
+): Promise<{ ok: true; threadId: string } | { ok: false; status: 400 | 403 | 404; error: string }>;
+export async function followupThread(
+  session: LocalSession,
+  followupRequest: string,
+  repoRoot: string,
+  inProgressStatus?: LocalSessionStatus,
+  onSuccess?: (session: LocalSession) => Promise<void>,
+  internalSectionType?: 'type_fix' | 'auto_commit',
+  attachmentPaths?: string[],
+  requestMetadata?: { presetId?: string },
+): Promise<void>;
+export async function followupThread(
+  first: FollowupThreadOptions | LocalSession,
+  followupRequest?: string,
+  repoRoot: string = process.cwd(),
+  inProgressStatus: LocalSessionStatus = 'running-claude',
+  onSuccess?: (session: LocalSession) => Promise<void>,
+  internalSectionType?: 'type_fix' | 'auto_commit',
+  attachmentPaths: string[] = [],
+  requestMetadata: { presetId?: string } = {},
+): Promise<void | { ok: true; threadId: string } | { ok: false; status: 400 | 403 | 404; error: string }> {
+  if ('threadId' in first) {
+    const options = first;
+    if (!(await hasEvolvePermission(options.userId))) {
+      return { ok: false, status: 403, error: 'User does not have evolve permission.' };
+    }
+    const record = getSessionFromFilesystem(options.threadId, repoRoot);
+    if (!record) return { ok: false, status: 404, error: 'Session not found' };
+    if (record.status !== 'ready') {
+      return { ok: false, status: 400, error: `Session is not in a state that accepts follow-up requests (current status: ${record.status})` };
+    }
+    const session: LocalSession = {
+      id: record.id,
+      branch: record.branch,
+      worktreePath: record.worktreePath,
+      status: record.status as LocalSession['status'],
+      devServerStatus: record.previewUrl ? 'running' : 'none',
+      port: record.port,
+      previewUrl: record.previewUrl,
+      request: record.request,
+      createdAt: record.createdAt,
+      aesKey: options.primordiaAesKey ?? undefined,
+      userId: options.userId,
+    };
+    const runPromise = runFollowupThreadInWorktree(
+      session,
+      options.requestText,
+      repoRoot,
+      'running-claude',
+      undefined,
+      undefined,
+      options.attachmentPaths ?? [],
+      options.presetId ? { presetId: options.presetId } : {},
+    );
+    if (options.runInBackground ?? true) void runPromise;
+    else await runPromise;
+    return { ok: true, threadId: options.threadId };
+  }
+
+  if (!(await hasEvolvePermission(first.userId))) {
+    throw new Error('User does not have evolve permission.');
+  }
+  await runFollowupThreadInWorktree(
+    first,
+    followupRequest ?? '',
+    repoRoot,
+    inProgressStatus,
+    onSuccess,
+    internalSectionType,
+    attachmentPaths,
+    requestMetadata,
+  );
+}
+
 // ─── Restart dev server ───────────────────────────────────────────────────────
 
 /**
@@ -1288,7 +1377,7 @@ export interface CreateThreadOptions {
 
 export type CreateThreadResult =
   | { ok: true; status: 200; sessionId: string }
-  | { ok: false; status: 400 | 500; error: string };
+  | { ok: false; status: 400 | 403 | 500; error: string };
 
 async function resolveThreadPreset(userId: string, requestedPresetId?: string | null): Promise<EvolvePreset> {
   const db = await getDb();
@@ -1436,6 +1525,10 @@ export async function createThread({
   savedAttachmentPaths = [],
   runInBackground = true,
 }: CreateThreadOptions): Promise<CreateThreadResult> {
+  if (!(await hasEvolvePermission(userId))) {
+    return { ok: false, status: 403, error: 'User does not have evolve permission.' };
+  }
+
   let preset: EvolvePreset;
   try {
     preset = await resolveThreadPreset(userId, presetId);

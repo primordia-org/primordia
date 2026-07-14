@@ -7,13 +7,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { getSessionUser } from '@/lib/auth';
-import {
-  followupThread,
-  type LocalSession,
-} from '@/lib/threads';
-import {
-  getSessionFromFilesystem,
-} from '@/lib/session-events';
+import { followupThread } from '@/lib/threads';
 
 /** Multipart form-data body for POST /evolve/followup */
 export interface EvolveFollowupFormData {
@@ -99,40 +93,17 @@ export async function POST(request: Request) {
     if (body.primordiaAesKey) primordiaAesKey = body.primordiaAesKey;
   }
 
-  const repoRoot = process.cwd();
-  const record = getSessionFromFilesystem(sessionId, repoRoot);
-  if (!record) {
-    return Response.json({ error: 'Session not found' }, { status: 404 });
-  }
-
-  if (record.status !== 'ready') {
-    return Response.json(
-      { error: `Session is not in a state that accepts follow-up requests (current status: ${record.status})` },
-      { status: 400 },
-    );
-  }
-
-  // Build the LocalSession object from the filesystem record.
-  const session: LocalSession = {
-    id: record.id,
-    branch: record.branch,
-    worktreePath: record.worktreePath,
-    status: record.status as LocalSession['status'],
-    devServerStatus: 'running',
-    port: record.port,
-    previewUrl: record.previewUrl,
-    request: record.request,
-    createdAt: record.createdAt,
-    aesKey: primordiaAesKey ?? undefined,
+  const result = await followupThread({
     userId: user.id,
-  };
+    threadId: sessionId,
+    requestText,
+    presetId,
+    primordiaAesKey,
+    attachmentPaths: savedAttachmentPaths,
+    runInBackground: true,
+  });
   primordiaAesKey = null;
 
-  // Fire-and-forget — followupThread handles all state transitions and
-  // error cases internally, writing events to the NDJSON log.
-  void followupThread(session, requestText, repoRoot, 'running-claude', undefined, undefined, savedAttachmentPaths, {
-    ...(presetId ? { presetId } : {}),
-  });
-
+  if (!result.ok) return Response.json({ error: result.error }, { status: result.status });
   return Response.json({ ok: true });
 }

@@ -14,10 +14,8 @@ import {
   type ProcessStatusReport,
   type ServerStartMode,
 } from '@/lib/process-manager';
-import { createThread, followupThread, type LocalSession } from '@/lib/threads';
+import { createThread, followupThread } from '@/lib/threads';
 import { getDb } from '@/lib/db';
-import { hasEvolvePermission } from '@/lib/auth';
-import { getSessionFromFilesystem, readSessionEvents, getSessionNdjsonPath } from '@/lib/session-events';
 
 interface Args {
   command: 'status' | 'start' | 'stop' | 'restart' | 'logs' | 'publish' | 'create' | 'followup' | null;
@@ -207,35 +205,9 @@ function resolveDefaultThreadId(): string {
   return resolveDefaultWorktreeName(getProcessStatusReport());
 }
 
-async function localSessionForThread(threadId: string, userId: string): Promise<LocalSession> {
-  const record = getSessionFromFilesystem(threadId, process.cwd());
-  if (!record) throw new Error(`Evolve thread not found: ${threadId}`);
-  const events = readSessionEvents(getSessionNdjsonPath(record.worktreePath)).events;
-  const initial = events.find((event) => event.type === 'initial_request') as
-    | Extract<(typeof events)[number], { type: 'initial_request' }>
-    | undefined;
-  return {
-    id: record.id,
-    branch: record.branch,
-    worktreePath: record.worktreePath,
-    status: record.status as LocalSession['status'],
-    devServerStatus: record.previewUrl ? 'running' : 'none',
-    port: record.port,
-    previewUrl: record.previewUrl,
-    request: record.request,
-    createdAt: record.createdAt,
-    harness: initial?.harness,
-    model: initial?.model,
-    aesKey: process.env.PRIMORDIA_AES_KEY,
-    authSource: initial?.authSource,
-    userId,
-  };
-}
-
 async function handleCreate(args: Args): Promise<void> {
   const requestText = await readRequest(args.requestParts);
   const user = await resolveCliUser(args.user);
-  if (!(await hasEvolvePermission(user.id))) throw new Error(`User ${user.username} does not have evolve permission.`);
   const result = await createThread({
     userId: user.id,
     requestText,
@@ -251,12 +223,16 @@ async function handleCreate(args: Args): Promise<void> {
 async function handleFollowup(args: Args): Promise<void> {
   const requestText = await readRequest(args.requestParts);
   const user = await resolveCliUser(args.user);
-  if (!(await hasEvolvePermission(user.id))) throw new Error(`User ${user.username} does not have evolve permission.`);
   const threadId = resolveDefaultThreadId();
-  const session = await localSessionForThread(threadId, user.id);
-  await followupThread(session, requestText, process.cwd(), 'running-claude', undefined, undefined, [], {
-    ...(args.presetId ? { presetId: args.presetId } : {}),
+  const result = await followupThread({
+    userId: user.id,
+    threadId,
+    requestText,
+    presetId: args.presetId,
+    primordiaAesKey: process.env.PRIMORDIA_AES_KEY ?? null,
+    runInBackground: false,
   });
+  if (!result.ok) throw new Error(result.error);
   if (args.json) printJson({ ok: true, command: 'followup', thread: threadId });
   else console.log(`Follow-up complete for ${threadId}.`);
 }

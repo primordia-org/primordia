@@ -2,7 +2,7 @@
 // Runs `bun audit` for admins and creates evolve sessions to update vulnerable packages.
 
 import { createThread } from "@/lib/threads";
-import { getSessionUser, isAdmin, hasEvolvePermission } from "@/lib/auth";
+import { getSessionUser, isAdmin } from "@/lib/auth";
 import { runBunAudit, writeDependencyAuditNotification, type BunAuditResult } from "@/lib/dependency-audit";
 
 async function requireAdmin() {
@@ -71,10 +71,6 @@ async function handlePost(request: Request) {
   }
 
   if (action === "create-session") {
-    if (!(await hasEvolvePermission(user!.id))) {
-      return Response.json({ error: "You need the evolve permission to create threads." }, { status: 403 });
-    }
-
     const result = runBunAudit();
     writeDependencyAuditNotification(process.cwd(), result);
     const issueList = result.findings.length > 0

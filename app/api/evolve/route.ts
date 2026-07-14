@@ -11,7 +11,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import { getSessionUser, hasEvolvePermission } from '@/lib/auth';
+import { getSessionUser } from '@/lib/auth';
 import { CAVEMAN_INTENSITIES, DEFAULT_CAVEMAN_INTENSITY, type CavemanIntensity } from '@/lib/user-prefs';
 import { getSessionFromFilesystem } from '@/lib/session-events';
 import { createThread } from '@/lib/threads';
@@ -46,10 +46,6 @@ async function handlePost(request: Request) {
   const user = await getSessionUser();
   if (!user) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
-  }
-
-  if (!(await hasEvolvePermission(user.id))) {
-    return Response.json({ error: 'You do not have permission to use the evolve flow' }, { status: 403 });
   }
 
   // Parse request body — supports both JSON (legacy) and multipart/form-data (with file attachments).
