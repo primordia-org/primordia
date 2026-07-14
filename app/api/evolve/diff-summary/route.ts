@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     const parentBranch = getParentBranch(session.branch, undefined, parentSource);
 
     if (!parentBranch) {
-      return NextResponse.json({ files: [] });
+      return NextResponse.json({ files: [] }, { headers: { "Cache-Control": "no-store" } });
     }
 
     const output = execSync(
@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
     ).trim();
 
     if (!output) {
-      return NextResponse.json({ files: [] });
+      return NextResponse.json({ files: [] }, { headers: { "Cache-Control": "no-store" } });
     }
 
     const files: DiffFileSummary[] = output.split("\n").flatMap((line) => {
@@ -61,8 +61,8 @@ export async function GET(req: NextRequest) {
       }];
     });
 
-    return NextResponse.json({ files });
+    return NextResponse.json({ files }, { headers: { "Cache-Control": "no-store" } });
   } catch {
-    return NextResponse.json({ files: [] });
+    return NextResponse.json({ files: [] }, { headers: { "Cache-Control": "no-store" } });
   }
 }

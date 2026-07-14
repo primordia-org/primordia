@@ -46,7 +46,10 @@ export async function GET(req: NextRequest) {
     );
 
     return new NextResponse(diff, {
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
     });
   } catch {
     return NextResponse.json({ error: "Failed to compute diff" }, { status: 500 });
