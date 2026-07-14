@@ -7,7 +7,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { getSessionUser } from '@/lib/auth';
-import { getEncryptedSecretForUser } from '@/lib/server-secrets';
 import {
   followupThread,
   type LocalSession,
@@ -15,14 +14,12 @@ import {
 import {
   getSessionFromFilesystem,
 } from '@/lib/session-events';
-import { normalizeAuthSource, type PresetAuthSource } from '@/lib/presets';
 
 /** Multipart form-data body for POST /evolve/followup */
 export interface EvolveFollowupFormData {
   sessionId: string; // The session ID (git branch name) of the ready session to continue.
   request: string; // The follow-up change request text for Claude Code.
-  harness?: string; // Agent harness override for this follow-up run.
-  model?: string; // AI model override for this follow-up run.
+  presetId?: string; // Preset ID; billing source, harness, and model are resolved from this preset.
   primordiaAesKey?: string; // Optional localStorage primordia_aes_key JWK used by the worker to decrypt the selected stored secret.
   attachments?: string; // Optional additional file attachments to include in this follow-up run.
 }
@@ -43,9 +40,6 @@ export async function POST(request: Request) {
   // Parse request body — supports both JSON (legacy) and multipart/form-data (with file attachments).
   let sessionId: string;
   let requestText: string;
-  let harness: string | undefined;
-  let model: string | undefined;
-  let authSource: PresetAuthSource | null = null;
   let presetId: string | undefined;
   let primordiaAesKey: string | null = null;
   const savedAttachmentPaths: string[] = [];
@@ -63,14 +57,8 @@ export async function POST(request: Request) {
     }
     sessionId = sidField;
     requestText = reqField;
-    const harnessField = formData.get('harness');
-    const modelField = formData.get('model');
-    if (typeof harnessField === 'string' && harnessField) harness = harnessField;
-    if (typeof modelField === 'string' && modelField) model = modelField;
     const presetField = formData.get('presetId');
     if (typeof presetField === 'string' && presetField) presetId = presetField;
-    const authSourceField = formData.get('authSource');
-    if (typeof authSourceField === 'string') authSource = normalizeAuthSource(authSourceField);
     const aesKeyField = formData.get('primordiaAesKey');
     if (typeof aesKeyField === 'string' && aesKeyField) primordiaAesKey = aesKeyField;
 
@@ -98,7 +86,7 @@ export async function POST(request: Request) {
       }
     }
   } else {
-    const body = (await request.json()) as { sessionId?: string; request?: string; harness?: string; model?: string; presetId?: string; authSource?: string; primordiaAesKey?: string };
+    const body = (await request.json()) as { sessionId?: string; request?: string; presetId?: string; primordiaAesKey?: string };
     if (!body.sessionId || typeof body.sessionId !== 'string') {
       return Response.json({ error: 'sessionId string required' }, { status: 400 });
     }
@@ -107,21 +95,8 @@ export async function POST(request: Request) {
     }
     sessionId = body.sessionId;
     requestText = body.request;
-    if (body.harness) harness = body.harness;
-    if (body.model) model = body.model;
     if (body.presetId) presetId = body.presetId;
-    if (body.authSource) authSource = normalizeAuthSource(body.authSource);
     if (body.primordiaAesKey) primordiaAesKey = body.primordiaAesKey;
-  }
-
-  const needsStoredSecret = authSource !== null && authSource !== 'exe-dev-gateway';
-  if (needsStoredSecret && !primordiaAesKey) {
-    return Response.json({ error: 'Selected billing source requires this device’s Primordia AES key. Reconnect the billing source in Settings, then try again.' }, { status: 400 });
-  }
-
-  const encryptedSecret = await getEncryptedSecretForUser(user.id, authSource);
-  if (needsStoredSecret && !encryptedSecret) {
-    return Response.json({ error: 'Selected billing source has no stored secret. Reconnect it in Settings, then try again.' }, { status: 400 });
   }
 
   const repoRoot = process.cwd();
@@ -148,10 +123,7 @@ export async function POST(request: Request) {
     previewUrl: record.previewUrl,
     request: record.request,
     createdAt: record.createdAt,
-    harness,
-    model,
     aesKey: primordiaAesKey ?? undefined,
-    authSource,
     userId: user.id,
   };
   primordiaAesKey = null;
@@ -160,9 +132,6 @@ export async function POST(request: Request) {
   // error cases internally, writing events to the NDJSON log.
   void followupThread(session, requestText, repoRoot, 'running-claude', undefined, undefined, savedAttachmentPaths, {
     ...(presetId ? { presetId } : {}),
-    ...(authSource ? { authSource } : {}),
-    ...(harness ? { harness } : {}),
-    ...(model ? { model } : {}),
   });
 
   return Response.json({ ok: true });

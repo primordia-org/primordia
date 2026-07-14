@@ -17,14 +17,6 @@ import {
 import { createThread, followupThread, type LocalSession } from '@/lib/threads';
 import { getDb } from '@/lib/db';
 import { hasEvolvePermission } from '@/lib/auth';
-import {
-  BUILT_IN_PRESETS,
-  PREF_CUSTOM_PRESETS,
-  PREF_PRESET,
-  parseCustomPresets,
-  type EvolvePreset,
-  type PresetAuthSource,
-} from '@/lib/presets';
 import { getSessionFromFilesystem, readSessionEvents, getSessionNdjsonPath } from '@/lib/session-events';
 
 interface Args {
@@ -211,35 +203,17 @@ async function resolveCliUser(selector: string | null): Promise<{ id: string; us
   throw new Error('Multiple Primordia users exist; pass --user <id-or-username>.');
 }
 
-async function resolvePresetSelection(args: Args, userId: string): Promise<{ harness: string; model: string; presetId: string; authSource: PresetAuthSource }> {
-  const db = await getDb();
-  const prefs = await db.getUserPreferences(userId, [PREF_PRESET, PREF_CUSTOM_PRESETS]);
-  const customPresets = parseCustomPresets(prefs[PREF_CUSTOM_PRESETS]);
-  const presets: EvolvePreset[] = [...BUILT_IN_PRESETS, ...customPresets];
-  const presetId = args.presetId ?? prefs[PREF_PRESET] ?? BUILT_IN_PRESETS[0]?.id;
-  const preset = presetId ? presets.find((candidate) => candidate.id === presetId) : null;
-  if (!preset) throw new Error(`Preset not found: ${presetId}`);
-
-  return {
-    harness: preset.harness,
-    model: preset.model,
-    presetId: preset.id,
-    authSource: preset.authSource,
-  };
-}
-
 function resolveDefaultThreadId(): string {
   return resolveDefaultWorktreeName(getProcessStatusReport());
 }
 
-async function localSessionForThread(threadId: string, userId: string, args: Args): Promise<LocalSession> {
+async function localSessionForThread(threadId: string, userId: string): Promise<LocalSession> {
   const record = getSessionFromFilesystem(threadId, process.cwd());
   if (!record) throw new Error(`Evolve thread not found: ${threadId}`);
   const events = readSessionEvents(getSessionNdjsonPath(record.worktreePath)).events;
   const initial = events.find((event) => event.type === 'initial_request') as
     | Extract<(typeof events)[number], { type: 'initial_request' }>
     | undefined;
-  const selection = await resolvePresetSelection(args, userId);
   return {
     id: record.id,
     branch: record.branch,
@@ -250,10 +224,10 @@ async function localSessionForThread(threadId: string, userId: string, args: Arg
     previewUrl: record.previewUrl,
     request: record.request,
     createdAt: record.createdAt,
-    harness: initial?.harness ?? selection.harness,
-    model: initial?.model ?? selection.model,
+    harness: initial?.harness,
+    model: initial?.model,
     aesKey: process.env.PRIMORDIA_AES_KEY,
-    authSource: initial?.authSource ?? selection.authSource,
+    authSource: initial?.authSource,
     userId,
   };
 }
@@ -262,14 +236,10 @@ async function handleCreate(args: Args): Promise<void> {
   const requestText = await readRequest(args.requestParts);
   const user = await resolveCliUser(args.user);
   if (!(await hasEvolvePermission(user.id))) throw new Error(`User ${user.username} does not have evolve permission.`);
-  const selection = await resolvePresetSelection(args, user.id);
   const result = await createThread({
     userId: user.id,
     requestText,
-    harness: selection.harness,
-    model: selection.model,
-    presetId: selection.presetId,
-    authSource: selection.authSource,
+    presetId: args.presetId,
     primordiaAesKey: process.env.PRIMORDIA_AES_KEY ?? null,
     runInBackground: false,
   });
@@ -283,8 +253,10 @@ async function handleFollowup(args: Args): Promise<void> {
   const user = await resolveCliUser(args.user);
   if (!(await hasEvolvePermission(user.id))) throw new Error(`User ${user.username} does not have evolve permission.`);
   const threadId = resolveDefaultThreadId();
-  const session = await localSessionForThread(threadId, user.id, args);
-  await followupThread(session, requestText, process.cwd());
+  const session = await localSessionForThread(threadId, user.id);
+  await followupThread(session, requestText, process.cwd(), 'running-claude', undefined, undefined, [], {
+    ...(args.presetId ? { presetId: args.presetId } : {}),
+  });
   if (args.json) printJson({ ok: true, command: 'followup', thread: threadId });
   else console.log(`Follow-up complete for ${threadId}.`);
 }

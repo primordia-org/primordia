@@ -23,7 +23,7 @@ import { progressSummary, reduceProgressEventsAcrossRuns, type ProgressStateStep
 import { decryptStoredSecretForUser, getEncryptedSecretForUser } from './server-secrets';
 import { getDb } from './db';
 import { PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY, DEFAULT_CAVEMAN_INTENSITY, type CavemanIntensity } from './user-prefs';
-import { PREF_PRESET, type PresetAuthSource, type SecretAuthSource } from './presets';
+import { BUILT_IN_PRESETS, PREF_CUSTOM_PRESETS, PREF_PRESET, parseCustomPresets, type EvolvePreset, type PresetAuthSource, type SecretAuthSource } from './presets';
 import { ensurePrimordiaPiModelsJson } from './pi-custom-models';
 
 /** Look up the human-readable label for a model ID within a given harness. Falls back to the raw ID. */
@@ -1008,16 +1008,21 @@ export async function followupThread(
   internalSectionType?: 'type_fix' | 'auto_commit',
   /** Temporary file paths for user-uploaded attachments. Copied into worktree/attachments/ and deleted from /tmp. */
   attachmentPaths: string[] = [],
-  requestMetadata: { presetId?: string; authSource?: string; harness?: string; model?: string } = {},
+  requestMetadata: { presetId?: string } = {},
 ): Promise<void> {
   const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
 
-  const fuHarnessId = session.harness ?? DEFAULT_HARNESS;
-  // Resolve the model ID now so the section_start label and worker config are always consistent.
-  // This also means the user's model choice for a follow-up always overrides the previous run's model.
-  const fuModelId = session.model ?? DEFAULT_MODEL;
-
   try {
+    if (!internalSectionType) {
+      const preset = await resolveThreadPreset(session.userId, requestMetadata.presetId);
+      session.harness = preset.harness;
+      session.model = preset.model;
+      session.authSource = preset.authSource;
+      requestMetadata = { presetId: preset.id };
+    }
+
+    const fuHarnessId = session.harness ?? DEFAULT_HARNESS;
+    const fuModelId = session.model ?? DEFAULT_MODEL;
     const progressCarryoverSection = incompleteProgressPromptSection(readSessionEvents(ndjsonPath).events);
 
     if (internalSectionType) {
@@ -1272,12 +1277,9 @@ type SlugModelProvider = 'anthropic' | 'openai' | 'openai-codex' | 'openrouter' 
 export interface CreateThreadOptions {
   userId: string;
   requestText: string;
-  harness?: string;
-  model?: string;
   cavemanMode?: boolean;
   cavemanIntensity?: CavemanIntensity;
   presetId?: string | null;
-  authSource?: PresetAuthSource | null;
   primordiaAesKey?: string | null;
   savedAttachmentPaths?: string[];
   /** When false, await setup/agent work before returning. CLI callers use this so the process stays alive. */
@@ -1287,6 +1289,17 @@ export interface CreateThreadOptions {
 export type CreateThreadResult =
   | { ok: true; status: 200; sessionId: string }
   | { ok: false; status: 400 | 500; error: string };
+
+async function resolveThreadPreset(userId: string, requestedPresetId?: string | null): Promise<EvolvePreset> {
+  const db = await getDb();
+  const prefs = await db.getUserPreferences(userId, [PREF_PRESET, PREF_CUSTOM_PRESETS]);
+  const customPresets = parseCustomPresets(prefs[PREF_CUSTOM_PRESETS]);
+  const presets: EvolvePreset[] = [...BUILT_IN_PRESETS, ...customPresets];
+  const presetId = requestedPresetId ?? prefs[PREF_PRESET] ?? BUILT_IN_PRESETS[0]?.id;
+  const preset = presetId ? presets.find((candidate) => candidate.id === presetId) : null;
+  if (!preset) throw new Error(`Preset not found: ${presetId}`);
+  return preset;
+}
 
 /** Infer the pi provider and strip any Primordia-only model ID namespace. */
 function normalizeSlugModelSelection(modelId: string): { provider: SlugModelProvider; modelId: string } {
@@ -1416,16 +1429,24 @@ async function findUniqueBranch(slug: string, repoRoot: string): Promise<string>
 export async function createThread({
   userId,
   requestText,
-  harness = DEFAULT_HARNESS,
-  model = DEFAULT_MODEL,
   cavemanMode = false,
   cavemanIntensity = DEFAULT_CAVEMAN_INTENSITY,
   presetId = null,
-  authSource = null,
   primordiaAesKey = null,
   savedAttachmentPaths = [],
   runInBackground = true,
 }: CreateThreadOptions): Promise<CreateThreadResult> {
+  let preset: EvolvePreset;
+  try {
+    preset = await resolveThreadPreset(userId, presetId);
+  } catch (err) {
+    return { ok: false, status: 400, error: err instanceof Error ? err.message : String(err) };
+  }
+  const harness = preset.harness;
+  const model = preset.model;
+  const authSource = preset.authSource;
+  presetId = preset.id;
+
   const needsStoredSecret = authSource !== null && authSource !== 'exe-dev-gateway';
   if (needsStoredSecret && !primordiaAesKey) {
     return { ok: false, status: 400, error: 'Selected billing source requires this device’s Primordia AES key. Reconnect the billing source in Settings, then try again.' };

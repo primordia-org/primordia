@@ -13,16 +13,13 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { getSessionUser, hasEvolvePermission } from '@/lib/auth';
 import { CAVEMAN_INTENSITIES, DEFAULT_CAVEMAN_INTENSITY, type CavemanIntensity } from '@/lib/user-prefs';
-import { normalizeAuthSource, type PresetAuthSource } from '@/lib/presets';
 import { getSessionFromFilesystem } from '@/lib/session-events';
-import { DEFAULT_HARNESS, DEFAULT_MODEL } from '@/lib/agent-config';
 import { createThread } from '@/lib/threads';
 
 /** Multipart form-data body for POST /evolve */
 export interface EvolvePostFormData {
   request: string; // The natural-language change request for Claude Code to implement.
-  harness?: string; // Agent harness to use (e.g. 'claude-code'). Defaults to the server default.
-  model?: string; // AI model identifier to pass to the agent harness.
+  presetId?: string; // Preset ID; billing source, harness, and model are resolved from this preset.
   cavemanMode?: string; // Enable caveman communication mode. Pass the string 'true' to enable.
   cavemanIntensity?: string; // Caveman intensity: lite, full, ultra, wenyan-lite, wenyan-full, wenyan-ultra.
   primordiaAesKey?: string; // Optional localStorage primordia_aes_key JWK used server-side to decrypt the selected stored secret.
@@ -57,12 +54,9 @@ async function handlePost(request: Request) {
 
   // Parse request body — supports both JSON (legacy) and multipart/form-data (with file attachments).
   let requestText: string;
-  let harness: string = DEFAULT_HARNESS;
-  let model: string = DEFAULT_MODEL;
   let cavemanMode = false;
   let cavemanIntensity: CavemanIntensity = DEFAULT_CAVEMAN_INTENSITY;
   let presetId: string | null = null;
-  let authSource: PresetAuthSource | null = null;
   let primordiaAesKey: string | null = null;
   const savedAttachmentPaths: string[] = [];
 
@@ -74,14 +68,8 @@ async function handlePost(request: Request) {
       return Response.json({ error: 'request string required' }, { status: 400 });
     }
     requestText = reqField;
-    const harnessField = formData.get('harness');
-    if (typeof harnessField === 'string' && harnessField) harness = harnessField;
-    const modelField = formData.get('model');
-    if (typeof modelField === 'string' && modelField) model = modelField;
     const presetField = formData.get('presetId');
     if (typeof presetField === 'string' && presetField) presetId = presetField;
-    const authSourceField = formData.get('authSource');
-    if (typeof authSourceField === 'string') authSource = normalizeAuthSource(authSourceField);
     const cavemanModeField = formData.get('cavemanMode');
     if (cavemanModeField === 'true') cavemanMode = true;
     const cavemanIntensityField = formData.get('cavemanIntensity');
@@ -116,24 +104,21 @@ async function handlePost(request: Request) {
       }
     }
   } else {
-    const body = (await request.json()) as { request?: string; authSource?: string; primordiaAesKey?: string };
+    const body = (await request.json()) as { request?: string; presetId?: string; primordiaAesKey?: string };
     if (!body.request || typeof body.request !== 'string') {
       return Response.json({ error: 'request string required' }, { status: 400 });
     }
     requestText = body.request;
-    if (body.authSource) authSource = normalizeAuthSource(body.authSource);
+    if (body.presetId) presetId = body.presetId;
     if (body.primordiaAesKey) primordiaAesKey = body.primordiaAesKey;
   }
 
   const result = await createThread({
     userId: user.id,
     requestText,
-    harness,
-    model,
     cavemanMode,
     cavemanIntensity,
     presetId,
-    authSource,
     primordiaAesKey,
     savedAttachmentPaths,
   });
