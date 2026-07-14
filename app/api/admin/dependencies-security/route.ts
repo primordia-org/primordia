@@ -1,7 +1,7 @@
 // app/api/admin/dependencies-security/route.ts
 // Runs `bun audit` for admins and creates evolve sessions to update vulnerable packages.
 
-import { createEvolveSessionFromText } from "@/app/api/evolve/route";
+import { createEvolveSessionFromText } from "@/lib/evolve-create";
 import { getSessionUser, isAdmin, hasEvolvePermission } from "@/lib/auth";
 import { runBunAudit, writeDependencyAuditNotification, type BunAuditResult } from "@/lib/dependency-audit";
 
@@ -95,27 +95,15 @@ async function handlePost(request: Request) {
     // prompt in a synthetic Request for the evolve route to parse again. This
     // avoids loopback networking issues and preserves the generated prompt
     // exactly as constructed, including the beginning of long audit prompts.
-    const evolveRes = await createEvolveSessionFromText({
+    const evolveResult = await createEvolveSessionFromText({
       userId: user!.id,
       requestText: evolveRequestText,
     });
 
-    let data: { sessionId?: string; error?: string } = {};
-    try {
-      const text = await evolveRes.text();
-      if (text) {
-        data = JSON.parse(text);
-      } else {
-        data = { error: `Server returned empty response with status ${evolveRes.status}` };
-      }
-    } catch {
-      data = { error: `Server returned non-JSON response with status ${evolveRes.status}` };
+    if (!evolveResult.ok) {
+      return Response.json({ error: evolveResult.error ?? "Failed to create thread" }, { status: evolveResult.status });
     }
-
-    if (!evolveRes.ok || !data.sessionId) {
-      return Response.json({ error: data.error ?? "Failed to create thread" }, { status: evolveRes.status || 500 });
-    }
-    return Response.json({ sessionId: data.sessionId });
+    return Response.json({ sessionId: evolveResult.sessionId });
   }
 
   return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });

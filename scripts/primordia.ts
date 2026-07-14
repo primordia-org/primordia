@@ -14,7 +14,7 @@ import {
   type ProcessStatusReport,
   type ServerStartMode,
 } from '@/lib/process-manager';
-import { createEvolveSessionFromText } from '@/app/api/evolve/route';
+import { createEvolveSessionFromText } from '@/lib/evolve-create';
 import { getDb } from '@/lib/db';
 import { hasEvolvePermission } from '@/lib/auth';
 import { DEFAULT_HARNESS, DEFAULT_MODEL } from '@/lib/agent-config';
@@ -305,7 +305,7 @@ async function handleCreate(args: Args): Promise<void> {
   const user = await resolveCliUser(args.user);
   if (!(await hasEvolvePermission(user.id))) throw new Error(`User ${user.username} does not have evolve permission.`);
   const selection = await resolveEvolveSelection(args, user.id);
-  const response = await createEvolveSessionFromText({
+  const result = await createEvolveSessionFromText({
     userId: user.id,
     requestText,
     harness: selection.harness,
@@ -315,10 +315,9 @@ async function handleCreate(args: Args): Promise<void> {
     primordiaAesKey: process.env.PRIMORDIA_AES_KEY ?? null,
     runInBackground: false,
   });
-  const body = await response.json() as { sessionId?: string; error?: string };
-  if (!response.ok) throw new Error(body.error ?? `evolve session creation failed (${response.status})`);
-  if (args.json) printJson({ ok: true, command: 'create', ...body });
-  else console.log(`Evolve thread ${body.sessionId} complete. Open /evolve/session/${body.sessionId}`);
+  if (!result.ok) throw new Error(result.error ?? `evolve session creation failed (${result.status})`);
+  if (args.json) printJson({ ok: true, command: 'create', sessionId: result.sessionId });
+  else console.log(`Evolve thread ${result.sessionId} complete. Open /evolve/session/${result.sessionId}`);
 }
 
 async function handleFollowup(args: Args): Promise<void> {

@@ -16,6 +16,7 @@ lib/
 ├── git-runtime.ts               ← Git runtime metadata helpers for worktree enumeration, branch ports, and production branch config
 ├── hooks.ts                     ← Shared React hooks: useSessionUser (fetches session on mount, provides logout)
 ├── evolve-sessions.ts           ← Shared local evolve session state, worktree orchestration, workers, previews, accept/reject logic, SQLite persistence
+├── evolve-create.ts             ← Shared evolve thread creation facade used by API routes and CLI commands; CLI scripts must import this instead of app/api/**/route.ts
 ├── page-title.ts                ← buildPageTitle(): formats <title> with branch suffix in development mode
 ├── sounds.ts                    ← Procedural Web Audio UI sound effects and useSounds() hook
 ├── llm-client.ts                ← Creates Anthropic client: exe.dev gateway or direct API key
