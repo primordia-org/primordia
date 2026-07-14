@@ -17,8 +17,6 @@ import {
 import { createThread, followupThread, type LocalSession } from '@/lib/threads';
 import { getDb } from '@/lib/db';
 import { hasEvolvePermission } from '@/lib/auth';
-import { DEFAULT_HARNESS, DEFAULT_MODEL } from '@/lib/agent-config';
-import { PREF_HARNESS, PREF_MODEL } from '@/lib/user-prefs';
 import {
   BUILT_IN_PRESETS,
   PREF_CUSTOM_PRESETS,
@@ -37,8 +35,6 @@ interface Args {
   worktreeName: string | null;
   mode: ServerStartMode;
   user: string | null;
-  harness: string | null;
-  model: string | null;
   presetId: string | null;
   authSource: PresetAuthSource | null;
   requestParts: string[];
@@ -73,8 +69,6 @@ Options:
   --prod         Start with bun run start.
   --user         Primordia user id or username for thread commands.
   --preset       Preset id. Defaults to the user's saved preset when available.
-  --harness      Agent harness id for create/followup when not using a preset.
-  --model        Model id for create/followup when not using a preset.
   --auth-source  Billing source. Secret-backed sources require PRIMORDIA_AES_KEY.
                  Pass '-' as the request to read it from stdin.`);
 }
@@ -87,8 +81,6 @@ function parseArgs(argv: string[]): Args {
     worktreeName: null,
     mode: 'dev',
     user: null,
-    harness: null,
-    model: null,
     presetId: null,
     authSource: null,
     requestParts: [],
@@ -116,20 +108,6 @@ function parseArgs(argv: string[]): Args {
       i += 1;
     } else if (arg.startsWith('--user=')) {
       args.user = arg.slice('--user='.length) || null;
-    } else if (arg === '--harness') {
-      const value = argv[i + 1];
-      if (!value || value.startsWith('--')) throw new Error('--harness requires a value');
-      args.harness = value;
-      i += 1;
-    } else if (arg.startsWith('--harness=')) {
-      args.harness = arg.slice('--harness='.length) || null;
-    } else if (arg === '--model') {
-      const value = argv[i + 1];
-      if (!value || value.startsWith('--')) throw new Error('--model requires a value');
-      args.model = value;
-      i += 1;
-    } else if (arg.startsWith('--model=')) {
-      args.model = arg.slice('--model='.length) || null;
     } else if (arg === '--preset') {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) throw new Error('--preset requires a value');
@@ -246,20 +224,20 @@ async function resolveCliUser(selector: string | null): Promise<{ id: string; us
   throw new Error('Multiple Primordia users exist; pass --user <id-or-username>.');
 }
 
-async function resolveEvolveSelection(args: Args, userId: string): Promise<{ harness: string; model: string; presetId: string | null; authSource: PresetAuthSource | null }> {
+async function resolvePresetSelection(args: Args, userId: string): Promise<{ harness: string; model: string; presetId: string; authSource: PresetAuthSource }> {
   const db = await getDb();
-  const prefs = await db.getUserPreferences(userId, [PREF_HARNESS, PREF_MODEL, PREF_PRESET, PREF_CUSTOM_PRESETS]);
+  const prefs = await db.getUserPreferences(userId, [PREF_PRESET, PREF_CUSTOM_PRESETS]);
   const customPresets = parseCustomPresets(prefs[PREF_CUSTOM_PRESETS]);
   const presets: EvolvePreset[] = [...BUILT_IN_PRESETS, ...customPresets];
-  const presetId = args.presetId ?? prefs[PREF_PRESET] ?? null;
+  const presetId = args.presetId ?? prefs[PREF_PRESET] ?? BUILT_IN_PRESETS[0]?.id;
   const preset = presetId ? presets.find((candidate) => candidate.id === presetId) : null;
-  if (presetId && !preset) throw new Error(`Evolve preset not found: ${presetId}`);
+  if (!preset) throw new Error(`Preset not found: ${presetId}`);
 
   return {
-    harness: args.harness ?? preset?.harness ?? prefs[PREF_HARNESS] ?? DEFAULT_HARNESS,
-    model: args.model ?? preset?.model ?? prefs[PREF_MODEL] ?? DEFAULT_MODEL,
-    presetId: preset?.id ?? null,
-    authSource: args.authSource ?? preset?.authSource ?? null,
+    harness: preset.harness,
+    model: preset.model,
+    presetId: preset.id,
+    authSource: args.authSource ?? preset.authSource,
   };
 }
 
@@ -274,7 +252,7 @@ async function localSessionForThread(threadId: string, userId: string, args: Arg
   const initial = events.find((event) => event.type === 'initial_request') as
     | Extract<(typeof events)[number], { type: 'initial_request' }>
     | undefined;
-  const selection = await resolveEvolveSelection(args, userId);
+  const selection = await resolvePresetSelection(args, userId);
   return {
     id: record.id,
     branch: record.branch,
@@ -285,8 +263,8 @@ async function localSessionForThread(threadId: string, userId: string, args: Arg
     previewUrl: record.previewUrl,
     request: record.request,
     createdAt: record.createdAt,
-    harness: args.harness ?? initial?.harness ?? selection.harness,
-    model: args.model ?? initial?.model ?? selection.model,
+    harness: initial?.harness ?? selection.harness,
+    model: initial?.model ?? selection.model,
     aesKey: process.env.PRIMORDIA_AES_KEY,
     authSource: args.authSource ?? normalizeAuthSource(initial?.authSource ?? '') ?? selection.authSource,
     userId,
@@ -297,7 +275,7 @@ async function handleCreate(args: Args): Promise<void> {
   const requestText = await readRequest(args.requestParts);
   const user = await resolveCliUser(args.user);
   if (!(await hasEvolvePermission(user.id))) throw new Error(`User ${user.username} does not have evolve permission.`);
-  const selection = await resolveEvolveSelection(args, user.id);
+  const selection = await resolvePresetSelection(args, user.id);
   const result = await createThread({
     userId: user.id,
     requestText,
