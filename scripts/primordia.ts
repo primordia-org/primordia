@@ -21,7 +21,6 @@ import {
   BUILT_IN_PRESETS,
   PREF_CUSTOM_PRESETS,
   PREF_PRESET,
-  normalizeAuthSource,
   parseCustomPresets,
   type EvolvePreset,
   type PresetAuthSource,
@@ -36,7 +35,6 @@ interface Args {
   mode: ServerStartMode;
   user: string | null;
   presetId: string | null;
-  authSource: PresetAuthSource | null;
   requestParts: string[];
 }
 
@@ -48,7 +46,7 @@ function printUsage(): void {
   bun run primordia restart [--dev|--prod] [--json] [--worktree <worktreename>]
   bun run primordia logs [--follow] [--json] [--worktree <worktreename>]
   bun run primordia publish [--json] [--worktree <worktreename>]
-  bun run primordia create [--user <id-or-username>] [--preset <id>] [--auth-source <source>] "change request"
+  bun run primordia create [--user <id-or-username>] [--preset <id>] "change request"
   bun run primordia followup [--user <id-or-username>] "follow-up request"
 
 Commands:
@@ -69,7 +67,7 @@ Options:
   --prod         Start with bun run start.
   --user         Primordia user id or username for thread commands.
   --preset       Preset id. Defaults to the user's saved preset when available.
-  --auth-source  Billing source. Secret-backed sources require PRIMORDIA_AES_KEY.
+                 Secret-backed presets require PRIMORDIA_AES_KEY.
                  Pass '-' as the request to read it from stdin.`);
 }
 
@@ -82,7 +80,6 @@ function parseArgs(argv: string[]): Args {
     mode: 'dev',
     user: null,
     presetId: null,
-    authSource: null,
     requestParts: [],
   };
 
@@ -115,16 +112,6 @@ function parseArgs(argv: string[]): Args {
       i += 1;
     } else if (arg.startsWith('--preset=')) {
       args.presetId = arg.slice('--preset='.length) || null;
-    } else if (arg === '--auth-source') {
-      const value = argv[i + 1];
-      if (!value || value.startsWith('--')) throw new Error('--auth-source requires a value');
-      args.authSource = normalizeAuthSource(value);
-      if (!args.authSource) throw new Error(`Unknown auth source: ${value}`);
-      i += 1;
-    } else if (arg.startsWith('--auth-source=')) {
-      const value = arg.slice('--auth-source='.length);
-      args.authSource = normalizeAuthSource(value);
-      if (!args.authSource) throw new Error(`Unknown auth source: ${value}`);
     } else if (arg === '--help' || arg === '-h') {
       printUsage();
       process.exit(0);
@@ -237,7 +224,7 @@ async function resolvePresetSelection(args: Args, userId: string): Promise<{ har
     harness: preset.harness,
     model: preset.model,
     presetId: preset.id,
-    authSource: args.authSource ?? preset.authSource,
+    authSource: preset.authSource,
   };
 }
 
@@ -266,7 +253,7 @@ async function localSessionForThread(threadId: string, userId: string, args: Arg
     harness: initial?.harness ?? selection.harness,
     model: initial?.model ?? selection.model,
     aesKey: process.env.PRIMORDIA_AES_KEY,
-    authSource: args.authSource ?? normalizeAuthSource(initial?.authSource ?? '') ?? selection.authSource,
+    authSource: initial?.authSource ?? selection.authSource,
     userId,
   };
 }
