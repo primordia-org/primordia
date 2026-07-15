@@ -1415,11 +1415,11 @@ async function runAcceptAsync(
   parentBranch: string,
   repoRoot: string,
   userId: string,
+  useProductionPromotion: boolean,
   aesKey?: string,
   authSource?: PresetAuthSource | null,
   harness?: string,
   model?: string,
-  useProductionPromotion = process.env.NODE_ENV === 'production',
 ): Promise<void> {
   const step = (text: string) => appendLogLine(sessionId, text, repoRoot);
   async function failWithError(msg: string): Promise<void> {
@@ -1575,15 +1575,18 @@ export interface ManageThreadOptions {
   action: 'accept' | 'reject';
   authSource?: PresetAuthSource | string | null;
   primordiaAesKey?: string | null;
-  /** Force the blue/green production promotion path even when the caller is not running with NODE_ENV=production. */
-  useProductionPromotion?: boolean;
 }
 
 export type ManageThreadResult =
   | { ok: true; status: 200; outcome: 'accepting' | 'auto-committing' | 'rejected' }
   | { ok: false; status: 400 | 403 | 404 | 409 | 500; error: string; stuckSessionId?: string; stuckSessionBranch?: string };
 
-export async function manageThread({ userId, threadId, action, authSource: requestedAuthSource, primordiaAesKey, useProductionPromotion: requestedProductionPromotion }: ManageThreadOptions): Promise<ManageThreadResult> {
+function isProductionAcceptTarget(parentBranch: string, repoRoot: string): boolean {
+  const report = getProcessStatusReport(repoRoot);
+  return report.productionBranch === parentBranch;
+}
+
+export async function manageThread({ userId, threadId, action, authSource: requestedAuthSource, primordiaAesKey }: ManageThreadOptions): Promise<ManageThreadResult> {
   if (!(await hasEvolvePermission(userId))) return { ok: false, status: 403, error: 'User does not have evolve permission.' };
   const repoRoot = process.cwd();
   const session = getSessionFromFilesystem(threadId, repoRoot);
@@ -1602,7 +1605,7 @@ export async function manageThread({ userId, threadId, action, authSource: reque
 
   const parentSource = await getBranchParentSource(userId);
   const parentBranch = getParentBranch(branch, undefined, parentSource) ?? 'main';
-  const useProductionPromotion = requestedProductionPromotion ?? process.env.NODE_ENV === 'production';
+  const useProductionPromotion = isProductionAcceptTarget(parentBranch, repoRoot);
   if (action === 'reject' || useProductionPromotion) {
     try { await stopWorktreeServer(threadId, repoRoot); } catch { /* preview server may already be gone */ }
   }
@@ -1643,7 +1646,7 @@ export async function manageThread({ userId, threadId, action, authSource: reque
 
       const ndjsonPath = getSessionNdjsonPath(worktreePath);
       if (fs.existsSync(ndjsonPath)) appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'deploy', label: useProductionPromotion ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``, ts: Date.now() });
-      void runAcceptAsync(threadId, worktreePath, branch, parentBranch, repoRoot, userId, aesKey, authSource, agentSelection.harness, agentSelection.model, useProductionPromotion);
+      void runAcceptAsync(threadId, worktreePath, branch, parentBranch, repoRoot, userId, useProductionPromotion, aesKey, authSource, agentSelection.harness, agentSelection.model);
       return { ok: true, status: 200, outcome: 'accepting' };
     }
 
