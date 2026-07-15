@@ -157,6 +157,7 @@ export interface RevokableAesKey {
   expiresAt: number;
   signature: string;
   createdAt: number;
+  revokedAt: number | null;
 }
 
 export interface WebPushVapidKeys {
@@ -237,7 +238,7 @@ export interface DbAdapter {
   createRevokableAesKey(key: RevokableAesKey): Promise<void>;
   getRevokableAesKey(shortId: string): Promise<RevokableAesKey | null>;
   listRevokableAesKeys(userId: string, client?: "cli" | "web"): Promise<RevokableAesKey[]>;
-  deleteRevokableAesKey(userId: string, shortId: string): Promise<void>;
+  revokeRevokableAesKey(userId: string, shortId: string, revokedAt: number): Promise<void>;
   updateRevokableAesKeyExpiration(userId: string, shortId: string, expiresAt: number): Promise<void>;
 
   // User events

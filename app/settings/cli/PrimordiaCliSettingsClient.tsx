@@ -15,6 +15,7 @@ interface CliKeyRecord {
   expiresAt: number;
   signature: string;
   createdAt: number;
+  revokedAt: number | null;
 }
 
 function shellSingleQuote(value: string): string {
@@ -233,18 +234,26 @@ export default function PrimordiaCliSettingsClient() {
               <p className="mt-3 text-sm text-gray-500">No CLI keys yet.</p>
             ) : (
               <div className="mt-3 divide-y divide-gray-800">
-                {keys.map((key) => (
-                  <div key={key.shortId} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="font-mono text-sm text-gray-100">{key.version}.{key.shortId}</div>
-                      <div className="mt-1 text-xs text-gray-500">{key.note || "No note"} · expires {formatDate(key.expiresAt)} · created {formatDate(key.createdAt)}</div>
+                {keys.map((key) => {
+                  const revoked = key.revokedAt !== null;
+                  return (
+                    <div key={key.shortId} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm text-gray-100">{key.version}.{key.shortId}</span>
+                          {revoked && <span className="rounded-full border border-red-900/70 bg-red-950/40 px-2 py-0.5 text-[11px] font-medium text-red-200">Revoked</span>}
+                        </div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          {key.note || "No note"} · {key.revokedAt !== null ? `revoked ${formatDate(key.revokedAt)}` : `expires ${formatDate(key.expiresAt)}`} · created {formatDate(key.createdAt)}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => extend(key.shortId)} disabled={busy === key.shortId || revoked} className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:border-gray-500 disabled:opacity-50">Extend 30d</button>
+                        <button type="button" onClick={() => revoke(key.shortId)} disabled={busy === key.shortId || revoked} className="rounded-lg border border-red-800/70 px-3 py-1.5 text-xs text-red-200 hover:border-red-500 disabled:opacity-50">{revoked ? "Revoked" : "Revoke"}</button>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => extend(key.shortId)} disabled={busy === key.shortId} className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:border-gray-500 disabled:opacity-50">Extend 30d</button>
-                      <button type="button" onClick={() => revoke(key.shortId)} disabled={busy === key.shortId} className="rounded-lg border border-red-800/70 px-3 py-1.5 text-xs text-red-200 hover:border-red-500 disabled:opacity-50">Revoke</button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
