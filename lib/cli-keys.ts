@@ -46,7 +46,8 @@ export async function resolvePrimordiaCliKey(value: string, expectedClient: 'cli
   const parsed = parsePrimordiaCliKey(value);
   const db = await getDb();
   const record = await db.getRevokableAesKey(parsed.shortId);
-  if (!record) throw new Error('PRIMORDIA_CLI_KEY was not found or has been revoked. Create a new CLI key in Settings → Primordia CLI.');
+  if (!record) throw new Error('PRIMORDIA_CLI_KEY was not found. Create a new CLI key in Settings → Primordia CLI.');
+  if (record.revokedAt !== null) throw new Error('PRIMORDIA_CLI_KEY has been revoked. Create a new CLI key in Settings → Primordia CLI and update this shell.');
   if (record.version !== parsed.version) throw new Error('PRIMORDIA_CLI_KEY version does not match the stored key.');
   if (record.client !== expectedClient) throw new Error(`PRIMORDIA_CLI_KEY is restricted to ${record.client} clients.`);
   if (record.expiresAt <= Date.now()) throw new Error('PRIMORDIA_CLI_KEY has expired. Extend it or create a new key in Settings → Primordia CLI.');
@@ -72,5 +73,6 @@ export function publicRevokableAesKey(record: RevokableAesKey) {
     expiresAt: record.expiresAt,
     signature: record.signature,
     createdAt: record.createdAt,
+    revokedAt: record.revokedAt,
   };
 }

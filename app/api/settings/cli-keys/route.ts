@@ -69,6 +69,7 @@ export async function POST(request: Request) {
     expiresAt: expiresAt.expiresAt,
     signature,
     createdAt: now,
+    revokedAt: null,
   });
   const created = await db.getRevokableAesKey(shortId);
   return Response.json({ key: created ? publicRevokableAesKey(created) : null });
@@ -84,6 +85,7 @@ export async function PATCH(request: Request) {
   const db = await getDb();
   const existing = await db.getRevokableAesKey(body.shortId);
   if (!existing || existing.userId !== user.id || existing.client !== 'cli') return Response.json({ error: 'CLI key not found' }, { status: 404 });
+  if (existing.revokedAt !== null) return Response.json({ error: 'Revoked CLI keys cannot be extended' }, { status: 400 });
   await db.updateRevokableAesKeyExpiration(user.id, body.shortId, expiresAt.expiresAt);
   const updated = await db.getRevokableAesKey(body.shortId);
   return Response.json({ key: updated ? publicRevokableAesKey(updated) : null });
@@ -95,6 +97,8 @@ export async function DELETE(request: Request) {
   const body = (await request.json().catch(() => null)) as { shortId?: string } | null;
   if (!body?.shortId) return Response.json({ error: 'shortId required' }, { status: 400 });
   const db = await getDb();
-  await db.deleteRevokableAesKey(user.id, body.shortId);
+  const existing = await db.getRevokableAesKey(body.shortId);
+  if (!existing || existing.userId !== user.id || existing.client !== 'cli') return Response.json({ error: 'CLI key not found' }, { status: 404 });
+  if (existing.revokedAt === null) await db.revokeRevokableAesKey(user.id, body.shortId, Date.now());
   return Response.json({ ok: true });
 }

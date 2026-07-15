@@ -1367,7 +1367,7 @@ function runInstallSh(sessionId: string, worktreePath: string, branch: string): 
   });
 }
 
-async function retryAcceptAfterFix(sessionId: string, repoRoot: string, parentBranch: string): Promise<void> {
+async function retryAcceptAfterFix(sessionId: string, repoRoot: string, parentBranch: string, useProductionPromotion: boolean): Promise<void> {
   const current = getSessionFromFilesystem(sessionId, repoRoot);
   if (!current) return;
   const { branch, worktreePath } = current;
@@ -1378,14 +1378,13 @@ async function retryAcceptAfterFix(sessionId: string, repoRoot: string, parentBr
     if (fs.existsSync(ndjsonPath)) appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'error', message: msg, ts: Date.now() });
   }
 
-  const isProduction = process.env.NODE_ENV === 'production';
   const ndjsonPath = getSessionNdjsonPath(worktreePath);
   if (fs.existsSync(ndjsonPath)) {
-    appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'deploy', label: isProduction ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``, ts: Date.now() });
+    appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'deploy', label: useProductionPromotion ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``, ts: Date.now() });
   }
 
   try { await stopWorktreeServer(sessionId, repoRoot); } catch { /* preview server may already be gone */ }
-  if (!isProduction) {
+  if (!useProductionPromotion) {
     await failWithError('❌ Auto-fix retry is only supported in production mode.');
     return;
   }
@@ -1416,6 +1415,7 @@ async function runAcceptAsync(
   parentBranch: string,
   repoRoot: string,
   userId: string,
+  useProductionPromotion: boolean,
   aesKey?: string,
   authSource?: PresetAuthSource | null,
   harness?: string,
@@ -1429,8 +1429,7 @@ async function runAcceptAsync(
   }
 
   try {
-    const isProduction = process.env.NODE_ENV === 'production';
-    if (isProduction) {
+    if (useProductionPromotion) {
       try { await stopWorktreeServer(sessionId, repoRoot); } catch { /* dev server may already be gone */ }
       const warmupPidFile = path.join(worktreePath, '.primordia-warmup-build.pid');
       if (fs.existsSync(warmupPidFile)) {
@@ -1452,7 +1451,7 @@ async function runAcceptAsync(
         const sessionSnap = getSessionFromFilesystem(sessionId, repoRoot);
         if (!sessionSnap) return;
         const autoFixSession: LocalSession = { id: sessionSnap.id, branch: sessionSnap.branch, worktreePath: sessionSnap.worktreePath, status: sessionSnap.status as LocalSession['status'], devServerStatus: 'running', port: sessionSnap.port, previewUrl: sessionSnap.previewUrl, request: sessionSnap.request, createdAt: sessionSnap.createdAt, userId, aesKey, authSource, harness, model };
-        void followupThread(autoFixSession, fixPrompt, repoRoot, 'fixing-types', (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch), 'type_fix');
+        void followupThread(autoFixSession, fixPrompt, repoRoot, 'fixing-types', (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch, useProductionPromotion), 'type_fix');
         return;
       }
       if (exitCode !== 0) throw new Error(`install.sh exited with code ${exitCode}`);
@@ -1582,6 +1581,11 @@ export type ManageThreadResult =
   | { ok: true; status: 200; outcome: 'accepting' | 'auto-committing' | 'rejected' }
   | { ok: false; status: 400 | 403 | 404 | 409 | 500; error: string; stuckSessionId?: string; stuckSessionBranch?: string };
 
+function isProductionAcceptTarget(parentBranch: string, repoRoot: string): boolean {
+  const report = getProcessStatusReport(repoRoot);
+  return report.productionBranch === parentBranch;
+}
+
 export async function manageThread({ userId, threadId, action, authSource: requestedAuthSource, primordiaAesKey }: ManageThreadOptions): Promise<ManageThreadResult> {
   if (!(await hasEvolvePermission(userId))) return { ok: false, status: 403, error: 'User does not have evolve permission.' };
   const repoRoot = process.cwd();
@@ -1601,15 +1605,15 @@ export async function manageThread({ userId, threadId, action, authSource: reque
 
   const parentSource = await getBranchParentSource(userId);
   const parentBranch = getParentBranch(branch, undefined, parentSource) ?? 'main';
-  const isProduction = process.env.NODE_ENV === 'production';
-  if (action === 'reject' || isProduction) {
+  const useProductionPromotion = isProductionAcceptTarget(parentBranch, repoRoot);
+  if (action === 'reject' || useProductionPromotion) {
     try { await stopWorktreeServer(threadId, repoRoot); } catch { /* preview server may already be gone */ }
   }
 
   const logDecision = (decision: 'accept' | 'reject'): void => {
     const ndjsonPath = getSessionNdjsonPath(worktreePath);
     if (!fs.existsSync(ndjsonPath)) return;
-    const detail = decision === 'accept' ? (isProduction ? 'deployed to production' : `merged into \`${parentBranch}\``) : 'changes discarded';
+    const detail = decision === 'accept' ? (useProductionPromotion ? 'deployed to production' : `merged into \`${parentBranch}\``) : 'changes discarded';
     appendSessionEvent(ndjsonPath, { type: 'decision', action: decision === 'accept' ? 'accepted' : 'rejected', detail, ts: Date.now() });
   };
 
@@ -1641,8 +1645,8 @@ export async function manageThread({ userId, threadId, action, authSource: reque
       }
 
       const ndjsonPath = getSessionNdjsonPath(worktreePath);
-      if (fs.existsSync(ndjsonPath)) appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'deploy', label: isProduction ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``, ts: Date.now() });
-      void runAcceptAsync(threadId, worktreePath, branch, parentBranch, repoRoot, userId, aesKey, authSource, agentSelection.harness, agentSelection.model);
+      if (fs.existsSync(ndjsonPath)) appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'deploy', label: useProductionPromotion ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``, ts: Date.now() });
+      void runAcceptAsync(threadId, worktreePath, branch, parentBranch, repoRoot, userId, useProductionPromotion, aesKey, authSource, agentSelection.harness, agentSelection.model);
       return { ok: true, status: 200, outcome: 'accepting' };
     }
 
