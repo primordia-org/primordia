@@ -1,7 +1,7 @@
 "use client";
 
 // components/CreateSessionFromBranchButton.tsx
-// Button that creates an evolve session for an existing branch.
+// Button that creates an thread for an existing branch.
 // Shown on the /branches page next to branches that have no active session.
 // No initial prompt is required — the session starts as an instant preview
 // with the branch code ready to test. Follow-up requests can be submitted
@@ -26,7 +26,7 @@ export function CreateSessionFromBranchButton({ branchName }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(withBasePath("/api/evolve/from-branch"), {
+      const res = await fetch(withBasePath("/api/thread/from-branch"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ branchName }),

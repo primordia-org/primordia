@@ -2,7 +2,7 @@
 // Dedicated thread page for a single local evolve run.
 //
 // The server component reads the initial thread state from the filesystem and
-// passes it to the EvolveSessionView client component, which polls for live updates.
+// passes it to the ThreadView client component, which polls for live updates.
 
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -15,7 +15,7 @@ import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem, type
 import { getParentBranch, type BranchParentSource } from "@/lib/branch-parent";
 import { getWorktreeLogPath } from "@/lib/process-manager";
 import { SseLogFile } from "@/components/SseLogFile";
-import EvolveSessionView from "./EvolveSessionView";
+import ThreadView from "./ThreadView";
 
 export async function generateMetadata({
   params,
@@ -130,7 +130,7 @@ function readLogTail(logPath: string, maxBytes = 50 * 1024): string {
   }
 }
 
-export default async function EvolveSessionPage({
+export default async function ThreadPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -170,7 +170,7 @@ export default async function EvolveSessionPage({
   }
 
   return (
-    <EvolveSessionView
+    <ThreadView
       sessionId={session.id}
       initialRequest={session.request}
       initialEvents={initialEvents}
@@ -179,7 +179,7 @@ export default async function EvolveSessionPage({
       initialPreviewUrl={session.previewUrl}
       serverLogsNode={(
         <SseLogFile
-          streamPath={`/api/evolve/server-logs?threadId=${encodeURIComponent(session.id)}`}
+          streamPath={`/api/server/logs?threadId=${encodeURIComponent(session.id)}`}
           initialOutput={initialServerLogs}
         />
       )}

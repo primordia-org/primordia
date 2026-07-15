@@ -3,7 +3,7 @@
 // components/MarkdownContent.tsx
 //
 // Block-prose markdown renderer with the app's dark styling (text-xs,
-// text-gray-300, etc.).  Used on the evolve session page and in changelog
+// text-gray-300, etc.).  Used on the thread page and in changelog
 // entries.  For the lighter chat-bubble variant see SimpleMarkdown.tsx.
 
 import { useMemo, useSyncExternalStore } from "react";
@@ -36,7 +36,7 @@ function attachmentImageUrl(src: string | undefined, attachmentSessionId: string
   if (!normalized.startsWith("attachments/")) return src;
   const filename = normalized.slice("attachments/".length);
   if (!filename || filename.includes("/")) return src;
-  const apiPath = withBasePath(`/api/evolve/attachment/${encodeURIComponent(attachmentSessionId)}?file=${encodeURIComponent(filename)}`);
+  const apiPath = withBasePath(`/api/thread/attachment/${encodeURIComponent(attachmentSessionId)}?file=${encodeURIComponent(filename)}`);
   return origin ? new URL(apiPath, origin).toString() : apiPath;
 }
 

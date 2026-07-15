@@ -3,7 +3,7 @@
   "info": {
     "title": "Primordia API",
     "version": "0.0.1",
-    "description": "Internal REST API for Primordia — the self-modifying AI web app. This is not a stable public API; it documents internal endpoints as they currently exist and may change at any time. Covers chat, authentication, and the evolve pipeline."
+    "description": "Internal REST API for Primordia — the self-modifying AI web app. This is not a stable public API; it documents internal endpoints as they currently exist and may change at any time. Covers chat, authentication, and thread creation and management."
   },
   "servers": [
     {

@@ -586,7 +586,7 @@ export async function hotswapProductionDbIntoWorktree(
 
     if (devServerPort && isPreviewServerRunning(destinationWorktreePath, devServerPort, repoRoot)) {
       try {
-        const response = await fetch(`http://127.0.0.1:${devServerPort}/api/evolve/hotswap-db`, {
+        const response = await fetch(`http://127.0.0.1:${devServerPort}/api/server/hotswap-db`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ snapshotFilename }),

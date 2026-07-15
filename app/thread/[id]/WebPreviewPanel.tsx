@@ -1,7 +1,7 @@
 "use client";
 
 // components/WebPreviewPanel.tsx
-// Inline browser-like preview panel for evolve session pages.
+// Inline browser-like preview panel for thread pages.
 // Shows an iframe with Back, Forward, Refresh buttons and an editable URL bar.
 // Supports an element inspector mode that highlights nearest data-component
 // and data-id elements on hover and reports both selectors on click.

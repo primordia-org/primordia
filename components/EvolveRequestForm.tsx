@@ -77,7 +77,7 @@ interface EvolveRequestFormProps {
    */
   onSessionCreated?: (threadId: string) => void;
   /**
-   * When provided, called on submit instead of POSTing to /api/evolve and
+   * When provided, called on submit instead of POSTing to /api/thread and
    * navigating to the new session. Should throw on error (message shown in the
    * form). On success the form resets automatically.
    */
@@ -117,7 +117,7 @@ interface EvolveRequestFormProps {
    * Used by the /evolve page and the floating Propose-a-Change dialog.
    * Ignored when `defaultHarness` is also supplied.
    * The preference is saved back to the DB when the form is submitted
-   * (handled server-side in POST /api/evolve — not by this component).
+   * (handled server-side in POST /api/thread — not by this component).
    */
   initialHarness?: string;
   /** Works in tandem with `initialHarness`. */
@@ -181,7 +181,7 @@ export function EvolveRequestForm({
   );
   // ── Available presets ────────────────────────────────────────────────────
   useEffect(() => {
-    fetch(withBasePath('/api/evolve/presets'))
+    fetch(withBasePath('/api/thread/presets'))
       .then((r) => r.json())
       .then((data: { presets?: EvolvePresetWithAvailability[]; selectedPresetId?: string | null }) => {
         const nextPresets = data.presets ?? [];
@@ -295,7 +295,7 @@ export function EvolveRequestForm({
         // Preset auth source decides which one credential to send.
         await appendCredentialFieldsForAuthSource(formData, selectedPreset.authSource);
 
-        const res = await fetch(withBasePath("/api/evolve"), { method: "POST", body: formData });
+        const res = await fetch(withBasePath("/api/thread"), { method: "POST", body: formData });
         const data = (await res.json()) as { threadId?: string; error?: string };
 
         if (!res.ok) {

@@ -2,7 +2,7 @@
 
 // components/AdminUpdatesBell.tsx
 // Notification bell that opens a dropdown menu showing upstream updates and
-// active evolve sessions. Shown to any user with evolve or admin access.
+// active threads. Shown to any user with evolve or admin access.
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
@@ -70,7 +70,7 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
     setLoading(true);
     try {
       const [sessionsRes, updatesRes, dependencyRes, leakRes] = await Promise.all([
-        canEvolve || isAdmin ? fetch(withBasePath("/api/evolve/sessions")) : null,
+        canEvolve || isAdmin ? fetch(withBasePath("/api/thread/sessions")) : null,
         isAdmin ? fetch(withBasePath("/api/admin/updates/has-updates")) : null,
         isAdmin ? fetch(withBasePath("/api/admin/dependencies-security/has-alert")) : null,
         isAdmin ? fetch(withBasePath("/api/admin/server-health/leak-alert")) : null,

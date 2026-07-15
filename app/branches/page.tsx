@@ -49,7 +49,7 @@ interface BranchData {
   previewUrl: string | null;
   /** Session status, or null if no session is active for this branch. */
   sessionStatus: string | null;
-  /** True if an evolve session exists for this branch. */
+  /** True if an thread exists for this branch. */
   hasSession: boolean;
   /** Full commit hash at this branch tip, for merge-edge detection. */
   tipSha: string | null;
@@ -123,7 +123,7 @@ async function getBranchData(parentSource: BranchParentSource): Promise<{
   const productionBranch =
     gitConfigValue("primordia.productionBranch", cwd) ?? "main";
 
-  // Load all evolve sessions from the filesystem and build a lookup by branch name.
+  // Load all threads from the filesystem and build a lookup by branch name.
   const fsSessions = listSessionsFromFilesystem(cwd);
   const sessionByBranch = new Map(fsSessions.map((s) => [s.branch, s]));
 

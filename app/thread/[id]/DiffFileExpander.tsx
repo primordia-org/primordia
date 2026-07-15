@@ -3,7 +3,7 @@
 // components/DiffFileExpander.tsx
 //
 // A single expandable file row inside the git diff summary table.
-// Clicking the row lazy-loads the colorized unified diff from /api/evolve/diff.
+// Clicking the row lazy-loads the colorized unified diff from /api/thread/diff.
 
 import { useEffect, useState } from "react";
 import { withBasePath } from "@/lib/base-path";
@@ -69,7 +69,7 @@ export function DiffFileExpander({ sessionId, file, diffPath, oldPath, additions
       setLoading(true);
       fetch(
         withBasePath(
-          `/api/evolve/diff?threadId=${encodeURIComponent(sessionId)}&file=${encodeURIComponent(file)}${diffPath ? `&diffPath=${encodeURIComponent(diffPath)}` : ""}${oldPath ? `&oldPath=${encodeURIComponent(oldPath)}` : ""}`,
+          `/api/thread/diff?threadId=${encodeURIComponent(sessionId)}&file=${encodeURIComponent(file)}${diffPath ? `&diffPath=${encodeURIComponent(diffPath)}` : ""}${oldPath ? `&oldPath=${encodeURIComponent(oldPath)}` : ""}`,
         ),
         { cache: "no-cache", signal: controller.signal },
       )

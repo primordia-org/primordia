@@ -25,23 +25,25 @@ app/api/
 │   ├── complete/route.ts           ← POST submit authorization code and return credentials JSON when helper exits
 │   ├── cancel/route.ts             ← POST cancel helper process and clean up temp config dir
 │   └── logs/route.ts               ← GET SSE stream of helper stdout/stderr/system log lines
-├── evolve/                         ← Local evolve pipeline session endpoints
-│   ├── route.ts                    ← POST start session (requires can_evolve permission), GET status (legacy poll)
-│   ├── stream/route.ts             ← GET SSE stream of live session progress
-│   ├── manage/route.ts             ← POST accept/reject a local session
-│   ├── followup/route.ts           ← POST submit a follow-up request on an existing ready session
-│   ├── abort/route.ts              ← POST abort the running agent instance; transitions session to ready
-│   ├── kill-restart/route.ts       ← POST kill dev server process + restart it in the worktree
-│   ├── upstream-sync/route.ts      ← POST merge parent branch into session worktree, run bun install, and hot-swap preview DB snapshot
-│   ├── hotswap-db/route.ts         ← Internal loopback-only endpoint used by Apply Updates to close/reopen preview SQLite DB
-│   ├── from-branch/route.ts        ← POST start a session on an existing local branch
-│   ├── diff/route.ts               ← GET raw unified diff for a single file in a session branch vs its parent
-│   ├── diff-summary/route.ts       ← GET per-file diff summary for all changed files in a session
+├── thread/                         ← Thread and agent-run endpoints
+│   ├── route.ts                    ← POST start thread (requires can_evolve permission), GET thread status
+│   ├── stream/route.ts             ← GET SSE stream of live thread progress
+│   ├── manage/route.ts             ← POST accept/reject a ready thread
+│   ├── followup/route.ts           ← POST submit a follow-up request on an existing ready thread
+│   ├── abort/route.ts              ← POST abort the running agent instance; transitions thread to ready
+│   ├── upstream-sync/route.ts      ← POST merge parent branch into thread worktree, run bun install, and hot-swap preview DB snapshot
+│   ├── from-branch/route.ts        ← POST start a thread on an existing local branch
+│   ├── diff/route.ts               ← GET raw unified diff for a single file in a thread branch vs its parent
+│   ├── diff-summary/route.ts       ← GET per-file diff summary for all changed files in a thread
 │   ├── models/route.ts             ← GET available model options grouped by agent harness from generated registry data
-│   ├── presets/route.ts            ← GET built-in/custom evolve presets with availability for the current user
-│   ├── sessions/route.ts           ← GET persisted evolve sessions for session list/history UIs
-│   ├── reset-stuck/route.ts        ← POST force-reset sessions stuck in 'accepting'/'fixing-types' back to 'ready'
-│   └── attachment/[sessionId]/route.ts ← GET serve user-uploaded attachment files from a session's worktree
+│   ├── presets/route.ts            ← GET built-in/custom thread presets with availability for the current user
+│   ├── sessions/route.ts           ← GET persisted threads for session list/history UIs
+│   ├── reset-stuck/route.ts        ← POST force-reset threads stuck in 'accepting'/'fixing-types' back to 'ready'
+│   └── attachment/[threadId]/route.ts ← GET serve user-uploaded attachment files from a thread worktree
+├── server/                         ← Preview/process management endpoints
+│   ├── kill-restart/route.ts       ← POST kill dev server process + restart it in the worktree
+│   ├── logs/route.ts               ← GET SSE stream of a thread preview server log
+│   └── hotswap-db/route.ts         ← Internal loopback-only endpoint used by Apply Updates to close/reopen preview SQLite DB
 ├── secrets/route.ts                ← Bulk GET/POST/DELETE for encrypted user secrets keyed by auth source
 ├── secrets/[source]/route.ts       ← Per-source GET/POST/DELETE for encrypted credentials/API keys
 ├── credential-encryption/public-key/route.ts ← GET server's ephemeral RSA-OAEP public key as JWK for hybrid credential transmission
@@ -60,9 +62,9 @@ app/api/
 │   ├── server-health/route.ts      ← GET disk/memory usage; POST delete oldest worktree
 │   ├── git-mirror/route.ts         ← GET/POST/DELETE manage "mirror" git remote for push mirroring
 │   ├── proxy-settings/route.ts     ← GET/PATCH reverse proxy configuration from git config
-│   ├── updates/route.ts            ← POST manage upstream update sources and create merge sessions
+│   ├── updates/route.ts            ← POST manage upstream update sources and create merge threads
 │   ├── updates/has-updates/route.ts ← GET lightweight update-source notification check
-│   ├── dependencies-security/route.ts ← GET/POST run bun audit and create evolve sessions for vulnerable dependencies
+│   ├── dependencies-security/route.ts ← GET/POST run bun audit and create threads for vulnerable dependencies
 │   └── dependencies-security/has-alert/route.ts ← GET lightweight high/critical bun audit notification check
 ├── instance/                       ← Instance identity, manifest, and parent/child graph registration endpoints
 └── events/route.ts                 ← POST append event (open, no auth required); GET query events (admin only)

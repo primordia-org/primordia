@@ -22,9 +22,9 @@ components/                      ← Shared React components
 ├── ForbiddenPage.tsx            ← Server component: informative 403 access-denied page
 ├── HamburgerMenu.tsx            ← Reusable hamburger button + dropdown for nav and evolve entry points
 ├── LocalizedTimestamp*.tsx      ← Server/client pair for browser-local timestamp hydration
-├── MarkdownContent.tsx          ← Block-prose markdown renderer with dark styling used on session pages and changelogs
+├── MarkdownContent.tsx          ← Block-prose markdown renderer with dark styling used on thread pages and changelogs
 ├── ModelPicker.tsx              ← Shared grouped model selector with provider icons and pricing metadata
-├── NavHeader.tsx                ← Shared nav header used by /evolve/session, /changelog, /branches pages
+├── NavHeader.tsx                ← Shared nav header used by /thread, /changelog, /branches pages
 ├── PageElementInspector.tsx     ← Full-screen portal overlay for picking DOM elements with screenshot capture
 ├── PageNavBar.tsx               ← Shared nav header + hamburger for static information pages
 ├── ProgressBar.tsx              ← Shared progress bar primitive
@@ -66,7 +66,7 @@ app/                             ← Next.js App Router
 ├── admin/                       ← Admin-only pages; all render ForbiddenPage for logged-in non-admins
 │   ├── page.tsx                 ← Manage users and grant/revoke evolve access
 │   ├── AdminPermissionsClient.tsx ← Client component for permission mutations
-│   ├── dependencies-security/   ← bun audit results, severe vulnerability alerts, evolve-session creation
+│   ├── dependencies-security/   ← bun audit results, severe vulnerability alerts, thread creation
 │   ├── events/                  ← Paginated/filterable user event log viewer
 │   ├── git-mirror/              ← Mirror remote configuration and push status
 │   ├── instance/                ← Instance identity, canonical URL, parent/peer graph settings
@@ -76,10 +76,10 @@ app/                             ← Next.js App Router
 │   ├── server-health/           ← Disk/memory usage and oldest-worktree cleanup
 │   └── updates/                 ← Upstream update sources fetch/merge UI
 ├── api-docs/                    ← Interactive OpenAPI reference powered by @scalar/api-reference-react
-├── evolve/                      ← Evolve request page and session tracker
+├── evolve/                      ← Evolve request page
 │   ├── page.tsx                 ← Dedicated "propose a change" page; requires evolve permission
-│   ├── EvolveForm.tsx           ← Client wrapper for <EvolveRequestForm>
-│   └── session/[id]/            ← Session page, live event stream, diff summary, preview browser panel, resize handle
+│   └── EvolveForm.tsx           ← Client wrapper for <EvolveRequestForm>
+├── thread/[id]/                 ← Thread page, live event stream, diff summary, preview browser panel, resize handle
 ├── install.sh/route.ts          ← Returns install.sh with origins/base paths rewritten for the current instance
 ├── login/                       ← Auth provider tab UI plus cross-device approval/receive pages
 ├── settings/                    ← Account settings for billing sources, API keys, Claude/ChatGPT subscriptions, presets, notifications
