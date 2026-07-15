@@ -350,6 +350,48 @@ async function spawnAgentWorker(
   });
 }
 
+type ThreadBackgroundRunnerConfig =
+  | {
+      kind: 'create';
+      session: Omit<LocalSession, 'aesKey'>;
+      requestText: string;
+      repoRoot: string;
+      savedAttachmentPaths: string[];
+    }
+  | {
+      kind: 'followup';
+      userId: string;
+      threadId: string;
+      requestText: string;
+      presetId?: string | null;
+      repoRoot: string;
+      attachmentPaths: string[];
+    };
+
+function spawnThreadBackgroundRunner(config: ThreadBackgroundRunnerConfig, primordiaAesKey: string | null | undefined): void {
+  const configFile = `/tmp/primordia-thread-runner-${config.kind}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
+  fs.writeFileSync(configFile, JSON.stringify(config), 'utf8');
+
+  const runnerScript = path.join(config.repoRoot, 'scripts/thread-background-runner.ts');
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (primordiaAesKey) env.PRIMORDIA_AES_KEY = primordiaAesKey;
+  else delete env.PRIMORDIA_AES_KEY;
+
+  const proc = spawn('bun', ['run', runnerScript, configFile], {
+    cwd: config.repoRoot,
+    detached: true,
+    env,
+    stdio: 'ignore',
+  });
+
+  if (!proc.pid) {
+    try { fs.rmSync(configFile, { force: true }); } catch { /* best-effort */ }
+    throw new Error('Failed to spawn background thread runner: no PID assigned');
+  }
+
+  proc.unref();
+}
+
 /**
  * On server startup: reconnect to any agent worker processes that survived
  * from before the restart. For each session in a running state:
@@ -1076,8 +1118,10 @@ export interface FollowupThreadOptions {
   presetId?: string | null;
   primordiaAesKey?: string | null;
   attachmentPaths?: string[];
-  /** When false, await the worker before returning. CLI callers use this so the process stays alive. */
+  /** When false, await the worker before returning. Defaults to endpoint-style background behavior. */
   runInBackground?: boolean;
+  /** When true, hand work to a detached helper so a short-lived CLI process can exit immediately. */
+  detachBackgroundRunner?: boolean;
 }
 
 export async function followupThread(
@@ -1126,6 +1170,22 @@ export async function followupThread(
       aesKey: options.primordiaAesKey ?? undefined,
       userId: options.userId,
     };
+    if (options.detachBackgroundRunner) {
+      spawnThreadBackgroundRunner(
+        {
+          kind: 'followup',
+          userId: options.userId,
+          threadId: options.threadId,
+          requestText: options.requestText,
+          presetId: options.presetId,
+          repoRoot,
+          attachmentPaths: options.attachmentPaths ?? [],
+        },
+        options.primordiaAesKey,
+      );
+      return { ok: true, threadId: options.threadId };
+    }
+
     const runPromise = runFollowupThreadInWorktree(
       session,
       options.requestText,
@@ -1632,8 +1692,10 @@ export interface CreateThreadOptions {
   presetId?: string | null;
   primordiaAesKey?: string | null;
   savedAttachmentPaths?: string[];
-  /** When false, await setup/agent work before returning. CLI callers use this so the process stays alive. */
+  /** When false, await setup/agent work before returning. Defaults to endpoint-style background behavior. */
   runInBackground?: boolean;
+  /** When true, hand setup/agent work to a detached helper so a short-lived CLI process can exit immediately. */
+  detachBackgroundRunner?: boolean;
 }
 
 export type CreateThreadResult =
@@ -1785,6 +1847,7 @@ export async function createThread({
   primordiaAesKey = null,
   savedAttachmentPaths = [],
   runInBackground = true,
+  detachBackgroundRunner = false,
 }: CreateThreadOptions): Promise<CreateThreadResult> {
   if (!(await hasEvolvePermission(userId))) {
     return { ok: false, status: 403, error: 'User does not have evolve permission.' };
@@ -1898,18 +1961,31 @@ export async function createThread({
   };
   primordiaAesKey = null;
 
-  const startPromise = startLocalEvolve(session, requestText, repoRoot, undefined, savedAttachmentPaths, {
-    worktreeAlreadyCreated: true,
-    initialEventAlreadyWritten: true,
-  });
-
-  if (runInBackground) {
-    // Fire-and-forget — run async so POST returns immediately with the session ID.
-    // startLocalEvolve handles all error states internally and writes them to the filesystem.
-    void startPromise;
+  if (detachBackgroundRunner) {
+    const { aesKey: _aesKey, ...sessionWithoutAesKey } = session;
+    spawnThreadBackgroundRunner(
+      {
+        kind: 'create',
+        session: sessionWithoutAesKey,
+        requestText,
+        repoRoot,
+        savedAttachmentPaths,
+      },
+      primordiaAesKey,
+    );
   } else {
-    // CLI callers must keep the process alive until the worker exits.
-    await startPromise;
+    const startPromise = startLocalEvolve(session, requestText, repoRoot, undefined, savedAttachmentPaths, {
+      worktreeAlreadyCreated: true,
+      initialEventAlreadyWritten: true,
+    });
+
+    if (runInBackground) {
+      // Fire-and-forget — run async so POST returns immediately with the session ID.
+      // startLocalEvolve handles all error states internally and writes them to the filesystem.
+      void startPromise;
+    } else {
+      await startPromise;
+    }
   }
 
   // Persist the chosen harness/model/caveman as the user's sticky preference.
