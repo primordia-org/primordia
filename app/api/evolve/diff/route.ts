@@ -6,11 +6,36 @@
 // commits exclusive to the session branch are included.
 
 import { NextRequest, NextResponse } from "next/server";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
+import { createHash } from "crypto";
 import { getSessionFromFilesystem } from "@/lib/session-events";
 import { getSessionUser } from "@/lib/auth";
 import { getParentBranch } from "@/lib/branch-parent";
 import { getBranchParentSource } from "@/lib/user-prefs";
+
+function getRenamePathsFromDisplayFile(file: string): { oldPath: string; newPath: string } | null {
+  if (!file.includes(" => ")) return null;
+
+  const oldPath = file.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, "$1");
+  const newPath = file.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, "$2");
+  if (oldPath !== file || newPath !== file) return { oldPath, newPath };
+
+  const separator = file.lastIndexOf(" => ");
+  return {
+    oldPath: file.slice(0, separator).trim(),
+    newPath: file.slice(separator + " => ".length).trim(),
+  };
+}
+
+function toWeakEtag(content: string): string {
+  const hash = createHash("sha256").update(content).digest("base64url");
+  return `W/"diff-${hash}"`;
+}
+
+function requestHasMatchingEtag(ifNoneMatch: string | null, etag: string): boolean {
+  if (!ifNoneMatch) return false;
+  return ifNoneMatch.split(",").map((value) => value.trim()).includes(etag);
+}
 
 /**
  * Get raw diff for a single file
@@ -40,13 +65,33 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "No parent thread found" }, { status: 404 });
     }
 
-    const diff = execSync(
-      `git diff -w ${parentBranch}...${session.branch} -- ${JSON.stringify(file)}`,
+    const renamePaths = getRenamePathsFromDisplayFile(file);
+    const diffPath = searchParams.get("diffPath") ?? renamePaths?.newPath ?? file;
+    const oldPath = searchParams.get("oldPath") ?? renamePaths?.oldPath;
+    const pathspecs = oldPath && oldPath !== diffPath ? [oldPath, diffPath] : [diffPath];
+    const diff = execFileSync(
+      "git",
+      ["diff", "-M", "-w", `${parentBranch}...${session.branch}`, "--", ...pathspecs],
       { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1024 * 1024 * 4 },
     );
+    const etag = toWeakEtag(diff);
+
+    if (requestHasMatchingEtag(req.headers.get("if-none-match"), etag)) {
+      return new NextResponse(null, {
+        status: 304,
+        headers: {
+          ETag: etag,
+          "Cache-Control": "no-cache",
+        },
+      });
+    }
 
     return new NextResponse(diff, {
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache",
+        ETag: etag,
+      },
     });
   } catch {
     return NextResponse.json({ error: "Failed to compute diff" }, { status: 500 });

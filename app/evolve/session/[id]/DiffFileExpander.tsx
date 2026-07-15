@@ -5,16 +5,19 @@
 // A single expandable file row inside the git diff summary table.
 // Clicking the row lazy-loads the colorized unified diff from /api/evolve/diff.
 
-import { useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
 
 interface Props {
   sessionId: string;
   file: string;
+  diffPath?: string;
+  oldPath?: string;
   additions: number;
   deletions: number;
   isLast: boolean;
+  refreshToken: number;
 }
 
 /** Render a raw unified diff as colorized JSX lines. */
@@ -52,29 +55,42 @@ function ColorizedDiff({ raw }: { raw: string }) {
   );
 }
 
-export function DiffFileExpander({ sessionId, file, additions, deletions, isLast }: Props) {
+export function DiffFileExpander({ sessionId, file, diffPath, oldPath, additions, deletions, isLast, refreshToken }: Props) {
   const [open, setOpen] = useState(false);
   const [diff, setDiff] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const fetchedRef = useRef(false);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const controller = new AbortController();
+    queueMicrotask(() => {
+      if (controller.signal.aborted) return;
+      setLoading(true);
+      fetch(
+        withBasePath(
+          `/api/evolve/diff?sessionId=${encodeURIComponent(sessionId)}&file=${encodeURIComponent(file)}${diffPath ? `&diffPath=${encodeURIComponent(diffPath)}` : ""}${oldPath ? `&oldPath=${encodeURIComponent(oldPath)}` : ""}`,
+        ),
+        { cache: "no-cache", signal: controller.signal },
+      )
+        .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
+        .then((text) => setDiff(text))
+        .catch((error) => {
+          if (error instanceof Error && error.name === "AbortError") return;
+          setDiff("(Failed to load diff.)");
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+    });
+
+    return () => controller.abort();
+  }, [diffPath, file, oldPath, open, refreshToken, sessionId]);
 
   function handleToggle() {
     const nextOpen = !open;
     trackEvent("session/diff-file-toggled/v1", { sessionId, file, open: nextOpen });
     setOpen(nextOpen);
-    if (nextOpen && !fetchedRef.current) {
-      fetchedRef.current = true;
-      setLoading(true);
-      fetch(
-        withBasePath(
-          `/api/evolve/diff?sessionId=${encodeURIComponent(sessionId)}&file=${encodeURIComponent(file)}`,
-        ),
-      )
-        .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
-        .then((text) => setDiff(text))
-        .catch(() => setDiff("(Failed to load diff.)"))
-        .finally(() => setLoading(false));
-    }
   }
 
   return (
