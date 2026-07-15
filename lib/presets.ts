@@ -1,5 +1,5 @@
 // lib/presets.ts
-// Evolve preset definitions: billing source + harness + model + display name.
+// Thread preset definitions: billing source + harness + model + display name.
 
 export const SECRET_AUTH_SOURCES = [
   'claude-subscription',
@@ -16,7 +16,7 @@ export type PresetAuthSource = SecretAuthSource | 'exe-dev-gateway';
 
 export type SecretCiphertexts = Partial<Record<SecretAuthSource, string | null>>;
 
-export interface EvolvePreset {
+export interface ThreadPreset {
   id: string;
   name: string;
   authSource: PresetAuthSource;
@@ -25,7 +25,7 @@ export interface EvolvePreset {
   builtIn?: boolean;
 }
 
-export const BUILT_IN_PRESETS: EvolvePreset[] = [
+export const BUILT_IN_PRESETS: ThreadPreset[] = [
   {
     id: 'builtin:claude-code-gateway',
     name: 'Claude Code — exe.dev gateway',
@@ -142,7 +142,7 @@ export function isSecretAuthSource(value: string): value is SecretAuthSource {
   return (SECRET_AUTH_SOURCES as readonly string[]).includes(value);
 }
 
-export function parseCustomPresets(raw: string | undefined): EvolvePreset[] {
+export function parseCustomPresets(raw: string | undefined): ThreadPreset[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -161,14 +161,14 @@ export function parseCustomPresets(raw: string | undefined): EvolvePreset[] {
         authSource,
         harness,
         model,
-      } satisfies EvolvePreset];
+      } satisfies ThreadPreset];
     });
   } catch {
     return [];
   }
 }
 
-export function serializeCustomPresets(presets: EvolvePreset[]): string {
+export function serializeCustomPresets(presets: ThreadPreset[]): string {
   return JSON.stringify(presets.map((p) => ({
     id: p.id,
     name: p.name,

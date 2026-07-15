@@ -34,7 +34,7 @@ function ensureActive(ndjsonPath: string) {
 
 const [, , family, action, payload] = process.argv;
 const ndjsonPath = sessionLogPath();
-if (!ndjsonPath) say('session log not found. run this command from an evolve worktree with .primordia-session.ndjson.', 1);
+if (!ndjsonPath) say('session log not found. run this command from an thread worktree with .primordia-session.ndjson.', 1);
 
 if (family === 'plan') {
   if (action !== 'insert' && action !== 'replace') {

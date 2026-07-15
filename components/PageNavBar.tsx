@@ -18,7 +18,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { NavHeader } from "./NavHeader";
-import { FloatingEvolveDialog, EvolveSubmitToast } from "./FloatingEvolveDialog";
+import { FloatingThreadDialog, ThreadSubmitToast } from "./FloatingThreadDialog";
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import type { SessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
@@ -41,21 +41,21 @@ interface PageNavBarProps {
    * When provided (even as null), skips the /api/auth/session fetch.
    */
   initialSession?: SessionUser | null;
-  /** Sticky harness preference loaded server-side. Forwarded to FloatingEvolveDialog. */
+  /** Sticky harness preference loaded server-side. Forwarded to FloatingThreadDialog. */
   initialHarness?: string;
-  /** Sticky model preference loaded server-side. Forwarded to FloatingEvolveDialog. */
+  /** Sticky model preference loaded server-side. Forwarded to FloatingThreadDialog. */
   initialModel?: string;
-  /** Sticky caveman mode preference loaded server-side. Forwarded to FloatingEvolveDialog. */
+  /** Sticky caveman mode preference loaded server-side. Forwarded to FloatingThreadDialog. */
   initialCavemanMode?: boolean;
-  /** Sticky caveman intensity preference loaded server-side. Forwarded to FloatingEvolveDialog. */
+  /** Sticky caveman intensity preference loaded server-side. Forwarded to FloatingThreadDialog. */
   initialCavemanIntensity?: import("@/lib/user-prefs").CavemanIntensity;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function PageNavBar({ subtitle, branch, currentPage, initialSession, initialHarness, initialModel, initialCavemanMode, initialCavemanIntensity }: PageNavBarProps) {
-  const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
-  const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
+  const [threadDialogOpen, setThreadDialogOpen] = useState(false);
+  const [threadAnchorRect, setThreadAnchorRect] = useState<DOMRect | null>(null);
   const [toastSessionId, setToastSessionId] = useState<string | null>(null);
   const hamburgerRef = useRef<HTMLDivElement>(null);
   // undefined = still loading; null = not logged in; object = logged in
@@ -78,9 +78,9 @@ export function PageNavBar({ subtitle, branch, currentPage, initialSession, init
     setSessionUser(null);
   }
 
-  const handleEvolveClick = useCallback(() => {
-    setEvolveAnchorRect(hamburgerRef.current?.getBoundingClientRect() ?? null);
-    setEvolveDialogOpen(true);
+  const handleThreadClick = useCallback(() => {
+    setThreadAnchorRect(hamburgerRef.current?.getBoundingClientRect() ?? null);
+    setThreadDialogOpen(true);
   }, []);
 
   return (
@@ -95,17 +95,17 @@ export function PageNavBar({ subtitle, branch, currentPage, initialSession, init
           containerRef={hamburgerRef}
           // eslint-disable-next-line react-hooks/refs
           items={buildStandardMenuItems({
-            onEvolveClick: handleEvolveClick,
+            onThreadClick: handleThreadClick,
             isAdmin: sessionUser?.isAdmin ?? false,
             currentPath: currentPage ? `/${currentPage}` : undefined,
           })}
         />
       )}
 
-      {evolveDialogOpen && (
-        <FloatingEvolveDialog
-          onClose={() => setEvolveDialogOpen(false)}
-          anchorRect={evolveAnchorRect}
+      {threadDialogOpen && (
+        <FloatingThreadDialog
+          onClose={() => setThreadDialogOpen(false)}
+          anchorRect={threadAnchorRect}
           initialHarness={initialHarness}
           initialModel={initialModel}
           initialCavemanMode={initialCavemanMode}
@@ -114,7 +114,7 @@ export function PageNavBar({ subtitle, branch, currentPage, initialSession, init
         />
       )}
       {toastSessionId && (
-        <EvolveSubmitToast
+        <ThreadSubmitToast
           sessionId={toastSessionId}
           onDismiss={() => setToastSessionId(null)}
         />

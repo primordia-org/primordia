@@ -6,14 +6,14 @@
 
 > A self-modifying web application. Describe changes in plain English — Primordia builds them for you.
 
-Primordia is a chat interface powered by an AI agent. Users can open the **hamburger (☰) menu** in the header and choose **"Propose a change"** to open the evolve dialog and describe changes they want made to the app itself. Those requests are automatically built as local git worktree previews via the AI coding agent SDK — no coding or git knowledge required.
+Primordia is a chat interface powered by an AI agent. Users can open the **hamburger (☰) menu** in the header and choose **"Propose a change"** to open the thread dialog and describe changes they want made to the app itself. Those requests are automatically built as local git worktree previews via the AI coding agent SDK — no coding or git knowledge required.
 
 ## How It Works
 
 ### Normal Chat
 Talk to an AI agent directly. Primordia streams responses from the Anthropic SDK via SSE.
 
-### Evolve Mode
+### Threads
 Describe a change you want (e.g. *"add a dark mode toggle"* or *"make the header sticky"*"). Primordia will:
 
 1. Create a git branch + worktree for your request
@@ -33,7 +33,7 @@ You can attach images or files to any request. Follow-up requests on the same br
 | Language | TypeScript |
 | AI (chat) | Anthropic SDK via SSE |
 | AI (code gen) | Anthropic Agent SDK — `query()` in git worktrees |
-| Database | bun:sqlite — passkey auth + evolve session persistence |
+| Database | bun:sqlite — passkey auth + thread persistence |
 | Hosting | exe.dev (remote dev server) or local `bun run dev` |
 
 ## Setup
@@ -71,7 +71,7 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 | Capability | How Primordia uses it |
 |---|---|
 | Persistent remote dev server | Runs as a `systemd` service (`primordia-proxy`) in production mode (`bun run build && bun run start`); blue/green slot swap on accept |
-| Built-in LLM gateway | All LLM requests (chat and evolve) are routed through the exe.dev gateway — no API key needed |
+| Built-in LLM gateway | All LLM requests (chat and threads) are routed through the exe.dev gateway — no API key needed |
 | SSO login | The proxy injects an `X-ExeDev-Email` header; Primordia finds or creates a user automatically |
 
 ### Create your own Primordia on exe.dev
@@ -91,7 +91,7 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 5. **Open** `http://<server-name>.exe.xyz:3000`.
 6. **Sign in** — click *Login with exe.dev* on the login page. The first user to sign in is automatically granted the `admin` role.
 
-> Both the chat interface and the evolve pipeline use the exe.dev LLM gateway — no API key is needed.
+> Both the chat interface and the thread pipeline use the exe.dev LLM gateway — no API key is needed.
 
 ## Environment Variables
 
@@ -104,13 +104,13 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 | Feature | Status |
 |---|---|
 | Chat interface (streaming) | ✅ Live |
-| Evolve mode — local worktree pipeline | ✅ Live |
-| File attachments in evolve requests | ✅ Live |
+| Thread mode — local worktree pipeline | ✅ Live |
+| File attachments in thread requests | ✅ Live |
 | Follow-up requests on existing branches | ✅ Live |
 | Upstream changes indicator (merge/rebase) | ✅ Live |
 | Passkey authentication (WebAuthn) | ✅ Live |
 | Cross-device QR sign-in | ✅ Live |
-| RBAC — `admin` and `can_evolve` roles | ✅ Live |
+| RBAC — admin and thread access roles | ✅ Live |
 | exe.dev one-command deploy | ✅ Live |
 | Dark theme | ✅ Live |
 

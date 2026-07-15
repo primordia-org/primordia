@@ -1,5 +1,5 @@
 // app/api/admin/dependencies-security/route.ts
-// Runs `bun audit` for admins and creates evolve sessions to update vulnerable packages.
+// Runs `bun audit` for admins and creates threads to update vulnerable packages.
 
 import { createThread } from "@/lib/threads";
 import { getSessionUser, isAdmin } from "@/lib/auth";
@@ -77,7 +77,7 @@ async function handlePost(request: Request) {
       ? result.findings.map((f) => `- ${f.packageName}: ${f.severity} — ${f.title} (${f.id})`).join("\n")
       : "- No structured findings were returned by the initial audit run. Run `bun audit` to inspect the current dependency report.";
 
-    const evolveRequestText =
+    const threadRequestText =
       `Update vulnerable dependencies reported by bun audit.\n\n` +
       `Goals:\n` +
       `1. Upgrade or patch the vulnerable packages with the smallest safe dependency changes.\n` +
@@ -87,19 +87,19 @@ async function handlePost(request: Request) {
       `Initial structured findings:\n${issueList}\n\n` +
       `Do not rely on this summary alone; run \`bun audit\` in the worktree for the full current report before editing dependencies.`;
 
-    // Call the evolve session creation helper directly instead of wrapping the
-    // prompt in a synthetic Request for the evolve route to parse again. This
+    // Call the thread creation helper directly instead of wrapping the
+    // prompt in a synthetic Request for the thread route to parse again. This
     // avoids loopback networking issues and preserves the generated prompt
     // exactly as constructed, including the beginning of long audit prompts.
-    const evolveResult = await createThread({
+    const threadResult = await createThread({
       userId: user!.id,
-      requestText: evolveRequestText,
+      requestText: threadRequestText,
     });
 
-    if (!evolveResult.ok) {
-      return Response.json({ error: evolveResult.error ?? "Failed to create thread" }, { status: evolveResult.status });
+    if (!threadResult.ok) {
+      return Response.json({ error: threadResult.error ?? "Failed to create thread" }, { status: threadResult.status });
     }
-    return Response.json({ threadId: evolveResult.sessionId });
+    return Response.json({ threadId: threadResult.sessionId });
   }
 
   return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });

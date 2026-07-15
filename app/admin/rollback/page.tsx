@@ -5,7 +5,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSessionUser, isAdmin } from "@/lib/auth";
-import { getEvolvePrefs } from "@/lib/user-prefs";
+import { getThreadPrefs } from "@/lib/user-prefs";
 import { getDb } from "@/lib/db";
 import { buildPageTitle } from "@/lib/page-title";
 import ForbiddenPage from "@/components/ForbiddenPage";
@@ -46,14 +46,14 @@ export default async function AdminRollbackPage() {
     );
   }
 
-  const [sessionUser, evolvePrefs] = await Promise.all([
+  const [sessionUser, threadPrefs] = await Promise.all([
     Promise.resolve({ id: user.id, username: user.username, isAdmin: true }),
-    getEvolvePrefs(user.id),
+    getThreadPrefs(user.id),
   ]);
 
   return (
     <main className="flex flex-col w-full max-w-5xl mx-auto px-4 py-6 min-h-dvh">
-      <PageNavBar subtitle="Admin" currentPage="admin" initialSession={sessionUser} initialHarness={evolvePrefs.initialHarness} initialModel={evolvePrefs.initialModel} initialCavemanMode={evolvePrefs.initialCavemanMode} initialCavemanIntensity={evolvePrefs.initialCavemanIntensity} />
+      <PageNavBar subtitle="Admin" currentPage="admin" initialSession={sessionUser} initialHarness={threadPrefs.initialHarness} initialModel={threadPrefs.initialModel} initialCavemanMode={threadPrefs.initialCavemanMode} initialCavemanIntensity={threadPrefs.initialCavemanIntensity} />
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
         <AdminSubNav currentTab="rollback" />
         <div className="flex-1 min-w-0">

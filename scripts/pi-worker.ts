@@ -64,7 +64,7 @@ let _userApiKey: string | undefined;
 let _chatGptOAuth: string | undefined;
 let _requiredAuthSource: string | null | undefined;
 
-const CHATGPT_RELOGIN_ERROR = 'ChatGPT session expired. Reconnect ChatGPT in Settings → Billing sources, then retry this evolve session.';
+const CHATGPT_RELOGIN_ERROR = 'ChatGPT session expired. Reconnect ChatGPT in Settings → Billing sources, then retry this thread.';
 
 interface WorkerConfig {
   sessionId: string;
@@ -389,7 +389,7 @@ async function main(): Promise<void> {
         `The current working directory is: ${worktreePath}`,
         PROGRESS_MONITOR_PROMPT,
       ],
-      // Disable general extension discovery; headless evolve runs should only
+      // Disable general extension discovery; headless thread runs should only
       // use built-in file/shell tools plus explicit inline provider routing.
       noExtensions: true,
       extensionFactories,

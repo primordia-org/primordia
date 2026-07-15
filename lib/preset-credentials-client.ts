@@ -1,5 +1,5 @@
 // lib/preset-credentials-client.ts
-// Client-side helpers for attaching the user's Primordia AES key to evolve requests.
+// Client-side helpers for attaching the user's Primordia AES key to thread requests.
 // The server uses this key to decrypt the already-stored selected secret and
 // passes the same key to the detached worker via PRIMORDIA_AES_KEY.
 

@@ -7,9 +7,9 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import ThreadForm from "./ThreadForm";
 import ForbiddenPage from "@/components/ForbiddenPage";
-import { getSessionUser, hasEvolvePermission } from "@/lib/auth";
+import { getSessionUser, hasThreadPermission } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { getEvolvePrefs } from "@/lib/user-prefs";
+import { getThreadPrefs } from "@/lib/user-prefs";
 import { buildPageTitle } from "@/lib/page-title";
 
 export function generateMetadata(): Metadata {
@@ -37,27 +37,27 @@ export default async function ThreadCreatePage() {
   if (!user) redirect("/login?next=/thread");
 
   const db = await getDb();
-  const [canEvolve, allRoles, evolvePrefs] = await Promise.all([
-    hasEvolvePermission(user.id),
+  const [canStartThreads, allRoles, threadPrefs] = await Promise.all([
+    hasThreadPermission(user.id),
     db.getAllRoles(),
-    getEvolvePrefs(user.id),
+    getThreadPrefs(user.id),
   ]);
 
   const adminRoleName = allRoles.find((r) => r.name === "admin")?.displayName ?? "admin";
-  const evolveRoleName = allRoles.find((r) => r.name === "can_evolve")?.displayName ?? "Evolver";
+  const threadRoleName = allRoles.find((r) => r.name === "can_evolve")?.displayName ?? "Threader";
 
-  if (!canEvolve) {
+  if (!canStartThreads) {
     return (
       <ForbiddenPage
         pageDescription="This page lets you start a thread by submitting change requests to Claude Code. It creates a live preview of your changes that you can accept or reject."
         requiredConditions={[
           "Be logged in",
-          `Have the "${adminRoleName}" role or the "${evolveRoleName}" role`,
+          `Have the "${adminRoleName}" role or the "${threadRoleName}" role`,
         ]}
         metConditions={["You are logged in"]}
-        unmetConditions={[`You don't have the "${adminRoleName}" or "${evolveRoleName}" role`]}
+        unmetConditions={[`You don't have the "${adminRoleName}" or "${threadRoleName}" role`]}
         howToFix={[
-          `Ask a user with the "${adminRoleName}" role to grant you the "${evolveRoleName}" role via the Admin page (/admin).`,
+          `Ask a user with the "${adminRoleName}" role to grant you the "${threadRoleName}" role via the Admin page (/admin).`,
         ]}
       />
     );
@@ -65,5 +65,5 @@ export default async function ThreadCreatePage() {
 
   const branch = runGit("git branch --show-current");
 
-  return <ThreadForm branch={branch ?? null} initialHarness={evolvePrefs.initialHarness} initialModel={evolvePrefs.initialModel} initialCavemanMode={evolvePrefs.initialCavemanMode} initialCavemanIntensity={evolvePrefs.initialCavemanIntensity} />;
+  return <ThreadForm branch={branch ?? null} initialHarness={threadPrefs.initialHarness} initialModel={threadPrefs.initialModel} initialCavemanMode={threadPrefs.initialCavemanMode} initialCavemanIntensity={threadPrefs.initialCavemanIntensity} />;
 }

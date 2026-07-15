@@ -1,7 +1,7 @@
 "use client";
 
-// components/EvolveRequestForm.tsx
-// Shared evolve request form body used by the /thread page, the floating
+// components/ThreadRequestForm.tsx
+// Shared thread request form body used by the /thread page, the floating
 // dialog, and the follow-up panel on session detail pages.
 //
 // The Crosshair button (in the action row) activates a full-screen element
@@ -23,7 +23,7 @@ import {
   type CavemanIntensity,
 } from "@/lib/agent-config";
 import { type PresetAuthSource } from "@/lib/presets";
-import type { EvolvePresetWithAvailability } from "@/lib/preset-availability";
+import type { ThreadPresetWithAvailability } from "@/lib/preset-availability";
 import { PageElementInspector, PageElementInfo, captureElementFiles } from "./PageElementInspector";
 import { useSounds } from "@/lib/sounds";
 import { trackEvent } from "@/lib/events-client";
@@ -35,7 +35,7 @@ import { AgentIdentityLine } from "@/components/AgentIdentity";
 /** One element selection that the user has "attached" to their request. */
 interface ElementAttachmentDraft {
   id: string;
-  /** Display label, e.g. "[evolve/submit-request] in <EvolveRequestForm>" */
+  /** Display label, e.g. "[thread/submit-request] in <ThreadRequestForm>" */
   label: string;
   /** CSS selectors shown in tooltip */
   selector: string;
@@ -61,7 +61,7 @@ const ImagePreview = memo(function ImagePreview({ file }: { file: File }) {
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
-interface EvolveRequestFormProps {
+interface ThreadRequestFormProps {
   /**
    * Compact mode for the floating dialog: smaller padding, flex-1 textarea,
    * and tighter button sizing. Defaults to false (page layout).
@@ -137,7 +137,7 @@ interface EvolveRequestFormProps {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function EvolveRequestForm({
+export function ThreadRequestForm({
   compact = false,
   placeholder = "Describe the change you want to make to this app…",
   submitLabel = "Submit Request",
@@ -154,7 +154,7 @@ export function EvolveRequestForm({
   initialCavemanMode,
   initialCavemanIntensity,
   inspectorSkipElement,
-}: EvolveRequestFormProps) {
+}: ThreadRequestFormProps) {
   const router = useRouter();
   const sounds = useSounds();
   const { draft: input, setDraft: setInput, clearDraft: clearPersistedDraft } = useLocalStorageDraft(draftStorageKey);
@@ -163,7 +163,7 @@ export function EvolveRequestForm({
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [presets, setPresets] = useState<EvolvePresetWithAvailability[]>([]);
+  const [presets, setPresets] = useState<ThreadPresetWithAvailability[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string>("");
   const availablePresets = presets.filter((preset) => preset.available);
   const selectedPreset = presets.find((p) => p.id === selectedPresetId && p.available) ?? availablePresets[0] ?? {
@@ -183,7 +183,7 @@ export function EvolveRequestForm({
   useEffect(() => {
     fetch(withBasePath('/api/thread/presets'))
       .then((r) => r.json())
-      .then((data: { presets?: EvolvePresetWithAvailability[]; selectedPresetId?: string | null }) => {
+      .then((data: { presets?: ThreadPresetWithAvailability[]; selectedPresetId?: string | null }) => {
         const nextPresets = data.presets ?? [];
         const firstAvailable = nextPresets.find((preset) => preset.available);
         setPresets(nextPresets);
@@ -205,7 +205,7 @@ export function EvolveRequestForm({
     const id = `elem-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const label = info.dataId ? `[${info.dataId}] in <${info.component}>` : `<${info.component}>`;
     const selector = [info.selector, info.dataIdSelector].filter(Boolean).join("\n");
-    trackEvent("evolve-form/element-picked/v1", { component: info.component, selector: info.selector, dataId: info.dataId ?? null, dataIdSelector: info.dataIdSelector ?? null });
+    trackEvent("thread-form/element-picked/v1", { component: info.component, selector: info.selector, dataId: info.dataId ?? null, dataIdSelector: info.dataIdSelector ?? null });
 
     // Show "generating" chip immediately so the user gets instant feedback.
     setElementAttachments((prev) => [
@@ -255,7 +255,7 @@ export function EvolveRequestForm({
         .flatMap((a) => a.files),
     ];
 
-    trackEvent("evolve-form/submit/v1", {
+    trackEvent("thread-form/submit/v1", {
       harness: selectedHarness,
       model: selectedModel,
       fileCount: allFiles.length,
@@ -321,7 +321,7 @@ export function EvolveRequestForm({
       sounds.error();
       const msg = err instanceof Error ? err.message : "Something went wrong.";
       setError(msg);
-      trackEvent("evolve-form/submit-error/v1", { error: msg });
+      trackEvent("thread-form/submit-error/v1", { error: msg });
     } finally {
       setIsLoading(false);
     }
@@ -334,7 +334,7 @@ export function EvolveRequestForm({
     setAttachedFiles((prev) => {
       const existing = new Set(prev.map((f) => `${f.name}:${f.size}`));
       const added = arr.filter((f) => !existing.has(`${f.name}:${f.size}`));
-      if (added.length > 0) trackEvent("evolve-form/files-attached/v1", { count: added.length, trigger });
+      if (added.length > 0) trackEvent("thread-form/files-attached/v1", { count: added.length, trigger });
       return [...prev, ...added];
     });
   }, []);
@@ -420,7 +420,7 @@ export function EvolveRequestForm({
         className={`flex flex-col gap-3 rounded-lg ${compact ? "flex-1 min-h-0" : ""} transition-all ${isDragging ? "bg-amber-950/10 ring-2 ring-amber-500/60 ring-offset-4 ring-offset-gray-950" : ""}`}
       >
         <textarea
-          data-id="evolve/request-input"
+          data-id="thread/request-input"
           ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -447,8 +447,8 @@ export function EvolveRequestForm({
                 </span>
                 <button
                   type="button"
-                  data-id="evolve/remove-file-attachment"
-                  onClick={() => { trackEvent("evolve-form/file-removed/v1", { name: file.name, trigger: "mouse" }); setAttachedFiles((prev) => prev.filter((_, j) => j !== i)); }}
+                  data-id="thread/remove-file-attachment"
+                  onClick={() => { trackEvent("thread-form/file-removed/v1", { name: file.name, trigger: "mouse" }); setAttachedFiles((prev) => prev.filter((_, j) => j !== i)); }}
                   className="text-gray-500 hover:text-gray-200 ml-0.5 flex-shrink-0"
                   aria-label={`Remove ${file.name}`}
                 >
@@ -487,8 +487,8 @@ export function EvolveRequestForm({
                 )}
                 <button
                   type="button"
-                  data-id="evolve/remove-element-attachment"
-                  onClick={() => { trackEvent("evolve-form/element-removed/v1", { label: attachment.label, trigger: "mouse" }); setElementAttachments((prev) => prev.filter((a) => a.id !== attachment.id)); }}
+                  data-id="thread/remove-element-attachment"
+                  onClick={() => { trackEvent("thread-form/element-removed/v1", { label: attachment.label, trigger: "mouse" }); setElementAttachments((prev) => prev.filter((a) => a.id !== attachment.id)); }}
                   className="text-blue-500 hover:text-blue-200 ml-0.5 flex-shrink-0"
                   aria-label={`Remove element ${attachment.label}`}
                 >
@@ -516,8 +516,8 @@ export function EvolveRequestForm({
           {/* File attach button */}
           <button
             type="button"
-            data-id="evolve/attach-files"
-            onClick={() => { trackEvent("evolve-form/attach-files-clicked/v1", {}); fileInputRef.current?.click(); }}
+            data-id="thread/attach-files"
+            onClick={() => { trackEvent("thread-form/attach-files-clicked/v1", {}); fileInputRef.current?.click(); }}
             disabled={isLoading}
             className={`flex items-center gap-1.5 ${compact ? "px-2.5" : "px-3"} py-1.5 rounded-lg text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 border border-gray-700 transition-colors disabled:opacity-50`}
           >
@@ -528,8 +528,8 @@ export function EvolveRequestForm({
           {/* Element inspector (crosshair) button */}
           <button
             type="button"
-            data-id="evolve/pick-element"
-            onClick={() => { trackEvent("evolve-form/element-inspector-opened/v1", {}); setInspectorActive(true); }}
+            data-id="thread/pick-element"
+            onClick={() => { trackEvent("thread-form/element-inspector-opened/v1", {}); setInspectorActive(true); }}
             disabled={isLoading || inspectorActive}
             title="Pick an element on the page to attach its details to this request"
             className={`flex items-center gap-1.5 ${compact ? "px-2.5" : "px-3"} py-1.5 rounded-lg text-xs transition-colors border disabled:opacity-50 ${
@@ -548,7 +548,7 @@ export function EvolveRequestForm({
           {/* Submit button — full-width on mobile when it wraps to its own row */}
           <button
             type="submit"
-            data-id="evolve/submit-request"
+            data-id="thread/submit-request"
             disabled={isSubmitDisabled}
             title={buttonLabel}
             className={`px-4 ${compact ? "py-1.5 text-xs" : "py-2 text-sm"} rounded-lg font-medium transition-colors bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900 text-white disabled:cursor-not-allowed${compact ? "" : " w-full sm:w-auto text-center"}`}
@@ -565,8 +565,8 @@ export function EvolveRequestForm({
         <div className="border-t border-gray-800 pt-2 mt-1">
           <button
             type="button"
-            data-id="evolve/advanced-toggle"
-            onClick={() => { const next = !showAdvanced; trackEvent("evolve-form/advanced-toggled/v1", { open: next }); setShowAdvanced(next); }}
+            data-id="thread/advanced-toggle"
+            onClick={() => { const next = !showAdvanced; trackEvent("thread-form/advanced-toggled/v1", { open: next }); setShowAdvanced(next); }}
             className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors select-none"
           >
             <Settings size={14} strokeWidth={2} aria-hidden="true" />
@@ -585,12 +585,12 @@ export function EvolveRequestForm({
                 <div className="flex items-center gap-3">
                   <label className="text-xs text-gray-400 w-14 flex-shrink-0">Preset</label>
                   <select
-                    data-id="evolve/preset-select"
+                    data-id="thread/preset-select"
                     value={selectedPreset.id}
                     onChange={(e) => {
                       const preset = availablePresets.find((p) => p.id === e.target.value);
                       setSelectedPresetId(e.target.value);
-                      if (preset) trackEvent("evolve-form/preset-changed/v1", { presetId: preset.id, harness: preset.harness, model: preset.model, authSource: preset.authSource });
+                      if (preset) trackEvent("thread-form/preset-changed/v1", { presetId: preset.id, harness: preset.harness, model: preset.model, authSource: preset.authSource });
                     }}
                     disabled={isLoading || availablePresets.length === 0}
                     className="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1.5 focus:outline-none focus:border-gray-500 disabled:opacity-50"
@@ -615,19 +615,19 @@ export function EvolveRequestForm({
                 <div className="flex items-center gap-2">
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
-                      data-id="evolve/caveman-mode"
+                      data-id="thread/caveman-mode"
                       type="checkbox"
                       checked={cavemanMode}
-                      onChange={(e) => { const enabled = e.target.checked; setCavemanMode(enabled); trackEvent("evolve-form/caveman-toggled/v1", { enabled }); }}
+                      onChange={(e) => { const enabled = e.target.checked; setCavemanMode(enabled); trackEvent("thread-form/caveman-toggled/v1", { enabled }); }}
                       disabled={isLoading}
                       className="accent-amber-500 disabled:opacity-50"
                     />
                     <span className="text-xs text-gray-400">Caveman - reduce output tokens</span>
                   </label>
                   <select
-                    data-id="evolve/caveman-intensity"
+                    data-id="thread/caveman-intensity"
                     value={cavemanIntensity}
-                    onChange={(e) => { const intensity = e.target.value as CavemanIntensity; setCavemanIntensity(intensity); trackEvent("evolve-form/caveman-intensity-changed/v1", { intensity }); }}
+                    onChange={(e) => { const intensity = e.target.value as CavemanIntensity; setCavemanIntensity(intensity); trackEvent("thread-form/caveman-intensity-changed/v1", { intensity }); }}
                     disabled={isLoading || !cavemanMode}
                     className="text-xs bg-gray-800 text-gray-200 border border-gray-700 rounded px-2 py-1 focus:outline-none focus:border-gray-500 disabled:opacity-50"
                   >

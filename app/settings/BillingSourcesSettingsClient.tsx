@@ -163,7 +163,7 @@ export default function BillingSourcesSettingsClient({
       <div>
         <h1 className="text-2xl font-semibold text-gray-100">Billing sources</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Start with the built-in gateway, or add only the API key or subscription source you want to use in Evolve presets.
+          Start with the built-in gateway, or add only the API key or subscription source you want to use in Thread presets.
         </p>
       </div>
 

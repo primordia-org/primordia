@@ -203,7 +203,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
   ).run("admin", crypto.randomUUID(), "Prime", "Owner/admin role with full system access", now);
   db.prepare(
     "INSERT OR IGNORE INTO roles (name, id, display_name, description, created_at) VALUES (?, ?, ?, ?, ?)"
-  ).run("can_evolve", crypto.randomUUID(), "Evolver", "Permission to propose changes to the app via the evolve flow", now);
+  ).run("can_evolve", crypto.randomUUID(), "Threader", "Permission to propose changes to the app via the thread flow", now);
 
   // Migration: grant admin role to first user if they don't have it yet
   try {
@@ -253,13 +253,13 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
   if (adminRole && (!adminRole.display_name || adminRole.display_name === '')) {
     db.prepare("UPDATE roles SET display_name = ? WHERE name = 'admin'").run("Prime");
   }
-  const evolveRole = db.prepare("SELECT id, display_name FROM roles WHERE name = 'can_evolve'").get() as
+  const threadRole = db.prepare("SELECT id, display_name FROM roles WHERE name = 'can_evolve'").get() as
     | { id: string; display_name: string } | null;
-  if (evolveRole && (!evolveRole.id || evolveRole.id === '')) {
+  if (threadRole && (!threadRole.id || threadRole.id === '')) {
     db.prepare("UPDATE roles SET id = ? WHERE name = 'can_evolve'").run(crypto.randomUUID());
   }
-  if (evolveRole && (!evolveRole.display_name || evolveRole.display_name === '')) {
-    db.prepare("UPDATE roles SET display_name = ? WHERE name = 'can_evolve'").run("Evolver");
+  if (threadRole && (!threadRole.display_name || threadRole.display_name === '')) {
+    db.prepare("UPDATE roles SET display_name = ? WHERE name = 'can_evolve'").run("Threader");
   }
 
   const adapter: DbAdapter = {

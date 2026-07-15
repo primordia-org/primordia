@@ -560,7 +560,7 @@ export function ModelPicker({
     <div className="relative">
       <button
         type="button"
-        data-id="evolve/model-picker-trigger"
+        data-id="thread/model-picker-trigger"
         onClick={() => !disabled && setOpen((v) => !v)}
         disabled={disabled}
         className={`flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-800 text-gray-200 hover:bg-gray-700 hover:border-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-0 ${compact ? "px-2.5 py-1.5" : "px-3 py-2"}`}

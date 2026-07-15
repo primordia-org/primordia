@@ -64,7 +64,7 @@ export default async function globalSetup() {
   const userId: string = session.user.id;
   console.log(`\n[global-setup] Logged in as ${TEST_EMAIL} (userId: ${userId})`);
 
-  // Admin users have evolve permission via hasEvolvePermission() — no separate grant needed.
+  // Admin users have thread permission via hasThreadPermission() — no separate grant needed.
   // The session endpoint returns { user: { isAdmin: boolean } }.
   const isAdmin: boolean = session?.user?.isAdmin ?? false;
 
@@ -75,16 +75,16 @@ export default async function globalSetup() {
         `If this DB has existing users, ensure ${TEST_EMAIL} is the first user or grant admin directly.`
     );
   }
-  console.log(`[global-setup] User is admin — evolve permission confirmed.`);
+  console.log(`[global-setup] User is admin — thread permission confirmed.`);
 
-  // Provision the user's Anthropic API key so evolve sessions can call the API.
+  // Provision the user's Anthropic API key so threads can call the API.
   // Reads ANTHROPIC_API_KEY from the test runner env (or .env.local), then runs
   // the same browser-side flow as the UI: generate AES key, encrypt, POST ciphertext.
   const apiKey = readApiKeyFromEnv();
   if (!apiKey) {
     console.warn(
       "[global-setup] No ANTHROPIC_API_KEY found in env or .env.local — " +
-        "evolve sessions will fail at the LLM call. Set the key via the UI or env to enable."
+        "threads will fail at the LLM call. Set the key via the UI or env to enable."
     );
   } else {
     // Navigate to a real app page so window.crypto + localStorage + same-origin fetch work.

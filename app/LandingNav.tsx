@@ -3,7 +3,7 @@
 // the landing page. No navbar chrome; just the session-aware HamburgerMenu
 // floating over the hero with a transparent background.
 //
-// The FloatingEvolveDialog is dynamically imported so it doesn't bloat the
+// The FloatingThreadDialog is dynamically imported so it doesn't bloat the
 // landing page's initial JS bundle — it's only loaded when the user clicks
 // "Propose a change" from the menu.
 
@@ -14,33 +14,33 @@ import dynamic from "next/dynamic";
 import { useSessionUser } from "@/lib/hooks";
 import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
 
-// Lazy-load the heavy evolve dialog — only fetched when the user opens it.
-const FloatingEvolveDialog = dynamic(
-  () => import("@/components/FloatingEvolveDialog").then((m) => m.FloatingEvolveDialog),
+// Lazy-load the heavy thread dialog — only fetched when the user opens it.
+const FloatingThreadDialog = dynamic(
+  () => import("@/components/FloatingThreadDialog").then((m) => m.FloatingThreadDialog),
   { ssr: false },
 );
-const EvolveSubmitToast = dynamic(
-  () => import("@/components/FloatingEvolveDialog").then((m) => m.EvolveSubmitToast),
+const ThreadSubmitToast = dynamic(
+  () => import("@/components/FloatingThreadDialog").then((m) => m.ThreadSubmitToast),
   { ssr: false },
 );
 
 export function LandingNav() {
   const { sessionUser, handleLogout } = useSessionUser();
-  const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
-  const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
+  const [threadDialogOpen, setThreadDialogOpen] = useState(false);
+  const [threadAnchorRect, setThreadAnchorRect] = useState<DOMRect | null>(null);
   const [toastSessionId, setToastSessionId] = useState<string | null>(null);
   const hamburgerRef = useRef<HTMLDivElement>(null);
 
-  const handleEvolveClick = useCallback(() => {
-    setEvolveAnchorRect(hamburgerRef.current?.getBoundingClientRect() ?? null);
-    setEvolveDialogOpen(true);
+  const handleThreadClick = useCallback(() => {
+    setThreadAnchorRect(hamburgerRef.current?.getBoundingClientRect() ?? null);
+    setThreadDialogOpen(true);
   }, []);
 
   // eslint-disable-next-line react-hooks/refs
   const menuItems = buildStandardMenuItems({
     isAdmin: sessionUser?.isAdmin ?? false,
     currentPath: "/",
-    onEvolveClick: handleEvolveClick,
+    onThreadClick: handleThreadClick,
   });
 
   return (
@@ -52,15 +52,15 @@ export function LandingNav() {
         items={menuItems}
       />
 
-      {evolveDialogOpen && (
-        <FloatingEvolveDialog
-          onClose={() => setEvolveDialogOpen(false)}
-          anchorRect={evolveAnchorRect}
+      {threadDialogOpen && (
+        <FloatingThreadDialog
+          onClose={() => setThreadDialogOpen(false)}
+          anchorRect={threadAnchorRect}
           onSessionCreated={(id) => setToastSessionId(id)}
         />
       )}
       {toastSessionId && (
-        <EvolveSubmitToast
+        <ThreadSubmitToast
           sessionId={toastSessionId}
           onDismiss={() => setToastSessionId(null)}
         />

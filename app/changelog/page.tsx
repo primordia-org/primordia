@@ -14,7 +14,7 @@ import { changelogEntrySlug } from "@/app/ChangelogNewsticker";
 import { PageNavBar } from "@/components/PageNavBar";
 import { buildPageTitle } from "@/lib/page-title";
 import { getSessionUser, isAdmin } from "@/lib/auth";
-import { getEvolvePrefs } from "@/lib/user-prefs";
+import { getThreadPrefs } from "@/lib/user-prefs";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export function generateMetadata(): Metadata {
@@ -99,10 +99,10 @@ export default async function ChangelogPage({
     Promise.resolve(loadSummaries()),
     getSessionUser(),
   ]);
-  const [sessionUser, evolvePrefs] = user
+  const [sessionUser, threadPrefs] = user
     ? await Promise.all([
         isAdmin(user.id).then((admin) => ({ id: user.id, username: user.username, isAdmin: admin })),
-        getEvolvePrefs(user.id),
+        getThreadPrefs(user.id),
       ])
     : [null, null];
 
@@ -113,7 +113,7 @@ export default async function ChangelogPage({
   return (
     <main className="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 min-h-screen">
       {/* Header — session resolved server-side so the hamburger is instant */}
-      <PageNavBar subtitle="Changelog" currentPage="changelog" initialSession={sessionUser} initialHarness={evolvePrefs?.initialHarness} initialModel={evolvePrefs?.initialModel} initialCavemanMode={evolvePrefs?.initialCavemanMode} initialCavemanIntensity={evolvePrefs?.initialCavemanIntensity} />
+      <PageNavBar subtitle="Changelog" currentPage="changelog" initialSession={sessionUser} initialHarness={threadPrefs?.initialHarness} initialModel={threadPrefs?.initialModel} initialCavemanMode={threadPrefs?.initialCavemanMode} initialCavemanIntensity={threadPrefs?.initialCavemanIntensity} />
 
       {/* Entry list */}
       {entries.length === 0 ? (

@@ -7,13 +7,13 @@
 
 import * as path from 'path';
 import {
-  startLocalEvolve,
+  startLocalThread,
   runGit,
   getRepoRoot,
   getWorktreesDir,
   type LocalSession,
 } from '@/lib/threads';
-import { getSessionUser, hasEvolvePermission } from '@/lib/auth';
+import { getSessionUser, hasThreadPermission } from '@/lib/auth';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
@@ -37,8 +37,8 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
 
-  if (!(await hasEvolvePermission(user.id))) {
-    return Response.json({ error: 'You do not have permission to use the evolve flow' }, { status: 403 });
+  if (!(await hasThreadPermission(user.id))) {
+    return Response.json({ error: 'You do not have permission to start threads' }, { status: 403 });
   }
 
   const body = (await request.json()) as { branchName?: string };
@@ -130,7 +130,7 @@ export async function POST(request: Request) {
     userId: user.id,
   };
 
-  void startLocalEvolve(session, '', repoRoot, undefined, [], {
+  void startLocalThread(session, '', repoRoot, undefined, [], {
     skipBranchCreation: true,
     worktreeAlreadyCreated: true,
     initialEventAlreadyWritten: true,

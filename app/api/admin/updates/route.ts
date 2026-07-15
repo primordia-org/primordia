@@ -24,17 +24,17 @@
 //   Updates the fetch schedule and delay for a source.
 //
 // POST { action: "create-session", sourceId: string }
-//   Creates an evolve session to merge a source's tracking branch into main.
+//   Creates an thread to merge a source's tracking branch into main.
 //   Returns: { threadId: string }
 //
 // Admin-only for all operations.
 
 import { execFileSync } from "child_process";
 import * as path from "path";
-import { getSessionUser, isAdmin, hasEvolvePermission } from "@/lib/auth";
+import { getSessionUser, isAdmin, hasThreadPermission } from "@/lib/auth";
 import { writeBranchMarker } from "@/lib/branch-parent";
 import {
-  startLocalEvolve,
+  startLocalThread,
   runGit,
   getRepoRoot,
   getWorktreesDir,
@@ -299,9 +299,9 @@ export async function POST(request: Request) {
 
   // ── create-session ────────────────────────────────────────────────────────
   if (action === "create-session") {
-    if (!(await hasEvolvePermission(user!.id))) {
+    if (!(await hasThreadPermission(user!.id))) {
       return Response.json(
-        { error: "You need the evolve permission to create threads." },
+        { error: "You need the thread permission to create threads." },
         { status: 403 },
       );
     }
@@ -416,7 +416,7 @@ export async function POST(request: Request) {
       userId: user!.id,
     };
 
-    void startLocalEvolve(session, requestText, repoRoot, undefined, [], {
+    void startLocalThread(session, requestText, repoRoot, undefined, [], {
       worktreeAlreadyCreated: true,
       initialEventAlreadyWritten: true,
     });

@@ -12,7 +12,7 @@ import { MarkdownContent } from "@/components/MarkdownContent";
 import { NavHeader } from "@/components/NavHeader";
 import { ProgressBar } from "@/components/ProgressBar";
 
-import { FloatingEvolveDialog, EvolveSubmitToast } from "@/components/FloatingEvolveDialog";
+import { FloatingThreadDialog, ThreadSubmitToast } from "@/components/FloatingThreadDialog";
 import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
 import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
@@ -20,7 +20,7 @@ import { appendCredentialFieldsForAuthSource, getCredentialFieldsForAuthSource }
 import { useSounds } from "@/lib/sounds";
 import { updateStoredCredentials } from "@/lib/credentials-client";
 import { ChatGptSubscriptionAuthCard } from "@/components/ChatGptSubscriptionAuthCard";
-import { EvolveRequestForm } from "@/components/EvolveRequestForm";
+import { ThreadRequestForm } from "@/components/ThreadRequestForm";
 import Link from "next/link";
 import type { DiffFileSummary } from "./page";
 import { DiffFileExpander } from "./DiffFileExpander";
@@ -1220,8 +1220,8 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
             startButtonLabel="Re-login to ChatGPT"
             showStoredCredentials={false}
             allowDisconnect={false}
-            dataIdPrefix="evolve-session/chatgpt-relogin"
-            eventPrefix="evolve/session/chatgpt-relogin"
+            dataIdPrefix="thread/chatgpt-relogin"
+            eventPrefix="thread/chatgpt-relogin"
           />
         </div>
       )}
@@ -1448,7 +1448,7 @@ function WebPreviewCard({
   sessionId: cardSessionId,
   proxyServerStatus,
   serverLogsNode,
-  canEvolve,
+  canStartThreads,
   isRestartingServer,
   restartError,
   onRestartServer,
@@ -1459,7 +1459,7 @@ function WebPreviewCard({
   sessionId: string;
   proxyServerStatus: 'starting' | 'running' | 'stopped' | 'unknown';
   serverLogsNode: ReactNode;
-  canEvolve: boolean;
+  canStartThreads: boolean;
   isRestartingServer: boolean;
   restartError: string | null;
   onRestartServer: () => void;
@@ -1561,7 +1561,7 @@ function WebPreviewCard({
         <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
           <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
           <span className="text-gray-500">🪵 Server logs</span>
-          {canEvolve && proxyServerStatus === 'running' && (
+          {canStartThreads && proxyServerStatus === 'running' && (
             <button
               data-id="session/restart-preview"
               type="button"
@@ -1606,18 +1606,18 @@ interface ThreadViewProps {
   /** Per-file diff summary for files changed in this session branch vs its parent. */
   diffSummary: DiffFileSummary[];
   /** True when the current user has the can_evolve (or admin) permission. Actions are hidden when false. */
-  canEvolve: boolean;
+  canStartThreads: boolean;
   /** True when running in production mode (NODE_ENV=production). Changes accept confirmation copy to describe blue/green cutover instead of a merge. */
   isProduction: boolean;
   /** Absolute path to the session's worktree, used to shorten file paths in tool call display. */
   worktreePath: string;
-  /** Sticky harness preference loaded server-side. Forwarded to FloatingEvolveDialog. */
+  /** Sticky harness preference loaded server-side. Forwarded to FloatingThreadDialog. */
   initialHarness?: string;
-  /** Sticky model preference loaded server-side. Forwarded to FloatingEvolveDialog. */
+  /** Sticky model preference loaded server-side. Forwarded to FloatingThreadDialog. */
   initialModel?: string;
-  /** Sticky caveman mode preference loaded server-side. Forwarded to FloatingEvolveDialog. */
+  /** Sticky caveman mode preference loaded server-side. Forwarded to FloatingThreadDialog. */
   initialCavemanMode?: boolean;
-  /** Sticky caveman intensity preference loaded server-side. Forwarded to FloatingEvolveDialog. */
+  /** Sticky caveman intensity preference loaded server-side. Forwarded to FloatingThreadDialog. */
   initialCavemanIntensity?: import("@/lib/user-prefs").CavemanIntensity;
 }
 
@@ -1691,7 +1691,7 @@ export default function ThreadView({
   canAcceptReject,
   upstreamCommitCount,
   diffSummary,
-  canEvolve,
+  canStartThreads,
   isProduction,
   worktreePath,
   initialHarness,
@@ -1713,8 +1713,8 @@ export default function ThreadView({
   /** Status of the preview server as reported by the process manager. */
   const [proxyServerStatus, setProxyServerStatus] = useState<'starting' | 'running' | 'stopped' | 'unknown'>('unknown');
   const sounds = useSounds();
-  const [evolveDialogOpen, setEvolveDialogOpen] = useState(false);
-  const [evolveAnchorRect, setEvolveAnchorRect] = useState<DOMRect | null>(null);
+  const [threadDialogOpen, setThreadDialogOpen] = useState(false);
+  const [threadAnchorRect, setThreadAnchorRect] = useState<DOMRect | null>(null);
   const [toastSessionId, setToastSessionId] = useState<string | null>(null);
   const hamburgerRef = useRef<HTMLDivElement>(null);
   const { sessionUser, handleLogout } = useSessionUser();
@@ -2076,7 +2076,7 @@ export default function ThreadView({
     try {
       // Attach only the credential selected by the session's most recent preset
       // so accept-time agent passes (type-fix, auto-commit) use the same billing
-      // source as the evolve/follow-up run they are completing.
+      // source as the thread/follow-up run they are completing.
       const acceptBody: Record<string, string> = { action: 'accept', threadId: sessionId };
       if (sessionCredentialAuthSource) acceptBody.authSource = sessionCredentialAuthSource;
       Object.assign(acceptBody, await getCredentialFieldsForAuthSource(sessionCredentialAuthSource));
@@ -2280,17 +2280,17 @@ export default function ThreadView({
           onLogout={handleLogout}
           containerRef={hamburgerRef}
           items={buildStandardMenuItems({
-            onEvolveClick: () => {
-              setEvolveAnchorRect(hamburgerRef.current?.getBoundingClientRect() ?? null);
-              setEvolveDialogOpen(true);
+            onThreadClick: () => {
+              setThreadAnchorRect(hamburgerRef.current?.getBoundingClientRect() ?? null);
+              setThreadDialogOpen(true);
             },
             isAdmin: sessionUser?.isAdmin ?? false,
           })}
         />
-        {evolveDialogOpen && (
-          <FloatingEvolveDialog
-            onClose={() => setEvolveDialogOpen(false)}
-            anchorRect={evolveAnchorRect}
+        {threadDialogOpen && (
+          <FloatingThreadDialog
+            onClose={() => setThreadDialogOpen(false)}
+            anchorRect={threadAnchorRect}
             initialHarness={initialHarness}
             initialModel={initialModel}
             initialCavemanMode={initialCavemanMode}
@@ -2299,7 +2299,7 @@ export default function ThreadView({
           />
         )}
         {toastSessionId && (
-          <EvolveSubmitToast
+          <ThreadSubmitToast
             sessionId={toastSessionId}
             onDismiss={() => setToastSessionId(null)}
           />
@@ -2459,8 +2459,8 @@ export default function ThreadView({
         );
       })()}
 
-      {/* Upstream Changes — shown when the parent branch has commits not yet in the thread; hidden for non-evolvers */}
-      {canEvolve && remainingUpstream > 0 && status !== "accepted" && status !== "rejected" && (
+      {/* Upstream Changes — shown when the parent branch has commits not yet in the thread; hidden for non-thread users */}
+      {canStartThreads && remainingUpstream > 0 && status !== "accepted" && status !== "rejected" && (
         <div className="mb-6 rounded-lg bg-blue-950/40 border border-blue-700/50 text-sm overflow-hidden">
           <div className="px-4 py-3 flex items-start justify-between gap-4">
             <div>
@@ -2499,8 +2499,8 @@ export default function ThreadView({
         </div>
       )}
 
-      {/* Three-action panel — shown to users with can_evolve permission; hidden for public viewers */}
-      {canEvolve && status !== "accepted" && status !== "rejected" && (
+      {/* Three-action panel — shown to users with can_thread permission; hidden for public viewers */}
+      {canStartThreads && status !== "accepted" && status !== "rejected" && (
         <div className="mb-6 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-hidden">
 
           {/* ── Header ── */}
@@ -2530,7 +2530,7 @@ export default function ThreadView({
                 <Loader2 size={16} className="animate-spin flex-shrink-0" />
                 Accepting changes…
               </div>
-              {canEvolve && showStuckButton && (
+              {canStartThreads && showStuckButton && (
                 <button
                   onClick={() => setStuckConfirmOpen(true)}
                   disabled={isResettingStuck}
@@ -2547,7 +2547,7 @@ export default function ThreadView({
                 <Loader2 size={16} className="animate-spin flex-shrink-0" />
                 Fixing type errors… will auto-accept when complete.
               </div>
-              {canEvolve && showStuckButton && (
+              {canStartThreads && showStuckButton && (
                 <button
                   onClick={() => setStuckConfirmOpen(true)}
                   disabled={isResettingStuck}
@@ -2634,10 +2634,10 @@ export default function ThreadView({
                   </button>
                 </div>
               )}
-              <EvolveRequestForm
+              <ThreadRequestForm
                 placeholder="Describe what to fix or improve…"
                 submitLabel="Submit follow-up"
-                draftStorageKey={`primordia:evolve-draft:followup:${sessionId}`}
+                draftStorageKey={`primordia:thread-draft:followup:${sessionId}`}
                 disabled={isAgentRunning}
                 disabledLabel={`Waiting for ${agentRunningLabel} to finish…`}
                 autoFocus
@@ -2716,7 +2716,7 @@ export default function ThreadView({
                   {acceptRejectError && (
                     <div className="mt-2">
                       <p className="text-red-400 text-xs whitespace-pre-wrap">{acceptRejectError}</p>
-                      {stuckBlockingSessionId && canEvolve && (
+                      {stuckBlockingSessionId && canStartThreads && (
                         <div className="mt-2 flex items-center gap-3">
                           <Link
                             href={withBasePath(`/thread/${stuckBlockingSessionId}`)}
@@ -2791,7 +2791,7 @@ export default function ThreadView({
             sessionId={sessionId}
             proxyServerStatus={proxyServerStatus}
             serverLogsNode={serverLogsNode}
-            canEvolve={canEvolve}
+            canStartThreads={canStartThreads}
             isRestartingServer={isRestartingServer}
             restartError={restartError}
             onRestartServer={handleRestartServer}
@@ -2802,7 +2802,7 @@ export default function ThreadView({
 
       {/* Footer actions */}
       <div className="flex flex-col gap-2">
-        {canEvolve && (
+        {canStartThreads && (
           <div className="flex gap-4">
             <Link data-id="session/new-request-link" href="/thread" className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
               ← Start another thread
@@ -2841,7 +2841,7 @@ export default function ThreadView({
           sessionId={sessionId}
           proxyServerStatus={proxyServerStatus}
           serverLogsNode={serverLogsNode}
-          canEvolve={canEvolve}
+          canStartThreads={canStartThreads}
           isRestartingServer={isRestartingServer}
           restartError={restartError}
           onRestartServer={handleRestartServer}

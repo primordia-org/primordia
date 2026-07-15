@@ -2,7 +2,7 @@
 
 ## Goal
 
-Replace the Pi-only `@agnishc/edb-todo` task extension with a Primordia-owned progress monitor shaped around the Evolve Session UX and usable by **Pi**, **Claude Code**, and **Codex** through ordinary shell commands.
+Replace the Pi-only `@agnishc/edb-todo` task extension with a Primordia-owned progress monitor shaped around the Thread UX and usable by **Pi**, **Claude Code**, and **Codex** through ordinary shell commands.
 
 The target is a compact run card with agent name/model, run state, weighted progress, a short step list, expandable details, and metrics. The monitor should avoid leaking internal bookkeeping, requiring many progress-management calls, or depending on Pi extension state.
 
@@ -13,7 +13,7 @@ The target is a compact run card with agent name/model, run state, weighted prog
 3. **The first step is always `Make a plan`.** Primordia creates it automatically for each agent run.
 4. **Future work is replaceable; completed work is append-only.** Agents may insert or replace upcoming steps, but finished or failed steps remain in the log.
 5. **The command should teach the agent what to do next.** Every success and error prints concise context, including the current or next step.
-6. **No generic project manager.** This is only a tiny Evolve-session progress protocol.
+6. **No generic project manager.** This is only a tiny Thread progress protocol.
 
 ## UX target
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Explicitly selects the page opened by the evolve session preview panel.
+ * Explicitly selects the page opened by the thread preview panel.
  *
  * Usage from an agent running inside a session worktree:
  *   bun run set-preview-url /admin
@@ -43,7 +43,7 @@ if (!/^\/[A-Za-z0-9/_?=&.#%-]*$/.test(routePath)) {
 const worktreePath = process.cwd();
 const ndjsonPath = getSessionNdjsonPath(worktreePath);
 if (!fs.existsSync(ndjsonPath)) {
-  usage(`Could not find session log at ${path.relative(process.cwd(), ndjsonPath) || ndjsonPath}. Run this from an evolve session worktree.`);
+  usage(`Could not find session log at ${path.relative(process.cwd(), ndjsonPath) || ndjsonPath}. Run this from an thread worktree.`);
 }
 
 const event: SessionEvent = {

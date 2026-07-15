@@ -17,8 +17,8 @@ components/                      ← Shared React components
 ├── AdminUpdatesBell.tsx         ← Bell notification icon for admin update/security alerts
 ├── AgentIdentity.tsx            ← Shared auth-source/harness identity line and icon helpers for agent blocks, presets, and settings
 ├── AnsiRenderer.tsx             ← Renders text with ANSI escape codes as styled React elements (colors, bold, spinner overwrite)
-├── EvolveRequestForm.tsx        ← Shared evolve request form with preset/harness/model selection, attachments, and element inspector
-├── FloatingEvolveDialog.tsx     ← Draggable, dockable floating popup opened from hamburger "Propose a change"
+├── ThreadRequestForm.tsx        ← Shared evolve request form with preset/harness/model selection, attachments, and element inspector
+├── FloatingThreadDialog.tsx     ← Draggable, dockable floating popup opened from hamburger "Propose a change"
 ├── ForbiddenPage.tsx            ← Server component: informative 403 access-denied page
 ├── HamburgerMenu.tsx            ← Reusable hamburger button + dropdown for nav and evolve entry points
 ├── LocalizedTimestamp*.tsx      ← Server/client pair for browser-local timestamp hydration
@@ -78,7 +78,7 @@ app/                             ← Next.js App Router
 ├── api-docs/                    ← Interactive OpenAPI reference powered by @scalar/api-reference-react
 ├── thread/                      ← Thread creation and detail pages
 │   ├── page.tsx                 ← Dedicated "propose a change" page; requires evolve permission
-│   ├── ThreadForm.tsx           ← Client wrapper for <EvolveRequestForm>
+│   ├── ThreadForm.tsx           ← Client wrapper for <ThreadRequestForm>
 │   └── [id]/                    ← Thread page, live event stream, diff summary, preview browser panel, resize handle
 ├── install.sh/route.ts          ← Returns install.sh with origins/base paths rewritten for the current instance
 ├── login/                       ← Auth provider tab UI plus cross-device approval/receive pages

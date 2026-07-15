@@ -17,7 +17,7 @@ interface HorizontalResizeHandleProps {
 
 /**
  * A vertical drag handle for resizing a two-panel horizontal flex layout.
- * Uses the same pattern as FloatingEvolveDialog: persistent window listeners
+ * Uses the same pattern as FloatingThreadDialog: persistent window listeners
  * read from a ref, so there's no glitch from listener add/remove on mousedown.
  */
 export default function HorizontalResizeHandle({
@@ -69,7 +69,7 @@ export default function HorizontalResizeHandle({
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  // onWidthChange is a callback — intentionally excluded to match FloatingEvolveDialog pattern.
+  // onWidthChange is a callback — intentionally excluded to match FloatingThreadDialog pattern.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [containerRef, minLeft, minRight]);
 
@@ -79,7 +79,7 @@ export default function HorizontalResizeHandle({
       onMouseDown={(e) => { e.preventDefault(); startResize(e.clientX); }}
       aria-hidden="true"
     >
-      {/* Visual pill — mirrors FloatingEvolveDialog's bottom handle pill */}
+      {/* Visual pill — mirrors FloatingThreadDialog's bottom handle pill */}
       <div className="w-1 h-12 rounded-full bg-gray-700 group-hover:bg-blue-500 group-active:bg-blue-400 transition-colors" />
     </div>
   );

@@ -1,5 +1,5 @@
 // app/api/thread/presets/route.ts
-// Returns evolve presets for current user, including unavailable presets with reasons.
+// Returns thread presets for current user, including unavailable presets with reasons.
 
 import { getSessionUser } from '@/lib/auth';
 import { getDb } from '@/lib/db';

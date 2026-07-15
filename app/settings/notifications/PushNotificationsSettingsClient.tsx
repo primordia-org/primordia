@@ -31,10 +31,10 @@ const CATEGORIES: Array<{
 ];
 
 export default function PushNotificationsSettingsClient({
-  canEvolve,
+  canStartThreads,
   initialSubscribedCategories,
 }: {
-  canEvolve: boolean;
+  canStartThreads: boolean;
   initialSubscribedCategories: WebPushCategory[];
 }) {
   return (
@@ -49,9 +49,9 @@ export default function PushNotificationsSettingsClient({
         </p>
       </div>
 
-      {!canEvolve && (
+      {!canStartThreads && (
         <div className="rounded-xl border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-200">
-          Push notification categories are currently available to users with evolve access.
+          Push notification categories are currently available to users with thread access.
         </div>
       )}
 
@@ -70,7 +70,7 @@ export default function PushNotificationsSettingsClient({
                     <p className="mt-1 text-sm leading-6 text-gray-400">{item.description}</p>
                   </div>
                 </div>
-                {canEvolve && (
+                {canStartThreads && (
                   <WebPushCategoryButton
                     category={item.category}
                     initialSubscribed={initialSubscribedCategories.includes(item.category)}

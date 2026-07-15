@@ -1,7 +1,7 @@
 "use client";
 
-// components/FloatingEvolveDialog.tsx
-// A draggable, dockable floating dialog containing the evolve request form.
+// components/FloatingThreadDialog.tsx
+// A draggable, dockable floating dialog containing the thread request form.
 // Triggered by "Propose a change" in the hamburger menu so the user can keep
 // the current page visible for reference while writing their request.
 //
@@ -11,7 +11,7 @@
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { EvolveRequestForm } from "./EvolveRequestForm";
+import { ThreadRequestForm } from "./ThreadRequestForm";
 import { withBasePath } from "@/lib/base-path";
 import { X, ExternalLink, PanelTop, PanelBottom } from "lucide-react";
 import { trackEvent } from "@/lib/events-client";
@@ -29,7 +29,7 @@ interface DragOrigin {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function FloatingEvolveDialog({
+export function FloatingThreadDialog({
   onClose,
   anchorRect,
   initialHarness,
@@ -52,7 +52,7 @@ export function FloatingEvolveDialog({
   /**
    * Called with the new sessionId when a request is submitted successfully.
    * The dialog calls onClose() before this, so the caller should render a toast
-   * independently (e.g. <EvolveSubmitToast>) to survive dialog unmount.
+   * independently (e.g. <ThreadSubmitToast>) to survive dialog unmount.
    */
   onSessionCreated?: (sessionId: string) => void;
 }) {
@@ -61,7 +61,7 @@ export function FloatingEvolveDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
 
   // Track dialog open
-  useEffect(() => { trackEvent("evolve-dialog/opened/v1", {}); }, []);
+  useEffect(() => { trackEvent("thread-dialog/opened/v1", {}); }, []);
 
   // null = docked; {x,y} = free-floating (px from viewport top-left)
   const [freePos, setFreePos] = useState<{ x: number; y: number } | null>(null);
@@ -270,7 +270,7 @@ export function FloatingEvolveDialog({
               <button
                 key={d}
                 type="button"
-                data-id={`evolve-dialog/dock-${d}`}
+                data-id={`thread-dialog/dock-${d}`}
                 onClick={() => snapToDock(d)}
                 title={d === "top" ? "Pin to top" : "Pin to bottom"}
                 className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
@@ -289,7 +289,7 @@ export function FloatingEvolveDialog({
               <button
                 key={d}
                 type="button"
-                data-id={`evolve-dialog/dock-${d}`}
+                data-id={`thread-dialog/dock-${d}`}
                 onClick={() => snapToDock(d)}
                 title={`Dock to ${d.replace("-", " ")}`}
                 className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
@@ -307,7 +307,7 @@ export function FloatingEvolveDialog({
         {/* Close button */}
         <button
           type="button"
-          data-id="evolve-dialog/close"
+          data-id="thread-dialog/close"
           onClick={onClose}
           className="w-6 h-6 rounded flex items-center justify-center text-gray-500 hover:text-white hover:bg-gray-700 transition-colors"
           aria-label="Close"
@@ -318,9 +318,9 @@ export function FloatingEvolveDialog({
 
       {/* Form body — flex-1 so it fills available height when dialog is resized */}
       <div className="p-3 flex flex-col flex-1 overflow-y-auto min-h-0">
-        <EvolveRequestForm
+        <ThreadRequestForm
           compact
-          draftStorageKey="primordia:evolve-draft:initial"
+          draftStorageKey="primordia:thread-draft:initial"
           initialHarness={initialHarness}
           initialModel={initialModel}
           initialCavemanMode={initialCavemanMode}
@@ -344,7 +344,7 @@ export function FloatingEvolveDialog({
   );
 }
 
-// ─── EvolveSubmitToast ────────────────────────────────────────────────────────
+// ─── ThreadSubmitToast ────────────────────────────────────────────────────────
 
 /**
  * A self-contained fixed toast shown after a request is submitted via the
@@ -353,9 +353,9 @@ export function FloatingEvolveDialog({
  *
  * Usage:
  *   const [toastSessionId, setToastSessionId] = useState<string | null>(null);
- *   {toastSessionId && <EvolveSubmitToast sessionId={toastSessionId} onDismiss={() => setToastSessionId(null)} />}
+ *   {toastSessionId && <ThreadSubmitToast sessionId={toastSessionId} onDismiss={() => setToastSessionId(null)} />}
  */
-export function EvolveSubmitToast({
+export function ThreadSubmitToast({
   sessionId,
   onDismiss,
 }: {
@@ -459,7 +459,7 @@ export function EvolveSubmitToast({
       <span className="text-amber-400 font-medium">Thread started!</span>
       <a
         href={sessionUrl}
-        data-id="evolve-dialog/view-session"
+        data-id="thread-dialog/view-session"
         className="flex items-center gap-1.5 text-amber-300 hover:text-amber-200 underline underline-offset-2 transition-colors"
       >
         View thread

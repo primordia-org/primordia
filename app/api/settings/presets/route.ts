@@ -1,5 +1,5 @@
 // app/api/settings/presets/route.ts
-// CRUD-ish storage for user-defined evolve presets.
+// CRUD-ish storage for user-defined thread presets.
 
 import { getSessionUser } from '@/lib/auth';
 import { getDb } from '@/lib/db';
@@ -13,11 +13,11 @@ import {
   serializeDisabledBuiltInPresetIds,
   normalizeAuthSource,
   SECRET_AUTH_SOURCES,
-  type EvolvePreset,
+  type ThreadPreset,
 } from '@/lib/presets';
 import { withPresetAvailability } from '@/lib/preset-availability';
 
-function cleanPreset(input: unknown): EvolvePreset | null {
+function cleanPreset(input: unknown): ThreadPreset | null {
   if (!input || typeof input !== 'object') return null;
   const rec = input as Record<string, unknown>;
   const name = typeof rec.name === 'string' ? rec.name.trim() : '';
@@ -65,7 +65,7 @@ export async function PUT(req: Request) {
 
   const db = await getDb();
   await db.setUserPreferences(user.id, {
-    [PREF_CUSTOM_PRESETS]: serializeCustomPresets(customPresets as EvolvePreset[]),
+    [PREF_CUSTOM_PRESETS]: serializeCustomPresets(customPresets as ThreadPreset[]),
     [PREF_DISABLED_BUILT_IN_PRESETS]: serializeDisabledBuiltInPresetIds(disabledBuiltInPresetIds),
   });
   const storedAuthSources = new Set<string>();
@@ -74,7 +74,7 @@ export async function PUT(req: Request) {
     if (stored) storedAuthSources.add(authSource);
   }
   return Response.json({
-    customPresets: (customPresets as EvolvePreset[]).map((preset) => withPresetAvailability(preset, storedAuthSources)),
+    customPresets: (customPresets as ThreadPreset[]).map((preset) => withPresetAvailability(preset, storedAuthSources)),
     disabledBuiltInPresetIds,
   });
 }

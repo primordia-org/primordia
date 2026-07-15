@@ -41,7 +41,7 @@ The first user to register is automatically granted both `admin` and `can_evolve
 - **[TOOLTIP]:** _(non-admin variant — shown if user only has `can_evolve`)_
   > **Welcome to Primordia.**
   >
-  > You have access to the **Evolve** feature — you can propose changes to this app in plain English, and an AI agent will build and preview them for you.
+  > You have access to the **Threads** feature — you can propose changes to this app in plain English, and an AI agent will build and preview them for you.
   >
   > This quick tour covers:
   > 1. How to set up your AI credentials
@@ -103,9 +103,9 @@ The first user to register is automatically granted both `admin` and `can_evolve
 
 - **Anchor:** `/settings` — highlight the API Keys page header
 - **[TOOLTIP]:**
-  > This is **Account Settings** — where you save AI credentials that can power Evolve.
+  > This is **Account Settings** — where you save AI credentials that can power threads.
   >
-  > Credentials are not ordered globally. Each Evolve preset chooses one billing source explicitly: Claude.ai, an API key, ChatGPT, OpenRouter, or the exe.dev gateway.
+  > Credentials are not ordered globally. Each Thread preset chooses one billing source explicitly: Claude.ai, an API key, ChatGPT, OpenRouter, or the exe.dev gateway.
   >
   > You only need to configure the sources you want to use in presets.
 - **[ADVANCE]:** "Next" button
@@ -130,7 +130,7 @@ The first user to register is automatically granted both `admin` and `can_evolve
   >
   > OpenRouter has a free tier with capable open-source coding models — no credit card needed. Get a key at **openrouter.ai/keys** (the "Get a key" link is right on the card), paste it in, and hit **Save key**.
   >
-  > Your key starts with `sk-or-v1-`. Use it by selecting an OpenRouter preset in Evolve.
+  > Your key starts with `sk-or-v1-`. Use it by selecting an OpenRouter preset when starting a thread.
 - **[ADVANCE]:** "Next" button
 
 ### Step 9 — Option 3: Claude.ai subscription
@@ -150,26 +150,26 @@ The first user to register is automatically granted both `admin` and `can_evolve
 
 - **Anchor:** `/settings/claude-ai` — no highlight
 - **[TOOLTIP]:**
-  > That's it for credentials. Come back to Account Settings any time from the ☰ menu to update saved sources, then choose among them with Evolve presets.
+  > That's it for credentials. Come back to Account Settings any time from the ☰ menu to update saved sources, then choose among them with Thread presets.
   >
   > Now let's see what you can actually do with it.
 - **[ADVANCE]:** "Next" button; navigate back to `/`
 
 ---
 
-## Act 4: The Evolve Flow
+## Act 4: The Thread Flow
 
-### Step 11 — Open evolve entry point
+### Step 11 — Open thread entry point
 
 - **Anchor:** `/` — highlight the `☰` button
 - **[TOOLTIP]:**
   > Open the menu and click **"Propose a change"** to start.
 - **[ADVANCE]:** User opens menu and clicks "Propose a change" — or "Next" after 4 s delay
-- **[EVENT]:** `evolve-dialog/opened/v1 {}` (existing event — reuse, or detect it as advance trigger)
+- **[EVENT]:** `thread-dialog/opened/v1 {}` (existing event — reuse, or detect it as advance trigger)
 
-### Step 12 — The evolve form
+### Step 12 — The thread form
 
-- **Anchor:** evolve dialog (floating or `/thread` page) — highlight the text area
+- **Anchor:** thread dialog (floating or `/thread` page) — highlight the text area
 - **[TOOLTIP]:**
   > **Describe what you want** in plain English — as specific or as vague as you like.
   >
@@ -180,7 +180,7 @@ The first user to register is automatically granted both `admin` and `can_evolve
 
 ### Step 13 — Attachments & element inspector
 
-- **Anchor:** evolve dialog — highlight the "Attach files" button and the crosshair/inspector button
+- **Anchor:** thread dialog — highlight the "Attach files" button and the crosshair/inspector button
 - **[TOOLTIP]:**
   > You can also **attach screenshots or files** as reference, or use the **element inspector** (crosshair) to click on any part of the page and add it as context.
   >
@@ -189,7 +189,7 @@ The first user to register is automatically granted both `admin` and `can_evolve
 
 ### Step 14 — Submit & wait
 
-- **Anchor:** evolve dialog — highlight the "Propose Change" submit button
+- **Anchor:** thread dialog — highlight the "Propose Change" submit button
 - **[TOOLTIP]:**
   > When you hit **Propose Change**, Primordia:
   > 1. Creates a private git branch
@@ -211,7 +211,7 @@ The first user to register is automatically granted both `admin` and `can_evolve
   > When you're happy, click **Accept** to deploy it instantly. Not happy? Click **Reject** — the branch is discarded cleanly.
 - **[ADVANCE]:** "Next" button
 
-### Step 16 — Close evolve dialog / segue to admin
+### Step 16 — Close thread dialog / segue to admin
 
 - **[TOOLTIP]:** _(no bubble — close dialog programmatically)_
 - **[ADVANCE]:** Auto-advance
@@ -236,11 +236,11 @@ The first user to register is automatically granted both `admin` and `can_evolve
   > From here you manage users and roles. New users start with no roles; you decide who gets `can_evolve` access.
 - **[ADVANCE]:** "Next" button
 
-### Step 19 — Granting the can_evolve role
+### Step 19 — Granting thread access
 
-- **Anchor:** `/admin` — highlight the `can_evolve` role grant controls
+- **Anchor:** `/admin` — highlight the thread access grant controls
 - **[TOOLTIP]:**
-  > To let someone propose changes, give them **`can_evolve`**.
+  > To let someone propose changes, grant them thread access.
   >
   > You can revoke it the same way. Admins automatically have it.
 - **[ADVANCE]:** "Next" button
@@ -309,7 +309,7 @@ If the user clicks "Skip" at any step:
 | 4 | **Credentials navigation** — tour navigates to `/settings` then `/settings/claude-ai`; confirm the sidebar tab switch can be triggered programmatically (or just navigate via URL). | |
 | 5 | **Step 16 branching** — admin vs. non-admin path needs a runtime role check at that point; simplest is to embed `isAdmin` in the tour config rendered server-side. | |
 | 6 | **exe.dev detection for Step 7** — detect via `NEXT_PUBLIC_BASE_PATH`, env var, or a runtime flag? | Prefer an env flag set by the installer. |
-| 7 | **Steps 11–15 (evolve flow)** — tour talks about the form without submitting; consider whether a short looping GIF or screenshot would make Step 15 (session page) clearer since the user hasn't seen it yet. | |
+| 7 | **Steps 11–15 (thread flow)** — tour talks about the form without submitting; consider whether a short looping GIF or screenshot would make Step 15 (session page) clearer since the user hasn't seen it yet. | |
 | 8 | **Mobile?** — hamburger and floating dialog steps work on desktop; mobile may need a simplified flow. | Defer mobile variant until desktop is validated. |
 | 9 | **Progress indicator** — numbered dots, "Step N of 22", or none? | Numbered dots; total count should reflect actual steps shown (varies by admin/exe.dev). |
 | 10 | **Auto-advance timeout** — should any step auto-advance after N seconds? | Risk: user is reading. Prefer explicit "Next" for all steps except the silent transition steps. |

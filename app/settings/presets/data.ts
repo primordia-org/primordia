@@ -2,7 +2,7 @@ import 'server-only';
 
 import { getDb } from '@/lib/db';
 import { MODEL_OPTIONS, type ModelOption } from '@/lib/agent-config';
-import { withPresetAvailability, type EvolvePresetWithAvailability } from '@/lib/preset-availability';
+import { withPresetAvailability, type ThreadPresetWithAvailability } from '@/lib/preset-availability';
 import {
   BUILT_IN_PRESETS,
   PREF_CUSTOM_PRESETS,
@@ -15,8 +15,8 @@ import { listUserSecretSources } from '@/app/settings/data';
 
 export interface PresetsSettingsPageData {
   secretSources: SecretAuthSource[];
-  builtInPresets: EvolvePresetWithAvailability[];
-  customPresets: EvolvePresetWithAvailability[];
+  builtInPresets: ThreadPresetWithAvailability[];
+  customPresets: ThreadPresetWithAvailability[];
   disabledBuiltInPresetIds: string[];
   modelOptionsByHarness: Record<string, ModelOption[]>;
 }

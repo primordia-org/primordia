@@ -1,11 +1,11 @@
-# Evolve Feature — Demo Script for Instructional Video
+# Thread Feature — Demo Script for Instructional Video
 
 > Each `[EVENT: ...]` annotation shows the user event that fires at that moment.
 > After the script, see the **Gap Analysis** for coverage assessment.
 
 ---
 
-## Act 1: Opening the Evolve Form
+## Act 1: Opening the Thread Form
 
 1. **Land on the home page** (`/`)
    - _(No event — page-view tracking not yet implemented for landing page)_
@@ -17,7 +17,7 @@
 
 3. **Click "Propose a change"**
    - `[EVENT: nav/menu-item-clicked/v1 {dataId: "nav-menu/propose-change", label: "Propose a change"}]`
-   - `[EVENT: evolve-dialog/opened/v1 {}]`
+   - `[EVENT: thread-dialog/opened/v1 {}]`
    - Floating dialog appears, can be dragged/docked
 
 4. **Type a request**: _"Add a dark mode toggle to the nav bar"_
@@ -27,44 +27,44 @@
 ## Act 2: Attachments & Advanced Options
 
 5. **Click "Attach files"** button
-   - `[EVENT: evolve-form/attach-files-clicked/v1 {}]`
+   - `[EVENT: thread-form/attach-files-clicked/v1 {}]`
    - File picker opens
 
 6. **Select 2 image files** (mockup screenshots)
-   - `[EVENT: evolve-form/files-attached/v1 {count: 2, trigger: "input"}]`
+   - `[EVENT: thread-form/files-attached/v1 {count: 2, trigger: "input"}]`
    - File chips appear below the textarea
 
 7. **Remove one file** (click ✕ on chip)
-   - `[EVENT: evolve-form/file-removed/v1 {name: "mockup-v1.png", trigger: "mouse"}]`
+   - `[EVENT: thread-form/file-removed/v1 {name: "mockup-v1.png", trigger: "mouse"}]`
 
 8. **Open the element inspector** (crosshair button)
-   - `[EVENT: evolve-form/element-inspector-opened/v1 {}]`
+   - `[EVENT: thread-form/element-inspector-opened/v1 {}]`
    - Full-screen overlay activates, user hovers elements
 
 9. **Pick an element** (click on the nav bar)
-   - `[EVENT: evolve-form/element-picked/v1 {component: "NavHeader", selector: "[data-id=\"nav-header\"]"}]`
+   - `[EVENT: thread-form/element-picked/v1 {component: "NavHeader", selector: "[data-id=\"nav-header\"]"}]`
    - Element context chip appears in form
 
 10. **Toggle Advanced Options** (expand section)
-    - `[EVENT: evolve-form/advanced-toggled/v1 {open: true}]`
+    - `[EVENT: thread-form/advanced-toggled/v1 {open: true}]`
     - Shows harness/model selectors
 
 11. **Change harness** to "pi"
-    - `[EVENT: evolve-form/harness-changed/v1 {harness: "pi", model: "..."}]`
+    - `[EVENT: thread-form/harness-changed/v1 {harness: "pi", model: "..."}]`
 
 12. **Change model** to a specific option
-    - `[EVENT: evolve-form/model-changed/v1 {model: "claude-sonnet-4-20250514", harness: "pi"}]`
+    - `[EVENT: thread-form/model-changed/v1 {model: "claude-sonnet-4-20250514", harness: "pi"}]`
 
 13. **Enable caveman mode** (checkbox)
-    - `[EVENT: evolve-form/caveman-toggled/v1 {enabled: true}]`
+    - `[EVENT: thread-form/caveman-toggled/v1 {enabled: true}]`
 
 14. **Change caveman intensity** to "ultra"
-    - `[EVENT: evolve-form/caveman-intensity-changed/v1 {intensity: "ultra"}]`
+    - `[EVENT: thread-form/caveman-intensity-changed/v1 {intensity: "ultra"}]`
 
 ## Act 3: Submit & Watch Progress
 
 15. **Click "Propose Change"** (submit button)
-    - `[EVENT: evolve-form/submit/v1 {harness: "pi", model: "...", hasFiles: true, fileCount: 1, hasElementAttachments: true, elementAttachmentCount: 1}]`
+    - `[EVENT: thread-form/submit/v1 {harness: "pi", model: "...", hasFiles: true, fileCount: 1, hasElementAttachments: true, elementAttachmentCount: 1}]`
     - Loading spinner, then redirect
 
 16. **Arrive at thread page** (`/thread/{id}`)
@@ -130,7 +130,7 @@
     - No event
 
 32. **Submit follow-up**
-    - `[EVENT: evolve-form/submit/v1 {harness: "...", model: "...", ...}]`
+    - `[EVENT: thread-form/submit/v1 {harness: "...", model: "...", ...}]`
     - `[EVENT: session/followup-submitted/v1 {sessionId: "...", harness: "...", model: "...", hasFiles: false, hasElementContext: true}]`
     - Status goes back to running-claude
 
@@ -178,7 +178,7 @@
 
 ### What's covered ✅
 
-- **Navigation**: hamburger menu open/close, menu item clicks, evolve dialog opened
+- **Navigation**: hamburger menu open/close, menu item clicks, thread dialog opened
 - **Form interactions**: file attach/remove, element pick, advanced toggle, harness/model change, caveman toggle
 - **Form submit**: initial submit with full metadata (harness, model, file count, element attachments)
 - **Session page viewed**: fires on mount with sessionId + initial status
@@ -206,11 +206,11 @@
 
 | Act | Key events |
 |-----|------------|
-| 1. Open evolve form | `nav/menu-toggled`, `nav/menu-item-clicked`, `evolve-dialog/opened` |
-| 2. Attachments & options | `evolve-form/attach-files-clicked`, `files-attached`, `element-picked`, `advanced-toggled`, `harness-changed`, `model-changed` |
-| 3. Submit & watch | `evolve-form/submit`, `session/page-viewed`, `session/status-changed` (×3: starting→running→ready) |
+| 1. Open thread form | `nav/menu-toggled`, `nav/menu-item-clicked`, `thread-dialog/opened` |
+| 2. Attachments & options | `thread-form/attach-files-clicked`, `files-attached`, `element-picked`, `advanced-toggled`, `harness-changed`, `model-changed` |
+| 3. Submit & watch | `thread-form/submit`, `session/page-viewed`, `session/status-changed` (×3: starting→running→ready) |
 | 4. Review preview | `session/preview-loaded`, `preview/back-clicked`, `preview/refresh-clicked`, `preview/inspector-toggled`, `session/preview-element-selected` |
 | 5. Diffs & follow-up | `session/diff-summary-toggled`, `session/diff-file-toggled`, `session/action-panel-toggled`, `session/followup-submitted`, `session/status-changed` |
 | 6. Accept/reject | `session/action-panel-toggled`, `session/accept-clicked`, `session/status-changed` (→accepted) |
 
-Event stream provides enough signal to reconstruct timing, sequence, and intent of every user interaction in the evolve workflow.
+Event stream provides enough signal to reconstruct timing, sequence, and intent of every user interaction in the thread workflow.

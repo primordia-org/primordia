@@ -7,7 +7,7 @@ This is a quick product and architecture sketch for a future `primordia` CLI tha
 `primordia` should be the stable automation layer for self-modifying apps:
 
 - Manage instances, threads, worktrees, previews, and deployments.
-- Run evolve agents with consistent thread logs and progress events.
+- Run thread agents with consistent thread logs and progress events.
 - Expose the same capabilities through CLI commands, a local API, and reusable TypeScript modules.
 - Treat web UI, reverse proxy, and Next.js pages as optional clients of the core.
 
@@ -20,8 +20,8 @@ primordia init [path]
 primordia status
 primordia doctor
 
-primordia evolve "Add a pricing page"
-primordia evolve --thread feature-x "Polish the UI"
+primordia create "Add a pricing page"
+primordia create --thread feature-x "Polish the UI"
 primordia followup <thread> "Make the hero shorter"
 primordia abort <thread>
 
@@ -105,7 +105,7 @@ Example config:
 
 ### Thread
 
-A thread is the durable user-facing unit of evolve work. It combines what Primordia currently calls a session and the backing branch into one concept, so users do not have to choose between two parallel nouns for the same line of work.
+A thread is the durable user-facing unit of thread work. It combines what Primordia currently calls a session and the backing branch into one concept, so users do not have to choose between two parallel nouns for the same line of work.
 
 A thread should remain framework-agnostic and track:
 
@@ -177,14 +177,14 @@ POST /previews/:id/stop
 GET  /previews/:id/logs
 ```
 
-This lets Astro, Electron, Swift, Tauri, or mobile clients consume the same evolve engine.
+This lets Astro, Electron, Swift, Tauri, or mobile clients consume the same thread engine.
 
 ## Example Workflows
 
-### Terminal-only evolve
+### Terminal-only threads
 
 ```bash
-primordia evolve "Add keyboard shortcuts to settings" --no-preview
+primordia create "Add keyboard shortcuts to settings" --no-preview
 primordia thread logs latest --follow
 primordia thread diff latest
 primordia thread accept latest
@@ -197,7 +197,7 @@ cd my-astro-app
 primordia init
 primordia adapter set dev "bun run dev --host 127.0.0.1 --port $PORT"
 primordia adapter set build "bun run build"
-primordia evolve "Create a docs landing page"
+primordia create "Create a docs landing page"
 primordia preview start latest
 ```
 

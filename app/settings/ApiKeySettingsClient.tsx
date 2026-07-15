@@ -234,7 +234,7 @@ export default function ApiKeySettingsClient({
             </div>
             <div>
               <p className="text-sm font-medium text-gray-200">Anthropic</p>
-              <p className="text-xs text-gray-500 mt-0.5">Claude models — selectable from Evolve presets</p>
+              <p className="text-xs text-gray-500 mt-0.5">Claude models — selectable from Thread presets</p>
             </div>
           </div>
           {isKeySet && (

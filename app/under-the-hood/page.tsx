@@ -120,8 +120,8 @@ export default function UnderTheHoodPage() {
           <Section title="The database is SQLite (via bun:sqlite)">
             <p>
               There is no separate database server. A single SQLite file (
-              <InlineCode>primordia.db</InlineCode>) stores sessions, users, roles, evolve
-              session records, and event logs. Bun&apos;s built-in{" "}
+              <InlineCode>primordia.db</InlineCode>) stores sessions, users, roles, thread
+              records, and event logs. Bun&apos;s built-in{" "}
               <InlineCode>bun:sqlite</InlineCode> module provides the adapter — no additional
               dependencies.
             </p>
@@ -180,8 +180,8 @@ export default function UnderTheHoodPage() {
             <p className="mt-4">
               Every choice here optimizes for one thing: an AI agent should be able to read,
               understand, and modify the codebase with high accuracy. Conventional wisdom about
-              scalability is secondary — if your app outgrows SQLite or a single VM, you&apos;ll
-              evolve it then.
+              scalability is secondary — if your app outgrows SQLite or a single VM, you can
+              change it then.
             </p>
           </Section>
         </div>

@@ -8,7 +8,7 @@ export default defineConfig({
   globalSetup: "./tests/global-setup.ts",
   timeout: 20 * 60 * 1000, // 20 min per test — full demo runs Claude twice + deploys
   expect: { timeout: 10_000 },
-  fullyParallel: false, // evolve tests mutate server state
+  fullyParallel: false, // thread tests mutate server state
   retries: 0,
   reporter: "line",
   use: {

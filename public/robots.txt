@@ -2,6 +2,6 @@ User-agent: *
 Allow: /
 Disallow: /api/
 Disallow: /admin/
-Disallow: /evolve/
+Disallow: /thread/
 Disallow: /login/
 Disallow: /branches/

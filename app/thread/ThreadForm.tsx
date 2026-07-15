@@ -6,7 +6,7 @@
 import { NavHeader } from "@/components/NavHeader";
 import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
 import { useSessionUser } from "@/lib/hooks";
-import { EvolveRequestForm } from "@/components/EvolveRequestForm";
+import { ThreadRequestForm } from "@/components/ThreadRequestForm";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -45,8 +45,8 @@ export default function ThreadForm({ branch, initialHarness, initialModel, initi
       </div>
 
       <div className="border border-gray-800 rounded-xl bg-gray-900 p-4">
-        <EvolveRequestForm
-          draftStorageKey="primordia:evolve-draft:initial"
+        <ThreadRequestForm
+          draftStorageKey="primordia:thread-draft:initial"
           initialHarness={initialHarness}
           initialModel={initialModel}
           initialCavemanMode={initialCavemanMode}

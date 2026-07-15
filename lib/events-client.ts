@@ -3,7 +3,7 @@
 //
 // Usage:
 //   import { trackEvent } from "@/lib/events-client";
-//   trackEvent("file-attachment-removed/v1", { source: "evolve/remove-file-attachment", el: "button", trigger: "mouse" });
+//   trackEvent("file-attachment-removed/v1", { source: "thread/remove-file-attachment", el: "button", trigger: "mouse" });
 
 import { withBasePath } from "@/lib/base-path";
 

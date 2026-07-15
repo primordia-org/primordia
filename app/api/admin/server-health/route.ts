@@ -189,11 +189,11 @@ export async function POST(request: Request) {
       `Diagnostics file path on the production instance: ${summary.path}\n\n` +
       `Captured diagnostics:\n\n${diagnostics}`;
 
-    const evolveResult = await createThread({ userId: user.id, requestText });
-    if (!evolveResult.ok) {
-      return Response.json({ error: evolveResult.error ?? 'Failed to create evolve session' }, { status: evolveResult.status });
+    const threadResult = await createThread({ userId: user.id, requestText });
+    if (!threadResult.ok) {
+      return Response.json({ error: threadResult.error ?? 'Failed to create thread' }, { status: threadResult.status });
     }
-    return Response.json({ threadId: evolveResult.sessionId });
+    return Response.json({ threadId: threadResult.sessionId });
   }
 
   if (action !== 'delete-oldest-worktree') {
@@ -221,7 +221,7 @@ export async function POST(request: Request) {
     }
   } catch { /* best-effort */ }
 
-  // Archive the session log before removing the worktree (if this is an evolve session).
+  // Archive the session log before removing the worktree (if this is an thread).
   try {
     archiveSessionNdjsonLog(target.path, { sessionId: target.branch, primordiaDir: process.env.PRIMORDIA_DIR || repoRoot });
   } catch (err) {

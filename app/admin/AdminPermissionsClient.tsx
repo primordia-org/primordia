@@ -12,23 +12,23 @@ export interface AdminUser {
   id: string;
   username: string;
   isAdmin: boolean;
-  canEvolve: boolean;
+  canStartThreads: boolean;
 }
 
 interface Props {
   users: AdminUser[];
   adminRoleName: string;
-  evolveRoleName: string;
+  threadRoleName: string;
 }
 
-export default function AdminPermissionsClient({ users: initial, adminRoleName, evolveRoleName }: Props) {
+export default function AdminPermissionsClient({ users: initial, adminRoleName, threadRoleName }: Props) {
   const [users, setUsers] = useState<AdminUser[]>(initial);
   const [busy, setBusy] = useState<string | null>(null); // userId being updated
   const [error, setError] = useState<string | null>(null);
 
-  async function toggleEvolve(user: AdminUser) {
-    const action = user.canEvolve ? "revoke" : "grant";
-    trackEvent("admin/evolve-permission-toggled/v1", { targetUserId: user.id, action });
+  async function toggleThreadAccess(user: AdminUser) {
+    const action = user.canStartThreads ? "revoke" : "grant";
+    trackEvent("admin/thread-permission-toggled/v1", { targetUserId: user.id, action });
     setBusy(user.id);
     setError(null);
     try {
@@ -40,7 +40,7 @@ export default function AdminPermissionsClient({ users: initial, adminRoleName, 
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Request failed");
       setUsers((prev) =>
-        prev.map((u) => (u.id === user.id ? { ...u, canEvolve: !u.canEvolve } : u))
+        prev.map((u) => (u.id === user.id ? { ...u, canStartThreads: !u.canStartThreads } : u))
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -64,7 +64,7 @@ export default function AdminPermissionsClient({ users: initial, adminRoleName, 
             <tr className="border-b border-gray-800 bg-gray-900/60">
               <th className="text-left px-4 py-3 text-gray-400 font-medium">User</th>
               <th className="text-left px-4 py-3 text-gray-400 font-medium">Role</th>
-              <th className="text-left px-4 py-3 text-gray-400 font-medium">Evolve access</th>
+              <th className="text-left px-4 py-3 text-gray-400 font-medium">Thread access</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
@@ -80,9 +80,9 @@ export default function AdminPermissionsClient({ users: initial, adminRoleName, 
                     <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-800/50 text-amber-300 border border-amber-700/40">
                       {adminRoleName}
                     </span>
-                  ) : user.canEvolve ? (
+                  ) : user.canStartThreads ? (
                     <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-900/50 text-blue-300 border border-blue-700/40">
-                      {evolveRoleName}
+                      {threadRoleName}
                     </span>
                   ) : (
                     <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-800 text-gray-400">
@@ -91,7 +91,7 @@ export default function AdminPermissionsClient({ users: initial, adminRoleName, 
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  {user.isAdmin || user.canEvolve ? (
+                  {user.isAdmin || user.canStartThreads ? (
                     <span className="text-green-400">✓ Granted</span>
                   ) : (
                     <span className="text-gray-500">— None</span>
@@ -102,20 +102,20 @@ export default function AdminPermissionsClient({ users: initial, adminRoleName, 
                     <span className="text-xs text-gray-600 italic">always on</span>
                   ) : (
                     <button
-                      data-id="admin-users/toggle-evolve-access"
-                      onClick={() => toggleEvolve(user)}
+                      data-id="admin-users/toggle-thread-access"
+                      onClick={() => toggleThreadAccess(user)}
                       disabled={busy === user.id}
                       className={`px-3 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                        user.canEvolve
+                        user.canStartThreads
                           ? "bg-red-900/50 hover:bg-red-800/60 text-red-300 border border-red-700/40"
                           : "bg-green-900/50 hover:bg-green-800/60 text-green-300 border border-green-700/40"
                       }`}
                     >
                       {busy === user.id
                         ? "…"
-                        : user.canEvolve
-                        ? `Revoke ${evolveRoleName}`
-                        : `Grant ${evolveRoleName}`}
+                        : user.canStartThreads
+                        ? `Revoke ${threadRoleName}`
+                        : `Grant ${threadRoleName}`}
                     </button>
                   )}
                 </td>

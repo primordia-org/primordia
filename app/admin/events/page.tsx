@@ -3,7 +3,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSessionUser, isAdmin } from "@/lib/auth";
-import { getEvolvePrefs } from "@/lib/user-prefs";
+import { getThreadPrefs } from "@/lib/user-prefs";
 import { buildPageTitle } from "@/lib/page-title";
 import ForbiddenPage from "@/components/ForbiddenPage";
 import { PageNavBar } from "@/components/PageNavBar";
@@ -34,7 +34,7 @@ export default async function AdminEventsPage() {
     );
   }
 
-  const evolvePrefs = await getEvolvePrefs(user.id);
+  const threadPrefs = await getThreadPrefs(user.id);
 
   return (
     <main className="flex flex-col w-full max-w-7xl mx-auto px-4 py-6 min-h-dvh">
@@ -42,10 +42,10 @@ export default async function AdminEventsPage() {
         subtitle="Admin"
         currentPage="admin"
         initialSession={{ id: user.id, username: user.username, isAdmin: true }}
-        initialHarness={evolvePrefs.initialHarness}
-        initialModel={evolvePrefs.initialModel}
-        initialCavemanMode={evolvePrefs.initialCavemanMode}
-        initialCavemanIntensity={evolvePrefs.initialCavemanIntensity}
+        initialHarness={threadPrefs.initialHarness}
+        initialModel={threadPrefs.initialModel}
+        initialCavemanMode={threadPrefs.initialCavemanMode}
+        initialCavemanIntensity={threadPrefs.initialCavemanIntensity}
       />
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
         <AdminSubNav currentTab="events" />

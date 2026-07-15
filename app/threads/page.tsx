@@ -8,13 +8,13 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
 import type { Metadata } from "next";
-import type { EvolveSession } from "@/lib/db/types";
+import type { ThreadSession } from "@/lib/db/types";
 import { listSessionsFromFilesystem } from "@/lib/session-events";
 import { PageNavBar } from "@/components/PageNavBar";
 import { CreateSessionFromBranchButton } from "./CreateSessionFromBranchButton";
 import { buildPageTitle } from "@/lib/page-title";
-import { getSessionUser, isAdmin, hasEvolvePermission } from "@/lib/auth";
-import { getBranchParentSource, getEvolvePrefs } from "@/lib/user-prefs";
+import { getSessionUser, isAdmin, hasThreadPermission } from "@/lib/auth";
+import { getBranchParentSource, getThreadPrefs } from "@/lib/user-prefs";
 import { withBasePath } from "@/lib/base-path";
 import { getBranchParent, type BranchParentSource } from "@/lib/branch-parent";
 import {
@@ -73,7 +73,7 @@ interface DiagnosticInfo {
   branchList: GitResult;
   currentBranch: GitResult;
   activeSessions: number;
-  sessions: EvolveSession[];
+  sessions: ThreadSession[];
 }
 
 // ─── Git helpers ───────────────────────────────────────────────────────────────
@@ -450,8 +450,8 @@ function GitResultRow({
 
 export default async function ThreadsPage() {
   const user = await getSessionUser();
-  const [userIsAdmin, userCanEvolve, evolvePrefs, parentSource] = user
-    ? await Promise.all([isAdmin(user.id), hasEvolvePermission(user.id), getEvolvePrefs(user.id), getBranchParentSource(user.id)])
+  const [userIsAdmin, userCanStartThreads, threadPrefs, parentSource] = user
+    ? await Promise.all([isAdmin(user.id), hasThreadPermission(user.id), getThreadPrefs(user.id), getBranchParentSource(user.id)])
     : [false, false, null, await getBranchParentSource(null)];
 
   const { branches, productionBranch, diag } = await getBranchData(parentSource);
@@ -475,10 +475,10 @@ export default async function ThreadsPage() {
         subtitle="Threads"
         currentPage="threads"
         initialSession={sessionUser}
-        initialHarness={evolvePrefs?.initialHarness}
-        initialModel={evolvePrefs?.initialModel}
-        initialCavemanMode={evolvePrefs?.initialCavemanMode}
-        initialCavemanIntensity={evolvePrefs?.initialCavemanIntensity}
+        initialHarness={threadPrefs?.initialHarness}
+        initialModel={threadPrefs?.initialModel}
+        initialCavemanMode={threadPrefs?.initialCavemanMode}
+        initialCavemanIntensity={threadPrefs?.initialCavemanIntensity}
       />
 
       <BranchParentSourceToggle
@@ -494,7 +494,7 @@ export default async function ThreadsPage() {
             branches={branches}
             productionBranch={productionBranch}
             currentServerUrl={currentServerUrl}
-            canCreateSession={userCanEvolve}
+            canCreateSession={userCanStartThreads}
             cwd={diag.cwd}
           />
         ) : (

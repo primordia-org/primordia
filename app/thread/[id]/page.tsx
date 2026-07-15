@@ -1,5 +1,5 @@
 // app/thread/[id]/page.tsx
-// Dedicated thread page for a single local evolve run.
+// Dedicated thread page for a single local thread run.
 //
 // The server component reads the initial thread state from the filesystem and
 // passes it to the ThreadView client component, which polls for live updates.
@@ -8,8 +8,8 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { execSync } from "child_process";
 import * as fs from "fs";
-import { getSessionUser, hasEvolvePermission } from "@/lib/auth";
-import { getBranchParentSource, getEvolvePrefs } from "@/lib/user-prefs";
+import { getSessionUser, hasThreadPermission } from "@/lib/auth";
+import { getBranchParentSource, getThreadPrefs } from "@/lib/user-prefs";
 import { buildPageTitle } from "@/lib/page-title";
 import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem, type SessionEvent } from "@/lib/session-events";
 import { getParentBranch, type BranchParentSource } from "@/lib/branch-parent";
@@ -136,8 +136,8 @@ export default async function ThreadPage({
   params: Promise<{ id: string }>;
 }) {
   const user = await getSessionUser();
-  const canEvolve = user ? await hasEvolvePermission(user.id) : false;
-  const evolvePrefs = user ? await getEvolvePrefs(user.id) : { initialHarness: undefined, initialModel: undefined, initialCavemanMode: undefined, initialCavemanIntensity: undefined };
+  const canStartThreads = user ? await hasThreadPermission(user.id) : false;
+  const threadPrefs = user ? await getThreadPrefs(user.id) : { initialHarness: undefined, initialModel: undefined, initialCavemanMode: undefined, initialCavemanIntensity: undefined };
   const parentSource = await getBranchParentSource(user?.id);
 
   const { id } = await params;
@@ -189,13 +189,13 @@ export default async function ThreadPage({
       canAcceptReject={canAcceptReject}
       upstreamCommitCount={upstreamCommitCount}
       diffSummary={diffSummary}
-      canEvolve={canEvolve}
+      canStartThreads={canStartThreads}
       isProduction={process.env.NODE_ENV === "production"}
       worktreePath={session.worktreePath}
-      initialHarness={evolvePrefs.initialHarness}
-      initialModel={evolvePrefs.initialModel}
-      initialCavemanMode={evolvePrefs.initialCavemanMode}
-      initialCavemanIntensity={evolvePrefs.initialCavemanIntensity}
+      initialHarness={threadPrefs.initialHarness}
+      initialModel={threadPrefs.initialModel}
+      initialCavemanMode={threadPrefs.initialCavemanMode}
+      initialCavemanIntensity={threadPrefs.initialCavemanIntensity}
     />
   );
 }

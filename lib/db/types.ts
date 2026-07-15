@@ -60,10 +60,10 @@ export interface CrossDeviceToken {
 }
 
 /**
- * A persisted record of one local evolve session.
+ * A persisted record of one local thread.
  * In-memory sessions also carry a ChildProcess reference (not stored here).
  */
-export interface EvolveSession {
+export interface ThreadSession {
   id: string;
   branch: string;
   worktreePath: string;

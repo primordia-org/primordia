@@ -1,6 +1,6 @@
 // instrumentation.ts
 // Next.js instrumentation hook — runs once when the server starts.
-// Used to recover evolve workers after a server restart.
+// Used to recover thread workers after a server restart.
 // Background schedulers are started by the reverse-proxy singleton via
 // lib/scheduled-jobs.ts.
 // See: https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
@@ -11,7 +11,7 @@ export async function register() {
     const { reconnectRunningWorkers } = await import("./lib/threads");
     const repoRoot = process.cwd();
     void reconnectRunningWorkers(repoRoot).catch((err) => {
-      console.error("[instrumentation] failed to reconnect evolve workers", err);
+      console.error("[instrumentation] failed to reconnect thread workers", err);
     });
   }
 }

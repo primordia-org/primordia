@@ -4,7 +4,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSessionUser, isAdmin } from "@/lib/auth";
-import { getEvolvePrefs } from "@/lib/user-prefs";
+import { getThreadPrefs } from "@/lib/user-prefs";
 import { getDb } from "@/lib/db";
 import { buildPageTitle } from "@/lib/page-title";
 import { runBunAudit, writeDependencyAuditNotification } from "@/lib/dependency-audit";
@@ -53,8 +53,8 @@ export default async function DependenciesSecurityPage() {
 
   const audit = runBunAudit();
   writeDependencyAuditNotification(process.cwd(), audit);
-  const [evolvePrefs, categoryRows] = await Promise.all([
-    getEvolvePrefs(user.id),
+  const [threadPrefs, categoryRows] = await Promise.all([
+    getThreadPrefs(user.id),
     db.getWebPushCategorySubscriptions(user.id),
   ]);
   const sessionUser = { id: user.id, username: user.username, isAdmin: true };
@@ -65,10 +65,10 @@ export default async function DependenciesSecurityPage() {
         subtitle="Admin"
         currentPage="admin"
         initialSession={sessionUser}
-        initialHarness={evolvePrefs.initialHarness}
-        initialModel={evolvePrefs.initialModel}
-        initialCavemanMode={evolvePrefs.initialCavemanMode}
-        initialCavemanIntensity={evolvePrefs.initialCavemanIntensity}
+        initialHarness={threadPrefs.initialHarness}
+        initialModel={threadPrefs.initialModel}
+        initialCavemanMode={threadPrefs.initialCavemanMode}
+        initialCavemanIntensity={threadPrefs.initialCavemanIntensity}
       />
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
         <AdminSubNav currentTab="dependencies-security" />

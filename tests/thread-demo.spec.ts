@@ -1,12 +1,12 @@
 /**
- * Playwright script faithfully executing the evolve-demo-script.md steps.
+ * Playwright script faithfully executing the thread-demo-script.md steps.
  *
  * Prerequisites:
  *   - Dev server running at BASE_URL (default: http://localhost:3000)
  *   - User must be logged in and have the `can_evolve` role
  *   - Set PLAYWRIGHT_BASE_URL env var to override the default
  *
- * Run: bunx playwright test tests/evolve-demo.spec.ts --headed
+ * Run: bunx playwright test tests/thread-demo.spec.ts --headed
  */
 
 import { test, expect } from "@playwright/test";
@@ -64,7 +64,7 @@ function createTempImages(): string[] {
 // Test
 // ---------------------------------------------------------------------------
 
-test.describe("Evolve demo script", () => {
+test.describe("Thread demo script", () => {
   let sessionId: string;
   let imagePaths: string[];
 
@@ -81,9 +81,9 @@ test.describe("Evolve demo script", () => {
     }
   });
 
-  test("full evolve demo flow", async ({ page, context }) => {
+  test("full thread demo flow", async ({ page, context }) => {
     // -----------------------------------------------------------------------
-    // Act 1: Opening the evolve form
+    // Act 1: Opening the thread form
     // -----------------------------------------------------------------------
 
     // Step 1 — Land on home page
@@ -103,11 +103,11 @@ test.describe("Evolve demo script", () => {
 
     // Step 3 — Click "Propose a change"
     // EVENT: nav/menu-item-clicked/v1 {dataId: "nav-menu/propose-change", label: "Propose a change"}
-    // EVENT: evolve-dialog/opened/v1 {}
+    // EVENT: thread-dialog/opened/v1 {}
     await page.click('[data-id="nav-menu/propose-change"]');
 
-    // Wait for the floating evolve dialog to appear
-    const requestInput = page.locator('[data-id="evolve/request-input"]');
+    // Wait for the floating thread dialog to appear
+    const requestInput = page.locator('[data-id="thread/request-input"]');
     await expect(requestInput).toBeVisible({ timeout: T.dialog });
 
     // Step 4 — Type a request
@@ -118,13 +118,13 @@ test.describe("Evolve demo script", () => {
     // -----------------------------------------------------------------------
 
     // Step 5 — Click "Attach files"
-    // EVENT: evolve-form/attach-files-clicked/v1 {}
+    // EVENT: thread-form/attach-files-clicked/v1 {}
     // Use setInputFiles directly on the hidden <input type="file"> because
     // Playwright can't interact with OS file pickers.
-    await page.click('[data-id="evolve/attach-files"]');
+    await page.click('[data-id="thread/attach-files"]');
 
     // Step 6 — Select 2 image files
-    // EVENT: evolve-form/files-attached/v1 {count: 2, trigger: "input"}
+    // EVENT: thread-form/files-attached/v1 {count: 2, trigger: "input"}
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.setInputFiles(imagePaths);
 
@@ -133,20 +133,20 @@ test.describe("Evolve demo script", () => {
     await expect(page.locator('text="mockup-v2.png"')).toBeVisible({ timeout: T.ui });
 
     // Step 7 — Remove one file (click ✕ on the first chip)
-    // EVENT: evolve-form/file-removed/v1 {name: "mockup-v1.png", trigger: "mouse"}
-    const removeButtons = page.locator('[data-id="evolve/remove-file-attachment"]');
+    // EVENT: thread-form/file-removed/v1 {name: "mockup-v1.png", trigger: "mouse"}
+    const removeButtons = page.locator('[data-id="thread/remove-file-attachment"]');
     await removeButtons.first().click();
     await expect(page.locator('text="mockup-v1.png"')).not.toBeVisible({ timeout: T.ui });
 
     // Step 8 — Open element inspector
-    // EVENT: evolve-form/element-inspector-opened/v1 {}
-    await page.click('[data-id="evolve/pick-element"]');
+    // EVENT: thread-form/element-inspector-opened/v1 {}
+    await page.click('[data-id="thread/pick-element"]');
 
     // Full-screen overlay activates; wait for it to appear
     await page.waitForTimeout(500);
 
     // Step 9 — Pick an element (nav header)
-    // EVENT: evolve-form/element-picked/v1 {component: "NavHeader", selector: "[data-id=\"nav-header\"]"}
+    // EVENT: thread-form/element-picked/v1 {component: "NavHeader", selector: "[data-id=\"nav-header\"]"}
     // Click on an element that has data-id="nav-header" in the overlay
     const navHeader = page.locator('[data-id="nav-header"]').first();
     if (await navHeader.isVisible()) {
@@ -158,17 +158,17 @@ test.describe("Evolve demo script", () => {
     await page.waitForTimeout(400);
 
     // Step 10 — Toggle Advanced Options
-    // EVENT: evolve-form/advanced-toggled/v1 {open: true}
-    await page.click('[data-id="evolve/advanced-toggle"]');
-    await expect(page.locator('[data-id="evolve/harness-select"]')).toBeVisible({ timeout: T.dialog });
+    // EVENT: thread-form/advanced-toggled/v1 {open: true}
+    await page.click('[data-id="thread/advanced-toggle"]');
+    await expect(page.locator('[data-id="thread/harness-select"]')).toBeVisible({ timeout: T.dialog });
 
     // Step 11 — Change harness to "pi"
-    // EVENT: evolve-form/harness-changed/v1 {harness: "pi", model: "..."}
-    await page.selectOption('[data-id="evolve/harness-select"]', "pi");
+    // EVENT: thread-form/harness-changed/v1 {harness: "pi", model: "..."}
+    await page.selectOption('[data-id="thread/harness-select"]', "pi");
 
     // Step 12 — Change model
-    // EVENT: evolve-form/model-changed/v1 {model: "claude-sonnet-4-20250514", harness: "pi"}
-    const modelSelect = page.locator('[data-id="evolve/model-select"]');
+    // EVENT: thread-form/model-changed/v1 {model: "claude-sonnet-4-20250514", harness: "pi"}
+    const modelSelect = page.locator('[data-id="thread/model-select"]');
     await modelSelect.waitFor({ state: "visible" });
     // Pick the first available option (exact model IDs depend on the registry)
     const firstModelOption = modelSelect.locator("option").nth(1);
@@ -178,15 +178,15 @@ test.describe("Evolve demo script", () => {
     }
 
     // Step 13 — Enable caveman mode
-    // EVENT: evolve-form/caveman-toggled/v1 {enabled: true}
-    const cavemanCheckbox = page.locator('[data-id="evolve/caveman-mode"]');
+    // EVENT: thread-form/caveman-toggled/v1 {enabled: true}
+    const cavemanCheckbox = page.locator('[data-id="thread/caveman-mode"]');
     if (await cavemanCheckbox.isVisible()) {
       await cavemanCheckbox.check();
     }
 
     // Step 14 — Change caveman intensity to "ultra"
-    // EVENT: evolve-form/caveman-intensity-changed/v1 {intensity: "ultra"}
-    const cavemanIntensity = page.locator('[data-id="evolve/caveman-intensity"]');
+    // EVENT: thread-form/caveman-intensity-changed/v1 {intensity: "ultra"}
+    const cavemanIntensity = page.locator('[data-id="thread/caveman-intensity"]');
     if (await cavemanIntensity.isVisible()) {
       await cavemanIntensity.selectOption("ultra");
     }
@@ -196,21 +196,21 @@ test.describe("Evolve demo script", () => {
     // -----------------------------------------------------------------------
 
     // Step 15 — Click "Propose Change" / submit
-    // EVENT: evolve-form/submit/v1 {harness: "pi", model: "...", hasFiles: true, fileCount: 1, ...}
-    const submitBtn = page.locator('[data-id="evolve/submit-request"]');
+    // EVENT: thread-form/submit/v1 {harness: "pi", model: "...", hasFiles: true, fileCount: 1, ...}
+    const submitBtn = page.locator('[data-id="thread/submit-request"]');
     await expect(submitBtn).toBeEnabled({ timeout: T.ui });
     await submitBtn.click();
 
     // The floating dialog closes and shows a toast with a "View session" link.
     // Click it to navigate to the session page.
-    const viewSessionLink = page.locator('[data-id="evolve-dialog/view-session"]');
+    const viewSessionLink = page.locator('[data-id="thread-dialog/view-session"]');
     await expect(viewSessionLink).toBeVisible({ timeout: T.toast });
     await viewSessionLink.click();
 
     // Step 16 — Arrive at session page
     // EVENT: session/page-viewed/v1 {sessionId: "...", status: "starting"}
-    await page.waitForURL(/\/evolve\/session\//, { timeout: T.nav });
-    sessionId = page.url().split("/evolve/session/")[1].split("?")[0];
+    await page.waitForURL(/\/thread\//, { timeout: T.nav });
+    sessionId = page.url().split("/thread/")[1].split("?")[0];
     expect(sessionId).toBeTruthy();
 
     // Step 17 — Watch setup steps (bun install, worktree creation) — no client event
@@ -312,15 +312,15 @@ test.describe("Evolve demo script", () => {
     // Step 30 — Click "Follow-up Changes" tab
     // EVENT: session/action-panel-toggled/v1 {action: "followup", open: true, sessionId: "..."}
     await page.click('[data-id="session/tab-followup"]');
-    await expect(page.locator('[data-id="evolve/request-input"]').last()).toBeVisible({ timeout: T.dialog });
+    await expect(page.locator('[data-id="thread/request-input"]').last()).toBeVisible({ timeout: T.dialog });
 
     // Step 31 — Type follow-up request
-    await page.locator('[data-id="evolve/request-input"]').last().fill("Make the toggle icon larger");
+    await page.locator('[data-id="thread/request-input"]').last().fill("Make the toggle icon larger");
 
     // Step 32 — Submit follow-up
-    // EVENT: evolve-form/submit/v1 {...}
+    // EVENT: thread-form/submit/v1 {...}
     // EVENT: session/followup-submitted/v1 {sessionId: "...", ...}
-    await page.locator('[data-id="evolve/submit-request"]').last().click();
+    await page.locator('[data-id="thread/submit-request"]').last().click();
 
     // Step 33 — Claude finishes follow-up (status → ready again)
     // EVENT: session/status-changed/v1 {from: "running-claude", to: "ready"}

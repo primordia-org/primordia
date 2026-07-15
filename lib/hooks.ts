@@ -10,7 +10,7 @@ export interface SessionUser {
   id: string;
   username: string;
   isAdmin: boolean;
-  canEvolve?: boolean;
+  canStartThreads?: boolean;
 }
 
 interface StoredDraft {
@@ -22,7 +22,7 @@ interface ParsedStoredDraft extends StoredDraft {
   isLegacy: boolean;
 }
 
-const DRAFT_STORAGE_PREFIX = "primordia:evolve-draft:";
+const DRAFT_STORAGE_PREFIX = "primordia:thread-draft:";
 const DRAFT_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
 
 let hasGarbageCollectedDrafts = false;
@@ -60,7 +60,7 @@ function garbageCollectOldDrafts() {
   try {
     for (let i = window.localStorage.length - 1; i >= 0; i--) {
       const key = window.localStorage.key(i);
-      if (!key?.startsWith(DRAFT_STORAGE_PREFIX)) continue;
+      if (!key?.startsWith(DRAFT_STORAGE_PREFIX) && !key?.startsWith("primordia:evolve-draft:")) continue;
       const raw = window.localStorage.getItem(key);
       if (raw === null) continue;
       const draft = parseStoredDraft(raw);

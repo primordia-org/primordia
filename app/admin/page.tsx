@@ -4,7 +4,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSessionUser, isAdmin } from "@/lib/auth";
-import { getEvolvePrefs } from "@/lib/user-prefs";
+import { getThreadPrefs } from "@/lib/user-prefs";
 import { getDb } from "@/lib/db";
 import { buildPageTitle } from "@/lib/page-title";
 import AdminPermissionsClient, { type AdminUser } from "./AdminPermissionsClient";
@@ -30,12 +30,12 @@ export default async function AdminPage() {
   ]);
 
   const adminRoleName = allRoles.find((r) => r.name === "admin")?.displayName ?? "admin";
-  const evolveRoleName = allRoles.find((r) => r.name === "can_evolve")?.displayName ?? "Evolver";
+  const threadRoleName = allRoles.find((r) => r.name === "can_evolve")?.displayName ?? "Threader";
 
   if (!adminCheck) {
     return (
       <ForbiddenPage
-        pageDescription={`This page lets you manage user roles and permissions. You can grant or revoke the "${evolveRoleName}" role to control who can propose changes to the app.`}
+        pageDescription={`This page lets you manage user roles and permissions. You can grant or revoke the "${threadRoleName}" role to control who can propose changes to the app.`}
         requiredConditions={["Be logged in", `Have the "${adminRoleName}" role`]}
         metConditions={["You are logged in"]}
         unmetConditions={[`You don't have the "${adminRoleName}" role`]}
@@ -46,40 +46,40 @@ export default async function AdminPage() {
     );
   }
 
-  const [allUsers, adminUsers, evolveUsers] = await Promise.all([
+  const [allUsers, adminUsers, threadUsers] = await Promise.all([
     db.getAllUsers(),
     db.getUsersWithRole("admin"),
     db.getUsersWithRole("can_evolve"),
   ]);
 
   const adminSet = new Set(adminUsers);
-  const evolveSet = new Set(evolveUsers);
+  const threadSet = new Set(threadUsers);
 
   const users: AdminUser[] = allUsers.map((u) => ({
     id: u.id,
     username: u.username,
     isAdmin: adminSet.has(u.id),
-    canEvolve: evolveSet.has(u.id),
+    canStartThreads: threadSet.has(u.id),
   }));
 
-  const [sessionUser, evolvePrefs] = await Promise.all([
+  const [sessionUser, threadPrefs] = await Promise.all([
     Promise.resolve({ id: user.id, username: user.username, isAdmin: true }),
-    getEvolvePrefs(user.id),
+    getThreadPrefs(user.id),
   ]);
 
   return (
     <main className="flex flex-col w-full max-w-5xl mx-auto px-4 py-6 min-h-dvh">
-      <PageNavBar subtitle="Admin" currentPage="admin" initialSession={sessionUser} initialHarness={evolvePrefs.initialHarness} initialModel={evolvePrefs.initialModel} initialCavemanMode={evolvePrefs.initialCavemanMode} initialCavemanIntensity={evolvePrefs.initialCavemanIntensity} />
+      <PageNavBar subtitle="Admin" currentPage="admin" initialSession={sessionUser} initialHarness={threadPrefs.initialHarness} initialModel={threadPrefs.initialModel} initialCavemanMode={threadPrefs.initialCavemanMode} initialCavemanIntensity={threadPrefs.initialCavemanIntensity} />
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
       <AdminSubNav currentTab="users" />
       <div className="flex-1 min-w-0">
       <section>
-        <h2 className="text-base font-medium text-gray-200 mb-3">Evolve permissions</h2>
+        <h2 className="text-base font-medium text-gray-200 mb-3">Thread permissions</h2>
         <p className="text-sm text-gray-500 mb-4">
-          Control which users can access the evolve flow to propose changes to this app.
+          Control which users can access the thread flow to propose changes to this app.
           The {adminRoleName} always has access.
         </p>
-        <AdminPermissionsClient users={users} adminRoleName={adminRoleName} evolveRoleName={evolveRoleName} />
+        <AdminPermissionsClient users={users} adminRoleName={adminRoleName} threadRoleName={threadRoleName} />
       </section>
       </div>
       </div>

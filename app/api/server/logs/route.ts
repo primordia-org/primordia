@@ -1,5 +1,5 @@
 // app/api/server/logs/route.ts
-// Streams an evolve preview server log file as SSE.
+// Streams an thread preview server log file as SSE.
 
 import { watch, type FSWatcher } from "node:fs";
 import { basename, dirname } from "node:path";
@@ -68,7 +68,7 @@ function readFromOffset(logPath: string, offset: number): { exists: boolean; tex
 }
 
 /**
- * Stream evolve preview server logs
+ * Stream thread preview server logs
  * @description SSE stream of a thread preview server's `.primordia-next-server.log`. Pass `threadId` as the thread id; add `n=0` to skip the initial tail and only follow newly appended bytes. Emits a missing status while the log file does not exist yet.
  * @tag Server
  */

@@ -34,10 +34,10 @@ export async function isAdmin(userId: string): Promise<boolean> {
 }
 
 /**
- * Returns true if the user may use the evolve flow.
+ * Returns true if the user may use the thread flow.
  * Users with the "admin" role always have access; others need the "can_evolve" role.
  */
-export async function hasEvolvePermission(userId: string): Promise<boolean> {
+export async function hasThreadPermission(userId: string): Promise<boolean> {
   const db = await getDb();
   const roles = await db.getUserRoles(userId);
   return roles.includes("admin") || roles.includes("can_evolve");

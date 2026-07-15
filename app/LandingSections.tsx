@@ -172,7 +172,7 @@ const BOX_FEATURES = [
     bg: "bg-emerald-500/5",
     title: "Role-Based Access",
     description:
-      "Admin and evolver roles from day one. The first user gets admin automatically. Grant or revoke access from the admin panel.",
+      "Admin and thread roles from day one. The first user gets admin automatically. Grant or revoke access from the admin panel.",
   },
   {
     icon: <LayoutDashboard size={22} strokeWidth={1.5} aria-hidden="true" />,

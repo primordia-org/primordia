@@ -3,7 +3,7 @@
 // app/markdown-test/page.tsx
 // Interactive test page for the streamdown / MarkdownContent integration.
 // Streams a comprehensive markdown sample from /api/markdown-stream and renders
-// it with <MarkdownContent> — the same component and styling used on the evolve
+// it with <MarkdownContent> — the same component and styling used on the thread
 // session page — so the test is visually representative.
 //
 // Controls:

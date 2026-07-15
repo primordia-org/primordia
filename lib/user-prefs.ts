@@ -24,7 +24,7 @@ export const PREF_BRANCH_PARENT_SOURCE = "branches:parent-source";
 export { CAVEMAN_INTENSITIES, DEFAULT_CAVEMAN_INTENSITY, type CavemanIntensity } from "./agent-config";
 export { BRANCH_PARENT_SOURCES, DEFAULT_BRANCH_PARENT_SOURCE, type BranchParentSource } from "./branch-parent";
 
-export interface EvolvePrefs {
+export interface ThreadPrefs {
   initialHarness: string;
   initialModel: string;
   initialCavemanMode: boolean;
@@ -32,7 +32,8 @@ export interface EvolvePrefs {
 }
 
 /**
- * Read the user's preferred evolve harness, model, and caveman settings from the database.
+ * Read the user's preferred thread harness, model, and caveman settings from the database.
+ * Preference keys keep their original `evolve:*` names for compatibility.
  * Falls back to compile-time defaults if the preference is missing or
  * references an option that no longer exists.
  *
@@ -51,7 +52,7 @@ export async function getBranchParentSource(userId: string | null | undefined): 
   }
 }
 
-export async function getEvolvePrefs(userId: string): Promise<EvolvePrefs> {
+export async function getThreadPrefs(userId: string): Promise<ThreadPrefs> {
   try {
     const db = await getDb();
     const prefs = await db.getUserPreferences(userId, [PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY]);

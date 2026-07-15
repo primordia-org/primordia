@@ -2,7 +2,7 @@
 
 // components/AdminUpdatesBell.tsx
 // Notification bell that opens a dropdown menu showing upstream updates and
-// active threads. Shown to any user with evolve or admin access.
+// active threads. Shown to any user with thread or admin access.
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
@@ -58,8 +58,8 @@ function SkeletonRow() {
 
 export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
   const isAdmin = sessionUser?.isAdmin ?? false;
-  const canEvolve = sessionUser?.canEvolve ?? false;
-  const canShow = isAdmin || canEvolve;
+  const canStartThreads = sessionUser?.canStartThreads ?? false;
+  const canShow = isAdmin || canStartThreads;
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -70,7 +70,7 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
     setLoading(true);
     try {
       const [sessionsRes, updatesRes, dependencyRes, leakRes] = await Promise.all([
-        canEvolve || isAdmin ? fetch(withBasePath("/api/thread/sessions")) : null,
+        canStartThreads || isAdmin ? fetch(withBasePath("/api/thread/sessions")) : null,
         isAdmin ? fetch(withBasePath("/api/admin/updates/has-updates")) : null,
         isAdmin ? fetch(withBasePath("/api/admin/dependencies-security/has-alert")) : null,
         isAdmin ? fetch(withBasePath("/api/admin/server-health/leak-alert")) : null,
@@ -92,7 +92,7 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
     } finally {
       setLoading(false);
     }
-  }, [isAdmin, canEvolve]);
+  }, [isAdmin, canStartThreads]);
 
   // Mount: fetch to decide whether to show bell at all.
   useEffect(() => {

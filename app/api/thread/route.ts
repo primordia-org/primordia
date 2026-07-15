@@ -1,5 +1,5 @@
 // app/api/thread/route.ts
-// Local development evolve flow — bypasses GitHub entirely.
+// Local development thread flow — bypasses GitHub entirely.
 //
 // POST — start a new thread.
 //   Body: { request: string }

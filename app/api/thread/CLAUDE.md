@@ -20,4 +20,4 @@ This directory contains thread and agent-run endpoints. Process-management endpo
 
 Thread status is inferred from the append-only `.primordia-session.ndjson` log in the worktree. Key statuses are `starting`, `running-claude`, `fixing-types`, `ready`, `accepting`, `accepted`, and `rejected`. Preview server state is tracked separately as `none`, `starting`, `running`, or `disconnected`.
 
-The standalone thread creation page is `/thread`, and public thread detail pages are `/thread/[id]`; do not add compatibility routes for retired evolve or branch-page URLs.
+The standalone thread creation page is `/thread`, and public thread detail pages are `/thread/[id]`; do not add compatibility routes for retired thread or branch-page URLs.

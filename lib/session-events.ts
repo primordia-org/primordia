@@ -16,7 +16,7 @@
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { EvolveSession } from './db/types';
+import type { ThreadSession } from './db/types';
 
 /**
  * Describes which authentication source an agent worker used for a run.
@@ -143,7 +143,7 @@ export function getCandidateWorktreePath(sessionId: string): string {
 }
 
 /**
- * Build an EvolveSession from the NDJSON log and git metadata.
+ * Build an ThreadSession from the NDJSON log and git metadata.
  * Returns null if the worktree doesn't have a session log.
  */
 function buildSessionFromWorktreePath(
@@ -151,7 +151,7 @@ function buildSessionFromWorktreePath(
   worktreePath: string,
   branch: string,
   repoRoot: string,
-): EvolveSession | null {
+): ThreadSession | null {
   const ndjsonPath = getSessionNdjsonPath(worktreePath);
   if (!fs.existsSync(ndjsonPath)) return null;
 
@@ -213,7 +213,7 @@ function buildSessionFromWorktreePath(
  * Uses the sibling-directory convention to find the worktree.
  * Returns null if the session doesn't exist on disk.
  */
-export function getSessionFromFilesystem(id: string, repoRoot: string): EvolveSession | null {
+export function getSessionFromFilesystem(id: string, repoRoot: string): ThreadSession | null {
   const worktreePath = getCandidateWorktreePath(id);
   // Get branch name via git symbolic-ref HEAD in the worktree.
   // For from-branch sessions, the branch differs from the session ID.
@@ -236,7 +236,7 @@ export function getSessionFromFilesystem(id: string, repoRoot: string): EvolveSe
  * A worktree is considered a session if it has a .primordia-session.ndjson file.
  * Returns sessions sorted by createdAt descending.
  */
-export function listSessionsFromFilesystem(repoRoot: string): EvolveSession[] {
+export function listSessionsFromFilesystem(repoRoot: string): ThreadSession[] {
   let porcelain: string;
   try {
     porcelain = execFileSync('git', ['worktree', 'list', '--porcelain'], {
@@ -248,7 +248,7 @@ export function listSessionsFromFilesystem(repoRoot: string): EvolveSession[] {
     return [];
   }
 
-  const sessions: EvolveSession[] = [];
+  const sessions: ThreadSession[] = [];
 
   // Parse porcelain output: blocks are separated by blank lines.
   let currentPath: string | null = null;

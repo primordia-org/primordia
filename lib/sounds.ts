@@ -11,7 +11,7 @@
 //   sounds.error();         // something went wrong
 //   sounds.menuOpen();      // hamburger opened
 //   sounds.menuClose();     // hamburger closed
-//   sounds.sparkle();       // evolve dialog opened / session started
+//   sounds.sparkle();       // thread dialog opened / session started
 //   sounds.accept();        // session accepted 🎉
 //   sounds.reject();        // session rejected 😢
 //   sounds.click();         // generic button click

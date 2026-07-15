@@ -3,8 +3,8 @@
 import { useState, type ReactNode } from "react";
 import { Check, ChevronDown, Edit3, Loader, Plus, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
-import { PRESET_AUTH_SOURCE_LABELS, type EvolvePreset, type PresetAuthSource } from "@/lib/presets";
-import type { EvolvePresetWithAvailability } from "@/lib/preset-availability";
+import { PRESET_AUTH_SOURCE_LABELS, type ThreadPreset, type PresetAuthSource } from "@/lib/presets";
+import type { ThreadPresetWithAvailability } from "@/lib/preset-availability";
 import { firstModelForAuthSource, getHarnessesForAuthSource, filterModelsForAuthSource } from "@/lib/preset-options";
 import type { ModelOption } from "@/lib/agent-config";
 import { ModelPicker } from "@/components/ModelPicker";
@@ -14,17 +14,17 @@ import { trackEvent } from "@/lib/events-client";
 const AUTH_SOURCES = Object.keys(PRESET_AUTH_SOURCE_LABELS) as PresetAuthSource[];
 
 interface PresetsSettingsInitialData {
-  builtInPresets: EvolvePresetWithAvailability[];
-  customPresets: EvolvePresetWithAvailability[];
+  builtInPresets: ThreadPresetWithAvailability[];
+  customPresets: ThreadPresetWithAvailability[];
   disabledBuiltInPresetIds: string[];
   modelOptionsByHarness: Record<string, ModelOption[]>;
 }
 
-function markAvailable(preset: EvolvePreset): EvolvePresetWithAvailability {
+function markAvailable(preset: ThreadPreset): ThreadPresetWithAvailability {
   return { ...preset, available: true };
 }
 
-function emptyPreset(): EvolvePreset {
+function emptyPreset(): ThreadPreset {
   return {
     id: `custom:${crypto.randomUUID()}`,
     name: "New preset",
@@ -98,7 +98,7 @@ function PresetCard({
   right,
   modelLabel,
 }: {
-  preset: EvolvePresetWithAvailability | EvolvePreset;
+  preset: ThreadPresetWithAvailability | ThreadPreset;
   disabled?: boolean;
   showDisabledPill?: boolean;
   right?: ReactNode;
@@ -136,15 +136,15 @@ function PresetCard({
 }
 
 export default function PresetsSettingsClient({ initialData }: { initialData: PresetsSettingsInitialData }) {
-  const [builtIn] = useState<EvolvePresetWithAvailability[]>(initialData.builtInPresets);
+  const [builtIn] = useState<ThreadPresetWithAvailability[]>(initialData.builtInPresets);
   const [disabledBuiltInIds, setDisabledBuiltInIds] = useState<string[]>(initialData.disabledBuiltInPresetIds);
-  const [custom, setCustom] = useState<EvolvePresetWithAvailability[]>(initialData.customPresets);
+  const [custom, setCustom] = useState<ThreadPresetWithAvailability[]>(initialData.customPresets);
   const [editingIds, setEditingIds] = useState<Set<string>>(new Set());
   const [modelOptionsByHarness] = useState<Record<string, ModelOption[]>>(initialData.modelOptionsByHarness);
   const [savingTarget, setSavingTarget] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  function updatePreset(id: string, patch: Partial<EvolvePreset>) {
+  function updatePreset(id: string, patch: Partial<ThreadPreset>) {
     setCustom((prev) => prev.map((p) => p.id === id ? { ...p, ...patch } : p));
   }
 
@@ -164,7 +164,7 @@ export default function PresetsSettingsClient({ initialData }: { initialData: Pr
     void persistPresets(custom, nextDisabled, `builtin:${id}`);
   }
 
-  function changeAuthSource(preset: EvolvePreset, authSource: PresetAuthSource) {
+  function changeAuthSource(preset: ThreadPreset, authSource: PresetAuthSource) {
     const harnesses = getHarnessesForAuthSource(authSource);
     const harness = harnesses.some((h) => h.id === preset.harness) ? preset.harness : (harnesses[0]?.id ?? 'pi');
     const models = filterModelsForAuthSource(modelOptionsByHarness[harness] ?? [], authSource, harness);
@@ -172,7 +172,7 @@ export default function PresetsSettingsClient({ initialData }: { initialData: Pr
     updatePreset(preset.id, { authSource, harness, model });
   }
 
-  function changeHarness(preset: EvolvePreset, harness: string) {
+  function changeHarness(preset: ThreadPreset, harness: string) {
     const model = firstModelForAuthSource(modelOptionsByHarness, preset.authSource, harness) || preset.model;
     updatePreset(preset.id, { harness, model });
   }
@@ -181,7 +181,7 @@ export default function PresetsSettingsClient({ initialData }: { initialData: Pr
     return modelOptionsByHarness[harness]?.find((m) => m.id === model)?.label ?? model;
   }
 
-  function normalizedPresets(source = custom): EvolvePreset[] {
+  function normalizedPresets(source = custom): ThreadPreset[] {
     return source.map((p) => {
       const harnesses = getHarnessesForAuthSource(p.authSource);
       const harness = harnesses.some((h) => h.id === p.harness) ? p.harness : (harnesses[0]?.id ?? p.harness);
@@ -201,7 +201,7 @@ export default function PresetsSettingsClient({ initialData }: { initialData: Pr
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customPresets: cleaned, disabledBuiltInPresetIds: nextDisabled }),
       });
-      const data = await res.json() as { customPresets?: EvolvePresetWithAvailability[]; disabledBuiltInPresetIds?: string[]; error?: string };
+      const data = await res.json() as { customPresets?: ThreadPresetWithAvailability[]; disabledBuiltInPresetIds?: string[]; error?: string };
       if (!res.ok) throw new Error(data.error ?? `Save failed: ${res.status}`);
       setCustom(data.customPresets ?? cleaned.map(markAvailable));
       setDisabledBuiltInIds(data.disabledBuiltInPresetIds ?? nextDisabled);
@@ -235,7 +235,7 @@ export default function PresetsSettingsClient({ initialData }: { initialData: Pr
     <section className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-gray-100">Presets</h1>
-        <p className="text-sm text-gray-400 mt-1">Pick billing source + harness + model once, then switch by name in Evolve.</p>
+        <p className="text-sm text-gray-400 mt-1">Pick billing source + harness + model once, then switch by name when starting a thread.</p>
       </div>
 
       <div className="space-y-3">

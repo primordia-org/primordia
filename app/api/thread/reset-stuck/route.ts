@@ -12,7 +12,7 @@
 
 import { getSessionUser } from '@/lib/auth';
 import { stopWorktreeServer } from '@/lib/process-manager';
-import { hasEvolvePermission } from '@/lib/auth';
+import { hasThreadPermission } from '@/lib/auth';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,
@@ -28,9 +28,9 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
 
-  const canEvolve = await hasEvolvePermission(user.id);
-  if (!canEvolve) {
-    return Response.json({ error: 'Evolve permission required' }, { status: 403 });
+  const canStartThreads = await hasThreadPermission(user.id);
+  if (!canStartThreads) {
+    return Response.json({ error: 'Thread permission required' }, { status: 403 });
   }
 
   const body = (await request.json()) as { threadId?: string };

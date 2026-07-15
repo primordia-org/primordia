@@ -72,18 +72,18 @@ interface HamburgerMenuProps {
 export function buildStandardMenuItems({
   isAdmin,
   currentPath,
-  onEvolveClick,
+  onThreadClick,
 }: {
   isAdmin: boolean;
   currentPath?: string;
   /** When provided, "Propose a change" opens this callback instead of navigating to /thread. */
-  onEvolveClick?: () => void;
+  onThreadClick?: () => void;
 }): MenuItem[] {
   const items: MenuItem[] = [
     {
       label: "Propose a change",
       className: "hover:text-amber-400",
-      ...(onEvolveClick ? { onClick: onEvolveClick } : { href: "/thread" }),
+      ...(onThreadClick ? { onClick: onThreadClick } : { href: "/thread" }),
       dataId: "nav-menu/propose-change",
       icon: <Edit size={16} strokeWidth={2} aria-hidden="true" />,
     },

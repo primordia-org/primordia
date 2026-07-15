@@ -4,9 +4,9 @@
 
 import { MODEL_OPTIONS } from './agent-config';
 import { isModelAllowedForAuthSource } from './preset-options';
-import type { EvolvePreset } from './presets';
+import type { ThreadPreset } from './presets';
 
-export type EvolvePresetWithAvailability = EvolvePreset & {
+export type ThreadPresetWithAvailability = ThreadPreset & {
   available: boolean;
   unavailableReason?: string;
 };
@@ -20,9 +20,9 @@ export function isExeDevGatewayAvailable(): boolean {
 }
 
 export function withPresetAvailability(
-  preset: EvolvePreset,
+  preset: ThreadPreset,
   storedAuthSources: Set<string>,
-): EvolvePresetWithAvailability {
+): ThreadPresetWithAvailability {
   if (!isModelAllowedForAuthSource(MODEL_OPTIONS, preset.authSource, preset.harness, preset.model)) {
     return { ...preset, available: false, unavailableReason: 'Model not supported for this billing source' };
   }

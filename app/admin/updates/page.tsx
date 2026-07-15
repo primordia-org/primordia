@@ -8,7 +8,7 @@ import { redirect } from "next/navigation";
 import { execFileSync } from "child_process";
 import * as path from "path";
 import { getSessionUser, isAdmin } from "@/lib/auth";
-import { getEvolvePrefs } from "@/lib/user-prefs";
+import { getThreadPrefs } from "@/lib/user-prefs";
 import { getDb } from "@/lib/db";
 import { buildPageTitle } from "@/lib/page-title";
 import ForbiddenPage from "@/components/ForbiddenPage";
@@ -141,9 +141,9 @@ export default async function AdminUpdatesPage() {
   }
 
   const initialSources = buildSourceStatuses();
-  const [sessionUser, evolvePrefs, categoryRows] = await Promise.all([
+  const [sessionUser, threadPrefs, categoryRows] = await Promise.all([
     Promise.resolve({ id: user.id, username: user.username, isAdmin: true }),
-    getEvolvePrefs(user.id),
+    getThreadPrefs(user.id),
     db.getWebPushCategorySubscriptions(user.id),
   ]);
 
@@ -153,10 +153,10 @@ export default async function AdminUpdatesPage() {
         subtitle="Admin"
         currentPage="admin"
         initialSession={sessionUser}
-        initialHarness={evolvePrefs.initialHarness}
-        initialModel={evolvePrefs.initialModel}
-        initialCavemanMode={evolvePrefs.initialCavemanMode}
-        initialCavemanIntensity={evolvePrefs.initialCavemanIntensity}
+        initialHarness={threadPrefs.initialHarness}
+        initialModel={threadPrefs.initialModel}
+        initialCavemanMode={threadPrefs.initialCavemanMode}
+        initialCavemanIntensity={threadPrefs.initialCavemanIntensity}
       />
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
         <AdminSubNav currentTab="updates" />

@@ -19,7 +19,7 @@ export interface ThreadFollowupFormData {
 }
 
 /**
- * Submit a follow-up evolve request
+ * Submit a follow-up thread request
  * @description Send an additional change request to an already-ready thread. Accepts multipart/form-data (supports file attachments) or JSON `{ threadId, request, primordiaAesKey? }`.
  * @tag Thread
  * @contentType multipart/form-data

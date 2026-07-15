@@ -16,7 +16,7 @@ A quick audit shows several client components fetch initial page data after moun
 - `app/settings/*Client.tsx` and `components/SettingsSubNav.tsx` fetch billing-source and preset data after mount.
 - `components/ModelPicker.tsx` and parts of `app/thread/[id]/ThreadView.tsx` fetch model metadata after mount.
 
-Some client fetches are still appropriate: SSE logs, evolve progress streams, preview server status, file diff expansion, OAuth/device-code polling, and submit/update/delete actions.
+Some client fetches are still appropriate: SSE logs, thread progress streams, preview server status, file diff expansion, OAuth/device-code polling, and submit/update/delete actions.
 
 ## Recommended default: Solution 1 — Server-first data access modules
 
@@ -156,4 +156,4 @@ Use **Solution 3** selectively for genuinely slow server data. Reconsider a clie
 3. `/admin/server-health` — split initial server data from explicit cleanup/proxy-setting actions.
 4. `/settings` and `/settings/presets` — remove initial billing/model/preset loading flashes.
 5. `/admin/events` — server-render first page of results; keep client-side filter/pagination refreshes.
-6. Evolve model metadata — load model options server-side for initial evolve/session forms where practical.
+6. Thread model metadata — load model options server-side for initial thread forms where practical.

@@ -20,12 +20,12 @@ import { HARNESS_OPTIONS, DEFAULT_HARNESS, DEFAULT_MODEL } from './agent-config'
 import { MODEL_OPTIONS } from './agent-config';
 import { withSocketStatusHint } from './socket-status';
 import { getProcessStatusReport, restartWorktreeServer, stopWorktreeServer } from './process-manager';
-import { hasEvolvePermission } from './auth';
+import { hasThreadPermission } from './auth';
 import { progressSummary, reduceProgressEventsAcrossRuns, type ProgressStateStep } from './progress-monitor';
 import { decryptStoredSecretForUser, getEncryptedSecretForUser } from './server-secrets';
 import { getDb } from './db';
 import { PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY, DEFAULT_CAVEMAN_INTENSITY, getBranchParentSource, type CavemanIntensity } from './user-prefs';
-import { BUILT_IN_PRESETS, PREF_CUSTOM_PRESETS, PREF_PRESET, normalizeAuthSource, parseCustomPresets, type EvolvePreset, type PresetAuthSource, type SecretAuthSource } from './presets';
+import { BUILT_IN_PRESETS, PREF_CUSTOM_PRESETS, PREF_PRESET, normalizeAuthSource, parseCustomPresets, type ThreadPreset, type PresetAuthSource, type SecretAuthSource } from './presets';
 import { ensurePrimordiaPiModelsJson } from './pi-custom-models';
 import {
   copyProductionDbToWorktree,
@@ -171,7 +171,7 @@ function getOrAssignBranchPort(branch: string, repoRoot: string): number {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
   } catch (err) {
-    console.error(`[evolve] failed to assign port ${port} to branch ${branch}:`, err);
+    console.error(`[thread] failed to assign port ${port} to branch ${branch}:`, err);
   }
 
   return port;
@@ -204,7 +204,7 @@ interface WorkerConfig {
 
 /**
  * Determine which already-selected auth source a session will use and return
- * the corresponding AgentAuthInfo. Evolve presets are responsible for selecting
+ * the corresponding AgentAuthInfo. Thread presets are responsible for selecting
  * exactly one billing source before the worker is invoked; this function only
  * sanitizes incompatible fields so the section_start event and worker env agree.
  *
@@ -653,12 +653,12 @@ function spawnCacheWarmBuild(worktreePath: string): void {
     const pidFile = path.join(worktreePath, '.primordia-warmup-build.pid');
     try { fs.writeFileSync(pidFile, String(proc.pid)); } catch { /* non-fatal */ }
   }
-  console.log(`[evolve] cache-warming build started in ${worktreePath} (PID ${proc.pid ?? 'unknown'})`);
+  console.log(`[thread] cache-warming build started in ${worktreePath} (PID ${proc.pid ?? 'unknown'})`);
 }
 
 // ─── Main flow ────────────────────────────────────────────────────────────────
 
-export async function startLocalEvolve(
+export async function startLocalThread(
   session: LocalSession,
   taskRequest: string,
   repoRoot: string,
@@ -1142,8 +1142,8 @@ export async function followupThread(
 ): Promise<void | { ok: true; threadId: string } | { ok: false; status: 400 | 403 | 404; error: string }> {
   if ('threadId' in first) {
     const options = first;
-    if (!(await hasEvolvePermission(options.userId))) {
-      return { ok: false, status: 403, error: 'User does not have evolve permission.' };
+    if (!(await hasThreadPermission(options.userId))) {
+      return { ok: false, status: 403, error: 'User does not have thread permission.' };
     }
     const record = getSessionFromFilesystem(options.threadId, repoRoot);
     if (!record) return { ok: false, status: 404, error: 'Session not found' };
@@ -1179,8 +1179,8 @@ export async function followupThread(
     return { ok: true, threadId: options.threadId };
   }
 
-  if (!(await hasEvolvePermission(first.userId))) {
-    throw new Error('User does not have evolve permission.');
+  if (!(await hasThreadPermission(first.userId))) {
+    throw new Error('User does not have thread permission.');
   }
   await runFollowupThreadInWorktree(
     first,
@@ -1525,7 +1525,7 @@ async function runBunInstallAfterMerge(worktreePath: string): Promise<string> {
 }
 
 export async function updateThread({ userId, threadId }: UpdateThreadOptions): Promise<UpdateThreadResult> {
-  if (!(await hasEvolvePermission(userId))) return { ok: false, status: 403, error: 'User does not have evolve permission.' };
+  if (!(await hasThreadPermission(userId))) return { ok: false, status: 403, error: 'User does not have thread permission.' };
   const repoRoot = process.cwd();
   const session = getSessionFromFilesystem(threadId, repoRoot);
   if (!session) return { ok: false, status: 404, error: 'Thread not found' };
@@ -1587,7 +1587,7 @@ function isProductionAcceptTarget(parentBranch: string, repoRoot: string): boole
 }
 
 export async function manageThread({ userId, threadId, action, authSource: requestedAuthSource, primordiaAesKey }: ManageThreadOptions): Promise<ManageThreadResult> {
-  if (!(await hasEvolvePermission(userId))) return { ok: false, status: 403, error: 'User does not have evolve permission.' };
+  if (!(await hasThreadPermission(userId))) return { ok: false, status: 403, error: 'User does not have thread permission.' };
   const repoRoot = process.cwd();
   const session = getSessionFromFilesystem(threadId, repoRoot);
   if (!session) return { ok: false, status: 404, error: 'Thread not found' };
@@ -1684,11 +1684,11 @@ export type CreateThreadResult =
   | { ok: true; status: 200; sessionId: string; worktreePath: string }
   | { ok: false; status: 400 | 403 | 500; error: string };
 
-async function resolveThreadPreset(userId: string, requestedPresetId?: string | null): Promise<EvolvePreset> {
+async function resolveThreadPreset(userId: string, requestedPresetId?: string | null): Promise<ThreadPreset> {
   const db = await getDb();
   const prefs = await db.getUserPreferences(userId, [PREF_PRESET, PREF_CUSTOM_PRESETS]);
   const customPresets = parseCustomPresets(prefs[PREF_CUSTOM_PRESETS]);
-  const presets: EvolvePreset[] = [...BUILT_IN_PRESETS, ...customPresets];
+  const presets: ThreadPreset[] = [...BUILT_IN_PRESETS, ...customPresets];
   const presetId = requestedPresetId ?? prefs[PREF_PRESET] ?? BUILT_IN_PRESETS[0]?.id;
   const preset = presetId ? presets.find((candidate) => candidate.id === presetId) : null;
   if (!preset) throw new Error(`Preset not found: ${presetId}`);
@@ -1724,10 +1724,10 @@ function fallbackSlug(text: string): string {
     .trim()
     .split(/\s+/)
     .slice(0, 4)
-    .join('-') || 'evolve-session';
+    .join('-') || 'thread';
 }
 
-/** Ask the selected evolve model to choose a short, descriptive kebab-case slug for the request. */
+/** Ask the selected thread model to choose a short, descriptive kebab-case slug for the request. */
 async function generateSlug(
   text: string,
   model: string,
@@ -1831,11 +1831,11 @@ export async function createThread({
   runInBackground = true,
 
 }: CreateThreadOptions): Promise<CreateThreadResult> {
-  if (!(await hasEvolvePermission(userId))) {
-    return { ok: false, status: 403, error: 'User does not have evolve permission.' };
+  if (!(await hasThreadPermission(userId))) {
+    return { ok: false, status: 403, error: 'User does not have thread permission.' };
   }
 
-  let preset: EvolvePreset;
+  let preset: ThreadPreset;
   try {
     preset = await resolveThreadPreset(userId, presetId);
   } catch (err) {
@@ -1943,7 +1943,7 @@ export async function createThread({
   };
   primordiaAesKey = null;
 
-  const startPromise = startLocalEvolve(session, requestText, repoRoot, undefined, savedAttachmentPaths, {
+  const startPromise = startLocalThread(session, requestText, repoRoot, undefined, savedAttachmentPaths, {
     worktreeAlreadyCreated: true,
     initialEventAlreadyWritten: true,
     waitForWorkerExit: runInBackground ? true : false,
@@ -1951,7 +1951,7 @@ export async function createThread({
 
   if (runInBackground) {
     // Fire-and-forget — run async so POST returns immediately with the session ID.
-    // startLocalEvolve handles all error states internally and writes them to the filesystem.
+    // startLocalThread handles all error states internally and writes them to the filesystem.
     void startPromise;
   } else {
     // CLI-style callers wait only until setup completes and the independent
