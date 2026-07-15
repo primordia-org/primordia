@@ -18,10 +18,9 @@ export interface AdminUser {
 interface Props {
   users: AdminUser[];
   adminRoleName: string;
-  threadRoleName: string;
 }
 
-export default function AdminPermissionsClient({ users: initial, adminRoleName, threadRoleName }: Props) {
+export default function AdminPermissionsClient({ users: initial, adminRoleName }: Props) {
   const [users, setUsers] = useState<AdminUser[]>(initial);
   const [busy, setBusy] = useState<string | null>(null); // userId being updated
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +63,7 @@ export default function AdminPermissionsClient({ users: initial, adminRoleName, 
             <tr className="border-b border-gray-800 bg-gray-900/60">
               <th className="text-left px-4 py-3 text-gray-400 font-medium">User</th>
               <th className="text-left px-4 py-3 text-gray-400 font-medium">Role</th>
-              <th className="text-left px-4 py-3 text-gray-400 font-medium">Thread access</th>
+              <th className="text-left px-4 py-3 text-gray-400 font-medium">Code editing</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
@@ -82,7 +81,7 @@ export default function AdminPermissionsClient({ users: initial, adminRoleName, 
                     </span>
                   ) : user.canStartThreads ? (
                     <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-900/50 text-blue-300 border border-blue-700/40">
-                      {threadRoleName}
+                      Code editing
                     </span>
                   ) : (
                     <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-800 text-gray-400">
@@ -114,8 +113,8 @@ export default function AdminPermissionsClient({ users: initial, adminRoleName, 
                       {busy === user.id
                         ? "…"
                         : user.canStartThreads
-                        ? `Revoke ${threadRoleName}`
-                        : `Grant ${threadRoleName}`}
+                        ? "Revoke access"
+                        : "Grant access"}
                     </button>
                   )}
                 </td>

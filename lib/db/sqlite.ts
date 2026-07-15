@@ -203,7 +203,7 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
   ).run("admin", crypto.randomUUID(), "Prime", "Owner/admin role with full system access", now);
   db.prepare(
     "INSERT OR IGNORE INTO roles (name, id, display_name, description, created_at) VALUES (?, ?, ?, ?, ?)"
-  ).run("can_evolve", crypto.randomUUID(), "Threader", "Permission to propose changes to the app via the thread flow", now);
+  ).run("can_evolve", crypto.randomUUID(), "Threader", "Permission to propose and preview code changes to the app", now);
 
   // Migration: grant admin role to first user if they don't have it yet
   try {

@@ -30,12 +30,11 @@ export default async function AdminPage() {
   ]);
 
   const adminRoleName = allRoles.find((r) => r.name === "admin")?.displayName ?? "admin";
-  const threadRoleName = allRoles.find((r) => r.name === "can_evolve")?.displayName ?? "Threader";
 
   if (!adminCheck) {
     return (
       <ForbiddenPage
-        pageDescription={`This page lets you manage user roles and permissions. You can grant or revoke the "${threadRoleName}" role to control who can propose changes to the app.`}
+        pageDescription="This page lets admins manage Code Editing Permissions: who can propose and preview code changes to the app."
         requiredConditions={["Be logged in", `Have the "${adminRoleName}" role`]}
         metConditions={["You are logged in"]}
         unmetConditions={[`You don't have the "${adminRoleName}" role`]}
@@ -74,12 +73,12 @@ export default async function AdminPage() {
       <AdminSubNav currentTab="users" />
       <div className="flex-1 min-w-0">
       <section>
-        <h2 className="text-base font-medium text-gray-200 mb-3">Thread permissions</h2>
+        <h2 className="text-base font-medium text-gray-200 mb-3">Code Editing Permissions</h2>
         <p className="text-sm text-gray-500 mb-4">
-          Control which users can access the thread flow to propose changes to this app.
+          Control which users can propose and preview code changes to this app.
           The {adminRoleName} always has access.
         </p>
-        <AdminPermissionsClient users={users} adminRoleName={adminRoleName} threadRoleName={threadRoleName} />
+        <AdminPermissionsClient users={users} adminRoleName={adminRoleName} />
       </section>
       </div>
       </div>
