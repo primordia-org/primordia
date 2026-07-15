@@ -297,6 +297,7 @@ function checkWorktreeNotBusy(worktreePath: string): void {
 async function spawnAgentWorker(
   config: WorkerConfig,
   workerScriptPath: string,
+  waitForExit = true,
 ): Promise<void> {
   checkWorktreeNotBusy(config.worktreePath);
 
@@ -319,7 +320,7 @@ async function spawnAgentWorker(
       cwd: config.repoRoot,
       detached: true,
       env: workerEnv,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: waitForExit ? ['ignore', 'pipe', 'pipe'] : 'ignore',
     });
 
     if (!proc.pid) {
@@ -331,6 +332,11 @@ async function spawnAgentWorker(
     // Unref so the worker keeps running even if the server exits.
     proc.unref();
     activeWorkerPids.set(config.sessionId, proc.pid);
+
+    if (!waitForExit) {
+      resolve();
+      return;
+    }
 
     // Forward worker output to server logs.
     proc.stdout?.on('data', (data: Buffer) => process.stdout.write(data));
@@ -348,48 +354,6 @@ async function spawnAgentWorker(
       reject(new Error(`Agent worker spawn failed: ${err.message}`));
     });
   });
-}
-
-type ThreadBackgroundRunnerConfig =
-  | {
-      kind: 'create';
-      session: Omit<LocalSession, 'aesKey'>;
-      requestText: string;
-      repoRoot: string;
-      savedAttachmentPaths: string[];
-    }
-  | {
-      kind: 'followup';
-      userId: string;
-      threadId: string;
-      requestText: string;
-      presetId?: string | null;
-      repoRoot: string;
-      attachmentPaths: string[];
-    };
-
-function spawnThreadBackgroundRunner(config: ThreadBackgroundRunnerConfig, primordiaAesKey: string | null | undefined): void {
-  const configFile = `/tmp/primordia-thread-runner-${config.kind}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
-  fs.writeFileSync(configFile, JSON.stringify(config), 'utf8');
-
-  const runnerScript = path.join(config.repoRoot, 'scripts/thread-background-runner.ts');
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  if (primordiaAesKey) env.PRIMORDIA_AES_KEY = primordiaAesKey;
-  else delete env.PRIMORDIA_AES_KEY;
-
-  const proc = spawn('bun', ['run', runnerScript, configFile], {
-    cwd: config.repoRoot,
-    detached: true,
-    env,
-    stdio: 'ignore',
-  });
-
-  if (!proc.pid) {
-    try { fs.rmSync(configFile, { force: true }); } catch { /* best-effort */ }
-    throw new Error('Failed to spawn background thread runner: no PID assigned');
-  }
-
-  proc.unref();
 }
 
 /**
@@ -720,6 +684,8 @@ export async function startLocalEvolve(
      * wrote it synchronously to the NDJSON file before fire-and-forget.
      */
     initialEventAlreadyWritten?: boolean;
+    /** When false, return as soon as the independent worker process is spawned. */
+    waitForWorkerExit?: boolean;
   } = {},
 ): Promise<void> {
 
@@ -937,7 +903,9 @@ export async function startLocalEvolve(
         userId: session.userId,
       },
       workerScript,
+      options.waitForWorkerExit ?? true,
     );
+    if (options.waitForWorkerExit === false) return;
     // Worker has exited — 'result' event in the NDJSON log marks completion.
 
     // Background cache-warming: run `bun run build` at the lowest CPU/IO
@@ -989,6 +957,7 @@ async function runFollowupThreadInWorktree(
   /** Temporary file paths for user-uploaded attachments. Copied into worktree/attachments/ and deleted from /tmp. */
   attachmentPaths: string[] = [],
   requestMetadata: { presetId?: string } = {},
+  waitForWorkerExit = true,
 ): Promise<void> {
   const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
 
@@ -1112,7 +1081,10 @@ async function runFollowupThreadInWorktree(
         userId: session.userId,
       },
       fuWorkerScript,
+      waitForWorkerExit,
     );
+
+    if (!waitForWorkerExit) return;
 
     if (onSuccess) {
       // Only call onSuccess if the worker succeeded — check the last result event.
@@ -1141,10 +1113,8 @@ export interface FollowupThreadOptions {
   presetId?: string | null;
   primordiaAesKey?: string | null;
   attachmentPaths?: string[];
-  /** When false, await the worker before returning. Defaults to endpoint-style background behavior. */
+  /** When false, wait for setup and independent worker spawn before returning. Defaults to endpoint-style fire-and-forget behavior. */
   runInBackground?: boolean;
-  /** When true, hand work to a detached helper so a short-lived CLI process can exit immediately. */
-  detachBackgroundRunner?: boolean;
 }
 
 export async function followupThread(
@@ -1193,22 +1163,6 @@ export async function followupThread(
       aesKey: options.primordiaAesKey ?? undefined,
       userId: options.userId,
     };
-    if (options.detachBackgroundRunner) {
-      spawnThreadBackgroundRunner(
-        {
-          kind: 'followup',
-          userId: options.userId,
-          threadId: options.threadId,
-          requestText: options.requestText,
-          presetId: options.presetId,
-          repoRoot,
-          attachmentPaths: options.attachmentPaths ?? [],
-        },
-        options.primordiaAesKey,
-      );
-      return { ok: true, threadId: options.threadId };
-    }
-
     const runPromise = runFollowupThreadInWorktree(
       session,
       options.requestText,
@@ -1218,6 +1172,7 @@ export async function followupThread(
       undefined,
       options.attachmentPaths ?? [],
       options.presetId ? { presetId: options.presetId } : {},
+      options.runInBackground ?? true,
     );
     if (options.runInBackground ?? true) void runPromise;
     else await runPromise;
@@ -1717,10 +1672,8 @@ export interface CreateThreadOptions {
   presetId?: string | null;
   primordiaAesKey?: string | null;
   savedAttachmentPaths?: string[];
-  /** When false, await setup/agent work before returning. Defaults to endpoint-style background behavior. */
+  /** When false, wait for setup and independent worker spawn before returning. Defaults to endpoint-style fire-and-forget behavior. */
   runInBackground?: boolean;
-  /** When true, hand setup/agent work to a detached helper so a short-lived CLI process can exit immediately. */
-  detachBackgroundRunner?: boolean;
 }
 
 export type CreateThreadResult =
@@ -1872,7 +1825,7 @@ export async function createThread({
   primordiaAesKey = null,
   savedAttachmentPaths = [],
   runInBackground = true,
-  detachBackgroundRunner = false,
+
 }: CreateThreadOptions): Promise<CreateThreadResult> {
   if (!(await hasEvolvePermission(userId))) {
     return { ok: false, status: 403, error: 'User does not have evolve permission.' };
@@ -1986,32 +1939,20 @@ export async function createThread({
   };
   primordiaAesKey = null;
 
-  if (detachBackgroundRunner) {
-    const sessionWithoutAesKey = { ...session };
-    delete sessionWithoutAesKey.aesKey;
-    spawnThreadBackgroundRunner(
-      {
-        kind: 'create',
-        session: sessionWithoutAesKey,
-        requestText,
-        repoRoot,
-        savedAttachmentPaths,
-      },
-      primordiaAesKey,
-    );
-  } else {
-    const startPromise = startLocalEvolve(session, requestText, repoRoot, undefined, savedAttachmentPaths, {
-      worktreeAlreadyCreated: true,
-      initialEventAlreadyWritten: true,
-    });
+  const startPromise = startLocalEvolve(session, requestText, repoRoot, undefined, savedAttachmentPaths, {
+    worktreeAlreadyCreated: true,
+    initialEventAlreadyWritten: true,
+    waitForWorkerExit: runInBackground ? true : false,
+  });
 
-    if (runInBackground) {
-      // Fire-and-forget — run async so POST returns immediately with the session ID.
-      // startLocalEvolve handles all error states internally and writes them to the filesystem.
-      void startPromise;
-    } else {
-      await startPromise;
-    }
+  if (runInBackground) {
+    // Fire-and-forget — run async so POST returns immediately with the session ID.
+    // startLocalEvolve handles all error states internally and writes them to the filesystem.
+    void startPromise;
+  } else {
+    // CLI-style callers wait only until setup completes and the independent
+    // worker process has been spawned; they do not wait for agent completion.
+    await startPromise;
   }
 
   // Persist the chosen harness/model/caveman as the user's sticky preference.

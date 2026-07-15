@@ -256,8 +256,7 @@ async function handleCreate(args: Args): Promise<void> {
     requestText,
     presetId: args.presetId,
     primordiaAesKey,
-    runInBackground: true,
-    detachBackgroundRunner: true,
+    runInBackground: false,
   });
   if (!result.ok) throw cliSecretError(result.error, `evolve session creation failed (${result.status})`);
   if (args.json) printJson({ ok: true, command: 'create', sessionId: result.sessionId, worktreePath: result.worktreePath, background: true });
@@ -274,8 +273,7 @@ async function handleFollowup(args: Args): Promise<void> {
     requestText,
     presetId: args.presetId,
     primordiaAesKey,
-    runInBackground: true,
-    detachBackgroundRunner: true,
+    runInBackground: false,
   });
   if (!result.ok) throw cliSecretError(result.error, 'follow-up failed');
   if (args.json) printJson({ ok: true, command: 'followup', thread: threadId, background: true });

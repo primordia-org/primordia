@@ -315,6 +315,7 @@ async function main(): Promise<void> {
   }
 
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8')) as WorkerConfig;
+  try { fs.rmSync(configFile, { force: true }); } catch { /* best-effort */ }
   _requiredAuthSource = config.authSource;
   try {
     const secret = await decryptWorkerSecretForUser(config.userId, _primordiaAesKey, config.authSource);

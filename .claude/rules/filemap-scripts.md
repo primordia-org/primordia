@@ -12,7 +12,6 @@ scripts/
 ├── rollback.ts                   ← Standalone emergency rollback CLI for when the app/admin UI is unavailable
 ├── install.sh                    ← Primordia setup/deploy script; idempotent; installs proxy/systemd service and production app
 ├── primordia.ts                  ← Local process-manager CLI (`bun run primordia status/start/stop/restart/logs/create/followup/copydb`)
-├── thread-background-runner.ts   ← Detached helper used by CLI create/followup so terminal commands return immediately while setup/agent work continues
 ├── claude-worker.ts              ← Detached Claude Code worker process; configures gateway/API/subscription auth and streams structured progress
 ├── pi-worker.ts                  ← Detached pi coding agent worker process; configures gateway/API/subscription auth and streams structured progress
 ├── codex-worker.ts               ← Detached OpenAI Codex CLI worker process; configures gateway/API-key/ChatGPT auth and streams JSONL progress

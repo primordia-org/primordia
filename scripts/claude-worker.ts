@@ -106,6 +106,7 @@ async function main(): Promise<void> {
   let config: WorkerConfig;
   try {
     config = JSON.parse(fs.readFileSync(configFile, 'utf8')) as WorkerConfig;
+    try { fs.rmSync(configFile, { force: true }); } catch { /* best-effort */ }
   } catch (err) {
     process.stderr.write(`Failed to read config file: ${err}\n`);
     process.exit(1);
