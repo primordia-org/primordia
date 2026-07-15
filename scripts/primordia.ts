@@ -206,10 +206,14 @@ async function readRequest(parts: string[]): Promise<string> {
   return parts.join(' ').trim();
 }
 
-async function resolveCliAuth(selector: string | null): Promise<{ user: { id: string; username: string }; primordiaAesKey: string | null }> {
+const MISSING_CLI_KEY_MESSAGE =
+  'PRIMORDIA_CLI_KEY is required for `primordia create`, `primordia followup`, and `primordia accept`. ' +
+  'Open Settings → Primordia CLI in the web app (/settings/cli), create a CLI key, copy the one-time `PRIMORDIA_CLI_KEY=...` value, and export it in this shell before retrying.';
+
+async function resolveCliAuth(selector: string | null): Promise<{ user: { id: string; username: string }; primordiaAesKey: string }> {
   const rawCliKey = process.env.PRIMORDIA_CLI_KEY;
   if (!rawCliKey) {
-    return { user: await resolveCliUser(selector), primordiaAesKey: null };
+    throw new Error(MISSING_CLI_KEY_MESSAGE);
   }
 
   const resolved = await resolvePrimordiaCliKey(rawCliKey, 'cli');
@@ -296,14 +300,16 @@ async function handleUpdate(args: Args): Promise<void> {
 async function handleDecision(args: Args, action: 'accept' | 'reject'): Promise<void> {
   if (args.requestParts.length > 0) throw new Error(`${action} does not accept request text`);
   if (args.presetId) throw new Error('--preset is only supported for create and followup');
-  const { user, primordiaAesKey } = await resolveCliAuth(args.user);
+  const auth = action === 'accept'
+    ? await resolveCliAuth(args.user)
+    : { user: await resolveCliUser(args.user), primordiaAesKey: null };
   const report = getProcessStatusReport();
   const threadId = resolveWorktreeName(args.worktreeName, report);
   const result = await manageThread({
-    userId: user.id,
+    userId: auth.user.id,
     threadId,
     action,
-    primordiaAesKey,
+    primordiaAesKey: auth.primordiaAesKey,
   });
   if (!result.ok) throw cliSecretError(result.error, 'thread decision failed');
   if (args.json) printJson({ ok: true, command: action, thread: threadId, outcome: result.outcome });
