@@ -14,12 +14,12 @@ import {
   type ProcessStatusReport,
   type ServerStartMode,
 } from '@/lib/process-manager';
-import { createThread, followupThread } from '@/lib/threads';
+import { createThread, followupThread, manageThread, updateThread } from '@/lib/threads';
 import { getDb } from '@/lib/db';
 import { copyProductionDbToWorktree } from '@/lib/production-db-copy';
 
 interface Args {
-  command: 'status' | 'start' | 'stop' | 'restart' | 'logs' | 'publish' | 'copydb' | 'create' | 'followup' | null;
+  command: 'status' | 'start' | 'stop' | 'restart' | 'logs' | 'publish' | 'copydb' | 'create' | 'followup' | 'update' | 'accept' | 'reject' | null;
   json: boolean;
   follow: boolean;
   worktreeName: string | null;
@@ -40,6 +40,9 @@ function printUsage(): void {
   bun run primordia copydb [--json] [--worktree <worktreename>]
   bun run primordia create [--user <id-or-username>] [--preset <id>] "change request"
   bun run primordia followup [--user <id-or-username>] [--preset <id>] "follow-up request"
+  bun run primordia update [--user <id-or-username>] [--worktree <worktreename>]
+  bun run primordia accept [--user <id-or-username>] [--worktree <worktreename>]
+  bun run primordia reject [--user <id-or-username>] [--worktree <worktreename>]
 
 Commands:
   status      List reverse proxy, worktrees, Next.js servers, and active agents.
@@ -51,6 +54,9 @@ Commands:
   copydb      VACUUM-copy the production SQLite DB into a worktree.
   create      Create a thread and run its initial agent turn.
   followup    Run a follow-up request on the cwd's thread.
+  update      Apply parent/prod updates to the cwd's thread.
+  accept      Accept (deploy/merge) the cwd's thread.
+  reject      Reject (discard) the cwd's thread.
 
 Options:
   --worktree     Worktree branch, basename, or path. Defaults to the worktree containing cwd.
@@ -61,6 +67,7 @@ Options:
   --user         Primordia user id or username for thread commands.
   --preset       Preset id. Defaults to the user's saved preset when available.
                  Secret-backed presets require PRIMORDIA_AES_KEY.
+                 Used by create/followup only; accept reuses the thread's recorded billing source.
   request        Pass '-' as the request to read it from stdin.`);
 }
 
@@ -108,7 +115,7 @@ function parseArgs(argv: string[]): Args {
     } else if (arg === '--help' || arg === '-h') {
       printUsage();
       process.exit(0);
-    } else if ((arg === 'status' || arg === 'start' || arg === 'stop' || arg === 'restart' || arg === 'logs' || arg === 'publish' || arg === 'copydb' || arg === 'create' || arg === 'followup') && !args.command) {
+    } else if ((arg === 'status' || arg === 'start' || arg === 'stop' || arg === 'restart' || arg === 'logs' || arg === 'publish' || arg === 'copydb' || arg === 'create' || arg === 'followup' || arg === 'update' || arg === 'accept' || arg === 'reject') && !args.command) {
       args.command = arg;
     } else if (arg.startsWith('--')) {
       throw new Error(`Unknown argument: ${arg}`);
@@ -242,6 +249,38 @@ async function handleFollowup(args: Args): Promise<void> {
   else console.log(`Follow-up started for ${threadId}.`);
 }
 
+async function handleUpdate(args: Args): Promise<void> {
+  if (args.requestParts.length > 0) throw new Error('update does not accept request text');
+  if (args.presetId) throw new Error('--preset is only supported for create and followup');
+  const user = await resolveCliUser(args.user);
+  const report = getProcessStatusReport();
+  const threadId = resolveWorktreeName(args.worktreeName, report);
+  const result = await updateThread({ userId: user.id, threadId });
+  if (!result.ok) throw new Error(result.error);
+  if (args.json) printJson({ ok: true, command: 'update', thread: threadId, outcome: result.outcome, log: result.log });
+  else {
+    console.log(`Updated ${threadId}: ${result.outcome}.`);
+    if (result.log.trim()) console.log(result.log.trim());
+  }
+}
+
+async function handleDecision(args: Args, action: 'accept' | 'reject'): Promise<void> {
+  if (args.requestParts.length > 0) throw new Error(`${action} does not accept request text`);
+  if (args.presetId) throw new Error('--preset is only supported for create and followup');
+  const user = await resolveCliUser(args.user);
+  const report = getProcessStatusReport();
+  const threadId = resolveWorktreeName(args.worktreeName, report);
+  const result = await manageThread({
+    userId: user.id,
+    threadId,
+    action,
+    primordiaAesKey: process.env.PRIMORDIA_AES_KEY ?? null,
+  });
+  if (!result.ok) throw new Error(result.error);
+  if (args.json) printJson({ ok: true, command: action, thread: threadId, outcome: result.outcome });
+  else console.log(`${action === 'accept' ? 'Accept' : 'Reject'} started for ${threadId}: ${result.outcome}.`);
+}
+
 async function copyProductionDb(worktreeName: string, report: ProcessStatusReport, json: boolean): Promise<void> {
   const worktree = report.worktrees.find((entry) =>
     entry.branch === worktreeName || path.basename(entry.path) === worktreeName || entry.path === worktreeName,
@@ -277,6 +316,16 @@ async function main(): Promise<void> {
 
   if (args.command === 'followup') {
     await handleFollowup(args);
+    return;
+  }
+
+  if (args.command === 'update') {
+    await handleUpdate(args);
+    return;
+  }
+
+  if (args.command === 'accept' || args.command === 'reject') {
+    await handleDecision(args, args.command);
     return;
   }
 

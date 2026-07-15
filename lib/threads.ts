@@ -6,7 +6,7 @@ import { AuthStorage, ModelRegistry } from '@earendil-works/pi-coding-agent';
 import { complete, type UserMessage } from '@earendil-works/pi-ai';
 import * as path from 'path';
 import * as fs from 'fs';
-import { readBranchMarker, writeBranchMarker } from './branch-parent';
+import { getParentBranch, readBranchMarker, writeBranchMarker } from './branch-parent';
 import {
   appendSessionEvent,
   readSessionEvents,
@@ -19,13 +19,13 @@ import {
 import { HARNESS_OPTIONS, DEFAULT_HARNESS, DEFAULT_MODEL } from './agent-config';
 import { MODEL_OPTIONS } from './agent-config';
 import { withSocketStatusHint } from './socket-status';
-import { restartWorktreeServer } from './process-manager';
+import { getProcessStatusReport, restartWorktreeServer, stopWorktreeServer } from './process-manager';
 import { hasEvolvePermission } from './auth';
 import { progressSummary, reduceProgressEventsAcrossRuns, type ProgressStateStep } from './progress-monitor';
 import { decryptStoredSecretForUser, getEncryptedSecretForUser } from './server-secrets';
 import { getDb } from './db';
-import { PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY, DEFAULT_CAVEMAN_INTENSITY, type CavemanIntensity } from './user-prefs';
-import { BUILT_IN_PRESETS, PREF_CUSTOM_PRESETS, PREF_PRESET, parseCustomPresets, type EvolvePreset, type PresetAuthSource, type SecretAuthSource } from './presets';
+import { PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY, DEFAULT_CAVEMAN_INTENSITY, getBranchParentSource, type CavemanIntensity } from './user-prefs';
+import { BUILT_IN_PRESETS, PREF_CUSTOM_PRESETS, PREF_PRESET, normalizeAuthSource, parseCustomPresets, type EvolvePreset, type PresetAuthSource, type SecretAuthSource } from './presets';
 import { ensurePrimordiaPiModelsJson } from './pi-custom-models';
 import {
   copyProductionDbToWorktree,
@@ -34,6 +34,7 @@ import {
   vacuumSnapshotSqliteDb,
   type CopyProductionDbResult,
 } from './production-db-copy';
+import { archiveSessionNdjsonLog } from './session-archive';
 
 /** Look up the human-readable label for a model ID within a given harness. Falls back to the raw ID. */
 function getModelLabel(harnessId: string, modelId: string): string {
@@ -569,6 +570,32 @@ function parseWorktreePathForBranch(porcelain: string, branchName: string): stri
   return null;
 }
 
+function isPreviewServerRunning(destinationWorktreePath: string, devServerPort: number | null | undefined, repoRoot: string): boolean {
+  if (!devServerPort) return false;
+  const destinationRealPath = (() => {
+    try { return fs.realpathSync(destinationWorktreePath); } catch { return path.resolve(destinationWorktreePath); }
+  })();
+  try {
+    return getProcessStatusReport(repoRoot).worktrees.some((worktree) => {
+      const worktreeRealPath = (() => {
+        try { return fs.realpathSync(worktree.path); } catch { return path.resolve(worktree.path); }
+      })();
+      return worktree.port === devServerPort && worktreeRealPath === destinationRealPath && worktree.servers.length > 0;
+    });
+  } catch {
+    return false;
+  }
+}
+
+function actionableHotswapError(devServerPort: number, err: unknown): Error {
+  const message = err instanceof Error ? err.message : String(err);
+  return new Error(
+    `Preview server appears to be running on port ${devServerPort}, but its database hotswap endpoint could not be reached. ` +
+    `Restart the preview server with \`bun run primordia restart --worktree <thread>\`, then retry Apply Updates. ` +
+    `Original error: ${message}`,
+  );
+}
+
 export async function hotswapProductionDbIntoWorktree(
   repoRoot: string,
   destinationWorktreePath: string,
@@ -593,7 +620,7 @@ export async function hotswapProductionDbIntoWorktree(
   try {
     await vacuumSnapshotSqliteDb(sourcePath, snapshotPath);
 
-    if (devServerPort) {
+    if (devServerPort && isPreviewServerRunning(destinationWorktreePath, devServerPort, repoRoot)) {
       try {
         const response = await fetch(`http://127.0.0.1:${devServerPort}/api/evolve/hotswap-db`, {
           method: 'POST',
@@ -601,23 +628,20 @@ export async function hotswapProductionDbIntoWorktree(
           body: JSON.stringify({ snapshotFilename }),
         });
         if (response.ok) {
-          return { copied: true, sourcePath, destinationPath };
+          return { copied: true, sourcePath, destinationPath, method: 'hot-swap' };
         }
         const text = await response.text().catch(() => '');
-        throw new Error(`preview server hotswap failed (${response.status}): ${text}`);
+        throw new Error(`preview server hotswap endpoint returned HTTP ${response.status}${text ? `: ${text}` : ''}`);
       } catch (err) {
-        // If the preview server is not running, no process has the DB open and
-        // a direct swap is safe. Any other response means the server was alive
-        // but could not close its DB cleanly, so do not overwrite underneath it.
-        const message = err instanceof Error ? err.message : String(err);
-        if (!message.includes('fetch failed') && !message.includes('ECONNREFUSED')) {
-          throw err;
-        }
+        // If process-manager says the preview server is running, connection
+        // errors are actionable: the port owner is stale, wedged, or not serving
+        // the hotswap route. Do not overwrite the DB underneath a live process.
+        throw actionableHotswapError(devServerPort, err);
       }
     }
 
     replaceSqliteDbWithSnapshot(snapshotPath, destinationPath);
-    return { copied: true, sourcePath, destinationPath };
+    return { copied: true, sourcePath, destinationPath, method: 'direct-copy' };
   } catch (err) {
     try { fs.unlinkSync(snapshotPath); } catch { /* already consumed */ }
     const message = err instanceof Error ? err.message : String(err);
@@ -1328,6 +1352,356 @@ export async function resolveConflictsWithAgent(
 }
 
 
+/** Return latest harness/model/auth source recorded in the session log. */
+function getLatestAgentSelection(worktreePath: string): { harness?: string; model?: string; authSource?: PresetAuthSource | null } {
+  const ndjsonPath = getSessionNdjsonPath(worktreePath);
+  if (!fs.existsSync(ndjsonPath)) return {};
+  const { events } = readSessionEvents(ndjsonPath);
+  let authSource: PresetAuthSource | null | undefined;
+
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    if ((event.type === 'followup_request' || event.type === 'initial_request') && typeof event.authSource === 'string' && authSource === undefined) {
+      authSource = normalizeAuthSource(event.authSource) ?? undefined;
+    }
+    if (event.type === 'section_start' && event.sectionType === 'agent') {
+      return { harness: event.harnessId, model: event.modelId, authSource };
+    }
+    if ((event.type === 'followup_request' || event.type === 'initial_request') && (event.harness || event.model)) {
+      return { harness: event.harness, model: event.model, authSource };
+    }
+  }
+
+  return { authSource };
+}
+
+/** Well-known filename used to track the PID of a running install.sh process. */
+export const INSTALL_SH_PID_FILE = '.primordia-installsh.pid';
+const INSTALL_EXIT_TYPECHECK = 2;
+
+async function appendLogLine(sessionId: string, content: string, repoRoot = process.cwd()): Promise<void> {
+  const row = getSessionFromFilesystem(sessionId, repoRoot);
+  if (!row) return;
+  const ndjsonPath = getSessionNdjsonPath(row.worktreePath);
+  if (fs.existsSync(ndjsonPath)) appendSessionEvent(ndjsonPath, { type: 'log_line', content, ts: Date.now() });
+}
+
+function runInstallSh(sessionId: string, worktreePath: string, branch: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const installScript = path.join(worktreePath, 'scripts', 'install.sh');
+    const proc = spawn('bash', [installScript, branch], {
+      cwd: worktreePath,
+      env: { ...process.env, REPORT_STYLE: 'ansi' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (proc.pid !== undefined) {
+      try { fs.writeFileSync(path.join(worktreePath, INSTALL_SH_PID_FILE), String(proc.pid)); } catch { /* non-fatal */ }
+    }
+    const forward = (data: Buffer) => { void appendLogLine(sessionId, data.toString()); };
+    proc.stdout.on('data', forward);
+    proc.stderr.on('data', forward);
+    proc.on('exit', (code) => {
+      setTimeout(() => {
+        proc.stdout.destroy();
+        proc.stderr.destroy();
+        try { fs.unlinkSync(path.join(worktreePath, INSTALL_SH_PID_FILE)); } catch { /* already gone */ }
+        resolve(code ?? 1);
+      }, 250);
+    });
+    proc.on('error', (err) => reject(new Error(`install.sh spawn failed: ${err.message}`)));
+  });
+}
+
+async function retryAcceptAfterFix(sessionId: string, repoRoot: string, parentBranch: string): Promise<void> {
+  const current = getSessionFromFilesystem(sessionId, repoRoot);
+  if (!current) return;
+  const { branch, worktreePath } = current;
+
+  async function failWithError(msg: string): Promise<void> {
+    await appendLogLine(sessionId, msg, repoRoot);
+    const ndjsonPath = getSessionNdjsonPath(worktreePath);
+    if (fs.existsSync(ndjsonPath)) appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'error', message: msg, ts: Date.now() });
+  }
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  const ndjsonPath = getSessionNdjsonPath(worktreePath);
+  if (fs.existsSync(ndjsonPath)) {
+    appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'deploy', label: isProduction ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``, ts: Date.now() });
+  }
+
+  try { await stopWorktreeServer(sessionId, repoRoot); } catch { /* preview server may already be gone */ }
+  if (!isProduction) {
+    await failWithError('❌ Auto-fix retry is only supported in production mode.');
+    return;
+  }
+
+  const exitCode = await runInstallSh(sessionId, worktreePath, branch).catch((err) => {
+    void failWithError(`❌ Auto-fix failed (install.sh spawn error): ${err instanceof Error ? err.message : String(err)}`);
+    return -1;
+  });
+  if (exitCode === -1) return;
+  if (exitCode === INSTALL_EXIT_TYPECHECK) {
+    const errorsFile = path.join(worktreePath, '.primordia-typecheck-errors.txt');
+    const typeErrors = fs.existsSync(errorsFile) ? fs.readFileSync(errorsFile, 'utf8').trim() : '(no output captured)';
+    await failWithError(`❌ Auto-fix failed: TypeScript errors remain after the fix attempt.\n\`\`\`\n${typeErrors}\n\`\`\``);
+    return;
+  }
+  if (exitCode !== 0) {
+    await failWithError(`❌ Auto-fix failed: install.sh exited with code ${exitCode}.`);
+    return;
+  }
+  if (fs.existsSync(ndjsonPath)) appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: 'deployed to production', ts: Date.now() });
+  setTimeout(() => process.exit(0), 1000);
+}
+
+async function runAcceptAsync(
+  sessionId: string,
+  worktreePath: string,
+  branch: string,
+  parentBranch: string,
+  repoRoot: string,
+  userId: string,
+  aesKey?: string,
+  authSource?: PresetAuthSource | null,
+  harness?: string,
+  model?: string,
+): Promise<void> {
+  const step = (text: string) => appendLogLine(sessionId, text, repoRoot);
+  async function failWithError(msg: string): Promise<void> {
+    await appendLogLine(sessionId, msg, repoRoot);
+    const ndjsonPath = getSessionNdjsonPath(worktreePath);
+    if (fs.existsSync(ndjsonPath)) appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'error', message: msg, ts: Date.now() });
+  }
+
+  try {
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction) {
+      try { await stopWorktreeServer(sessionId, repoRoot); } catch { /* dev server may already be gone */ }
+      const warmupPidFile = path.join(worktreePath, '.primordia-warmup-build.pid');
+      if (fs.existsSync(warmupPidFile)) {
+        try {
+          const warmupPid = parseInt(fs.readFileSync(warmupPidFile, 'utf8').trim(), 10);
+          if (!isNaN(warmupPid)) {
+            try { process.kill(-warmupPid, 'SIGTERM'); } catch { /* already gone */ }
+            try { process.kill(warmupPid, 'SIGTERM'); } catch { /* already gone */ }
+          }
+        } catch { /* non-fatal */ }
+        try { fs.unlinkSync(warmupPidFile); } catch { /* non-fatal */ }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const exitCode = await runInstallSh(sessionId, worktreePath, branch);
+      if (exitCode === INSTALL_EXIT_TYPECHECK) {
+        const errorsFile = path.join(worktreePath, '.primordia-typecheck-errors.txt');
+        const typeErrors = fs.existsSync(errorsFile) ? fs.readFileSync(errorsFile, 'utf8').trim() : '(no output captured)';
+        const fixPrompt = `The TypeScript type check failed. Fix all type errors so the code compiles without errors. Do not change any runtime behaviour — only fix the type issues.\n\nTypeScript compiler output:\n\`\`\`\n${typeErrors}\n\`\`\``;
+        const sessionSnap = getSessionFromFilesystem(sessionId, repoRoot);
+        if (!sessionSnap) return;
+        const autoFixSession: LocalSession = { id: sessionSnap.id, branch: sessionSnap.branch, worktreePath: sessionSnap.worktreePath, status: sessionSnap.status as LocalSession['status'], devServerStatus: 'running', port: sessionSnap.port, previewUrl: sessionSnap.previewUrl, request: sessionSnap.request, createdAt: sessionSnap.createdAt, userId, aesKey, authSource, harness, model };
+        void followupThread(autoFixSession, fixPrompt, repoRoot, 'fixing-types', (fixedSession) => retryAcceptAfterFix(fixedSession.id, repoRoot, parentBranch), 'type_fix');
+        return;
+      }
+      if (exitCode !== 0) throw new Error(`install.sh exited with code ${exitCode}`);
+      const ndjsonPath = getSessionNdjsonPath(worktreePath);
+      if (fs.existsSync(ndjsonPath)) appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: 'deployed to production', ts: Date.now() });
+      setTimeout(() => process.exit(0), 1000);
+      return;
+    }
+
+    const checkoutResult = await runGit(['checkout', parentBranch], repoRoot);
+    let mergeRoot = repoRoot;
+    if (checkoutResult.code !== 0) {
+      const alreadyCheckedOutMatch = checkoutResult.stderr.match(/(?:already checked out at|already used by worktree at) '([^']+)'/);
+      if (alreadyCheckedOutMatch) mergeRoot = alreadyCheckedOutMatch[1];
+      else {
+        await failWithError(`❌ Accept failed: \`git checkout ${parentBranch}\` failed:\n${checkoutResult.stderr}`);
+        return;
+      }
+    }
+
+    let stashed = false;
+    const statusResult = await runGit(['status', '--porcelain'], mergeRoot);
+    if (statusResult.stdout.trim()) {
+      const stashResult = await runGit(['stash', 'push', '-u', '-m', 'primordia-auto-stash-before-merge'], mergeRoot);
+      stashed = stashResult.code === 0 && !stashResult.stdout.includes('No local changes');
+    }
+
+    await step('- Merging branch…\n');
+    const mergeResult = await runGit(['merge', branch, '--no-ff', '-m', `chore: merge ${branch}`], mergeRoot);
+    if (mergeResult.code !== 0) {
+      await runGit(['merge', '--abort'], mergeRoot);
+      if (stashed) await runGit(['stash', 'pop'], mergeRoot);
+      await failWithError(`❌ Accept failed: merge conflict in ${mergeRoot}.\nThis should not happen when the branch is up-to-date. Use Apply Updates on the session page to resolve conflicts before accepting.\n\nMerge error:\n${mergeResult.stderr}`);
+      return;
+    }
+    if (stashed) {
+      const popResult = await runGit(['stash', 'pop'], mergeRoot);
+      if (popResult.code !== 0) await step('⚠️ Merge succeeded but restoring stashed changes produced a conflict. Run `git stash pop` manually to resolve.');
+    }
+    await step('- Installing dependencies…\n');
+    const installResult = await runCommand('bun', ['install', '--frozen-lockfile'], mergeRoot);
+    if (installResult.code !== 0) {
+      const installLog = (installResult.stdout + installResult.stderr).trim();
+      await failWithError(withSocketStatusHint(`❌ Accept failed: \`bun install --frozen-lockfile\` failed after merge.\n\`\`\`\n${installLog}\n\`\`\``, installLog));
+      return;
+    }
+    const ndjsonPath = getSessionNdjsonPath(worktreePath);
+    if (fs.existsSync(ndjsonPath)) appendSessionEvent(ndjsonPath, { type: 'decision', action: 'accepted', detail: `merged into \`${parentBranch}\``, ts: Date.now() });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await failWithError(`❌ Accept failed (unexpected error): ${msg}`).catch(() => {});
+  }
+}
+
+export interface UpdateThreadOptions {
+  userId: string;
+  threadId: string;
+}
+
+export type UpdateThreadResult =
+  | { ok: true; status: 200; outcome: 'merged' | 'merged-with-conflict-resolution'; log: string }
+  | { ok: false; status: 400 | 403 | 404 | 500; error: string };
+
+async function runBunInstallAfterMerge(worktreePath: string): Promise<string> {
+  const installResult = await runCommand('bun', ['install'], worktreePath);
+  const installLog = installResult.stdout + installResult.stderr;
+  if (installResult.code !== 0) {
+    throw new Error(withSocketStatusHint(`bun install failed after merge:\n${installLog || `exit code ${installResult.code}`}`, installLog));
+  }
+  return installLog;
+}
+
+export async function updateThread({ userId, threadId }: UpdateThreadOptions): Promise<UpdateThreadResult> {
+  if (!(await hasEvolvePermission(userId))) return { ok: false, status: 403, error: 'User does not have evolve permission.' };
+  const repoRoot = process.cwd();
+  const session = getSessionFromFilesystem(threadId, repoRoot);
+  if (!session) return { ok: false, status: 404, error: 'Thread not found' };
+
+  const { worktreePath, branch } = session;
+  const parentSource = await getBranchParentSource(userId);
+  const parentBranch = getParentBranch(branch, undefined, parentSource);
+  if (!parentBranch) return { ok: false, status: 400, error: 'Could not determine parent thread' };
+
+  try {
+    const result = await runGit(['merge', parentBranch, '--no-ff', '-m', `chore: merge ${parentBranch} into ${branch}`], worktreePath);
+    let outcome: 'merged' | 'merged-with-conflict-resolution' = 'merged';
+    let conflictLog = '';
+    if (result.code !== 0) {
+      const resolution = await resolveConflictsWithAgent(worktreePath, parentBranch, branch, { id: session.id, userId }, repoRoot);
+      if (!resolution.success) {
+        await runGit(['merge', '--abort'], worktreePath);
+        return { ok: false, status: 500, error: `Merge failed and automatic conflict resolution also failed:\n${resolution.log}` };
+      }
+      outcome = 'merged-with-conflict-resolution';
+      conflictLog = '\n\n' + resolution.log;
+    }
+
+    const installLog = await runBunInstallAfterMerge(worktreePath);
+    const dbCopy = await hotswapProductionDbIntoWorktree(repoRoot, worktreePath, session.port);
+    const dbCopyLog = dbCopy.copied
+      ? dbCopy.method === 'hot-swap'
+        ? '\nHot-swapped a production DB snapshot into this thread.'
+        : '\nCopied a production DB snapshot into this thread.'
+      : dbCopy.error === 'production DB not found'
+        ? '\nSkipped production DB copy: production DB not found.'
+        : `\nSkipped production DB copy: ${dbCopy.error ?? 'unknown error'}.`;
+    return {
+      ok: true,
+      status: 200,
+      outcome,
+      log: result.stdout + result.stderr + conflictLog + (installLog ? '\n' + installLog : '') + dbCopyLog,
+    };
+  } catch (err) {
+    return { ok: false, status: 500, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export interface ManageThreadOptions {
+  userId: string;
+  threadId: string;
+  action: 'accept' | 'reject';
+  authSource?: PresetAuthSource | string | null;
+  primordiaAesKey?: string | null;
+}
+
+export type ManageThreadResult =
+  | { ok: true; status: 200; outcome: 'accepting' | 'auto-committing' | 'rejected' }
+  | { ok: false; status: 400 | 403 | 404 | 409 | 500; error: string; stuckSessionId?: string; stuckSessionBranch?: string };
+
+export async function manageThread({ userId, threadId, action, authSource: requestedAuthSource, primordiaAesKey }: ManageThreadOptions): Promise<ManageThreadResult> {
+  if (!(await hasEvolvePermission(userId))) return { ok: false, status: 403, error: 'User does not have evolve permission.' };
+  const repoRoot = process.cwd();
+  const session = getSessionFromFilesystem(threadId, repoRoot);
+  if (!session) return { ok: false, status: 404, error: 'Thread not found' };
+
+  const { branch, worktreePath } = session;
+  const agentSelection = getLatestAgentSelection(worktreePath);
+  const authSource = requestedAuthSource !== undefined && requestedAuthSource !== null
+    ? normalizeAuthSource(requestedAuthSource)
+    : agentSelection.authSource ?? null;
+  const needsStoredSecret = authSource !== null && authSource !== 'exe-dev-gateway';
+  const aesKey = primordiaAesKey ?? undefined;
+  if (action === 'accept' && needsStoredSecret && !aesKey) return { ok: false, status: 400, error: 'Selected billing source requires this device’s Primordia AES key. Reconnect it in Settings, then try again.' };
+  const encryptedSecret = action === 'accept' ? await getEncryptedSecretForUser(userId, authSource) : null;
+  if (action === 'accept' && needsStoredSecret && !encryptedSecret) return { ok: false, status: 400, error: 'Selected billing source has no stored secret. Reconnect it in Settings, then try again.' };
+
+  const parentSource = await getBranchParentSource(userId);
+  const parentBranch = getParentBranch(branch, undefined, parentSource) ?? 'main';
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (action === 'reject' || isProduction) {
+    try { await stopWorktreeServer(threadId, repoRoot); } catch { /* preview server may already be gone */ }
+  }
+
+  const logDecision = (decision: 'accept' | 'reject'): void => {
+    const ndjsonPath = getSessionNdjsonPath(worktreePath);
+    if (!fs.existsSync(ndjsonPath)) return;
+    const detail = decision === 'accept' ? (isProduction ? 'deployed to production' : `merged into \`${parentBranch}\``) : 'changes discarded';
+    appendSessionEvent(ndjsonPath, { type: 'decision', action: decision === 'accept' ? 'accepted' : 'rejected', detail, ts: Date.now() });
+  };
+
+  try {
+    if (action === 'accept') {
+      const ancestorCheck = await runGit(['merge-base', '--is-ancestor', parentBranch, 'HEAD'], worktreePath);
+      if (ancestorCheck.code !== 0) {
+        const mergeResult = await runGit(['merge', parentBranch, '--no-ff', '-m', `chore: merge ${parentBranch} into ${branch}`], worktreePath);
+        if (mergeResult.code !== 0) {
+          const resolution = await resolveConflictsWithAgent(worktreePath, parentBranch, branch, { id: threadId, userId, aesKey, authSource, harness: agentSelection.harness, model: agentSelection.model }, repoRoot);
+          if (!resolution.success) {
+            await runGit(['merge', '--abort'], worktreePath);
+            return { ok: false, status: 400, error: `Cannot accept: thread is not up-to-date with "${parentBranch}" and automatic merge failed:\n${resolution.log}` };
+          }
+        }
+      }
+
+      const worktreeStatus = await runGit(['status', '--porcelain'], worktreePath);
+      if (worktreeStatus.stdout.trim()) {
+        const commitPrompt = `This thread has uncommitted changes that must be committed before it can be accepted into production. Please commit all uncommitted changes with a clear, descriptive git commit message. Do not modify any files — only stage and commit the existing changes.\n\nUncommitted changes:\n\`\`\`\n${worktreeStatus.stdout.trim()}\n\`\`\`\n\nDo NOT create or update the changelog file for this commit.`;
+        const commitSession: LocalSession = { id: session.id, branch: session.branch, worktreePath: session.worktreePath, status: 'ready', devServerStatus: 'running', port: session.port, previewUrl: session.previewUrl, request: session.request, createdAt: session.createdAt, userId, aesKey, authSource, harness: agentSelection.harness, model: agentSelection.model };
+        void followupThread(commitSession, commitPrompt, repoRoot, 'running-claude', undefined, 'auto_commit');
+        return { ok: true, status: 200, outcome: 'auto-committing' };
+      }
+
+      const concurrentDeploy = listSessionsFromFilesystem(repoRoot).find((s) => s.status === 'accepting' && s.id !== threadId);
+      if (concurrentDeploy) {
+        return { ok: false, status: 409, error: `A deploy is already in progress (thread "${concurrentDeploy.branch}"). Please wait for it to finish, then try again.`, stuckSessionId: concurrentDeploy.id, stuckSessionBranch: concurrentDeploy.branch };
+      }
+
+      const ndjsonPath = getSessionNdjsonPath(worktreePath);
+      if (fs.existsSync(ndjsonPath)) appendSessionEvent(ndjsonPath, { type: 'section_start', sectionType: 'deploy', label: isProduction ? '🚀 Deploying to production' : `🚀 Merging into \`${parentBranch}\``, ts: Date.now() });
+      void runAcceptAsync(threadId, worktreePath, branch, parentBranch, repoRoot, userId, aesKey, authSource, agentSelection.harness, agentSelection.model);
+      return { ok: true, status: 200, outcome: 'accepting' };
+    }
+
+    logDecision('reject');
+    archiveSessionNdjsonLog(worktreePath, { sessionId: branch, primordiaDir: process.env.PRIMORDIA_DIR || repoRoot });
+    await runGit(['worktree', 'remove', '--force', worktreePath], repoRoot);
+    await runGit(['branch', '-D', branch], repoRoot);
+    await runGit(['config', '--remove-section', `branch.${branch}`], repoRoot);
+    return { ok: true, status: 200, outcome: 'rejected' };
+  } catch (err) {
+    return { ok: false, status: 500, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 // ─── Thread creation facade ─────────────────────────────────────────────────
 
 const ANTHROPIC_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
@@ -1613,7 +1987,8 @@ export async function createThread({
   primordiaAesKey = null;
 
   if (detachBackgroundRunner) {
-    const { aesKey: _aesKey, ...sessionWithoutAesKey } = session;
+    const sessionWithoutAesKey = { ...session };
+    delete sessionWithoutAesKey.aesKey;
     spawnThreadBackgroundRunner(
       {
         kind: 'create',
