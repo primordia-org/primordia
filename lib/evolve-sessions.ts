@@ -19,6 +19,13 @@ import { MODEL_OPTIONS } from './agent-config';
 import { withSocketStatusHint } from './socket-status';
 import { restartWorktreeServer } from './process-manager';
 import { progressSummary, reduceProgressEventsAcrossRuns, type ProgressStateStep } from './progress-monitor';
+import {
+  copyProductionDbToWorktree,
+  findProductionDbPath,
+  replaceSqliteDbWithSnapshot,
+  vacuumSnapshotSqliteDb,
+  type CopyProductionDbResult,
+} from './production-db-copy';
 
 /** Look up the human-readable label for a model ID within a given harness. Falls back to the raw ID. */
 function getModelLabel(harnessId: string, modelId: string): string {
@@ -572,101 +579,6 @@ function parseWorktreePathForBranch(porcelain: string, branchName: string): stri
     }
   }
   return null;
-}
-
-export interface CopyProductionDbResult {
-  copied: boolean;
-  sourcePath: string | null;
-  destinationPath: string;
-  error?: string;
-}
-
-async function vacuumSnapshotSqliteDb(sourcePath: string, snapshotPath: string): Promise<void> {
-  try { fs.unlinkSync(snapshotPath); } catch { /* absent */ }
-  try {
-    const { Database } = await import('bun:sqlite');
-    const srcDbHandle = new Database(sourcePath);
-    try {
-      srcDbHandle.prepare('VACUUM INTO ?').run(snapshotPath);
-    } finally {
-      srcDbHandle.close();
-    }
-  } catch (err) {
-    try { fs.unlinkSync(snapshotPath); } catch { /* absent */ }
-    throw err;
-  }
-}
-
-function replaceSqliteDbWithSnapshot(snapshotPath: string, destinationPath: string): void {
-  // Remove WAL sidecars before swapping the main DB file so the destination
-  // worktree opens a clean, self-contained snapshot from production.
-  for (const sidecar of [destinationPath, `${destinationPath}-wal`, `${destinationPath}-shm`]) {
-    try { fs.unlinkSync(sidecar); } catch { /* absent or in use: best effort */ }
-  }
-  fs.renameSync(snapshotPath, destinationPath);
-}
-
-async function vacuumCopySqliteDb(sourcePath: string, destinationPath: string): Promise<void> {
-  const tempDestination = `${destinationPath}.tmp-${process.pid}-${Date.now()}`;
-  try {
-    await vacuumSnapshotSqliteDb(sourcePath, tempDestination);
-    replaceSqliteDbWithSnapshot(tempDestination, destinationPath);
-  } catch (err) {
-    try { fs.unlinkSync(tempDestination); } catch { /* absent */ }
-    throw err;
-  }
-}
-
-async function findProductionDbPath(repoRoot: string, dbName: string): Promise<string | null> {
-  const productionBranchResult = await runGit(['config', '--get', 'primordia.productionBranch'], repoRoot);
-  const productionBranch = productionBranchResult.stdout.trim();
-  if (productionBranch) {
-    const worktreeList = await runGit(['worktree', 'list', '--porcelain'], repoRoot);
-    const productionWorktreePath = parseWorktreePathForBranch(worktreeList.stdout, productionBranch);
-    if (productionWorktreePath) {
-      const candidate = path.join(productionWorktreePath, dbName);
-      if (fs.existsSync(candidate)) return candidate;
-    }
-  }
-
-  // In local development, or before primordia.productionBranch has been set,
-  // the server's current working directory is the best available prod source.
-  const candidate = path.join(repoRoot, dbName);
-  if (fs.existsSync(candidate)) return candidate;
-  return null;
-}
-
-/**
- * Copy the current production SQLite DB into a session worktree using
- * `VACUUM INTO`, producing a consistent, WAL-free snapshot even while prod is
- * actively writing. Used when creating a session and when Apply Updates brings
- * an existing local branch up to date with production code.
- */
-export async function copyProductionDbToWorktree(
-  repoRoot: string,
-  destinationWorktreePath: string,
-): Promise<CopyProductionDbResult> {
-  const dbName = '.primordia-auth.db';
-  const destinationPath = path.join(destinationWorktreePath, dbName);
-  const sourcePath = await findProductionDbPath(repoRoot, dbName);
-
-  if (!sourcePath) {
-    return { copied: false, sourcePath: null, destinationPath, error: 'production DB not found' };
-  }
-
-  try {
-    if (fs.existsSync(destinationPath) && fs.realpathSync(sourcePath) === fs.realpathSync(destinationPath)) {
-      return { copied: false, sourcePath, destinationPath, error: 'source and destination DB are the same file' };
-    }
-  } catch { /* realpath can fail if either path disappears; continue and let copy report the error */ }
-
-  try {
-    await vacuumCopySqliteDb(sourcePath, destinationPath);
-    return { copied: true, sourcePath, destinationPath };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { copied: false, sourcePath, destinationPath, error: message };
-  }
 }
 
 export async function hotswapProductionDbIntoWorktree(
