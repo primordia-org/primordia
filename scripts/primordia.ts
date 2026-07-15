@@ -216,11 +216,12 @@ async function handleCreate(args: Args): Promise<void> {
     requestText,
     presetId: args.presetId,
     primordiaAesKey: process.env.PRIMORDIA_AES_KEY ?? null,
-    runInBackground: false,
+    runInBackground: true,
+    detachBackgroundRunner: true,
   });
   if (!result.ok) throw new Error(result.error ?? `evolve session creation failed (${result.status})`);
-  if (args.json) printJson({ ok: true, command: 'create', sessionId: result.sessionId });
-  else console.log(`Thread ${result.sessionId} complete. Open /evolve/session/${result.sessionId}`);
+  if (args.json) printJson({ ok: true, command: 'create', sessionId: result.sessionId, background: true });
+  else console.log(`Thread ${result.sessionId} started. Open /evolve/session/${result.sessionId}`);
 }
 
 async function handleFollowup(args: Args): Promise<void> {
@@ -233,11 +234,12 @@ async function handleFollowup(args: Args): Promise<void> {
     requestText,
     presetId: args.presetId,
     primordiaAesKey: process.env.PRIMORDIA_AES_KEY ?? null,
-    runInBackground: false,
+    runInBackground: true,
+    detachBackgroundRunner: true,
   });
   if (!result.ok) throw new Error(result.error);
-  if (args.json) printJson({ ok: true, command: 'followup', thread: threadId });
-  else console.log(`Follow-up complete for ${threadId}.`);
+  if (args.json) printJson({ ok: true, command: 'followup', thread: threadId, background: true });
+  else console.log(`Follow-up started for ${threadId}.`);
 }
 
 async function copyProductionDb(worktreeName: string, report: ProcessStatusReport, json: boolean): Promise<void> {
