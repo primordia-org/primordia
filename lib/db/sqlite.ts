@@ -95,7 +95,8 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       encrypted_aes_key TEXT NOT NULL,
       expires_at INTEGER NOT NULL,
       signature TEXT NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      revoked_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_revokable_aes_keys_user_client ON revokable_aes_keys(user_id, client);
     CREATE TABLE IF NOT EXISTS web_push_vapid_keys (
@@ -162,6 +163,13 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
   // Migration: add encrypted_credentials column for ECDH credential transfer
   try {
     db.exec("ALTER TABLE cross_device_tokens ADD COLUMN encrypted_credentials TEXT");
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Migration: keep revoked CLI key rows while wiping the wrapped AES secret.
+  try {
+    db.exec("ALTER TABLE revokable_aes_keys ADD COLUMN revoked_at INTEGER");
   } catch {
     // Column already exists — ignore
   }
@@ -567,10 +575,10 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
     },
     async getRevokableAesKey(shortId: string) {
       const row = db.prepare(
-        `SELECT short_id, user_id, version, client, scopes, note, encrypted_aes_key, expires_at, signature, created_at
+        `SELECT short_id, user_id, version, client, scopes, note, encrypted_aes_key, expires_at, signature, created_at, revoked_at
          FROM revokable_aes_keys WHERE short_id = ?`
       ).get(shortId) as {
-        short_id: string; user_id: string; version: string; client: "cli" | "web"; scopes: string; note: string | null; encrypted_aes_key: string; expires_at: number; signature: string; created_at: number;
+        short_id: string; user_id: string; version: string; client: "cli" | "web"; scopes: string; note: string | null; encrypted_aes_key: string; expires_at: number; signature: string; created_at: number; revoked_at: number | null;
       } | null;
       if (!row) return null;
       return {
@@ -584,13 +592,14 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         expiresAt: row.expires_at,
         signature: row.signature,
         createdAt: row.created_at,
+        revokedAt: row.revoked_at,
       };
     },
     async listRevokableAesKeys(userId: string, client?: "cli" | "web") {
       const rows = (client
-        ? db.prepare(`SELECT short_id, user_id, version, client, scopes, note, encrypted_aes_key, expires_at, signature, created_at FROM revokable_aes_keys WHERE user_id = ? AND client = ? ORDER BY created_at DESC`).all(userId, client)
-        : db.prepare(`SELECT short_id, user_id, version, client, scopes, note, encrypted_aes_key, expires_at, signature, created_at FROM revokable_aes_keys WHERE user_id = ? ORDER BY created_at DESC`).all(userId)
-      ) as Array<{ short_id: string; user_id: string; version: string; client: "cli" | "web"; scopes: string; note: string | null; encrypted_aes_key: string; expires_at: number; signature: string; created_at: number }>;
+        ? db.prepare(`SELECT short_id, user_id, version, client, scopes, note, encrypted_aes_key, expires_at, signature, created_at, revoked_at FROM revokable_aes_keys WHERE user_id = ? AND client = ? ORDER BY created_at DESC`).all(userId, client)
+        : db.prepare(`SELECT short_id, user_id, version, client, scopes, note, encrypted_aes_key, expires_at, signature, created_at, revoked_at FROM revokable_aes_keys WHERE user_id = ? ORDER BY created_at DESC`).all(userId)
+      ) as Array<{ short_id: string; user_id: string; version: string; client: "cli" | "web"; scopes: string; note: string | null; encrypted_aes_key: string; expires_at: number; signature: string; created_at: number; revoked_at: number | null }>;
       return rows.map((row) => ({
         shortId: row.short_id,
         userId: row.user_id,
@@ -602,10 +611,11 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         expiresAt: row.expires_at,
         signature: row.signature,
         createdAt: row.created_at,
+        revokedAt: row.revoked_at,
       }));
     },
-    async deleteRevokableAesKey(userId: string, shortId: string) {
-      db.prepare("DELETE FROM revokable_aes_keys WHERE user_id = ? AND short_id = ?").run(userId, shortId);
+    async revokeRevokableAesKey(userId: string, shortId: string, revokedAt: number) {
+      db.prepare("UPDATE revokable_aes_keys SET encrypted_aes_key = '', revoked_at = ? WHERE user_id = ? AND short_id = ?").run(revokedAt, userId, shortId);
     },
     async updateRevokableAesKeyExpiration(userId: string, shortId: string, expiresAt: number) {
       db.prepare("UPDATE revokable_aes_keys SET expires_at = ? WHERE user_id = ? AND short_id = ?").run(expiresAt, userId, shortId);
