@@ -176,7 +176,7 @@ export default function PrimordiaCliSettingsClient() {
         <p className="text-xs uppercase tracking-[0.25em] text-gray-500">Primordia CLI</p>
         <h1 className="mt-1 text-2xl font-semibold text-white">Revokable CLI keys</h1>
         <p className="mt-2 text-sm leading-6 text-gray-400">
-          Create revokable keys for secret-backed terminal commands like <code className="rounded bg-black/30 px-1.5 py-0.5 text-gray-200">bun run primordia create</code>, <code className="rounded bg-black/30 px-1.5 py-0.5 text-gray-200">followup</code>, and <code className="rounded bg-black/30 px-1.5 py-0.5 text-gray-200">accept</code>. The CLI reads <code className="rounded bg-black/30 px-1.5 py-0.5 text-gray-200">PRIMORDIA_CLI_KEY</code>; revoke a key here to make it unusable.
+          Create revokable keys for operations that require secrets like <code className="rounded bg-black/30 px-1.5 py-0.5 text-gray-200">bun run primordia create</code>, <code className="rounded bg-black/30 px-1.5 py-0.5 text-gray-200">followup</code>, and <code className="rounded bg-black/30 px-1.5 py-0.5 text-gray-200">accept</code>. The CLI reads <code className="rounded bg-black/30 px-1.5 py-0.5 text-gray-200">PRIMORDIA_CLI_KEY</code>; revoke a key here to make it unusable.
         </p>
       </div>
 
