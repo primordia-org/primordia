@@ -1469,6 +1469,67 @@ async function runAcceptAsync(
   }
 }
 
+export interface UpdateThreadOptions {
+  userId: string;
+  threadId: string;
+}
+
+export type UpdateThreadResult =
+  | { ok: true; status: 200; outcome: 'merged' | 'merged-with-conflict-resolution'; log: string }
+  | { ok: false; status: 400 | 403 | 404 | 500; error: string };
+
+async function runBunInstallAfterMerge(worktreePath: string): Promise<string> {
+  const installResult = await runCommand('bun', ['install'], worktreePath);
+  const installLog = installResult.stdout + installResult.stderr;
+  if (installResult.code !== 0) {
+    throw new Error(withSocketStatusHint(`bun install failed after merge:\n${installLog || `exit code ${installResult.code}`}`, installLog));
+  }
+  return installLog;
+}
+
+export async function updateThread({ userId, threadId }: UpdateThreadOptions): Promise<UpdateThreadResult> {
+  if (!(await hasEvolvePermission(userId))) return { ok: false, status: 403, error: 'User does not have evolve permission.' };
+  const repoRoot = process.cwd();
+  const session = getSessionFromFilesystem(threadId, repoRoot);
+  if (!session) return { ok: false, status: 404, error: 'Thread not found' };
+
+  const { worktreePath, branch } = session;
+  const parentSource = await getBranchParentSource(userId);
+  const parentBranch = getParentBranch(branch, undefined, parentSource);
+  if (!parentBranch) return { ok: false, status: 400, error: 'Could not determine parent thread' };
+
+  try {
+    const result = await runGit(['merge', parentBranch, '--no-ff', '-m', `chore: merge ${parentBranch} into ${branch}`], worktreePath);
+    let outcome: 'merged' | 'merged-with-conflict-resolution' = 'merged';
+    let conflictLog = '';
+    if (result.code !== 0) {
+      const resolution = await resolveConflictsWithAgent(worktreePath, parentBranch, branch, { id: session.id, userId }, repoRoot);
+      if (!resolution.success) {
+        await runGit(['merge', '--abort'], worktreePath);
+        return { ok: false, status: 500, error: `Merge failed and automatic conflict resolution also failed:\n${resolution.log}` };
+      }
+      outcome = 'merged-with-conflict-resolution';
+      conflictLog = '\n\n' + resolution.log;
+    }
+
+    const installLog = await runBunInstallAfterMerge(worktreePath);
+    const dbCopy = await hotswapProductionDbIntoWorktree(repoRoot, worktreePath, session.port);
+    const dbCopyLog = dbCopy.copied
+      ? '\nHot-swapped a production DB snapshot into this thread.'
+      : dbCopy.error === 'production DB not found'
+        ? '\nSkipped production DB hotswap: production DB not found.'
+        : `\nSkipped production DB hotswap: ${dbCopy.error ?? 'unknown error'}.`;
+    return {
+      ok: true,
+      status: 200,
+      outcome,
+      log: result.stdout + result.stderr + conflictLog + (installLog ? '\n' + installLog : '') + dbCopyLog,
+    };
+  } catch (err) {
+    return { ok: false, status: 500, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export interface ManageThreadOptions {
   userId: string;
   threadId: string;
