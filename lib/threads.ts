@@ -1350,7 +1350,7 @@ export interface CreateThreadOptions {
 }
 
 export type CreateThreadResult =
-  | { ok: true; status: 200; sessionId: string }
+  | { ok: true; status: 200; sessionId: string; worktreePath: string }
   | { ok: false; status: 400 | 403 | 500; error: string };
 
 async function resolveThreadPreset(userId: string, requestedPresetId?: string | null): Promise<EvolvePreset> {
@@ -1654,5 +1654,5 @@ export async function createThread({
     } catch { /* ignore */ }
   })();
 
-  return { ok: true, status: 200, sessionId };
+  return { ok: true, status: 200, sessionId, worktreePath };
 }
