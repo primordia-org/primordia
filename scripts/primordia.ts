@@ -308,6 +308,7 @@ async function handleDecision(args: Args, action: 'accept' | 'reject'): Promise<
     threadId,
     action,
     primordiaAesKey: auth.primordiaAesKey,
+    useProductionPromotion: action === 'accept' ? true : undefined,
   });
   if (!result.ok) throw cliSecretError(result.error, 'thread decision failed');
   if (args.json) printJson({ ok: true, command: action, thread: threadId, outcome: result.outcome });
