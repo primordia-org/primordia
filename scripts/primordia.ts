@@ -17,6 +17,7 @@ import {
 import { createThread, followupThread, manageThread, updateThread } from '@/lib/threads';
 import { getDb } from '@/lib/db';
 import { copyProductionDbToWorktree } from '@/lib/production-db-copy';
+import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
 
 interface Args {
   command: 'status' | 'start' | 'stop' | 'restart' | 'logs' | 'publish' | 'copydb' | 'create' | 'followup' | 'update' | 'accept' | 'reject' | null;
@@ -66,7 +67,7 @@ Options:
   --prod         Start with bun run start.
   --user         Primordia user id or username for thread commands.
   --preset       Preset id. Defaults to the user's saved preset when available.
-                 Secret-backed presets require PRIMORDIA_AES_KEY.
+                 Secret-backed presets require PRIMORDIA_CLI_KEY.
                  Used by create/followup only; accept reuses the thread's recorded billing source.
   request        Pass '-' as the request to read it from stdin.`);
 }
@@ -133,6 +134,14 @@ function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
 }
 
+function cliSecretError(message: string | undefined, fallback: string): Error {
+  const text = message ?? fallback;
+  return new Error(text
+    .replaceAll('PRIMORDIA_AES_KEY', 'PRIMORDIA_CLI_KEY')
+    .replaceAll('Primordia AES key', 'Primordia CLI key')
+    .replaceAll('this device’s Primordia AES key', 'a Primordia CLI key'));
+}
+
 function isPathInside(parentPath: string, childPath: string): boolean {
   const relative = path.relative(parentPath, childPath);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
@@ -197,6 +206,26 @@ async function readRequest(parts: string[]): Promise<string> {
   return parts.join(' ').trim();
 }
 
+async function resolveCliAuth(selector: string | null): Promise<{ user: { id: string; username: string }; primordiaAesKey: string | null }> {
+  const rawCliKey = process.env.PRIMORDIA_CLI_KEY;
+  if (!rawCliKey) {
+    return { user: await resolveCliUser(selector), primordiaAesKey: null };
+  }
+
+  const resolved = await resolvePrimordiaCliKey(rawCliKey, 'cli');
+  if (selector && selector !== resolved.userId) {
+    const selected = await resolveCliUser(selector);
+    if (selected.id !== resolved.userId) {
+      throw new Error('PRIMORDIA_CLI_KEY belongs to a different Primordia user than --user. Create a CLI key for that user or omit --user.');
+    }
+    return { user: selected, primordiaAesKey: resolved.aesKeyJwkJson };
+  }
+  const db = await getDb();
+  const user = await db.getUserById(resolved.userId);
+  if (!user) throw new Error('PRIMORDIA_CLI_KEY refers to a user that no longer exists.');
+  return { user, primordiaAesKey: resolved.aesKeyJwkJson };
+}
+
 async function resolveCliUser(selector: string | null): Promise<{ id: string; username: string }> {
   const db = await getDb();
   const user = selector
@@ -217,34 +246,34 @@ function resolveDefaultThreadId(): string {
 
 async function handleCreate(args: Args): Promise<void> {
   const requestText = await readRequest(args.requestParts);
-  const user = await resolveCliUser(args.user);
+  const { user, primordiaAesKey } = await resolveCliAuth(args.user);
   const result = await createThread({
     userId: user.id,
     requestText,
     presetId: args.presetId,
-    primordiaAesKey: process.env.PRIMORDIA_AES_KEY ?? null,
+    primordiaAesKey,
     runInBackground: true,
     detachBackgroundRunner: true,
   });
-  if (!result.ok) throw new Error(result.error ?? `evolve session creation failed (${result.status})`);
+  if (!result.ok) throw cliSecretError(result.error, `evolve session creation failed (${result.status})`);
   if (args.json) printJson({ ok: true, command: 'create', sessionId: result.sessionId, worktreePath: result.worktreePath, background: true });
   else console.log(`New thread started in ${result.worktreePath}`);
 }
 
 async function handleFollowup(args: Args): Promise<void> {
   const requestText = await readRequest(args.requestParts);
-  const user = await resolveCliUser(args.user);
+  const { user, primordiaAesKey } = await resolveCliAuth(args.user);
   const threadId = resolveDefaultThreadId();
   const result = await followupThread({
     userId: user.id,
     threadId,
     requestText,
     presetId: args.presetId,
-    primordiaAesKey: process.env.PRIMORDIA_AES_KEY ?? null,
+    primordiaAesKey,
     runInBackground: true,
     detachBackgroundRunner: true,
   });
-  if (!result.ok) throw new Error(result.error);
+  if (!result.ok) throw cliSecretError(result.error, 'follow-up failed');
   if (args.json) printJson({ ok: true, command: 'followup', thread: threadId, background: true });
   else console.log(`Follow-up started for ${threadId}.`);
 }
@@ -267,16 +296,16 @@ async function handleUpdate(args: Args): Promise<void> {
 async function handleDecision(args: Args, action: 'accept' | 'reject'): Promise<void> {
   if (args.requestParts.length > 0) throw new Error(`${action} does not accept request text`);
   if (args.presetId) throw new Error('--preset is only supported for create and followup');
-  const user = await resolveCliUser(args.user);
+  const { user, primordiaAesKey } = await resolveCliAuth(args.user);
   const report = getProcessStatusReport();
   const threadId = resolveWorktreeName(args.worktreeName, report);
   const result = await manageThread({
     userId: user.id,
     threadId,
     action,
-    primordiaAesKey: process.env.PRIMORDIA_AES_KEY ?? null,
+    primordiaAesKey,
   });
-  if (!result.ok) throw new Error(result.error);
+  if (!result.ok) throw cliSecretError(result.error, 'thread decision failed');
   if (args.json) printJson({ ok: true, command: action, thread: threadId, outcome: result.outcome });
   else console.log(`${action === 'accept' ? 'Accept' : 'Reject'} started for ${threadId}: ${result.outcome}.`);
 }

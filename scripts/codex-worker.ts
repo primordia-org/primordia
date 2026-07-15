@@ -321,7 +321,7 @@ async function main(): Promise<void> {
     _userApiKey = secret.apiKey;
     _chatGptOAuth = secret.chatGptOAuth;
   } catch (err) {
-    throw new Error(`Could not decrypt selected billing source with PRIMORDIA_AES_KEY: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Could not decrypt selected billing source: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   const { sessionId, worktreePath, prompt, useContinue } = config;

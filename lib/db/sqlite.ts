@@ -3,7 +3,7 @@
 // Only imported when DATABASE_URL is not set (i.e., local dev without Neon).
 
 import type { SQLQueryBindings } from "bun:sqlite";
-import type { DbAdapter, User, Passkey, Challenge, Session, CrossDeviceToken, InstanceConfig, GraphNode, GraphEdge, WebPushSubscription, WebPushCategory } from "./types";
+import type { DbAdapter, User, Passkey, Challenge, Session, CrossDeviceToken, InstanceConfig, GraphNode, GraphEdge, RevokableAesKey, WebPushSubscription, WebPushCategory } from "./types";
 import { generateUuid7 } from "@/lib/uuid7";
 
 let dbInstance: DbAdapter | null = null;
@@ -85,6 +85,19 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
       updated_at INTEGER NOT NULL,
       PRIMARY KEY (user_id, auth_source)
     );
+    CREATE TABLE IF NOT EXISTS revokable_aes_keys (
+      short_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      version TEXT NOT NULL,
+      client TEXT NOT NULL,
+      scopes TEXT NOT NULL DEFAULT '',
+      note TEXT,
+      encrypted_aes_key TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      signature TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_revokable_aes_keys_user_client ON revokable_aes_keys(user_id, client);
     CREATE TABLE IF NOT EXISTS web_push_vapid_keys (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       public_key TEXT NOT NULL,
@@ -541,6 +554,61 @@ export async function createSqliteAdapter(): Promise<DbAdapter> {
         .prepare("SELECT auth_source FROM encrypted_credentials WHERE user_id = ? ORDER BY auth_source ASC")
         .all(userId) as Array<{ auth_source: string }>;
       return rows.map((r) => r.auth_source);
+    },
+
+    // ── Revokable AES keys ───────────────────────────────────────────────────
+
+    async createRevokableAesKey(key: RevokableAesKey) {
+      db.prepare(
+        `INSERT INTO revokable_aes_keys
+         (short_id, user_id, version, client, scopes, note, encrypted_aes_key, expires_at, signature, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(key.shortId, key.userId, key.version, key.client, key.scopes, key.note, key.encryptedAesKey, key.expiresAt, key.signature, key.createdAt);
+    },
+    async getRevokableAesKey(shortId: string) {
+      const row = db.prepare(
+        `SELECT short_id, user_id, version, client, scopes, note, encrypted_aes_key, expires_at, signature, created_at
+         FROM revokable_aes_keys WHERE short_id = ?`
+      ).get(shortId) as {
+        short_id: string; user_id: string; version: string; client: "cli" | "web"; scopes: string; note: string | null; encrypted_aes_key: string; expires_at: number; signature: string; created_at: number;
+      } | null;
+      if (!row) return null;
+      return {
+        shortId: row.short_id,
+        userId: row.user_id,
+        version: row.version,
+        client: row.client,
+        scopes: row.scopes,
+        note: row.note,
+        encryptedAesKey: row.encrypted_aes_key,
+        expiresAt: row.expires_at,
+        signature: row.signature,
+        createdAt: row.created_at,
+      };
+    },
+    async listRevokableAesKeys(userId: string, client?: "cli" | "web") {
+      const rows = (client
+        ? db.prepare(`SELECT short_id, user_id, version, client, scopes, note, encrypted_aes_key, expires_at, signature, created_at FROM revokable_aes_keys WHERE user_id = ? AND client = ? ORDER BY created_at DESC`).all(userId, client)
+        : db.prepare(`SELECT short_id, user_id, version, client, scopes, note, encrypted_aes_key, expires_at, signature, created_at FROM revokable_aes_keys WHERE user_id = ? ORDER BY created_at DESC`).all(userId)
+      ) as Array<{ short_id: string; user_id: string; version: string; client: "cli" | "web"; scopes: string; note: string | null; encrypted_aes_key: string; expires_at: number; signature: string; created_at: number }>;
+      return rows.map((row) => ({
+        shortId: row.short_id,
+        userId: row.user_id,
+        version: row.version,
+        client: row.client,
+        scopes: row.scopes,
+        note: row.note,
+        encryptedAesKey: row.encrypted_aes_key,
+        expiresAt: row.expires_at,
+        signature: row.signature,
+        createdAt: row.created_at,
+      }));
+    },
+    async deleteRevokableAesKey(userId: string, shortId: string) {
+      db.prepare("DELETE FROM revokable_aes_keys WHERE user_id = ? AND short_id = ?").run(userId, shortId);
+    },
+    async updateRevokableAesKeyExpiration(userId: string, shortId: string, expiresAt: number) {
+      db.prepare("UPDATE revokable_aes_keys SET expires_at = ? WHERE user_id = ? AND short_id = ?").run(expiresAt, userId, shortId);
     },
 
     // ── Instance identity & social graph ─────────────────────────────────────

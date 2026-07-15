@@ -11,7 +11,7 @@ import PrimordiaCliSettingsClient from "./PrimordiaCliSettingsClient";
 export function generateMetadata(): Metadata {
   return {
     title: buildPageTitle("Primordia CLI Settings"),
-    description: "Copy the browser-held Primordia AES key for CLI secret-backed presets.",
+    description: "Create and revoke Primordia CLI keys for secret-backed presets.",
   };
 }
 

@@ -116,7 +116,7 @@ async function main(): Promise<void> {
     _userApiKey = secret.apiKey ?? null;
     _userCredentialsJson = secret.credentials ?? null;
   } catch (err) {
-    throw new Error(`Could not decrypt selected billing source with PRIMORDIA_AES_KEY: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Could not decrypt selected billing source: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   if (_userCredentialsJson) {
