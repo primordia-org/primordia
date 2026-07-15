@@ -7,15 +7,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { appendSessionEvent, getSessionNdjsonPath, type SessionEvent } from '@/lib/session-events';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
+import { decryptWorkerSecretForUser } from '@/lib/worker-secret-env';
 
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai/v1';
 
-const _userApiKey = process.env.PRIMORDIA_USER_API_KEY;
-delete process.env.PRIMORDIA_USER_API_KEY;
-const _chatGptOAuth = process.env.PRIMORDIA_CHATGPT_OAUTH;
-delete process.env.PRIMORDIA_CHATGPT_OAUTH;
-const _requiredAuthSource = process.env.PRIMORDIA_REQUIRED_AUTH_SOURCE;
-delete process.env.PRIMORDIA_REQUIRED_AUTH_SOURCE;
+const _primordiaAesKey = process.env.PRIMORDIA_AES_KEY;
+delete process.env.PRIMORDIA_AES_KEY;
+let _userApiKey: string | undefined;
+let _chatGptOAuth: string | undefined;
+let _requiredAuthSource: string | null | undefined;
 
 interface WorkerConfig {
   sessionId: string;
@@ -25,6 +25,8 @@ interface WorkerConfig {
   timeoutMs?: number;
   model?: string;
   useContinue?: boolean;
+  userId?: string;
+  authSource?: string | null;
 }
 
 function normalizeModelId(model: string | undefined): string | undefined {
@@ -313,6 +315,16 @@ async function main(): Promise<void> {
   }
 
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8')) as WorkerConfig;
+  try { fs.rmSync(configFile, { force: true }); } catch { /* best-effort */ }
+  _requiredAuthSource = config.authSource;
+  try {
+    const secret = await decryptWorkerSecretForUser(config.userId, _primordiaAesKey, config.authSource);
+    _userApiKey = secret.apiKey;
+    _chatGptOAuth = secret.chatGptOAuth;
+  } catch (err) {
+    throw new Error(`Could not decrypt selected billing source: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   const { sessionId, worktreePath, prompt, useContinue } = config;
   const timeoutMs = config.timeoutMs ?? 20 * 60 * 1000;
 

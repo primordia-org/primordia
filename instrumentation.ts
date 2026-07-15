@@ -8,7 +8,7 @@
 export async function register() {
   // Only run in the Node.js server runtime, not the Edge runtime.
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    const { reconnectRunningWorkers } = await import("./lib/evolve-sessions");
+    const { reconnectRunningWorkers } = await import("./lib/threads");
     const repoRoot = process.cwd();
     void reconnectRunningWorkers(repoRoot).catch((err) => {
       console.error("[instrumentation] failed to reconnect evolve workers", err);

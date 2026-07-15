@@ -86,10 +86,10 @@ Each evolve session tracks two independent dimensions persisted to SQLite:
 | devServer `starting` → `running` | Next.js "Ready" string detected in dev server output |
 | `running-claude` → `ready` (devServer `none→starting`) | `POST /api/evolve/abort` — user aborts; dev server starts with partial work |
 | `ready` → `running-claude` (devServer stays `running`) | `POST /api/evolve/followup` |
-| `running-claude` → `ready` (devServer stays `running`) | `runFollowupInWorktree()` on success |
+| `running-claude` → `ready` (devServer stays `running`) | `followupThread()` on success |
 | `ready` → `fixing-types` (devServer stays `running`) | `POST /api/evolve/manage` when TypeScript or build gate fails |
-| `fixing-types` → `accepted` | `runFollowupInWorktree()` success + re-typecheck + re-build both pass; server merges without client |
-| `fixing-types` → `ready` (with `❌` error in log) | `runFollowupInWorktree()` success but type/build errors persist after fix, or merge fails |
+| `fixing-types` → `accepted` | `followupThread()` success + re-typecheck + re-build both pass; server merges without client |
+| `fixing-types` → `ready` (with `❌` error in log) | `followupThread()` success but type/build errors persist after fix, or merge fails |
 | `ready` → `accepting` | `POST /api/evolve/manage` (Gates 1–3 pass; async pipeline begins) |
 | `accepting` → `accepted` | `runAcceptAsync()` completes successfully |
 | `accepting` → `ready` (with `❌` error) | `runAcceptAsync()` fails at any step |

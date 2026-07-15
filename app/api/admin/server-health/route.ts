@@ -6,8 +6,8 @@
 
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
-import { createEvolveSessionFromText } from '@/app/api/evolve/route';
-import { getSessionUser, isAdmin, hasEvolvePermission } from '@/lib/auth';
+import { createThread } from '@/lib/threads';
+import { getSessionUser, isAdmin } from '@/lib/auth';
 import { archiveSessionNdjsonLog } from '@/lib/session-archive';
 import { readLatestLeakDiagnostics, readLeakDiagnosticsSummary } from '@/lib/leak-diagnostics';
 
@@ -172,10 +172,6 @@ export async function POST(request: Request) {
   }
 
   if (action === 'create-leak-diagnostics-session') {
-    if (!(await hasEvolvePermission(user.id))) {
-      return Response.json({ error: 'You need the evolve permission to create sessions.' }, { status: 403 });
-    }
-
     const repoRoot = process.cwd();
     const summary = readLeakDiagnosticsSummary(repoRoot);
     const diagnostics = readLatestLeakDiagnostics(repoRoot);
@@ -193,18 +189,11 @@ export async function POST(request: Request) {
       `Diagnostics file path on the production instance: ${summary.path}\n\n` +
       `Captured diagnostics:\n\n${diagnostics}`;
 
-    const evolveRes = await createEvolveSessionFromText({ userId: user.id, requestText });
-    let data: { sessionId?: string; error?: string } = {};
-    try {
-      const text = await evolveRes.text();
-      data = text ? JSON.parse(text) : { error: `Server returned empty response with status ${evolveRes.status}` };
-    } catch {
-      data = { error: `Server returned non-JSON response with status ${evolveRes.status}` };
+    const evolveResult = await createThread({ userId: user.id, requestText });
+    if (!evolveResult.ok) {
+      return Response.json({ error: evolveResult.error ?? 'Failed to create evolve session' }, { status: evolveResult.status });
     }
-    if (!evolveRes.ok || !data.sessionId) {
-      return Response.json({ error: data.error ?? 'Failed to create evolve session' }, { status: evolveRes.status || 500 });
-    }
-    return Response.json({ sessionId: data.sessionId });
+    return Response.json({ sessionId: evolveResult.sessionId });
   }
 
   if (action !== 'delete-oldest-worktree') {

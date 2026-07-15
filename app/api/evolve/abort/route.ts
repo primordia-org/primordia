@@ -12,7 +12,7 @@ export interface EvolveAbortBody {
 }
 
 import { getSessionUser } from '@/lib/auth';
-import { abortAgentRun } from '@/lib/evolve-sessions';
+import { abortAgentRun } from '@/lib/threads';
 import {
   appendSessionEvent,
   getSessionNdjsonPath,

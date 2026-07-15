@@ -146,6 +146,19 @@ export interface EncryptedCredential {
   updatedAt: number;
 }
 
+export interface RevokableAesKey {
+  shortId: string;
+  userId: string;
+  version: string;
+  client: "cli" | "web";
+  scopes: string;
+  note: string | null;
+  encryptedAesKey: string;
+  expiresAt: number;
+  signature: string;
+  createdAt: number;
+}
+
 export interface WebPushVapidKeys {
   publicKey: string;
   privateKey: string;
@@ -219,6 +232,13 @@ export interface DbAdapter {
   setEncryptedCredential(userId: string, authSource: string, value: string): Promise<void>;
   deleteEncryptedCredential(userId: string, authSource: string): Promise<void>;
   listEncryptedCredentialSources(userId: string): Promise<string[]>;
+
+  // Revokable AES wrapper keys for CLI/web clients
+  createRevokableAesKey(key: RevokableAesKey): Promise<void>;
+  getRevokableAesKey(shortId: string): Promise<RevokableAesKey | null>;
+  listRevokableAesKeys(userId: string, client?: "cli" | "web"): Promise<RevokableAesKey[]>;
+  deleteRevokableAesKey(userId: string, shortId: string): Promise<void>;
+  updateRevokableAesKeyExpiration(userId: string, shortId: string, expiresAt: number): Promise<void>;
 
   // User events
   appendEvent(event: UserEvent): Promise<number>;

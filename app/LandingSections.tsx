@@ -217,7 +217,7 @@ const BOX_FEATURES = [
     bg: "bg-rose-500/5",
     title: "Secure Secret Storage",
     description:
-      "API keys and credentials are encrypted before they leave your browser. The server never sees them in plaintext — your secrets stay yours.",
+      "API keys and credentials are stored encrypted in SQLite. Credentials are decrypted right before use and deleted immediately after.",
   },
   {
     icon: <Layers size={22} strokeWidth={1.5} aria-hidden="true" />,

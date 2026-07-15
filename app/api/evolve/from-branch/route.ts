@@ -12,7 +12,7 @@ import {
   getRepoRoot,
   getWorktreesDir,
   type LocalSession,
-} from '@/lib/evolve-sessions';
+} from '@/lib/threads';
 import { getSessionUser, hasEvolvePermission } from '@/lib/auth';
 import {
   appendSessionEvent,
