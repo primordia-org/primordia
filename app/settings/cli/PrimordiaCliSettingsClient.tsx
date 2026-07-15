@@ -23,8 +23,10 @@ export default function PrimordiaCliSettingsClient() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    setAesKey(localStorage.getItem(AES_KEY_STORAGE));
-    setLoaded(true);
+    queueMicrotask(() => {
+      setAesKey(localStorage.getItem(AES_KEY_STORAGE));
+      setLoaded(true);
+    });
   }, []);
 
   const assignment = useMemo(() => (aesKey ? `PRIMORDIA_AES_KEY=${shellSingleQuote(aesKey)}` : ""), [aesKey]);
@@ -37,7 +39,7 @@ export default function PrimordiaCliSettingsClient() {
         <p className="text-xs uppercase tracking-[0.25em] text-gray-500">Primordia CLI</p>
         <h1 className="mt-1 text-2xl font-semibold text-white">Use this browser&apos;s secret key in the terminal</h1>
         <p className="mt-2 text-sm leading-6 text-gray-400">
-          Secret-backed CLI presets need the same browser-held AES key that encrypts your billing sources. Copy this shell-safe environment assignment before running <code className="rounded bg-black/30 px-1.5 py-0.5 text-gray-200">bun run primordia create</code> or <code className="rounded bg-black/30 px-1.5 py-0.5 text-gray-200">bun run primordia followup</code>.
+          Secret-backed CLI commands need the same browser-held AES key that encrypts your billing sources. Copy this shell-safe environment assignment before running <code className="rounded bg-black/30 px-1.5 py-0.5 text-gray-200">bun run primordia create</code>, <code className="rounded bg-black/30 px-1.5 py-0.5 text-gray-200">bun run primordia followup</code>, or <code className="rounded bg-black/30 px-1.5 py-0.5 text-gray-200">bun run primordia accept</code> with a secret-backed thread.
         </p>
       </div>
 

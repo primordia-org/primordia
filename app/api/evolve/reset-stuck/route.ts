@@ -18,7 +18,7 @@ import {
   getSessionNdjsonPath,
   getSessionFromFilesystem,
 } from '@/lib/session-events';
-import { INSTALL_SH_PID_FILE } from '@/app/api/evolve/manage/route';
+import { INSTALL_SH_PID_FILE } from '@/lib/threads';
 import * as fs from 'fs';
 import * as path from 'path';
 
