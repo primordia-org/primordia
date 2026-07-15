@@ -25,4 +25,4 @@ Each line is `<key><space><value>` with no `=`. Git **lowercases the section and
 
 ### Code reference
 
-See `lib/update-sources.ts` for the subsection pattern. See `lib/evolve-sessions.ts` (`getOrAssignBranchPort`) for a simple single-key read/write example.
+See `lib/update-sources.ts` for the subsection pattern. See `lib/threads.ts` (`getOrAssignBranchPort`) for a simple single-key read/write example.

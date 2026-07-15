@@ -7,6 +7,7 @@ export interface CopyProductionDbResult {
   sourcePath: string | null;
   destinationPath: string;
   error?: string;
+  method?: 'direct-copy' | 'hot-swap';
 }
 
 function parseWorktreePathForBranch(porcelain: string, branchName: string): string | null {

@@ -9,11 +9,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { SecretAuthSource } from "@/lib/presets";
 
-type TabId = "billing-sources" | "presets" | "notifications";
+type TabId = "billing-sources" | "presets" | "cli" | "notifications";
 
 const tabs: { id: TabId; label: string; href: string }[] = [
   { id: "billing-sources", label: "Billing sources", href: "/settings" },
   { id: "presets", label: "Presets", href: "/settings/presets" },
+  { id: "cli", label: "Primordia CLI", href: "/settings/cli" },
   { id: "notifications", label: "Push notifications", href: "/settings/notifications" },
 ];
 
@@ -32,6 +33,7 @@ export default function SettingsSubNav({
   function isActive(tabId: TabId) {
     if (tabId === "billing-sources") return apiKeyActive || credentialsActive;
     if (tabId === "presets") return true;
+    if (tabId === "cli") return true;
     if (tabId === "notifications") return true;
     return false;
   }
