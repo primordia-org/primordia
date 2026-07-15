@@ -19,7 +19,7 @@ import {
 import { HARNESS_OPTIONS, DEFAULT_HARNESS, DEFAULT_MODEL } from './agent-config';
 import { MODEL_OPTIONS } from './agent-config';
 import { withSocketStatusHint } from './socket-status';
-import { restartWorktreeServer, stopWorktreeServer } from './process-manager';
+import { getProcessStatusReport, restartWorktreeServer, stopWorktreeServer } from './process-manager';
 import { hasEvolvePermission } from './auth';
 import { progressSummary, reduceProgressEventsAcrossRuns, type ProgressStateStep } from './progress-monitor';
 import { decryptStoredSecretForUser, getEncryptedSecretForUser } from './server-secrets';
@@ -570,6 +570,32 @@ function parseWorktreePathForBranch(porcelain: string, branchName: string): stri
   return null;
 }
 
+function isPreviewServerRunning(destinationWorktreePath: string, devServerPort: number | null | undefined, repoRoot: string): boolean {
+  if (!devServerPort) return false;
+  const destinationRealPath = (() => {
+    try { return fs.realpathSync(destinationWorktreePath); } catch { return path.resolve(destinationWorktreePath); }
+  })();
+  try {
+    return getProcessStatusReport(repoRoot).worktrees.some((worktree) => {
+      const worktreeRealPath = (() => {
+        try { return fs.realpathSync(worktree.path); } catch { return path.resolve(worktree.path); }
+      })();
+      return worktree.port === devServerPort && worktreeRealPath === destinationRealPath && worktree.servers.length > 0;
+    });
+  } catch {
+    return false;
+  }
+}
+
+function actionableHotswapError(devServerPort: number, err: unknown): Error {
+  const message = err instanceof Error ? err.message : String(err);
+  return new Error(
+    `Preview server appears to be running on port ${devServerPort}, but its database hotswap endpoint could not be reached. ` +
+    `Restart the preview server with \`bun run primordia restart --worktree <thread>\`, then retry Apply Updates. ` +
+    `Original error: ${message}`,
+  );
+}
+
 export async function hotswapProductionDbIntoWorktree(
   repoRoot: string,
   destinationWorktreePath: string,
@@ -594,7 +620,7 @@ export async function hotswapProductionDbIntoWorktree(
   try {
     await vacuumSnapshotSqliteDb(sourcePath, snapshotPath);
 
-    if (devServerPort) {
+    if (devServerPort && isPreviewServerRunning(destinationWorktreePath, devServerPort, repoRoot)) {
       try {
         const response = await fetch(`http://127.0.0.1:${devServerPort}/api/evolve/hotswap-db`, {
           method: 'POST',
@@ -602,23 +628,20 @@ export async function hotswapProductionDbIntoWorktree(
           body: JSON.stringify({ snapshotFilename }),
         });
         if (response.ok) {
-          return { copied: true, sourcePath, destinationPath };
+          return { copied: true, sourcePath, destinationPath, method: 'hot-swap' };
         }
         const text = await response.text().catch(() => '');
-        throw new Error(`preview server hotswap failed (${response.status}): ${text}`);
+        throw new Error(`preview server hotswap endpoint returned HTTP ${response.status}${text ? `: ${text}` : ''}`);
       } catch (err) {
-        // If the preview server is not running, no process has the DB open and
-        // a direct swap is safe. Any other response means the server was alive
-        // but could not close its DB cleanly, so do not overwrite underneath it.
-        const message = err instanceof Error ? err.message : String(err);
-        if (!message.includes('fetch failed') && !message.includes('ECONNREFUSED')) {
-          throw err;
-        }
+        // If process-manager says the preview server is running, connection
+        // errors are actionable: the port owner is stale, wedged, or not serving
+        // the hotswap route. Do not overwrite the DB underneath a live process.
+        throw actionableHotswapError(devServerPort, err);
       }
     }
 
     replaceSqliteDbWithSnapshot(snapshotPath, destinationPath);
-    return { copied: true, sourcePath, destinationPath };
+    return { copied: true, sourcePath, destinationPath, method: 'direct-copy' };
   } catch (err) {
     try { fs.unlinkSync(snapshotPath); } catch { /* already consumed */ }
     const message = err instanceof Error ? err.message : String(err);
@@ -1575,10 +1598,12 @@ export async function updateThread({ userId, threadId }: UpdateThreadOptions): P
     const installLog = await runBunInstallAfterMerge(worktreePath);
     const dbCopy = await hotswapProductionDbIntoWorktree(repoRoot, worktreePath, session.port);
     const dbCopyLog = dbCopy.copied
-      ? '\nHot-swapped a production DB snapshot into this thread.'
+      ? dbCopy.method === 'hot-swap'
+        ? '\nHot-swapped a production DB snapshot into this thread.'
+        : '\nCopied a production DB snapshot into this thread.'
       : dbCopy.error === 'production DB not found'
-        ? '\nSkipped production DB hotswap: production DB not found.'
-        : `\nSkipped production DB hotswap: ${dbCopy.error ?? 'unknown error'}.`;
+        ? '\nSkipped production DB copy: production DB not found.'
+        : `\nSkipped production DB copy: ${dbCopy.error ?? 'unknown error'}.`;
     return {
       ok: true,
       status: 200,
@@ -1962,7 +1987,8 @@ export async function createThread({
   primordiaAesKey = null;
 
   if (detachBackgroundRunner) {
-    const { aesKey: _aesKey, ...sessionWithoutAesKey } = session;
+    const sessionWithoutAesKey = { ...session };
+    delete sessionWithoutAesKey.aesKey;
     spawnThreadBackgroundRunner(
       {
         kind: 'create',
