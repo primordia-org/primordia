@@ -193,7 +193,7 @@ export async function POST(request: Request) {
     if (!evolveResult.ok) {
       return Response.json({ error: evolveResult.error ?? 'Failed to create evolve session' }, { status: evolveResult.status });
     }
-    return Response.json({ sessionId: evolveResult.sessionId });
+    return Response.json({ threadId: evolveResult.sessionId });
   }
 
   if (action !== 'delete-oldest-worktree') {

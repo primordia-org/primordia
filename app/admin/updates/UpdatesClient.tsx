@@ -611,10 +611,10 @@ export default function UpdatesClient({ initialSources, initialPushSubscribed }:
   async function handleCreateSession(sourceId: string) {
     trackEvent("admin/update-session-created/v1", { sourceId });
     setBusy(true); clearFeedback();
-    const { data, error } = await post<{ sessionId: string }>({ action: "create-session", sourceId });
+    const { data, error } = await post<{ threadId: string }>({ action: "create-session", sourceId });
     if (error) { setGlobalError(error); setBusy(false); return; }
-    if (data?.sessionId) {
-      router.push(withBasePath(`/evolve/session/${data.sessionId}`));
+    if (data?.threadId) {
+      router.push(withBasePath(`/thread/${data.threadId}`));
     }
     setBusy(false);
   }

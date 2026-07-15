@@ -155,6 +155,7 @@ export default function PrimordiaCliSettingsClient() {
     setBusy(shortId);
     setError(null);
     try {
+      // eslint-disable-next-line react-hooks/purity -- event handler computes a fresh extension timestamp on click.
       const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000;
       const res = await fetch(withBasePath("/api/settings/cli-keys"), {
         method: "PATCH",

@@ -72,10 +72,10 @@ interface EvolveRequestFormProps {
   /** Submit button label. */
   submitLabel?: string;
   /**
-   * When provided, called with the new sessionId instead of navigating to the
-   * session page. The form resets automatically on success.
+   * When provided, called with the new threadId instead of navigating to the
+   * thread page. The form resets automatically on success.
    */
-  onSessionCreated?: (sessionId: string) => void;
+  onSessionCreated?: (threadId: string) => void;
   /**
    * When provided, called on submit instead of POSTing to /api/evolve and
    * navigating to the new session. Should throw on error (message shown in the
@@ -296,7 +296,7 @@ export function EvolveRequestForm({
         await appendCredentialFieldsForAuthSource(formData, selectedPreset.authSource);
 
         const res = await fetch(withBasePath("/api/evolve"), { method: "POST", body: formData });
-        const data = (await res.json()) as { sessionId?: string; error?: string };
+        const data = (await res.json()) as { threadId?: string; error?: string };
 
         if (!res.ok) {
           throw new Error(data.error ?? `API error: ${res.statusText}`);
@@ -310,11 +310,11 @@ export function EvolveRequestForm({
           setShowAdvanced(false);
           // caveman mode/intensity are sticky — not reset
           sounds.sparkle();
-          onSessionCreated(data.sessionId!);
+          onSessionCreated(data.threadId!);
         } else {
           clearPersistedDraft();
           sounds.sparkle();
-          router.push(`/evolve/session/${data.sessionId}`);
+          router.push(`/thread/${data.threadId}`);
         }
       }
     } catch (err) {

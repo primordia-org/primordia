@@ -259,7 +259,7 @@ async function handleCreate(args: Args): Promise<void> {
     runInBackground: false,
   });
   if (!result.ok) throw cliSecretError(result.error, `evolve session creation failed (${result.status})`);
-  if (args.json) printJson({ ok: true, command: 'create', sessionId: result.sessionId, worktreePath: result.worktreePath, background: true });
+  if (args.json) printJson({ ok: true, command: 'create', threadId: result.sessionId, worktreePath: result.worktreePath, background: true });
   else console.log(`New thread started in ${result.worktreePath}`);
 }
 

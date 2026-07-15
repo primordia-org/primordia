@@ -1,6 +1,6 @@
 // app/api/evolve/diff/route.ts
 //
-// GET ?sessionId=...&file=...
+// GET ?threadId=...&file=...
 // Returns the raw unified diff for a single file in the session branch vs its parent.
 // Uses `git diff parent...sessionBranch -- <file>` (three-dot notation) so only
 // commits exclusive to the session branch are included.
@@ -39,12 +39,12 @@ function requestHasMatchingEtag(ifNoneMatch: string | null, etag: string): boole
 
 /**
  * Get raw diff for a single file
- * @description Returns the unified diff for one file in the thread vs its parent. Pass `sessionId` (thread id) and `file` (relative path) as query parameters.
+ * @description Returns the unified diff for one file in the thread vs its parent. Pass `threadId` (thread id) and `file` (relative path) as query parameters.
  * @tag Evolve
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
-  const sessionId = searchParams.get("sessionId");
+  const sessionId = searchParams.get("threadId");
   const file = searchParams.get("file");
 
   if (!sessionId || !file) {

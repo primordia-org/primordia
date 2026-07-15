@@ -1,7 +1,7 @@
 "use client";
 
 // components/EvolveSessionView.tsx
-// Client component rendered by /evolve/session/[id].
+// Client component rendered by /thread/[id].
 // Streams live Claude Code progress via SSE from /api/evolve/stream.
 
 import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
@@ -1805,7 +1805,7 @@ export default function EvolveSessionView({
 
     // Track status transitions for analytics / demo video reconstruction.
     if (prev !== status) {
-      trackEvent("session/status-changed/v1", { sessionId, from: prev, to: status });
+      trackEvent("session/status-changed/v1", { threadId: sessionId, from: prev, to: status });
     }
 
     // Agent finished — running → ready
@@ -1856,7 +1856,7 @@ export default function EvolveSessionView({
     setDiffSummaryError(null);
     try {
       const res = await fetch(
-        withBasePath(`/api/evolve/diff-summary?sessionId=${sessionId}`),
+        withBasePath(`/api/evolve/diff-summary?threadId=${sessionId}`),
         { cache: "no-cache" },
       );
       if (!res.ok) throw new Error(`Refresh failed (${res.status})`);
@@ -1905,7 +1905,7 @@ export default function EvolveSessionView({
 
     try {
       const response = await fetch(
-        withBasePath(`/api/evolve/stream?sessionId=${sessionId}&offset=${offset}`),
+        withBasePath(`/api/evolve/stream?threadId=${sessionId}&offset=${offset}`),
         { signal: controller.signal },
       );
       if (!response.ok || !response.body) return;
@@ -1947,7 +1947,7 @@ export default function EvolveSessionView({
             if ("previewUrl" in parsed) {
               const newUrl = parsed.previewUrl ?? null;
               setPreviewUrl((prev) => {
-                if (!prev && newUrl) trackEvent("session/preview-loaded/v1", { sessionId, previewUrl: newUrl });
+                if (!prev && newUrl) trackEvent("session/preview-loaded/v1", { threadId: sessionId, previewUrl: newUrl });
                 return newUrl;
               });
             }
@@ -1971,7 +1971,7 @@ export default function EvolveSessionView({
 
   // Track session page view on mount.
   useEffect(() => {
-    trackEvent("session/page-viewed/v1", { sessionId, status: initialStatus });
+    trackEvent("session/page-viewed/v1", { threadId: sessionId, status: initialStatus });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
@@ -2006,7 +2006,7 @@ export default function EvolveSessionView({
     return () => { cancelled = true; };
   }, [sessionId, previewUrl, status]);
   async function handleRestartServer() {
-    trackEvent("session/restart-server-clicked/v1", { sessionId });
+    trackEvent("session/restart-server-clicked/v1", { threadId: sessionId });
     setIsRestartingServer(true);
     setRestartError(null);
 
@@ -2021,7 +2021,7 @@ export default function EvolveSessionView({
   }
 
   async function handleAbort() {
-    trackEvent("session/abort-clicked/v1", { sessionId });
+    trackEvent("session/abort-clicked/v1", { threadId: sessionId });
     setIsAborting(true);
     setAbortError(null);
 
@@ -2029,7 +2029,7 @@ export default function EvolveSessionView({
       const res = await fetch(withBasePath('/api/evolve/abort'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
+        body: JSON.stringify({ threadId: sessionId }),
       });
 
       if (!res.ok) {
@@ -2046,14 +2046,14 @@ export default function EvolveSessionView({
   }
 
   async function handleUpstreamSync() {
-    trackEvent("session/upstream-sync-clicked/v1", { sessionId });
+    trackEvent("session/upstream-sync-clicked/v1", { threadId: sessionId });
     setUpstreamSyncLoading("merge");
     setUpstreamSyncError(null);
     try {
       const res = await fetch(withBasePath('/api/evolve/upstream-sync'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, action: "merge" }),
+        body: JSON.stringify({ threadId: sessionId, action: "merge" }),
       });
       const data = (await res.json()) as { outcome?: string; log?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? `Server error: ${res.status}`);
@@ -2070,14 +2070,14 @@ export default function EvolveSessionView({
 
   async function handleAccept() {
     if (acceptRejectLoading) return;
-    trackEvent("session/accept-clicked/v1", { sessionId });
+    trackEvent("session/accept-clicked/v1", { threadId: sessionId });
     setAcceptRejectLoading(true);
     setAcceptRejectError(null);
     try {
       // Attach only the credential selected by the session's most recent preset
       // so accept-time agent passes (type-fix, auto-commit) use the same billing
       // source as the evolve/follow-up run they are completing.
-      const acceptBody: Record<string, string> = { action: 'accept', sessionId };
+      const acceptBody: Record<string, string> = { action: 'accept', threadId: sessionId };
       if (sessionCredentialAuthSource) acceptBody.authSource = sessionCredentialAuthSource;
       Object.assign(acceptBody, await getCredentialFieldsForAuthSource(sessionCredentialAuthSource));
       const res = await fetch(withBasePath('/api/evolve/manage'), {
@@ -2085,10 +2085,10 @@ export default function EvolveSessionView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(acceptBody),
       });
-      const data = (await res.json()) as { outcome?: string; error?: string; stashWarning?: string; stuckSessionId?: string; stuckSessionBranch?: string };
+      const data = (await res.json()) as { outcome?: string; error?: string; stashWarning?: string; stuckThreadId?: string; stuckThreadBranch?: string };
       if (!res.ok) {
-        if (res.status === 409 && data.stuckSessionId) {
-          setStuckBlockingSessionId(data.stuckSessionId);
+        if (res.status === 409 && data.stuckThreadId) {
+          setStuckBlockingSessionId(data.stuckThreadId);
         }
         throw new Error(data.error ?? `API error: ${res.statusText}`);
       }
@@ -2123,14 +2123,14 @@ export default function EvolveSessionView({
 
   async function handleReject() {
     if (acceptRejectLoading) return;
-    trackEvent("session/reject-clicked/v1", { sessionId });
+    trackEvent("session/reject-clicked/v1", { threadId: sessionId });
     setAcceptRejectLoading(true);
     setAcceptRejectError(null);
     try {
       const res = await fetch(withBasePath('/api/evolve/manage'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reject', sessionId }),
+        body: JSON.stringify({ action: 'reject', threadId: sessionId }),
       });
       const data = (await res.json()) as { outcome?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
@@ -2151,14 +2151,14 @@ export default function EvolveSessionView({
    */
   async function handleForceReset(targetSessionId: string) {
     if (isResettingStuck) return;
-    trackEvent("session/force-reset-clicked/v1", { sessionId: targetSessionId, currentSessionId: sessionId });
+    trackEvent("session/force-reset-clicked/v1", { threadId: targetSessionId, currentThreadId: sessionId });
     setIsResettingStuck(true);
     setForceResetError(null);
     try {
       const res = await fetch(withBasePath('/api/evolve/reset-stuck'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: targetSessionId }),
+        body: JSON.stringify({ threadId: targetSessionId }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
@@ -2180,7 +2180,7 @@ export default function EvolveSessionView({
   const toggleAction = useCallback((action: "accept" | "reject" | "followup") => {
     setActiveAction(prev => {
       const next = prev === action ? null : action;
-      trackEvent("session/action-panel-toggled/v1", { action, open: next === action, sessionId });
+      trackEvent("session/action-panel-toggled/v1", { action, open: next === action, threadId: sessionId });
       return next;
     });
     setAcceptRejectError(null);
@@ -2188,7 +2188,7 @@ export default function EvolveSessionView({
 
   // Called by WebPreviewPanel when the user picks an element with the inspector tool.
   const handleElementSelected = useCallback((info: ElementSelection) => {
-    trackEvent("session/preview-element-selected/v1", { sessionId, component: info.component, selector: info.selector, dataId: info.dataId ?? null, dataIdSelector: info.dataIdSelector ?? null });
+    trackEvent("session/preview-element-selected/v1", { threadId: sessionId, component: info.component, selector: info.selector, dataId: info.dataId ?? null, dataIdSelector: info.dataIdSelector ?? null });
     setActiveAction('followup');
     setElementContext(info);
   }, [sessionId]);
@@ -2402,7 +2402,7 @@ export default function EvolveSessionView({
         return (
           <details className={`group mb-6 rounded-lg border text-sm overflow-hidden ${isAgentRunning ? "border-amber-700/60 bg-amber-950/20" : "border-gray-700 bg-gray-900"}`}>
             <summary
-              onClick={() => trackEvent("session/diff-summary-toggled/v1", { sessionId, fileCount: liveDiffSummary.length })}
+              onClick={() => trackEvent("session/diff-summary-toggled/v1", { threadId: sessionId, fileCount: liveDiffSummary.length })}
               className="flex flex-wrap items-center gap-2 px-4 py-2.5 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none"
             >
               <span className="text-gray-600 group-open:rotate-90 transition-transform flex-shrink-0 text-xs">▶</span>
@@ -2652,7 +2652,7 @@ export default function EvolveSessionView({
                     fullRequest = `Re: <${elementContext.component}>${sourceFilePart} ${elementContext.selector}${dataIdPart}\n\n${request}`;
                   }
                   const formData = new FormData();
-                  formData.append('sessionId', sessionId);
+                  formData.append('threadId', sessionId);
                   formData.append('request', fullRequest);
                   formData.append('harness', harness);
                   formData.append('model', model);
@@ -2668,7 +2668,7 @@ export default function EvolveSessionView({
                     const data = (await res.json()) as { error?: string };
                     throw new Error(data.error ?? `Server error: ${res.status}`);
                   }
-                  trackEvent("session/followup-submitted/v1", { sessionId, harness, model, hasFiles: files.length > 0, hasElementContext: !!elementContext });
+                  trackEvent("session/followup-submitted/v1", { threadId: sessionId, harness, model, hasFiles: files.length > 0, hasElementContext: !!elementContext });
                   setElementContext(null);
                   setStatus('running-claude');
                   void startStreaming();
@@ -2719,7 +2719,7 @@ export default function EvolveSessionView({
                       {stuckBlockingSessionId && canEvolve && (
                         <div className="mt-2 flex items-center gap-3">
                           <Link
-                            href={withBasePath(`/evolve/session/${stuckBlockingSessionId}`)}
+                            href={withBasePath(`/thread/${stuckBlockingSessionId}`)}
                             className="text-xs text-blue-400 hover:text-blue-300 underline"
                           >
                             Go to stuck thread →

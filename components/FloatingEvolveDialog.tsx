@@ -437,7 +437,7 @@ export function EvolveSubmitToast({
 
   if (typeof document === "undefined") return null;
 
-  const sessionUrl = withBasePath(`/evolve/session/${sessionId}`);
+  const sessionUrl = withBasePath(`/thread/${sessionId}`);
   const opacity = visible ? Math.max(0.35, 1 - Math.min(Math.abs(dragOffset), 180) / 240) : 0;
   const translateY = visible ? 0 : -8;
 

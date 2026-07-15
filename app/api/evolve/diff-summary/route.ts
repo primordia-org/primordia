@@ -1,6 +1,6 @@
 // app/api/evolve/diff-summary/route.ts
 //
-// GET ?sessionId=...
+// GET ?threadId=...
 // Returns per-file diff summary (additions + deletions) for all files changed
 // in the session branch vs its parent. Uses `git diff --numstat -w parent...branch`
 // (three-dot notation) so only commits exclusive to the session branch are counted.
@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execSync } from "child_process";
 import { getSessionFromFilesystem } from "@/lib/session-events";
-import type { DiffFileSummary } from "@/app/evolve/session/[id]/page";
+import type { DiffFileSummary } from "@/app/thread/[id]/page";
 import { getSessionUser } from "@/lib/auth";
 import { getParentBranch } from "@/lib/branch-parent";
 import { getBranchParentSource } from "@/lib/user-prefs";
@@ -29,12 +29,12 @@ function getRenamePathsFromNumstatFile(file: string): { oldPath: string; newPath
 
 /**
  * Get diff summary for a thread
- * @description Returns per-file additions/deletions for all files changed in the thread vs its parent. Pass `sessionId` as the thread id query parameter.
+ * @description Returns per-file additions/deletions for all files changed in the thread vs its parent. Pass `threadId` as the thread id query parameter.
  * @tag Evolve
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
-  const sessionId = searchParams.get("sessionId");
+  const sessionId = searchParams.get("threadId");
 
   if (!sessionId) {
     return NextResponse.json({ error: "thread id is required" }, { status: 400 });

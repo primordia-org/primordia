@@ -316,7 +316,7 @@ function BranchRef({
   return (
     <span className="inline-flex items-baseline gap-1.5">
       {branch.hasSession ? (
-        <Link href={`/evolve/session/${branch.name}`} className={className}>
+        <Link href={`/thread/${branch.name}`} className={className}>
           {label}
         </Link>
       ) : (
@@ -571,7 +571,7 @@ export default async function BranchesPage() {
                       <tr key={s.id} className="text-gray-400">
                         <td className="pr-4">
                           <Link
-                            href={`/evolve/session/${s.branch}`}
+                            href={`/thread/${s.branch}`}
                             className="text-purple-400 hover:text-purple-300"
                           >
                             {s.branch}

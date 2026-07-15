@@ -96,8 +96,8 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
   async function createSession() {
     trackEvent("admin/dependency-audit-session-created/v1", { severeCount, findingCount: audit.findings.length });
     const data = await post("create-session");
-    const sessionId = typeof data?.sessionId === "string" ? data.sessionId : null;
-    if (sessionId) router.push(`/evolve/session/${sessionId}`);
+    const threadId = typeof data?.threadId === "string" ? data.threadId : null;
+    if (threadId) router.push(`/thread/${threadId}`);
   }
 
   return (

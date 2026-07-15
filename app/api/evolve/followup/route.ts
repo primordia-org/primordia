@@ -1,7 +1,7 @@
 // app/api/evolve/followup/route.ts
 // Accepts a follow-up request for an existing local evolve session.
 // POST — submit a follow-up request for a session that is in "ready" state.
-//   Body: multipart/form-data or JSON { sessionId: string; request: string; attachments?: File[] }
+//   Body: multipart/form-data or JSON { threadId: string; request: string; attachments?: File[] }
 //   Returns: { ok: true }
 
 import * as path from 'path';
@@ -11,7 +11,7 @@ import { followupThread } from '@/lib/threads';
 
 /** Multipart form-data body for POST /evolve/followup */
 export interface EvolveFollowupFormData {
-  sessionId: string; // The session ID (git branch name) of the ready session to continue.
+  threadId: string; // The thread ID (git branch name) of the ready thread to continue.
   request: string; // The follow-up change request text for Claude Code.
   presetId?: string; // Preset ID; billing source, harness, and model are resolved from this preset.
   primordiaAesKey?: string; // Optional localStorage primordia_aes_key JWK used by the worker to decrypt the selected stored secret.
@@ -20,7 +20,7 @@ export interface EvolveFollowupFormData {
 
 /**
  * Submit a follow-up evolve request
- * @description Send an additional change request to an already-ready evolve session. Accepts multipart/form-data (supports file attachments) or JSON `{ sessionId, request, primordiaAesKey? }`.
+ * @description Send an additional change request to an already-ready thread. Accepts multipart/form-data (supports file attachments) or JSON `{ threadId, request, primordiaAesKey? }`.
  * @tag Evolve
  * @contentType multipart/form-data
  * @body EvolveFollowupFormData
@@ -41,10 +41,10 @@ export async function POST(request: Request) {
   const contentType = request.headers.get('content-type') ?? '';
   if (contentType.includes('multipart/form-data')) {
     const formData = await request.formData();
-    const sidField = formData.get('sessionId');
+    const sidField = formData.get('threadId');
     const reqField = formData.get('request');
     if (!sidField || typeof sidField !== 'string') {
-      return Response.json({ error: 'sessionId string required' }, { status: 400 });
+      return Response.json({ error: 'threadId string required' }, { status: 400 });
     }
     if (!reqField || typeof reqField !== 'string') {
       return Response.json({ error: 'request string required' }, { status: 400 });
@@ -80,14 +80,14 @@ export async function POST(request: Request) {
       }
     }
   } else {
-    const body = (await request.json()) as { sessionId?: string; request?: string; presetId?: string; primordiaAesKey?: string };
-    if (!body.sessionId || typeof body.sessionId !== 'string') {
-      return Response.json({ error: 'sessionId string required' }, { status: 400 });
+    const body = (await request.json()) as { threadId?: string; request?: string; presetId?: string; primordiaAesKey?: string };
+    if (!body.threadId || typeof body.threadId !== 'string') {
+      return Response.json({ error: 'threadId string required' }, { status: 400 });
     }
     if (!body.request || typeof body.request !== 'string') {
       return Response.json({ error: 'request string required' }, { status: 400 });
     }
-    sessionId = body.sessionId;
+    sessionId = body.threadId;
     requestText = body.request;
     if (body.presetId) presetId = body.presetId;
     if (body.primordiaAesKey) primordiaAesKey = body.primordiaAesKey;

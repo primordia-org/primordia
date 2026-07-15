@@ -1,8 +1,8 @@
 // app/api/evolve/stream/route.ts
 // Streams live session progress as SSE.
 //
-// GET ?sessionId=<id>&offset=<n>
-//   sessionId — the evolve session to watch
+// GET ?threadId=<id>&offset=<n>
+//   threadId — the thread to watch
 
 //   offset    — number of NDJSON lines the client already has (default 0)
 //
@@ -28,7 +28,7 @@ function isTerminal(status: string): boolean {
 
 /**
  * Stream evolve session progress
- * @description SSE stream of live session progress. Pass `sessionId` and optional `offset` (number of events already received). Emits JSON events with `events`, `status`, `devServerStatus`, and `previewUrl`. Final event includes `done: true`.
+ * @description SSE stream of live session progress. Pass `threadId` and optional `offset` (number of events already received). Emits JSON events with `events`, `status`, `devServerStatus`, and `previewUrl`. Final event includes `done: true`.
  * @tag Evolve
  */
 export async function GET(request: Request) {
@@ -38,9 +38,9 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const sessionId = url.searchParams.get('sessionId');
+  const sessionId = url.searchParams.get('threadId');
   if (!sessionId) {
-    return Response.json({ error: 'sessionId query param required' }, { status: 400 });
+    return Response.json({ error: 'threadId query param required' }, { status: 400 });
   }
   const offset = Math.max(0, parseInt(url.searchParams.get('offset') ?? '0', 10) || 0);
 

@@ -3,7 +3,7 @@
 // The branch must already exist locally and must not contain a slash.
 //
 // POST { branchName: string }
-// Returns: { sessionId: string }
+// Returns: { threadId: string }
 
 import * as path from 'path';
 import {
@@ -136,5 +136,5 @@ export async function POST(request: Request) {
     initialEventAlreadyWritten: true,
   });
 
-  return Response.json({ sessionId });
+  return Response.json({ threadId: sessionId });
 }

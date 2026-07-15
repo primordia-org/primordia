@@ -25,7 +25,7 @@
 //
 // POST { action: "create-session", sourceId: string }
 //   Creates an evolve session to merge a source's tracking branch into main.
-//   Returns: { sessionId: string }
+//   Returns: { threadId: string }
 //
 // Admin-only for all operations.
 
@@ -421,7 +421,7 @@ export async function POST(request: Request) {
       initialEventAlreadyWritten: true,
     });
 
-    return Response.json({ sessionId: sessionBranch });
+    return Response.json({ threadId: sessionBranch });
   }
 
   return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });

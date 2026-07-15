@@ -5,7 +5,7 @@
 // `result` event — so `inferStatusFromEvents` permanently infers 'accepting'.
 //
 // POST
-//   Body: { sessionId: string }
+//   Body: { threadId: string }
 //   Returns: { ok: true } or { error: string }
 //
 // Requires: can_evolve or admin permission.
@@ -33,13 +33,13 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Evolve permission required' }, { status: 403 });
   }
 
-  const body = (await request.json()) as { sessionId?: string };
-  if (!body.sessionId || typeof body.sessionId !== 'string') {
-    return Response.json({ error: 'sessionId string required' }, { status: 400 });
+  const body = (await request.json()) as { threadId?: string };
+  if (!body.threadId || typeof body.threadId !== 'string') {
+    return Response.json({ error: 'threadId string required' }, { status: 400 });
   }
 
   const repoRoot = process.cwd();
-  const record = getSessionFromFilesystem(body.sessionId, repoRoot);
+  const record = getSessionFromFilesystem(body.threadId, repoRoot);
   if (!record) {
     return Response.json({ error: 'Session not found' }, { status: 404 });
   }
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
       if (!isNaN(installPid)) {
         try { process.kill(-installPid, 'SIGTERM'); } catch { /* already gone */ }
         try { process.kill(installPid, 'SIGTERM'); } catch { /* already gone */ }
-        console.log(`[reset-stuck] sent SIGTERM to install.sh PID ${installPid} for session ${body.sessionId}`);
+        console.log(`[reset-stuck] sent SIGTERM to install.sh PID ${installPid} for thread ${body.threadId}`);
       }
     } catch { /* non-fatal */ }
     try { fs.unlinkSync(installPidFile); } catch { /* non-fatal */ }
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
   // accept pipeline, but if the pipeline got stuck before that kill (e.g. an
   // earlier server-restart scenario), stopping it here is idempotent.
   try {
-    await stopWorktreeServer(body.sessionId, process.cwd());
+    await stopWorktreeServer(body.threadId, process.cwd());
   } catch { /* dev server may already be gone */ }
 
   // Write a result:error event — this makes inferStatusFromEvents return 'ready',
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
     ts: Date.now(),
   });
 
-  console.log(`[reset-stuck] Reset session ${body.sessionId} from ${record.status} → ready`);
+  console.log(`[reset-stuck] Reset thread ${body.threadId} from ${record.status} → ready`);
 
   return Response.json({ ok: true });
 }

@@ -194,7 +194,7 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
                 data.sessions.map((s) => (
                   <Link
                     key={s.id}
-                    href={`/evolve/session/${s.id}`}
+                    href={`/thread/${s.id}`}
                     onClick={() => setMenuOpen(false)}
                     className="flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-gray-800 transition-colors border-b border-gray-800 last:border-b-0"
                   >

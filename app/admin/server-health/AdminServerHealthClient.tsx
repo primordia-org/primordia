@@ -144,9 +144,9 @@ export default function AdminServerHealthClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "create-leak-diagnostics-session" }),
       });
-      const body = await res.json().catch(() => ({})) as { sessionId?: string; error?: string };
-      if (!res.ok || !body.sessionId) throw new Error(body.error ?? `HTTP ${res.status}`);
-      window.location.href = withBasePath(`/evolve/session/${body.sessionId}`);
+      const body = await res.json().catch(() => ({})) as { threadId?: string; error?: string };
+      if (!res.ok || !body.threadId) throw new Error(body.error ?? `HTTP ${res.status}`);
+      window.location.href = withBasePath(`/thread/${body.threadId}`);
     } catch (e) {
       setLeakSessionError(String(e));
       setCreatingLeakSession(false);

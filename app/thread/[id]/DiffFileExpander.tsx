@@ -69,7 +69,7 @@ export function DiffFileExpander({ sessionId, file, diffPath, oldPath, additions
       setLoading(true);
       fetch(
         withBasePath(
-          `/api/evolve/diff?sessionId=${encodeURIComponent(sessionId)}&file=${encodeURIComponent(file)}${diffPath ? `&diffPath=${encodeURIComponent(diffPath)}` : ""}${oldPath ? `&oldPath=${encodeURIComponent(oldPath)}` : ""}`,
+          `/api/evolve/diff?threadId=${encodeURIComponent(sessionId)}&file=${encodeURIComponent(file)}${diffPath ? `&diffPath=${encodeURIComponent(diffPath)}` : ""}${oldPath ? `&oldPath=${encodeURIComponent(oldPath)}` : ""}`,
         ),
         { cache: "no-cache", signal: controller.signal },
       )
@@ -89,7 +89,7 @@ export function DiffFileExpander({ sessionId, file, diffPath, oldPath, additions
 
   function handleToggle() {
     const nextOpen = !open;
-    trackEvent("session/diff-file-toggled/v1", { sessionId, file, open: nextOpen });
+    trackEvent("session/diff-file-toggled/v1", { threadId: sessionId, file, open: nextOpen });
     setOpen(nextOpen);
   }
 

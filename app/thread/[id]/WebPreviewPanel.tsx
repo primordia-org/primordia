@@ -436,13 +436,13 @@ export function WebPreviewPanel({
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!serverRunning) return;
-    trackEvent("preview/url-navigated/v1", { sessionId, url: urlBarValue });
+    trackEvent("preview/url-navigated/v1", { threadId: sessionId, url: urlBarValue });
     navigate(urlBarValue);
   };
 
   const handleBack = () => {
     if (!serverRunning) return;
-    trackEvent("preview/back-clicked/v1", { sessionId });
+    trackEvent("preview/back-clicked/v1", { threadId: sessionId });
     try {
       iframeRef.current?.contentWindow?.history.back();
     } catch { /* cross-origin */ }
@@ -450,7 +450,7 @@ export function WebPreviewPanel({
 
   const handleForward = () => {
     if (!serverRunning) return;
-    trackEvent("preview/forward-clicked/v1", { sessionId });
+    trackEvent("preview/forward-clicked/v1", { threadId: sessionId });
     try {
       iframeRef.current?.contentWindow?.history.forward();
     } catch { /* cross-origin */ }
@@ -458,7 +458,7 @@ export function WebPreviewPanel({
 
   const handleRefresh = () => {
     if (!serverRunning) return;
-    trackEvent("preview/refresh-clicked/v1", { sessionId });
+    trackEvent("preview/refresh-clicked/v1", { threadId: sessionId });
     try {
       iframeRef.current?.contentWindow?.location.reload();
     } catch {
@@ -474,7 +474,7 @@ export function WebPreviewPanel({
     if (!serverRunning) return;
     setInspectorActive((prev) => {
       const next = !prev;
-      trackEvent("preview/inspector-toggled/v1", { sessionId, active: next });
+      trackEvent("preview/inspector-toggled/v1", { threadId: sessionId, active: next });
       if (next) {
         injectInspector();
       } else {
@@ -591,7 +591,7 @@ export function WebPreviewPanel({
           href={urlBarValue || src}
           target="_blank"
           rel="noopener noreferrer"
-          onClick={() => trackEvent("preview/open-in-new-tab/v1", { sessionId })}
+          onClick={() => trackEvent("preview/open-in-new-tab/v1", { threadId: sessionId })}
           className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors flex-shrink-0"
           title="Open in new tab"
         >

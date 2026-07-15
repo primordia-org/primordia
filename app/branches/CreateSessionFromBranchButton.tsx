@@ -31,13 +31,13 @@ export function CreateSessionFromBranchButton({ branchName }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ branchName }),
       });
-      const data = (await res.json()) as { sessionId?: string; error?: string };
-      if (!res.ok || !data.sessionId) {
+      const data = (await res.json()) as { threadId?: string; error?: string };
+      if (!res.ok || !data.threadId) {
         setError(data.error ?? "Failed to start thread");
         setLoading(false);
         return;
       }
-      router.push(`/evolve/session/${data.sessionId}`);
+      router.push(`/thread/${data.threadId}`);
     } catch {
       setError("Network error — please try again");
       setLoading(false);

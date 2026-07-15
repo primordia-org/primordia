@@ -6,7 +6,7 @@ import { updateThread } from '@/lib/threads';
 
 /** JSON body for POST /evolve/upstream-sync */
 export interface EvolveUpstreamSyncBody {
-  sessionId: string; // The thread id to sync upstream changes into.
+  threadId: string; // The thread id to sync upstream changes into.
   action: 'merge'; // The sync strategy. Currently only 'merge' is supported.
 }
 
@@ -20,11 +20,11 @@ export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });
 
-  const body = (await request.json()) as { sessionId?: string; action?: string };
-  if (!body.sessionId) return Response.json({ error: 'thread id is required' }, { status: 400 });
+  const body = (await request.json()) as { threadId?: string; action?: string };
+  if (!body.threadId) return Response.json({ error: 'threadId is required' }, { status: 400 });
   if (body.action !== 'merge') return Response.json({ error: 'action must be "merge"' }, { status: 400 });
 
-  const result = await updateThread({ userId: user.id, threadId: body.sessionId });
+  const result = await updateThread({ userId: user.id, threadId: body.threadId });
   if (!result.ok) return Response.json({ error: result.error }, { status: result.status });
   return Response.json({ outcome: result.outcome, log: result.log });
 }

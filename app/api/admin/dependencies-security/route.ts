@@ -99,7 +99,7 @@ async function handlePost(request: Request) {
     if (!evolveResult.ok) {
       return Response.json({ error: evolveResult.error ?? "Failed to create thread" }, { status: evolveResult.status });
     }
-    return Response.json({ sessionId: evolveResult.sessionId });
+    return Response.json({ threadId: evolveResult.sessionId });
   }
 
   return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });

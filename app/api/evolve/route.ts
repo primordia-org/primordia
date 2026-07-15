@@ -3,10 +3,10 @@
 //
 // POST — start a new local evolve session.
 //   Body: { request: string }
-//   Returns: { sessionId: string }
+//   Returns: { threadId: string }
 //
 // GET — poll session status.
-//   Query: ?sessionId=<id>
+//   Query: ?threadId=<id>
 //   Returns: { status, port, previewUrl, branch }
 
 import * as path from 'path';
@@ -120,12 +120,12 @@ async function handlePost(request: Request) {
   });
 
   if (!result.ok) return Response.json({ error: result.error }, { status: result.status });
-  return Response.json({ sessionId: result.sessionId });
+  return Response.json({ threadId: result.sessionId });
 }
 
 /**
  * Poll thread status
- * @description Returns the current status, port, preview URL, thread id, and original request for a thread. Pass `sessionId` as the thread id query parameter.
+ * @description Returns the current status, port, preview URL, thread id, and original request for a thread. Pass `threadId` as the thread id query parameter.
  * @tag Evolve
  */
 export async function GET(request: Request) {
@@ -143,13 +143,13 @@ async function handleGet(request: Request) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
 
-  const sessionId = new URL(request.url).searchParams.get('sessionId');
-  if (!sessionId) {
-    return Response.json({ error: 'thread id query param required' }, { status: 400 });
+  const threadId = new URL(request.url).searchParams.get('threadId');
+  if (!threadId) {
+    return Response.json({ error: 'threadId query param required' }, { status: 400 });
   }
 
   const repoRoot = process.cwd();
-  const session = getSessionFromFilesystem(sessionId, repoRoot);
+  const session = getSessionFromFilesystem(threadId, repoRoot);
   if (!session) {
     return Response.json({ error: 'Thread not found' }, { status: 404 });
   }

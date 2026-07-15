@@ -1,7 +1,7 @@
-// app/api/evolve/attachment/[sessionId]/route.ts
-// Serves user-uploaded attachment files from a session's worktree.
+// app/api/evolve/attachment/[threadId]/route.ts
+// Serves user-uploaded attachment files from a thread's worktree.
 //
-// GET /api/evolve/attachment/{sessionId}?file={filename}
+// GET /api/evolve/attachment/{threadId}?file={filename}
 //
 // Reads the file from {worktreePath}/attachments/{filename} and streams it
 // back with the appropriate Content-Type header.
@@ -44,14 +44,14 @@ function mimeType(filename: string): string {
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ sessionId: string }> },
+  { params }: { params: Promise<{ threadId: string }> },
 ) {
   const user = await getSessionUser();
   if (!user) {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  const { sessionId } = await params;
+  const { threadId } = await params;
   const filename = request.nextUrl.searchParams.get('file');
 
   if (!filename) {
@@ -64,7 +64,7 @@ export async function GET(
     return new Response('Invalid filename', { status: 400 });
   }
 
-  const session = getSessionFromFilesystem(sessionId, process.cwd());
+  const session = getSessionFromFilesystem(threadId, process.cwd());
   if (!session) {
     return new Response('Thread not found', { status: 404 });
   }

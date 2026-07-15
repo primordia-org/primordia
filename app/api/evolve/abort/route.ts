@@ -3,12 +3,12 @@
 // ready state with whatever work was completed so far.
 //
 // POST
-//   Body: { sessionId: string }
+//   Body: { threadId: string }
 //   Returns: { ok: true } or { error: string }
 
 /** JSON body for POST /evolve/abort */
 export interface EvolveAbortBody {
-  sessionId: string; // The thread id of the running thread to abort.
+  threadId: string; // The thread id of the running thread to abort.
 }
 
 import { getSessionUser } from '@/lib/auth';
@@ -31,13 +31,13 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Authentication required' }, { status: 401 });
   }
 
-  const body = (await request.json()) as { sessionId?: string };
-  if (!body.sessionId || typeof body.sessionId !== 'string') {
-    return Response.json({ error: 'thread id string required' }, { status: 400 });
+  const body = (await request.json()) as { threadId?: string };
+  if (!body.threadId || typeof body.threadId !== 'string') {
+    return Response.json({ error: 'threadId string required' }, { status: 400 });
   }
 
   const repoRoot = process.cwd();
-  const record = getSessionFromFilesystem(body.sessionId, repoRoot);
+  const record = getSessionFromFilesystem(body.threadId, repoRoot);
   if (!record) {
     return Response.json({ error: 'Thread not found' }, { status: 404 });
   }
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const aborted = abortAgentRun(body.sessionId, record.worktreePath);
+  const aborted = abortAgentRun(body.threadId, record.worktreePath);
   if (!aborted) {
     // No live worker PID was found — the server likely restarted after the
     // AI Agent process had already exited, leaving the session stuck in
