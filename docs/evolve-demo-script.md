@@ -67,7 +67,7 @@
     - `[EVENT: evolve-form/submit/v1 {harness: "pi", model: "...", hasFiles: true, fileCount: 1, hasElementAttachments: true, elementAttachmentCount: 1}]`
     - Loading spinner, then redirect
 
-16. **Arrive at session page** (`/evolve/session/{id}`)
+16. **Arrive at thread page** (`/thread/{id}`)
     - `[EVENT: session/page-viewed/v1 {sessionId: "...", status: "starting"}]`
     - Shows "Creating branch…" with setup steps
 
@@ -195,7 +195,7 @@
 
 | Gap | Why it's OK |
 |-----|-------------|
-| **No page-view for `/` or `/evolve`** | Entry points, not evolve feature. Add later for full-app coverage. |
+| **No page-view for `/` or `/thread`** | Entry point, not the thread detail feature. Add later for full-app coverage. |
 | **No keystroke/typing events** | Privacy-respecting by design. Content visible in session NDJSON. |
 | **No SSE streaming progress events** | Server-side session NDJSON captures all agent activity. |
 | **Floating dialog drag/dock/close** | Nice-to-have, not critical for video reconstruction. |

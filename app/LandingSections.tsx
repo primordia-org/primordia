@@ -359,7 +359,7 @@ export function LandingFooter() {
       <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500 font-mono">
         <span>Primordia — agentic coding built into your app</span>
         <div className="flex items-center gap-6">
-          <Link data-id="landing/footer-evolve" href="/evolve" className="hover:text-gray-300 transition-colors">Evolve</Link>
+          <Link data-id="landing/footer-thread" href="/thread" className="hover:text-gray-300 transition-colors">Start a thread</Link>
           <Link data-id="landing/footer-changelog" href="/changelog" className="hover:text-gray-300 transition-colors">Changelog</Link>
           <Link data-id="landing/footer-under-the-hood" href="/under-the-hood" className="hover:text-gray-300 transition-colors">How it works</Link>
           <Link data-id="landing/footer-login" href="/login" className="hover:text-gray-300 transition-colors">Login</Link>

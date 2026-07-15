@@ -1,5 +1,5 @@
 // components/NavHeader.tsx
-// Shared nav header used by /chat, /evolve, /changelog, and /branches pages.
+// Shared nav header used by /chat, /thread, /changelog, and /threads pages.
 // Displays the "Primordia" title (linked to /), the current git branch name,
 // and nav links.
 
@@ -14,7 +14,7 @@ interface NavHeaderProps {
    * Which page we're currently on — used to suppress self-referential nav
    * links (e.g. don't show "Changelog" link on the changelog page itself).
    */
-  currentPage?: "changelog" | "branches" | "admin" | "api-docs" | "settings";
+  currentPage?: "changelog" | "threads" | "admin" | "api-docs" | "settings";
 }
 
 export function NavHeader({
@@ -44,10 +44,10 @@ export function NavHeader({
             </Link>
           </>
         )}
-        {currentPage !== "branches" && (
+        {currentPage !== "threads" && (
           <>
             {" "}·{" "}
-            <Link data-id="nav/branches-link" href="/branches" className="text-blue-400 hover:text-blue-300">
+            <Link data-id="nav/threads-link" href="/threads" className="text-blue-400 hover:text-blue-300">
               Threads
             </Link>
           </>

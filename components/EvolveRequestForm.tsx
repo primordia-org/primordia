@@ -1,7 +1,7 @@
 "use client";
 
 // components/EvolveRequestForm.tsx
-// Shared evolve request form body used by the /evolve page, the floating
+// Shared evolve request form body used by the /thread page, the floating
 // dialog, and the follow-up panel on session detail pages.
 //
 // The Crosshair button (in the action row) activates a full-screen element
@@ -114,7 +114,7 @@ interface EvolveRequestFormProps {
   defaultModel?: string;
   /**
    * Sticky preference loaded server-side at page render time.
-   * Used by the /evolve page and the floating Propose-a-Change dialog.
+   * Used by the /thread page and the floating Propose-a-Change dialog.
    * Ignored when `defaultHarness` is also supplied.
    * The preference is saved back to the DB when the form is submitted
    * (handled server-side in POST /api/thread — not by this component).

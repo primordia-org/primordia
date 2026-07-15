@@ -1,4 +1,4 @@
-// app/api/branches/parent-source/route.ts
+// app/api/threads/parent-source/route.ts
 // Stores the current user's branch parent metadata source preference.
 
 import { getSessionUser } from '@/lib/auth';
@@ -15,8 +15,8 @@ export interface BranchParentSourceBody {
 
 /**
  * Update branch parent source preference
- * @description Switches the current user's Branches page/evolve parent resolver between legacy git-config metadata and branch-marker commit trailers.
- * @tag Branches
+ * @description Switches the current user's Threads page parent resolver between legacy git-config metadata and branch-marker commit trailers.
+ * @tag Threads
  * @body BranchParentSourceBody
  */
 export async function PATCH(request: Request) {

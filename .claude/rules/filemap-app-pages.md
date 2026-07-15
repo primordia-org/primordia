@@ -24,7 +24,7 @@ components/                      ← Shared React components
 ├── LocalizedTimestamp*.tsx      ← Server/client pair for browser-local timestamp hydration
 ├── MarkdownContent.tsx          ← Block-prose markdown renderer with dark styling used on thread pages and changelogs
 ├── ModelPicker.tsx              ← Shared grouped model selector with provider icons and pricing metadata
-├── NavHeader.tsx                ← Shared nav header used by /thread, /changelog, /branches pages
+├── NavHeader.tsx                ← Shared nav header used by /thread, /changelog, /threads pages
 ├── PageElementInspector.tsx     ← Full-screen portal overlay for picking DOM elements with screenshot capture
 ├── PageNavBar.tsx               ← Shared nav header + hamburger for static information pages
 ├── ProgressBar.tsx              ← Shared progress bar primitive
@@ -38,7 +38,7 @@ components/                      ← Shared React components
 
 app/                             ← Next.js App Router
 ├── layout.tsx                   ← Root layout (font, metadata, body styling)
-├── page.tsx                     ← Landing page — marketing/feature overview; links to /evolve and /login
+├── page.tsx                     ← Landing page — marketing/feature overview; links to /thread and /login
 ├── globals.css                  ← Tailwind base imports only
 ├── icon.png                     ← App favicon
 ├── ChangelogNewsticker.tsx      ← Server component: renders recent changelog entries as an animated newsticker
@@ -56,10 +56,10 @@ app/                             ← Next.js App Router
 │   ├── markdown-test/page.tsx   ← Interactive test page for MarkdownContent streaming behavior
 │   ├── sound-test/page.tsx      ← Web Audio API soundboard with oscilloscope and browser diagnostics
 │   └── web-push-test/           ← Web push notification diagnostics and category simulation
-├── branches/                    ← Branch tree page and branch-to-session actions
-│   ├── page.tsx                 ← Server component: git branch tree; publicly viewable; admin-only actions conditionally hidden
+├── threads/                     ← Thread tree page and branch-to-thread actions
+│   ├── page.tsx                 ← Server component: git branch/thread tree; publicly viewable; admin-only actions conditionally hidden
 │   ├── BranchParentSourceToggle.tsx ← Client toggle for parent source (`git-config` vs `branch-marker`)
-│   └── CreateSessionFromBranchButton.tsx ← Client component: "+ session" inline form for existing branches
+│   └── CreateSessionFromBranchButton.tsx ← Client component: "+ thread" inline form for existing branches
 ├── changelog/                   ← Runtime changelog reader
 │   ├── page.tsx                 ← Server component: reads changelog/ filenames and lazy-loads bodies
 │   └── ChangelogEntryDetails.tsx ← Client <details> widget; fetches body from /api/changelog on first open
@@ -76,10 +76,10 @@ app/                             ← Next.js App Router
 │   ├── server-health/           ← Disk/memory usage and oldest-worktree cleanup
 │   └── updates/                 ← Upstream update sources fetch/merge UI
 ├── api-docs/                    ← Interactive OpenAPI reference powered by @scalar/api-reference-react
-├── evolve/                      ← Evolve request page
+├── thread/                      ← Thread creation and detail pages
 │   ├── page.tsx                 ← Dedicated "propose a change" page; requires evolve permission
-│   └── EvolveForm.tsx           ← Client wrapper for <EvolveRequestForm>
-├── thread/[id]/                 ← Thread page, live event stream, diff summary, preview browser panel, resize handle
+│   ├── ThreadForm.tsx           ← Client wrapper for <EvolveRequestForm>
+│   └── [id]/                    ← Thread page, live event stream, diff summary, preview browser panel, resize handle
 ├── install.sh/route.ts          ← Returns install.sh with origins/base paths rewritten for the current instance
 ├── login/                       ← Auth provider tab UI plus cross-device approval/receive pages
 ├── settings/                    ← Account settings for billing sources, API keys, Claude/ChatGPT subscriptions, presets, notifications

@@ -2,7 +2,7 @@
 
 // components/CreateSessionFromBranchButton.tsx
 // Button that creates an thread for an existing branch.
-// Shown on the /branches page next to branches that have no active session.
+// Shown on the /threads page next to branches that have no active session.
 // No initial prompt is required — the session starts as an instant preview
 // with the branch code ready to test. Follow-up requests can be submitted
 // from the session view.

@@ -2804,7 +2804,7 @@ export default function ThreadView({
       <div className="flex flex-col gap-2">
         {canEvolve && (
           <div className="flex gap-4">
-            <Link data-id="session/new-request-link" href="/evolve" className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
+            <Link data-id="session/new-request-link" href="/thread" className="text-sm text-gray-400 hover:text-gray-200 transition-colors">
               ← Start another thread
             </Link>
           </div>
@@ -2815,7 +2815,7 @@ export default function ThreadView({
               Changelog
             </Link>
             {" "}·{" "}
-            <Link data-id="session/branches-link" href="/branches" className="text-blue-400 hover:text-blue-300">
+            <Link data-id="session/threads-link" href="/threads" className="text-blue-400 hover:text-blue-300">
               Threads
             </Link>
           </span>

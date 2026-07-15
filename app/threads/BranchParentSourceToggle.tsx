@@ -30,7 +30,7 @@ export function BranchParentSourceToggle({
 
     startTransition(async () => {
       try {
-        const res = await fetch(withBasePath("/api/branches/parent-source"), {
+        const res = await fetch(withBasePath("/api/threads/parent-source"), {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ source: nextSource }),

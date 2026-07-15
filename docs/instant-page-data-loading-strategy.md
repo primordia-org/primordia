@@ -14,7 +14,7 @@ A quick audit shows several client components fetch initial page data after moun
 - `app/admin/git-mirror/GitMirrorClient.tsx` fetches mirror status from `/api/admin/git-mirror`.
 - `app/admin/instance/InstanceConfigClient.tsx` fetches instance config from `/api/instance/config`.
 - `app/settings/*Client.tsx` and `components/SettingsSubNav.tsx` fetch billing-source and preset data after mount.
-- `components/ModelPicker.tsx` and parts of `app/evolve/session/[id]/EvolveSessionView.tsx` fetch model metadata after mount.
+- `components/ModelPicker.tsx` and parts of `app/thread/[id]/ThreadView.tsx` fetch model metadata after mount.
 
 Some client fetches are still appropriate: SSE logs, evolve progress streams, preview server status, file diff expansion, OAuth/device-code polling, and submit/update/delete actions.
 

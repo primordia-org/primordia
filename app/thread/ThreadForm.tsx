@@ -1,8 +1,7 @@
 "use client";
 
-// components/EvolveForm.tsx
-// The "submit a request" page for Primordia's evolve pipeline.
-// Rendered at /evolve — a dedicated page, separate from the main chat interface.
+// app/thread/ThreadForm.tsx
+// The dedicated "submit a request" page body for creating a thread.
 
 import { NavHeader } from "@/components/NavHeader";
 import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
@@ -11,7 +10,7 @@ import { EvolveRequestForm } from "@/components/EvolveRequestForm";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
-interface EvolveFormProps {
+interface ThreadFormProps {
   branch?: string | null;
   initialHarness?: string;
   initialModel?: string;
@@ -21,7 +20,7 @@ interface EvolveFormProps {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function EvolveForm({ branch, initialHarness, initialModel, initialCavemanMode, initialCavemanIntensity }: EvolveFormProps = {}) {
+export default function ThreadForm({ branch, initialHarness, initialModel, initialCavemanMode, initialCavemanIntensity }: ThreadFormProps = {}) {
   const { sessionUser, handleLogout } = useSessionUser();
 
   return (
@@ -34,14 +33,14 @@ export default function EvolveForm({ branch, initialHarness, initialModel, initi
           onLogout={handleLogout}
           items={buildStandardMenuItems({
             isAdmin: sessionUser?.isAdmin ?? false,
-            currentPath: "/evolve",
+            currentPath: "/thread",
           })}
         />
       </header>
 
       {/* Description banner */}
       <div className="mb-6 px-4 py-3 rounded-lg bg-amber-900/40 border border-amber-700/50 text-amber-300 text-sm">
-        <strong className="font-semibold">Evolve Primordia</strong> —{" "}
+        <strong className="font-semibold">Start a thread</strong> —{" "}
         Describe a change you want to make to this app.
       </div>
 

@@ -2,14 +2,14 @@
 
 // components/PageNavBar.tsx
 // Shared nav header + hamburger menu for pages that are not the primary chat
-// or evolve views (currently: /changelog and /branches).
+// or thread views (currently: /changelog and /threads).
 //
 // The hamburger menu is session-aware:
 //   • Not logged in  → menu button is hidden entirely.
 //   • Logged in      → menu button shown; dropdown contains sign-out and
 //                      quick-navigation links.
 //
-// This keeps the navbar consistent with ChatInterface and EvolveForm while
+// This keeps the navbar consistent with primary thread UI while
 // ensuring visitors without an account see a clean, uncluttered header.
 //
 // Performance: Server Component pages can pass `initialSession` (resolved
@@ -34,7 +34,7 @@ interface PageNavBarProps {
    * Which page we're on — suppresses the self-referential nav link in
    * NavHeader's subtitle and the corresponding dropdown item.
    */
-  currentPage?: "changelog" | "branches" | "admin" | "settings";
+  currentPage?: "changelog" | "threads" | "admin" | "settings";
   /**
    * Session user resolved server-side and passed as a prop, so the
    * hamburger menu appears immediately without a client-side fetch.

@@ -181,7 +181,7 @@ export default function MarkdownTestPage() {
         {error && <span className="text-red-400">{error}</span>}
       </div>
 
-      {/* ── Main content — mirrors EvolveSessionView card layout ─────────── */}
+      {/* ── Main content — mirrors ThreadView card layout ─────────── */}
       <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 max-w-4xl mx-auto w-full">
         <div
           className={`rounded-lg border bg-gray-900 text-sm overflow-hidden ${

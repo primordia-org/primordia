@@ -315,7 +315,7 @@ export default function AnsiTestPage() {
             )}
           </h2>
 
-          {/* Mirrors the deploy section card style in EvolveSessionView */}
+          {/* Mirrors the deploy section card style in ThreadView */}
           <div className="rounded-lg border border-gray-700 bg-gray-900 overflow-hidden">
             <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
               <span className="font-semibold text-xs text-gray-300">

@@ -1,4 +1,4 @@
-// app/branches/page.tsx
+// app/threads/page.tsx
 // Shows local branches as a git log --graph-inspired view. Production history
 // and active branch descendants are rendered as one connected graph, with newer
 // branch tips above their parents so the graph visually grows upward.
@@ -448,7 +448,7 @@ function GitResultRow({
 
 // ─── Page ───────────────────────────────────────────────────────────────────────
 
-export default async function BranchesPage() {
+export default async function ThreadsPage() {
   const user = await getSessionUser();
   const [userIsAdmin, userCanEvolve, evolvePrefs, parentSource] = user
     ? await Promise.all([isAdmin(user.id), hasEvolvePermission(user.id), getEvolvePrefs(user.id), getBranchParentSource(user.id)])
@@ -473,7 +473,7 @@ export default async function BranchesPage() {
       {/* Header */}
       <PageNavBar
         subtitle="Threads"
-        currentPage="branches"
+        currentPage="threads"
         initialSession={sessionUser}
         initialHarness={evolvePrefs?.initialHarness}
         initialModel={evolvePrefs?.initialModel}

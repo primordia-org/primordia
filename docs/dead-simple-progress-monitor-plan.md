@@ -8,7 +8,7 @@ The target is a compact run card with agent name/model, run state, weighted prog
 
 ## Design principles
 
-1. **Progress overhead must stay smaller than the work.** Do not create steps for one-line chores such as `bun run set-preview-url /evolve` or checking `git status`.
+1. **Progress overhead must stay smaller than the work.** Do not create steps for one-line chores such as `bun run set-preview-url /thread` or checking `git status`.
 2. **Operate on the current step.** Agents do not name a step when updating progress; the monitor already knows which step is current.
 3. **The first step is always `Make a plan`.** Primordia creates it automatically for each agent run.
 4. **Future work is replaceable; completed work is append-only.** Agents may insert or replace upcoming steps, but finished or failed steps remain in the log.
@@ -51,7 +51,7 @@ bun run progress step done
 # stdout: step 'Implement changes' done. step 'Validate changes' active. 3/5 complete, 67% weighted.
 
 # Include one-liners such as set-preview-url inside the nearest real step.
-bun run set-preview-url /evolve
+bun run set-preview-url /thread
 bun run progress step done
 # stdout: step 'Validate changes' done. step 'Finish up' active. 4/5 complete, 89% weighted.
 
@@ -219,7 +219,7 @@ Inject the same instruction into Pi, Claude Code, and Codex workers:
 
 ## UI rendering rules
 
-Update `EvolveSessionView` to prefer `progress_*` events:
+Update `ThreadView` to prefer `progress_*` events:
 
 1. Initialize each agent section with `Make a plan` active.
 2. Apply later `progress_plan` and `progress_step` events with the reducer above.

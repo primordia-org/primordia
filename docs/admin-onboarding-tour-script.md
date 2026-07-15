@@ -169,7 +169,7 @@ The first user to register is automatically granted both `admin` and `can_evolve
 
 ### Step 12 — The evolve form
 
-- **Anchor:** evolve dialog (floating or `/evolve` page) — highlight the text area
+- **Anchor:** evolve dialog (floating or `/thread` page) — highlight the text area
 - **[TOOLTIP]:**
   > **Describe what you want** in plain English — as specific or as vague as you like.
   >

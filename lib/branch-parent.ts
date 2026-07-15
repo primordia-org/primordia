@@ -185,7 +185,7 @@ export function getParentBranch(
 
 /**
  * Returns immutable branch ancestry according to the selected source.
- * Used by the /branches tree to show original parentage.
+ * Used by the /threads tree to show original parentage.
  */
 export function getBranchParent(
   branch: string,

@@ -65,7 +65,7 @@ interface HamburgerMenuProps {
 }
 
 /**
- * Returns the standard set of navigation items (Propose a change, Branches,
+ * Returns the standard set of navigation items (Propose a change, Threads,
  * Admin) shared by all primary app pages. Any item whose `href` matches
  * `currentPath` is omitted, so the menu never links to the page you're already on.
  */
@@ -76,22 +76,22 @@ export function buildStandardMenuItems({
 }: {
   isAdmin: boolean;
   currentPath?: string;
-  /** When provided, "Propose a change" opens this callback instead of navigating to /evolve. */
+  /** When provided, "Propose a change" opens this callback instead of navigating to /thread. */
   onEvolveClick?: () => void;
 }): MenuItem[] {
   const items: MenuItem[] = [
     {
       label: "Propose a change",
       className: "hover:text-amber-400",
-      ...(onEvolveClick ? { onClick: onEvolveClick } : { href: "/evolve" }),
+      ...(onEvolveClick ? { onClick: onEvolveClick } : { href: "/thread" }),
       dataId: "nav-menu/propose-change",
       icon: <Edit size={16} strokeWidth={2} aria-hidden="true" />,
     },
     {
       label: "Threads",
       className: "hover:text-green-400",
-      href: "/branches",
-      dataId: "nav-menu/branches",
+      href: "/threads",
+      dataId: "nav-menu/threads",
       icon: <GitBranch size={16} strokeWidth={2} aria-hidden="true" />,
     },
   ];
