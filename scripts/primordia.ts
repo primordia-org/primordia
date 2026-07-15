@@ -227,8 +227,8 @@ async function handleCreate(args: Args): Promise<void> {
     detachBackgroundRunner: true,
   });
   if (!result.ok) throw new Error(result.error ?? `evolve session creation failed (${result.status})`);
-  if (args.json) printJson({ ok: true, command: 'create', sessionId: result.sessionId, background: true });
-  else console.log(`Thread started.\nThread ID: ${result.sessionId}\nOpen /evolve/session/${result.sessionId}`);
+  if (args.json) printJson({ ok: true, command: 'create', sessionId: result.sessionId, worktreePath: result.worktreePath, background: true });
+  else console.log(`New thread started in ${result.worktreePath}`);
 }
 
 async function handleFollowup(args: Args): Promise<void> {
