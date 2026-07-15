@@ -16,9 +16,10 @@ import {
 } from '@/lib/process-manager';
 import { createThread, followupThread } from '@/lib/threads';
 import { getDb } from '@/lib/db';
+import { copyProductionDbToWorktree } from '@/lib/production-db-copy';
 
 interface Args {
-  command: 'status' | 'start' | 'stop' | 'restart' | 'logs' | 'publish' | 'create' | 'followup' | null;
+  command: 'status' | 'start' | 'stop' | 'restart' | 'logs' | 'publish' | 'copydb' | 'create' | 'followup' | null;
   json: boolean;
   follow: boolean;
   worktreeName: string | null;
@@ -36,6 +37,7 @@ function printUsage(): void {
   bun run primordia restart [--dev|--prod] [--json] [--worktree <worktreename>]
   bun run primordia logs [--follow] [--json] [--worktree <worktreename>]
   bun run primordia publish [--json] [--worktree <worktreename>]
+  bun run primordia copydb [--json] [--worktree <worktreename>]
   bun run primordia create [--user <id-or-username>] [--preset <id>] "change request"
   bun run primordia followup [--user <id-or-username>] [--preset <id>] "follow-up request"
 
@@ -46,6 +48,7 @@ Commands:
   restart     Stop, then start, a worktree's server.
   logs        Print a worktree's server log file.
   publish     Health-check, then mark a worktree branch as production.
+  copydb      VACUUM-copy the production SQLite DB into a worktree.
   create      Create a thread and run its initial agent turn.
   followup    Run a follow-up request on the cwd's thread.
 
@@ -105,7 +108,7 @@ function parseArgs(argv: string[]): Args {
     } else if (arg === '--help' || arg === '-h') {
       printUsage();
       process.exit(0);
-    } else if ((arg === 'status' || arg === 'start' || arg === 'stop' || arg === 'restart' || arg === 'logs' || arg === 'publish' || arg === 'create' || arg === 'followup') && !args.command) {
+    } else if ((arg === 'status' || arg === 'start' || arg === 'stop' || arg === 'restart' || arg === 'logs' || arg === 'publish' || arg === 'copydb' || arg === 'create' || arg === 'followup') && !args.command) {
       args.command = arg;
     } else if (arg.startsWith('--')) {
       throw new Error(`Unknown argument: ${arg}`);
@@ -237,6 +240,24 @@ async function handleFollowup(args: Args): Promise<void> {
   else console.log(`Follow-up complete for ${threadId}.`);
 }
 
+async function copyProductionDb(worktreeName: string, report: ProcessStatusReport, json: boolean): Promise<void> {
+  const worktree = report.worktrees.find((entry) =>
+    entry.branch === worktreeName || path.basename(entry.path) === worktreeName || entry.path === worktreeName,
+  );
+  if (!worktree) throw new Error(`No worktree found for '${worktreeName}'`);
+  if (!worktree.branch) throw new Error(`Worktree '${worktree.path}' is detached and cannot receive a production DB copy`);
+
+  const result = await copyProductionDbToWorktree(process.cwd(), worktree.path);
+  if (json) {
+    printJson(result);
+  } else if (result.copied) {
+    console.log(`Copied production DB from ${result.sourcePath} to ${result.destinationPath}`);
+  } else {
+    console.error(`Failed to copy production DB to ${result.destinationPath}: ${result.error ?? 'unknown error'}`);
+  }
+  if (!result.copied) process.exit(1);
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
@@ -257,11 +278,14 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (args.command === 'start' || args.command === 'stop' || args.command === 'restart' || args.command === 'logs' || args.command === 'publish') {
+  if (args.command === 'start' || args.command === 'stop' || args.command === 'restart' || args.command === 'logs' || args.command === 'publish' || args.command === 'copydb') {
     const report = getProcessStatusReport();
     const worktreeName = resolveWorktreeName(args.worktreeName, report);
 
-    if (args.command === 'publish') {
+    if (args.command === 'copydb') {
+      if (args.follow) throw new Error('--follow is only supported for logs');
+      await copyProductionDb(worktreeName, report, args.json);
+    } else if (args.command === 'publish') {
       if (args.follow) throw new Error('--follow is only supported for logs');
       const result = await publishProductionBranch(worktreeName);
       if (args.json) printJson(result);

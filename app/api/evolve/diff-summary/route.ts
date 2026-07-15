@@ -13,6 +13,20 @@ import { getSessionUser } from "@/lib/auth";
 import { getParentBranch } from "@/lib/branch-parent";
 import { getBranchParentSource } from "@/lib/user-prefs";
 
+function getRenamePathsFromNumstatFile(file: string): { oldPath: string; newPath: string } | null {
+  if (!file.includes(" => ")) return null;
+
+  const oldPath = file.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, "$1");
+  const newPath = file.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, "$2");
+  if (oldPath !== file || newPath !== file) return { oldPath, newPath };
+
+  const separator = file.lastIndexOf(" => ");
+  return {
+    oldPath: file.slice(0, separator).trim(),
+    newPath: file.slice(separator + " => ".length).trim(),
+  };
+}
+
 /**
  * Get diff summary for a thread
  * @description Returns per-file additions/deletions for all files changed in the thread vs its parent. Pass `sessionId` as the thread id query parameter.
@@ -37,16 +51,16 @@ export async function GET(req: NextRequest) {
     const parentBranch = getParentBranch(session.branch, undefined, parentSource);
 
     if (!parentBranch) {
-      return NextResponse.json({ files: [] });
+      return NextResponse.json({ files: [] }, { headers: { "Cache-Control": "no-cache" } });
     }
 
     const output = execSync(
-      `git diff --numstat -w ${parentBranch}...${session.branch}`,
+      `git diff --numstat -M -w ${parentBranch}...${session.branch}`,
       { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
     ).trim();
 
     if (!output) {
-      return NextResponse.json({ files: [] });
+      return NextResponse.json({ files: [] }, { headers: { "Cache-Control": "no-cache" } });
     }
 
     const files: DiffFileSummary[] = output.split("\n").flatMap((line) => {
@@ -54,15 +68,17 @@ export async function GET(req: NextRequest) {
       if (parts.length < 3) return [];
       const file = parts[2].trim();
       if (!file) return [];
+      const renamePaths = getRenamePathsFromNumstatFile(file);
       return [{
         additions: parseInt(parts[0], 10) || 0,
         deletions: parseInt(parts[1], 10) || 0,
         file,
+        ...(renamePaths ? { diffPath: renamePaths.newPath, oldPath: renamePaths.oldPath } : {}),
       }];
     });
 
-    return NextResponse.json({ files });
+    return NextResponse.json({ files }, { headers: { "Cache-Control": "no-cache" } });
   } catch {
-    return NextResponse.json({ files: [] });
+    return NextResponse.json({ files: [] }, { headers: { "Cache-Control": "no-cache" } });
   }
 }

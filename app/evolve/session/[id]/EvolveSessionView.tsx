@@ -1744,6 +1744,7 @@ export default function EvolveSessionView({
   const [liveDiffSummary, setLiveDiffSummary] = useState<DiffFileSummary[]>(diffSummary);
   const [isDiffSummaryRefreshing, setIsDiffSummaryRefreshing] = useState(false);
   const [diffSummaryError, setDiffSummaryError] = useState<string | null>(null);
+  const [diffRefreshToken, setDiffRefreshToken] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   /** Tracks how many NDJSON lines the client has received, for SSE reconnection offset. */
   const lineCountRef = useRef(initialLineCount);
@@ -1854,10 +1855,16 @@ export default function EvolveSessionView({
     setIsDiffSummaryRefreshing(true);
     setDiffSummaryError(null);
     try {
-      const res = await fetch(withBasePath(`/api/evolve/diff-summary?sessionId=${sessionId}`));
+      const res = await fetch(
+        withBasePath(`/api/evolve/diff-summary?sessionId=${sessionId}`),
+        { cache: "no-cache" },
+      );
       if (!res.ok) throw new Error(`Refresh failed (${res.status})`);
       const data = await res.json() as { files?: DiffFileSummary[] };
-      if (data.files) setLiveDiffSummary(data.files);
+      if (data.files) {
+        setLiveDiffSummary(data.files);
+        setDiffRefreshToken((value) => value + 1);
+      }
     } catch (error) {
       setDiffSummaryError(error instanceof Error ? error.message : "Could not refresh changed files.");
     } finally {
@@ -1869,7 +1876,7 @@ export default function EvolveSessionView({
   // diff summary so the "Files changed" section reflects the latest commits.
   useEffect(() => {
     if (status !== "ready") return;
-    void refreshDiffSummary();
+    queueMicrotask(() => void refreshDiffSummary());
   }, [status, refreshDiffSummary]);
 
   // Reconnect / restart streaming when the tab regains focus, in case the
@@ -2436,12 +2443,15 @@ export default function EvolveSessionView({
                 </p>
               ) : liveDiffSummary.map((f, i) => (
                 <DiffFileExpander
-                  key={i}
+                  key={f.file}
                   sessionId={sessionId}
                   file={f.file}
+                  diffPath={f.diffPath}
+                  oldPath={f.oldPath}
                   additions={f.additions}
                   deletions={f.deletions}
                   isLast={i === liveDiffSummary.length - 1}
+                  refreshToken={diffRefreshToken}
                 />
               ))}
             </div>
