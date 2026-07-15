@@ -3,7 +3,6 @@ import { getDb } from '@/lib/db';
 import { publicRevokableAesKey } from '@/lib/cli-keys';
 
 const SHORT_ID_ALPHABET = 'abcdefghijkmnopqrstuvwxyz23456789';
-const DEFAULT_EXPIRES_IN_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_EXPIRES_IN_MS = 366 * 24 * 60 * 60 * 1000;
 
 function randomShortId(): string {
@@ -22,11 +21,14 @@ async function uniqueShortId(): Promise<string> {
   throw new Error('Could not allocate a unique CLI key id.');
 }
 
-function normalizeExpiresAt(value: unknown): number {
+function validateExpiresAt(value: unknown): { ok: true; expiresAt: number } | { ok: false; error: string } {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return { ok: false, error: 'expiresAt must be a numeric timestamp.' };
+  }
   const now = Date.now();
-  const parsed = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(parsed)) return now + DEFAULT_EXPIRES_IN_MS;
-  return Math.min(Math.max(parsed, now + 60_000), now + MAX_EXPIRES_IN_MS);
+  if (value < now + 60_000) return { ok: false, error: 'expiresAt must be at least one minute in the future.' };
+  if (value > now + MAX_EXPIRES_IN_MS) return { ok: false, error: 'expiresAt cannot be more than 366 days in the future.' };
+  return { ok: true, expiresAt: Math.floor(value) };
 }
 
 export async function GET() {
@@ -50,6 +52,9 @@ export async function POST(request: Request) {
     return Response.json({ error: 'encryptedAesKey and signature are required' }, { status: 400 });
   }
 
+  const expiresAt = validateExpiresAt(record.expiresAt);
+  if (!expiresAt.ok) return Response.json({ error: expiresAt.error }, { status: 400 });
+
   const now = Date.now();
   const db = await getDb();
   const shortId = await uniqueShortId();
@@ -61,7 +66,7 @@ export async function POST(request: Request) {
     scopes: Array.isArray(record.scopes) ? record.scopes.join(' ') : '',
     note: typeof record.note === 'string' && record.note.trim() ? record.note.trim().slice(0, 160) : null,
     encryptedAesKey,
-    expiresAt: normalizeExpiresAt(record.expiresAt),
+    expiresAt: expiresAt.expiresAt,
     signature,
     createdAt: now,
   });
@@ -74,10 +79,12 @@ export async function PATCH(request: Request) {
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });
   const body = (await request.json().catch(() => null)) as { shortId?: string; expiresAt?: number } | null;
   if (!body?.shortId) return Response.json({ error: 'shortId required' }, { status: 400 });
+  const expiresAt = validateExpiresAt(body.expiresAt);
+  if (!expiresAt.ok) return Response.json({ error: expiresAt.error }, { status: 400 });
   const db = await getDb();
   const existing = await db.getRevokableAesKey(body.shortId);
   if (!existing || existing.userId !== user.id || existing.client !== 'cli') return Response.json({ error: 'CLI key not found' }, { status: 404 });
-  await db.updateRevokableAesKeyExpiration(user.id, body.shortId, normalizeExpiresAt(body.expiresAt));
+  await db.updateRevokableAesKeyExpiration(user.id, body.shortId, expiresAt.expiresAt);
   const updated = await db.getRevokableAesKey(body.shortId);
   return Response.json({ key: updated ? publicRevokableAesKey(updated) : null });
 }

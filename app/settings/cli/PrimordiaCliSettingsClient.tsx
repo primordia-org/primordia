@@ -35,6 +35,14 @@ function validStoredAesKey(value: string | null): value is string {
   }
 }
 
+function parseExpirationDays(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 366) return null;
+  return parsed;
+}
+
 async function sha256Base64Url(value: string): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return new Uint8Array(bytes).toBase64({ alphabet: "base64url", omitPadding: true });
@@ -78,6 +86,8 @@ export default function PrimordiaCliSettingsClient() {
   const [error, setError] = useState<string | null>(null);
 
   const validKey = validStoredAesKey(aesKey);
+  const parsedDays = parseExpirationDays(days);
+  const daysError = parsedDays === null ? "Enter a whole number of days from 1 to 366." : null;
   const assignment = useMemo(() => (createdSecret ? `PRIMORDIA_CLI_KEY=${shellSingleQuote(createdSecret)}` : ""), [createdSecret]);
   const exportCommand = useMemo(() => (assignment ? `export ${assignment}` : ""), [assignment]);
 
@@ -103,7 +113,8 @@ export default function PrimordiaCliSettingsClient() {
     setError(null);
     setCreatedSecret(null);
     try {
-      const expiresAt = Date.now() + Math.max(1, Math.min(366, Number(days) || 30)) * 24 * 60 * 60 * 1000;
+      if (parsedDays === null) throw new Error("Enter a whole number of expiration days from 1 to 366.");
+      const expiresAt = Date.now() + parsedDays * 24 * 60 * 60 * 1000;
       const payload = await createCliKeyPayload(aesKey, note.trim(), expiresAt);
       const res = await fetch(withBasePath("/api/settings/cli-keys"), {
         method: "POST",
@@ -184,12 +195,15 @@ export default function PrimordiaCliSettingsClient() {
             <h2 className="text-sm font-medium text-gray-200">Create a CLI key</h2>
             <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto_auto]">
               <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note, e.g. laptop shell" className="rounded-lg border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500" />
-              <label className="flex items-center gap-2 text-sm text-gray-300">
-                Expires in
-                <input value={days} onChange={(e) => setDays(e.target.value)} type="number" min={1} max={366} className="w-20 rounded-lg border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500" />
-                days
+              <label className="flex flex-col gap-1 text-sm text-gray-300">
+                <span className="flex items-center gap-2">
+                  Expires in
+                  <input value={days} onChange={(e) => setDays(e.target.value)} inputMode="numeric" pattern="[0-9]*" aria-invalid={!!daysError} aria-describedby={daysError ? "cli-key-days-error" : undefined} className={`w-20 rounded-lg border bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500 ${daysError ? "border-red-700" : "border-gray-700"}`} />
+                  days
+                </span>
+                {daysError && <span id="cli-key-days-error" className="text-xs text-red-300">{daysError}</span>}
               </label>
-              <button type="button" onClick={createKey} disabled={busy === "create"} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50">
+              <button type="button" onClick={createKey} disabled={busy === "create" || !!daysError} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50">
                 {busy === "create" ? "Creating…" : "Create key"}
               </button>
             </div>
