@@ -221,7 +221,7 @@ async function handleCreate(args: Args): Promise<void> {
   });
   if (!result.ok) throw new Error(result.error ?? `evolve session creation failed (${result.status})`);
   if (args.json) printJson({ ok: true, command: 'create', sessionId: result.sessionId, background: true });
-  else console.log(`Thread ${result.sessionId} started. Open /evolve/session/${result.sessionId}`);
+  else console.log(`Thread started.\nThread ID: ${result.sessionId}\nOpen /evolve/session/${result.sessionId}`);
 }
 
 async function handleFollowup(args: Args): Promise<void> {
