@@ -285,8 +285,17 @@ function filterCompletions(completions: string[], current: string): string[] {
 export function renderBashCompletion(commandName: string): string {
   const functionName = `_${commandName.replace(/[^a-zA-Z0-9_]/g, '_')}_completion`;
   return [
+    '# Keep colon-containing values like builtin:claude-code-gateway as one completion word.',
+    'COMP_WORDBREAKS="${COMP_WORDBREAKS//:}"',
     `${functionName}() {`,
-    '  mapfile -t COMPREPLY < <(COMP_CWORD="$COMP_CWORD" bun run --silent ' + commandName + ' __complete -- "${COMP_WORDS[@]:1}")',
+    '  local line words cword',
+    '  line="${COMP_LINE:0:COMP_POINT}"',
+    '  read -r -a words <<< "$line"',
+    '  if [[ "$line" =~ [[:space:]]$ ]]; then',
+    '    words+=("")',
+    '  fi',
+    '  cword=$((${#words[@]} - 1))',
+    '  mapfile -t COMPREPLY < <(COMP_CWORD="$cword" bun run --silent ' + commandName + ' __complete -- "${words[@]:1}")',
     '}',
     `complete -F ${functionName} ${commandName}`,
     '',
