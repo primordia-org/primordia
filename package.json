@@ -33,6 +33,7 @@
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.0",
     "@zumer/snapdom": "^2.8.0",
+    "citty": "^0.2.2",
     "clsx": "^2.1.1",
     "lucide-react": "^1.8.0",
     "minimatch": "^10.2.5",
