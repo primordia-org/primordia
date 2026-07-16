@@ -132,7 +132,11 @@ export function renderCliHelp(root: CliCommandDef): string {
 
   lines.push('');
   lines.push('Completion:');
-  lines.push('  bun run primordia completion bash');
+  lines.push('  Print the bash completion script:');
+  lines.push('    bun run primordia completion bash');
+  lines.push('  Enable it for the current shell:');
+  lines.push('    source <(bun run --silent primordia completion bash)');
+  lines.push('  To enable it for future shells, add that source line to ~/.bashrc.');
   lines.push('');
   lines.push('Notes:');
   lines.push(wrapText("  Thread and server commands resolve the current thread from cwd. Run them from inside a thread worktree.", ''));
@@ -282,7 +286,7 @@ export function renderBashCompletion(commandName: string): string {
   const functionName = `_${commandName.replace(/[^a-zA-Z0-9_]/g, '_')}_completion`;
   return [
     `${functionName}() {`,
-    '  mapfile -t COMPREPLY < <(COMP_CWORD="$COMP_CWORD" bun run ' + commandName + ' __complete -- "${COMP_WORDS[@]:1}")',
+    '  mapfile -t COMPREPLY < <(COMP_CWORD="$COMP_CWORD" bun run --silent ' + commandName + ' __complete -- "${COMP_WORDS[@]:1}")',
     '}',
     `complete -F ${functionName} ${commandName}`,
     '',
