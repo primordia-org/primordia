@@ -20,12 +20,9 @@ import { getDb } from '@/lib/db';
 import { copyProductionDbToWorktree } from '@/lib/production-db-copy';
 import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
 
-const packageJson = JSON.parse(fs.readFileSync(path.join(import.meta.dir, '..', 'package.json'), 'utf8')) as { version?: string };
-
 type UserSelectorArgs = { user?: string };
 type JsonArgs = { json?: boolean };
-type WorktreeArgs = { worktree?: string };
-type ModeArgs = { mode?: ServerStartMode; dev?: boolean; prod?: boolean };
+type ModeArgs = { dev?: boolean; prod?: boolean };
 type PresetArgs = { preset?: string };
 type CittyArgs = Record<string, unknown> & { _: string[] };
 
@@ -33,14 +30,6 @@ const jsonArg = {
   json: {
     type: 'boolean',
     description: 'Print machine-readable JSON.',
-  },
-} satisfies ArgsDef;
-
-const worktreeArg = {
-  worktree: {
-    type: 'string',
-    valueHint: 'worktreename',
-    description: 'Worktree branch, basename, or path. Defaults to the worktree containing cwd.',
   },
 } satisfies ArgsDef;
 
@@ -81,7 +70,7 @@ const requestArg = {
 } satisfies ArgsDef;
 
 const MISSING_CLI_KEY_MESSAGE =
-  'PRIMORDIA_CLI_KEY is required for `primordia create`, `primordia followup`, and `primordia accept`. ' +
+  'PRIMORDIA_CLI_KEY is required for `primordia thread create`, `primordia thread followup`, and `primordia thread accept`. ' +
   'Open Settings → Primordia CLI in the web app (/settings/cli), create a CLI key, copy the one-time `PRIMORDIA_CLI_KEY=...` value, and export it in this shell before retrying.';
 
 function printJson(value: unknown): void {
@@ -116,7 +105,7 @@ function rejectUnknownOptions(rawArgs: string[], argsDef: ArgsDef): void {
       const def = knownLongNames.get(name);
       if (!def) throw new Error(`Unknown option: --${rawName}`);
       if (negated && def.type !== 'boolean') throw new Error(`--${rawName} is only valid for boolean options`);
-      if ((def.type === 'string' || def.type === 'enum')) {
+      if (def.type === 'string' || def.type === 'enum') {
         if (token.includes('=')) {
           if (!inlineValue) throw new Error(`--${name} requires a value`);
         } else {
@@ -166,7 +155,7 @@ function realpathIfExists(filePath: string): string {
   }
 }
 
-function resolveDefaultWorktreeName(report: ProcessStatusReport, cwd = process.cwd()): string {
+function resolveCurrentThread(report: ProcessStatusReport, cwd = process.cwd()): { threadId: string; path: string } {
   const resolvedCwd = realpathIfExists(cwd);
   const matches = report.worktrees
     .map((worktree) => ({ ...worktree, resolvedPath: realpathIfExists(worktree.path) }))
@@ -174,13 +163,13 @@ function resolveDefaultWorktreeName(report: ProcessStatusReport, cwd = process.c
     .sort((a, b) => b.resolvedPath.length - a.resolvedPath.length);
 
   const match = matches[0];
-  if (!match) throw new Error('cwd is not inside a Primordia worktree; pass --worktree <worktreename>');
-  if (!match.branch) throw new Error(`cwd is inside detached worktree ${match.path}; pass --worktree <worktreename>`);
-  return match.branch;
+  if (!match) throw new Error('cwd is not inside a Primordia thread worktree; cd into a thread worktree first');
+  if (!match.branch) throw new Error(`cwd is inside detached worktree ${match.path}; cd into a branch-backed thread worktree first`);
+  return { threadId: match.branch, path: match.path };
 }
 
-function resolveWorktreeName(explicitName: string | undefined, report: ProcessStatusReport): string {
-  return explicitName ?? resolveDefaultWorktreeName(report);
+function resolveCurrentThreadId(): string {
+  return resolveCurrentThread(getProcessStatusReport()).threadId;
 }
 
 function resolveStartMode(args: ModeArgs): ServerStartMode {
@@ -194,17 +183,17 @@ function renderStatus(json: boolean | undefined): void {
   else console.log(formatProcessStatusReport(report));
 }
 
-async function renderLogs(worktreeName: string, json: boolean | undefined, follow: boolean | undefined): Promise<void> {
+async function renderLogs(threadId: string, json: boolean | undefined, follow: boolean | undefined): Promise<void> {
   if (json) {
     if (follow) throw new Error('--json and --follow cannot be combined');
-    printJson(readWorktreeLogLines(worktreeName));
+    printJson(readWorktreeLogLines(threadId));
     return;
   }
 
-  const lines = readWorktreeLogLines(worktreeName);
+  const lines = readWorktreeLogLines(threadId);
   if (lines.length > 0) console.log(lines.join('\n'));
   if (follow) {
-    for await (const chunk of followWorktreeLog(worktreeName)) {
+    for await (const chunk of followWorktreeLog(threadId)) {
       process.stdout.write(chunk);
     }
   }
@@ -257,10 +246,6 @@ async function resolveCliUser(selector: string | undefined): Promise<{ id: strin
   throw new Error('Multiple Primordia users exist; pass --user <id-or-username>.');
 }
 
-function resolveDefaultThreadId(): string {
-  return resolveDefaultWorktreeName(getProcessStatusReport());
-}
-
 async function handleCreate(args: CittyArgs & JsonArgs & PresetArgs & UserSelectorArgs): Promise<void> {
   const requestText = await readRequest(args);
   const { user, primordiaAesKey } = await resolveCliAuth(args.user);
@@ -272,14 +257,14 @@ async function handleCreate(args: CittyArgs & JsonArgs & PresetArgs & UserSelect
     runInBackground: false,
   });
   if (!result.ok) throw cliSecretError(result.error, `thread creation failed (${result.status})`);
-  if (args.json) printJson({ ok: true, command: 'create', threadId: result.sessionId, worktreePath: result.worktreePath, background: true });
+  if (args.json) printJson({ ok: true, command: 'thread create', threadId: result.sessionId, worktreePath: result.worktreePath, background: true });
   else console.log(`New thread started in ${result.worktreePath}`);
 }
 
 async function handleFollowup(args: CittyArgs & JsonArgs & PresetArgs & UserSelectorArgs): Promise<void> {
   const requestText = await readRequest(args);
   const { user, primordiaAesKey } = await resolveCliAuth(args.user);
-  const threadId = resolveDefaultThreadId();
+  const threadId = resolveCurrentThreadId();
   const result = await followupThread({
     userId: user.id,
     threadId,
@@ -289,31 +274,29 @@ async function handleFollowup(args: CittyArgs & JsonArgs & PresetArgs & UserSele
     runInBackground: false,
   });
   if (!result.ok) throw cliSecretError(result.error, 'follow-up failed');
-  if (args.json) printJson({ ok: true, command: 'followup', thread: threadId, background: true });
+  if (args.json) printJson({ ok: true, command: 'thread followup', thread: threadId, background: true });
   else console.log(`Follow-up started for ${threadId}.`);
 }
 
-async function handleUpdate(args: CittyArgs & JsonArgs & WorktreeArgs & UserSelectorArgs): Promise<void> {
+async function handleUpdate(args: CittyArgs & JsonArgs & UserSelectorArgs): Promise<void> {
   rejectUnexpectedRequestText(args, 'update');
   const user = await resolveCliUser(args.user);
-  const report = getProcessStatusReport();
-  const threadId = resolveWorktreeName(args.worktree, report);
+  const threadId = resolveCurrentThreadId();
   const result = await updateThread({ userId: user.id, threadId });
   if (!result.ok) throw new Error(result.error);
-  if (args.json) printJson({ ok: true, command: 'update', thread: threadId, outcome: result.outcome, log: result.log });
+  if (args.json) printJson({ ok: true, command: 'thread update', thread: threadId, outcome: result.outcome, log: result.log });
   else {
     console.log(`Updated ${threadId}: ${result.outcome}.`);
     if (result.log.trim()) console.log(result.log.trim());
   }
 }
 
-async function handleDecision(args: CittyArgs & JsonArgs & WorktreeArgs & UserSelectorArgs, action: 'accept' | 'reject'): Promise<void> {
+async function handleDecision(args: CittyArgs & JsonArgs & UserSelectorArgs, action: 'accept' | 'reject'): Promise<void> {
   rejectUnexpectedRequestText(args, action);
   const auth = action === 'accept'
     ? await resolveCliAuth(args.user)
     : { user: await resolveCliUser(args.user), primordiaAesKey: null };
-  const report = getProcessStatusReport();
-  const threadId = resolveWorktreeName(args.worktree, report);
+  const threadId = resolveCurrentThreadId();
   const result = await manageThread({
     userId: auth.user.id,
     threadId,
@@ -321,7 +304,7 @@ async function handleDecision(args: CittyArgs & JsonArgs & WorktreeArgs & UserSe
     primordiaAesKey: auth.primordiaAesKey,
   });
   if (!result.ok) throw cliSecretError(result.error, 'thread decision failed');
-  if (args.json) printJson({ ok: true, command: action, thread: threadId, outcome: result.outcome });
+  if (args.json) printJson({ ok: true, command: `thread ${action}`, thread: threadId, outcome: result.outcome });
   else console.log(`${action === 'accept' ? 'Accept' : 'Reject'} started for ${threadId}: ${result.outcome}.`);
 }
 
@@ -329,14 +312,8 @@ function rejectUnexpectedRequestText(args: CittyArgs, command: string): void {
   if (args._.length > 0) throw new Error(`${command} does not accept request text`);
 }
 
-async function copyProductionDb(worktreeName: string, report: ProcessStatusReport, json: boolean | undefined): Promise<void> {
-  const worktree = report.worktrees.find((entry) =>
-    entry.branch === worktreeName || path.basename(entry.path) === worktreeName || entry.path === worktreeName,
-  );
-  if (!worktree) throw new Error(`No worktree found for '${worktreeName}'`);
-  if (!worktree.branch) throw new Error(`Worktree '${worktree.path}' is detached and cannot receive a production DB copy`);
-
-  const result = await copyProductionDbToWorktree(process.cwd(), worktree.path);
+async function copyProductionDb(thread: { threadId: string; path: string }, json: boolean | undefined): Promise<void> {
+  const result = await copyProductionDbToWorktree(process.cwd(), thread.path);
   if (json) {
     printJson(result);
   } else if (result.copied) {
@@ -347,17 +324,15 @@ async function copyProductionDb(worktreeName: string, report: ProcessStatusRepor
   if (!result.copied) process.exit(1);
 }
 
-function getWorktreeFromArgs(args: WorktreeArgs): { report: ProcessStatusReport; worktreeName: string } {
-  const report = getProcessStatusReport();
-  return { report, worktreeName: resolveWorktreeName(args.worktree, report) };
+function getCurrentThread(): { threadId: string; path: string } {
+  return resolveCurrentThread(getProcessStatusReport());
 }
 
 const statusArgs = { ...jsonArg } satisfies ArgsDef;
-const startArgs = { ...jsonArg, ...worktreeArg, ...modeArgs } satisfies ArgsDef;
-const worktreeJsonArgs = { ...jsonArg, ...worktreeArg } satisfies ArgsDef;
+const startArgs = { ...jsonArg, ...modeArgs } satisfies ArgsDef;
+const serverJsonArgs = { ...jsonArg } satisfies ArgsDef;
 const logsArgs = {
   ...jsonArg,
-  ...worktreeArg,
   follow: {
     type: 'boolean',
     alias: 'f',
@@ -365,10 +340,10 @@ const logsArgs = {
   },
 } satisfies ArgsDef;
 const requestCommandArgs = { ...jsonArg, ...userArg, ...presetArg, ...requestArg } satisfies ArgsDef;
-const threadWorktreeArgs = { ...jsonArg, ...userArg, ...worktreeArg } satisfies ArgsDef;
+const threadCommandArgs = { ...jsonArg, ...userArg } satisfies ArgsDef;
 
 const statusCommand = defineCommand({
-  meta: { name: 'status', description: 'List reverse proxy, worktrees, Next.js servers, and active agents.' },
+  meta: { name: 'status', description: 'List reverse proxy, threads, Next.js servers, and active agents.' },
   args: statusArgs,
   setup: strictSetup(statusArgs),
   run({ args }) {
@@ -377,70 +352,69 @@ const statusCommand = defineCommand({
 });
 
 const startCommand = defineCommand({
-  meta: { name: 'start', description: "Start a worktree's assigned-port Next.js server." },
+  meta: { name: 'start', description: "Start the thread's Next.js server." },
   args: startArgs,
   setup: strictSetup(startArgs),
   async run({ args }) {
-    const { worktreeName } = getWorktreeFromArgs(args);
-    const result = await startWorktreeServer(worktreeName, resolveStartMode(args));
+    const thread = getCurrentThread();
+    const result = await startWorktreeServer(thread.threadId, resolveStartMode(args));
     if (args.json) printJson(result);
     else console.log(result.message);
   },
 });
 
 const stopCommand = defineCommand({
-  meta: { name: 'stop', description: "Stop a worktree's active server process(es)." },
-  args: worktreeJsonArgs,
-  setup: strictSetup(worktreeJsonArgs),
+  meta: { name: 'stop', description: "Stop the thread's active server process(es)." },
+  args: serverJsonArgs,
+  setup: strictSetup(serverJsonArgs),
   async run({ args }) {
-    const { worktreeName } = getWorktreeFromArgs(args);
-    const result = await stopWorktreeServer(worktreeName);
+    const thread = getCurrentThread();
+    const result = await stopWorktreeServer(thread.threadId);
     if (args.json) printJson(result);
     else console.log(result.message);
   },
 });
 
 const restartCommand = defineCommand({
-  meta: { name: 'restart', description: "Stop, then start, a worktree's server." },
+  meta: { name: 'restart', description: "Stop, then start, the thread's server." },
   args: startArgs,
   setup: strictSetup(startArgs),
   async run({ args }) {
-    const { worktreeName } = getWorktreeFromArgs(args);
-    const result = await restartWorktreeServer(worktreeName, resolveStartMode(args));
+    const thread = getCurrentThread();
+    const result = await restartWorktreeServer(thread.threadId, resolveStartMode(args));
     if (args.json) printJson(result);
     else console.log(result.message);
   },
 });
 
 const logsCommand = defineCommand({
-  meta: { name: 'logs', description: "Print a worktree's server log file." },
+  meta: { name: 'logs', description: "Print the thread's server log file." },
   args: logsArgs,
   setup: strictSetup(logsArgs),
   async run({ args }) {
-    const { worktreeName } = getWorktreeFromArgs(args);
-    await renderLogs(worktreeName, args.json, args.follow ?? args.f);
+    const thread = getCurrentThread();
+    await renderLogs(thread.threadId, args.json, args.follow ?? args.f);
   },
 });
 
 const publishCommand = defineCommand({
-  meta: { name: 'publish', description: 'Health-check, then mark a worktree branch as production.' },
-  args: worktreeJsonArgs,
-  setup: strictSetup(worktreeJsonArgs),
+  meta: { name: 'publish', description: "Health-check the thread's server, then promote it to production." },
+  args: serverJsonArgs,
+  setup: strictSetup(serverJsonArgs),
   async run({ args }) {
-    const { worktreeName } = getWorktreeFromArgs(args);
-    const result = await publishProductionBranch(worktreeName);
+    const thread = getCurrentThread();
+    const result = await publishProductionBranch(thread.threadId);
     if (args.json) printJson(result);
     else console.log(result.message);
   },
 });
 
 const copyDbCommand = defineCommand({
-  meta: { name: 'copydb', description: 'VACUUM-copy the production SQLite DB into a worktree.' },
-  args: worktreeJsonArgs,
-  setup: strictSetup(worktreeJsonArgs),
+  meta: { name: 'copydb', description: 'Safely copy the production SQLite DB into the thread.' },
+  args: serverJsonArgs,
+  setup: strictSetup(serverJsonArgs),
   async run({ args }) {
-    const { report, worktreeName } = getWorktreeFromArgs(args);
-    await copyProductionDb(worktreeName, report, args.json);
+    await copyProductionDb(getCurrentThread(), args.json);
   },
 });
 
@@ -454,7 +428,7 @@ const createCommand = defineCommand({
 });
 
 const followupCommand = defineCommand({
-  meta: { name: 'followup', description: "Run a follow-up request on the cwd's thread." },
+  meta: { name: 'followup', description: 'Run a follow-up request on the current thread.' },
   args: requestCommandArgs,
   setup: strictSetup(requestCommandArgs),
   run({ args }) {
@@ -463,46 +437,35 @@ const followupCommand = defineCommand({
 });
 
 const updateCommand = defineCommand({
-  meta: { name: 'update', description: "Apply parent/prod updates to the cwd's thread." },
-  args: threadWorktreeArgs,
-  setup: strictSetup(threadWorktreeArgs),
+  meta: { name: 'update', description: 'Apply parent/prod updates to the current thread.' },
+  args: threadCommandArgs,
+  setup: strictSetup(threadCommandArgs),
   run({ args }) {
     return handleUpdate(args);
   },
 });
 
 const acceptCommand = defineCommand({
-  meta: { name: 'accept', description: "Accept (deploy/merge) the cwd's thread." },
-  args: threadWorktreeArgs,
-  setup: strictSetup(threadWorktreeArgs),
+  meta: { name: 'accept', description: 'Accept (deploy/merge) the current thread.' },
+  args: threadCommandArgs,
+  setup: strictSetup(threadCommandArgs),
   run({ args }) {
     return handleDecision(args, 'accept');
   },
 });
 
 const rejectCommand = defineCommand({
-  meta: { name: 'reject', description: "Reject (discard) the cwd's thread." },
-  args: threadWorktreeArgs,
-  setup: strictSetup(threadWorktreeArgs),
+  meta: { name: 'reject', description: 'Reject (discard) the current thread.' },
+  args: threadCommandArgs,
+  setup: strictSetup(threadCommandArgs),
   run({ args }) {
     return handleDecision(args, 'reject');
   },
 });
 
-const mainCommand = defineCommand({
-  meta: {
-    name: 'primordia',
-    version: packageJson.version ?? '0.0.0',
-    description: 'Manage Primordia worktree servers and thread lifecycle tasks.',
-  },
+const threadCommand = defineCommand({
+  meta: { name: 'thread', description: 'Manage Primordia agentic coding threads.' },
   subCommands: {
-    status: statusCommand,
-    start: startCommand,
-    stop: stopCommand,
-    restart: restartCommand,
-    logs: logsCommand,
-    publish: publishCommand,
-    copydb: copyDbCommand,
     create: createCommand,
     followup: followupCommand,
     update: updateCommand,
@@ -511,9 +474,33 @@ const mainCommand = defineCommand({
   },
 });
 
+const serverCommand = defineCommand({
+  meta: { name: 'server', description: 'Manage the current thread server process.' },
+  subCommands: {
+    start: startCommand,
+    stop: stopCommand,
+    restart: restartCommand,
+    logs: logsCommand,
+    publish: publishCommand,
+    copydb: copyDbCommand,
+  },
+});
+
+const mainCommand = defineCommand({
+  meta: {
+    name: 'primordia',
+    description: 'Manage Primordia thread and server lifecycle tasks.',
+  },
+  subCommands: {
+    status: statusCommand,
+    thread: threadCommand,
+    server: serverCommand,
+  },
+});
+
 async function main(): Promise<void> {
   const rawArgs = process.argv.slice(2);
-  if (rawArgs.includes('--help') || rawArgs.includes('-h') || rawArgs.includes('--version') || rawArgs.includes('-v')) {
+  if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
     await runMain(mainCommand, { rawArgs });
     return;
   }

@@ -555,7 +555,7 @@ function actionableHotswapError(devServerPort: number, err: unknown): Error {
   const message = err instanceof Error ? err.message : String(err);
   return new Error(
     `Preview server appears to be running on port ${devServerPort}, but its database hotswap endpoint could not be reached. ` +
-    `Restart the preview server with \`bun run primordia restart --worktree <thread>\`, then retry Apply Updates. ` +
+    `Restart the preview server by running \`bun run primordia server restart\` from the thread worktree, then retry Apply Updates. ` +
     `Original error: ${message}`,
   );
 }
