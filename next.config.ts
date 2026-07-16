@@ -12,6 +12,10 @@ const nextConfig: NextConfig = {
   // Leave unset (or empty) to serve from the root (default behaviour).
   basePath: process.env.NEXT_BASE_PATH ?? "",
 
+  // Give each built commit a stable deployment identity so Next.js skew protection
+  // can refresh stale clients instead of posting Server Action IDs from old bundles.
+  deploymentId: process.env.NEXT_DEPLOYMENT_ID ?? "local-development",
+
   // Expose the base path to client-side code so fetch() calls can prefix API routes.
   // Next.js <Link>, router.push(), and redirect() are basePath-aware automatically;
   // plain fetch() calls are not, so they import withBasePath() from lib/base-path.ts.
