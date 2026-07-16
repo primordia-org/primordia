@@ -11,6 +11,7 @@ lib/
 ├── auth.ts                      ← Session helpers: createSession, getSessionUser, isAdmin, hasEvolvePermission
 ├── base-path.ts                 ← basePath constant + withBasePath() helper for client-side fetch() prefixes
 ├── cli-utils.ts                 ← Shared CLI formatting helpers, including box-drawing table rendering
+├── tiny-cli.ts                  ← Small internal CLI definition/parser/help/completion helper used by scripts/primordia.ts
 ├── branch-graph-layout.ts       ← Branch graph layout utilities used by /threads and export scripts
 ├── branch-parent.ts             ← Branch-marker commit helpers for persistent branch parentage with legacy git-config fallback
 ├── git-runtime.ts               ← Git runtime metadata helpers for worktree enumeration, branch ports, and production branch config
