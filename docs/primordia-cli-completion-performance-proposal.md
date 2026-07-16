@@ -15,8 +15,8 @@ $ for i in 1 2 3 4 5; do /usr/bin/time -f '%e' bun ./scripts/primordia.ts __comp
 0.01
 
 $ bun build ./scripts/primordia.ts --outfile /tmp/primordia.js --target bun --metafile=/tmp/meta.json
-Bundled 3 modules in 2ms
-primordia.js 17.40 KB
+Bundled 2 modules in 5ms
+primordia.js 16.11 KB
 
 $ for i in 1 2 3 4 5; do /usr/bin/time -f '%e' bun /tmp/primordia.js __complete sta >/dev/null; done
 0.01
@@ -26,7 +26,7 @@ $ for i in 1 2 3 4 5; do /usr/bin/time -f '%e' bun /tmp/primordia.js __complete 
 0.01
 ```
 
-The bundled completion artifact now includes only `scripts/primordia.ts`, `lib/tiny-cli.ts`, and `lib/presets.ts`. One important implementation detail: the handler import uses an opaque module specifier constant. Bun bundles literal dynamic imports, so `import('./primordia-command-handlers')` still included the heavy handler graph in the bundle; `import(COMMAND_HANDLERS_MODULE)` keeps it out of the help/completion bundle.
+The bundled completion artifact now includes only `scripts/primordia.ts` and `lib/tiny-cli.ts`. One important implementation detail: handler and dynamic completion imports use opaque module specifier constants. Bun bundles literal dynamic imports, so `import('./primordia-command-handlers')` still included the heavy handler graph in the bundle; `import(COMMAND_HANDLERS_MODULE)` keeps it out of the help/completion bundle.
 
 ## Problem
 

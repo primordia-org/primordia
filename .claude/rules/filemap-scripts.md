@@ -13,6 +13,7 @@ scripts/
 ├── install.sh                    ← Primordia setup/deploy script; idempotent; installs proxy/systemd service and production app
 ├── primordia.ts                  ← Lightweight Primordia CLI command tree/help/completion entrypoint; lazy-loads runtime handlers for real commands
 ├── primordia-command-handlers.ts ← Runtime handlers for `bun run primordia status`, `thread ...`, and `server ...`; imports heavier thread/process modules only after dispatch
+├── primordia-preset-helpers.ts  ← CLI preset ID/completion helpers, including short built-in IDs and per-user custom preset slugs
 ├── claude-worker.ts              ← Detached Claude Code worker process; configures gateway/API/subscription auth and streams structured progress
 ├── pi-worker.ts                  ← Detached pi coding agent worker process; configures gateway/API/subscription auth and streams structured progress
 ├── codex-worker.ts               ← Detached OpenAI Codex CLI worker process; configures gateway/API-key/ChatGPT auth and streams JSONL progress

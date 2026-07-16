@@ -7,12 +7,15 @@ import {
   type CliOptionDef,
   type CliParsedArgs,
 } from '@/lib/tiny-cli';
-import { BUILT_IN_PRESETS } from '@/lib/presets';
-
 const COMMAND_HANDLERS_MODULE = './primordia-command-handlers';
+const PRESET_HELPERS_MODULE = './primordia-preset-helpers';
 
 function importCommandHandlers(): Promise<typeof import('./primordia-command-handlers')> {
   return import(COMMAND_HANDLERS_MODULE);
+}
+
+function importPresetHelpers(): Promise<typeof import('./primordia-preset-helpers')> {
+  return import(PRESET_HELPERS_MODULE);
 }
 
 const jsonOption: CliOptionDef = {
@@ -43,17 +46,29 @@ const userOption: CliOptionDef = {
   },
 };
 
-function cliPresetId(presetId: string): string {
-  return presetId.startsWith('builtin:') ? presetId.slice('builtin:'.length) : presetId;
-}
+const BUILT_IN_CLI_PRESET_IDS = [
+  'claude-code-gateway',
+  'claude-code-subscription',
+  'claude-code-api-key',
+  'codex-gateway',
+  'codex-chatgpt',
+  'codex-openai-api-key',
+  'pi-chatgpt-codex-mini',
+  'pi-openrouter-sonnet',
+  'pi-openrouter-gemini-flash',
+  'pi-gemini-flash',
+  'free-option',
+];
 
 const presetOption: CliOptionDef = {
   name: 'preset',
   type: 'string',
   valueHint: 'preset',
   description: "Preset id. Built-in presets omit the 'builtin:' prefix. Defaults to the user's saved preset when available.",
-  complete() {
-    return BUILT_IN_PRESETS.map((preset) => cliPresetId(preset.id));
+  complete(context) {
+    return importPresetHelpers()
+      .then((helpers) => helpers.completeCliPresetIds(context))
+      .catch(() => BUILT_IN_CLI_PRESET_IDS);
   },
 };
 
