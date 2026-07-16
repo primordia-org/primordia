@@ -113,16 +113,33 @@ export function computeBranchGraphLayout(
   return ordered.map(({ node, column }, row) => ({ ...node, row, column }));
 }
 
-export function renderBranchGraphAscii(layout: BranchGraphLayoutNode[]): string {
-  if (layout.length === 0) return "(no branches)\n";
+function unicodeGraphToAscii(graph: string): string {
+  return graph
+    .replaceAll("●", "*")
+    .replaceAll("│", "|")
+    .replaceAll("├", "+")
+    .replaceAll("┴", "+")
+    .replaceAll("╯", "/")
+    .replaceAll("┐", "\\")
+    .replaceAll("┌", "/")
+    .replaceAll("─", "-")
+    .replaceAll("←", "<")
+    .replaceAll("→", ">");
+}
 
-  const maxColumn = Math.max(...layout.map((node) => node.column));
-  const lines = layout.map((node) => {
-    const cells: string[] = [];
-    for (let column = 0; column <= maxColumn; column += 1) {
-      cells.push(column === node.column ? "*" : " ");
-    }
-    return `${cells.join("   ")}  ${node.name}`.trimEnd();
+export function renderBranchGraphAscii(
+  layout: BranchGraphLayoutNode[],
+  mergeEdges: BranchGraphMergeEdge[] = [],
+  productionBranch?: string,
+): string {
+  const rows = computeBranchGraphUnicodeRows(layout, mergeEdges);
+  if (rows.length === 0) return "(no branches)\n";
+
+  const lines = rows.map((row) => {
+    const graph = unicodeGraphToAscii(row.graph);
+    if (row.kind === "connector") return graph;
+    const label = row.branchName === productionBranch ? `${row.branchName} (production)` : row.branchName;
+    return `${graph} ${label}`.trimEnd();
   });
 
   return `${lines.join("\n")}\n`;
@@ -167,13 +184,31 @@ function verticalLineForColumns(columns: number[]): string {
 }
 
 function mergeHintLine(fromColumn: number, toColumn: number): string {
-  if (Math.abs(fromColumn - toColumn) === 1) return "│←┐";
-  const left = Math.min(fromColumn, toColumn) * 2;
-  const right = Math.max(fromColumn, toColumn) * 2;
+  const from = fromColumn * 2;
+  const to = toColumn * 2;
+  const left = Math.min(from, to);
+  const right = Math.max(from, to);
   const chars = Array.from({ length: right + 2 }, () => " ");
-  chars[left] = "│";
-  chars[right] = "←";
-  chars[right + 1] = "┐";
+
+  if (from > to) {
+    chars[to] = "│";
+    for (let index = to + 1; index < from; index += 1) chars[index] = "─";
+    chars[from] = "←";
+    chars[from + 1] = "┐";
+  } else if (from < to) {
+    chars[from] = "┌";
+    chars[from + 1] = "→";
+    for (let index = from + 2; index < to; index += 1) chars[index] = "─";
+    chars[to] = "│";
+  } else {
+    chars[from] = "│";
+  }
+
+  for (let column = 0; column < left / 2; column += 1) {
+    const position = column * 2;
+    if (chars[position] === " ") chars[position] = "│";
+  }
+
   return chars.join("");
 }
 

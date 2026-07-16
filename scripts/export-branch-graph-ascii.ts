@@ -6,11 +6,17 @@ import {
   computeBranchGraphLayout,
   renderBranchGraphAscii,
   type BranchGraphInputNode,
+  type BranchGraphMergeEdge,
 } from "@/lib/branch-graph-layout";
 
 interface GitResult {
   stdout: string;
   code: number;
+}
+
+interface BranchInfo extends BranchGraphInputNode {
+  tipSha: string;
+  markerSha: string | null;
 }
 
 function runGit(args: string[], cwd: string): GitResult {
@@ -51,7 +57,7 @@ function parseArgs(): { source: BranchParentSource; cwd: string } {
   return { source, cwd };
 }
 
-function markerTimestamp(branch: string, cwd: string): number | null {
+function markerInfo(branch: string, cwd: string): { timestamp: number | null; sha: string | null } {
   const result = runGit(
     [
       "log",
@@ -59,18 +65,19 @@ function markerTimestamp(branch: string, cwd: string): number | null {
       "--first-parent",
       "--grep",
       "^Branched-From:",
-      "--format=%ct",
+      "--format=%ct %H",
       "-n",
       "1",
     ],
     cwd,
   );
-  if (result.code !== 0 || !result.stdout) return null;
-  const timestamp = Number.parseInt(result.stdout, 10);
-  return Number.isNaN(timestamp) ? null : timestamp;
+  if (result.code !== 0 || !result.stdout) return { timestamp: null, sha: null };
+  const [timestampText, sha] = result.stdout.split(/\s+/, 2);
+  const timestamp = Number.parseInt(timestampText ?? "", 10);
+  return { timestamp: Number.isNaN(timestamp) ? null : timestamp, sha: sha ?? null };
 }
 
-function listBranches(cwd: string, source: BranchParentSource): BranchGraphInputNode[] {
+function listBranches(cwd: string, source: BranchParentSource): BranchInfo[] {
   const branchList = runGit(["branch", "--format=%(refname:short)"], cwd);
   const branchNames = branchList.stdout
     ? branchList.stdout.split("\n").filter(Boolean)
@@ -78,15 +85,46 @@ function listBranches(cwd: string, source: BranchParentSource): BranchGraphInput
 
   return branchNames
     .filter((name) => name !== "main" && !name.includes("/"))
-    .map((name) => ({
-      name,
-      parent: getBranchParent(name, cwd, source)?.parentBranch ?? null,
-      markerTimestamp: markerTimestamp(name, cwd),
-    }));
+    .map((name) => {
+      const tip = runGit(["rev-parse", name], cwd);
+      const marker = markerInfo(name, cwd);
+      return {
+        name,
+        parent: getBranchParent(name, cwd, source)?.parentBranch ?? null,
+        markerTimestamp: marker.timestamp,
+        tipSha: tip.code === 0 ? tip.stdout : "",
+        markerSha: marker.sha,
+      };
+    });
+}
+
+function buildMergeEdges(branches: BranchInfo[], cwd: string): BranchGraphMergeEdge[] {
+  const branchByTip = new Map(branches.filter((branch) => branch.tipSha).map((branch) => [branch.tipSha, branch.name]));
+  const edges: BranchGraphMergeEdge[] = [];
+  const seen = new Set<string>();
+
+  for (const target of branches) {
+    const range = target.markerSha ? `${target.markerSha}..${target.name}` : target.name;
+    const mergeParents = runGit(["log", range, "--first-parent", "--merges", "--format=%P"], cwd);
+    if (mergeParents.code !== 0 || !mergeParents.stdout) continue;
+    for (const line of mergeParents.stdout.split("\n")) {
+      const parents = line.trim().split(/\s+/).filter(Boolean);
+      for (const mergedParentSha of parents.slice(1)) {
+        const mergedBranch = branchByTip.get(mergedParentSha);
+        if (!mergedBranch || mergedBranch === target.name) continue;
+        const key = `${mergedBranch}\0${target.name}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        edges.push({ from: mergedBranch, to: target.name });
+      }
+    }
+  }
+
+  return edges;
 }
 
 const { source, cwd } = parseArgs();
 const productionBranch = gitConfigValue("primordia.productionBranch", cwd) ?? "main";
 const nodes = listBranches(cwd, source);
 const layout = computeBranchGraphLayout(nodes, productionBranch);
-process.stdout.write(renderBranchGraphAscii(layout));
+process.stdout.write(renderBranchGraphAscii(layout, buildMergeEdges(nodes, cwd), productionBranch));
