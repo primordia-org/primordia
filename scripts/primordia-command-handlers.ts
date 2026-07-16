@@ -16,6 +16,7 @@ import { createThread, followupThread, manageThread, updateThread } from '@/lib/
 import { getDb } from '@/lib/db';
 import { copyProductionDbToWorktree } from '@/lib/production-db-copy';
 import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
+import { BUILT_IN_PRESETS } from '@/lib/presets';
 import type { CliParsedArgs } from '@/lib/tiny-cli';
 
 type UserSelectorArgs = { user?: string };
@@ -141,6 +142,12 @@ function rejectUnexpectedRequestText(args: CliParsedArgs, command: string): void
   if (args._.length > 0) throw new Error(`${command} does not accept request text`);
 }
 
+function normalizeCliPresetId(presetId: string | undefined): string | undefined {
+  if (!presetId || presetId.includes(':')) return presetId;
+  const builtInPresetId = `builtin:${presetId}`;
+  return BUILT_IN_PRESETS.some((preset) => preset.id === builtInPresetId) ? builtInPresetId : presetId;
+}
+
 function getCurrentThread(): { threadId: string; path: string } {
   return resolveCurrentThread(getProcessStatusReport());
 }
@@ -209,7 +216,7 @@ export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & Prese
   const result = await createThread({
     userId: user.id,
     requestText,
-    presetId: args.preset,
+    presetId: normalizeCliPresetId(args.preset),
     primordiaAesKey,
     runInBackground: false,
   });
@@ -226,7 +233,7 @@ export async function threadFollowupCommand(args: CliParsedArgs & JsonArgs & Pre
     userId: user.id,
     threadId,
     requestText,
-    presetId: args.preset,
+    presetId: normalizeCliPresetId(args.preset),
     primordiaAesKey,
     runInBackground: false,
   });

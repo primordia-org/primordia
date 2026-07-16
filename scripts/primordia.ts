@@ -43,13 +43,17 @@ const userOption: CliOptionDef = {
   },
 };
 
+function cliPresetId(presetId: string): string {
+  return presetId.startsWith('builtin:') ? presetId.slice('builtin:'.length) : presetId;
+}
+
 const presetOption: CliOptionDef = {
   name: 'preset',
   type: 'string',
-  valueHint: 'id',
-  description: "Preset id. Defaults to the user's saved preset when available.",
+  valueHint: 'preset',
+  description: "Preset id. Built-in presets omit the 'builtin:' prefix. Defaults to the user's saved preset when available.",
   complete() {
-    return BUILT_IN_PRESETS.map((preset) => preset.id);
+    return BUILT_IN_PRESETS.map((preset) => cliPresetId(preset.id));
   },
 };
 
