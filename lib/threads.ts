@@ -35,6 +35,7 @@ import {
   type CopyProductionDbResult,
 } from './production-db-copy';
 import { archiveSessionNdjsonLog } from './session-archive';
+import { isPidAlive, readLivePidFile, removeLockFile, writePidFile } from './lockfile';
 
 /** Look up the human-readable label for a model ID within a given harness. Falls back to the raw ID. */
 function getModelLabel(harnessId: string, modelId: string): string {
@@ -258,11 +259,6 @@ function resolveAgentAuth(
 /** Maps session IDs to the PID of their running agent worker process. */
 const activeWorkerPids = new Map<string, number>();
 
-/** Returns true if the OS process with the given PID is still alive. */
-function isProcessAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch { return false; }
-}
-
 /**
  * Throws if a Claude Code worker is already running in the given worktree,
  * guarding against concurrent workers that would clobber each other's work.
@@ -273,17 +269,13 @@ function isProcessAlive(pid: number): boolean {
  */
 function checkWorktreeNotBusy(worktreePath: string): void {
   const pidFile = path.join(worktreePath, '.primordia-worker.pid');
-  if (!fs.existsSync(pidFile)) return;
-  const pidStr = fs.readFileSync(pidFile, 'utf8').trim();
-  const pid = parseInt(pidStr, 10);
-  if (!isNaN(pid) && isProcessAlive(pid)) {
+  const pid = readLivePidFile(pidFile, { removeStale: true });
+  if (pid !== null) {
     throw new Error(
       `A Claude Code worker (PID ${pid}) is already running in this worktree. ` +
       `Wait for it to finish or abort the current session before starting another.`,
     );
   }
-  // Stale PID file — process is gone, clean it up.
-  try { fs.rmSync(pidFile, { force: true }); } catch { /* best-effort */ }
 }
 
 /**
@@ -376,13 +368,7 @@ export async function reconnectRunningWorkers(repoRoot: string): Promise<void> {
     const pidFile = path.join(record.worktreePath, '.primordia-worker.pid');
     let livePid: number | null = null;
 
-    if (fs.existsSync(pidFile)) {
-      const pidStr = fs.readFileSync(pidFile, 'utf8').trim();
-      const parsed = parseInt(pidStr, 10);
-      if (!isNaN(parsed) && isProcessAlive(parsed)) {
-        livePid = parsed;
-      }
-    }
+    livePid = readLivePidFile(pidFile, { removeStale: true });
 
     if (livePid === null) {
       // Worker is gone — recover the session so it isn't stuck forever.
@@ -394,9 +380,7 @@ export async function reconnectRunningWorkers(repoRoot: string): Promise<void> {
       if (fs.existsSync(ndjsonPath)) {
         appendSessionEvent(ndjsonPath, { type: 'result', subtype: 'aborted', message: recoveryMessage, ts: Date.now() });
       }
-      if (fs.existsSync(pidFile)) {
-        try { fs.rmSync(pidFile, { force: true }); } catch { /* best-effort */ }
-      }
+      removeLockFile(pidFile);
       continue;
     }
 
@@ -405,7 +389,7 @@ export async function reconnectRunningWorkers(repoRoot: string): Promise<void> {
     // Background: unregister PID when the worker eventually finishes.
     const sessionId = record.id;
     void (async () => {
-      while (isProcessAlive(livePid!)) {
+      while (isPidAlive(livePid!)) {
         await new Promise<void>((r) => setTimeout(r, 2000));
       }
       activeWorkerPids.delete(sessionId);
@@ -425,12 +409,10 @@ export function abortAgentRun(sessionId: string, worktreePath?: string): boolean
   // worker, fall back to the durable PID file written inside the worktree.
   if (pid === undefined && worktreePath) {
     const pidFile = path.join(worktreePath, '.primordia-worker.pid');
-    if (fs.existsSync(pidFile)) {
-      const parsed = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
-      if (!isNaN(parsed) && isProcessAlive(parsed)) {
-        pid = parsed;
-        activeWorkerPids.set(sessionId, pid);
-      }
+    const parsed = readLivePidFile(pidFile, { removeStale: true });
+    if (parsed !== null) {
+      pid = parsed;
+      activeWorkerPids.set(sessionId, pid);
     }
   }
 
@@ -456,7 +438,7 @@ export function abortAgentRun(sessionId: string, worktreePath?: string): boolean
   // Last-resort cleanup: if the worker ignores graceful abort, kill the group
   // after a short grace period. Do not await this from the request handler.
   setTimeout(() => {
-    if (!isProcessAlive(pid!)) {
+    if (!isPidAlive(pid!)) {
       activeWorkerPids.delete(sessionId);
       return;
     }
@@ -651,7 +633,7 @@ function spawnCacheWarmBuild(worktreePath: string): void {
   // a second build if one is already in progress.
   if (proc.pid !== undefined) {
     const pidFile = path.join(worktreePath, '.primordia-warmup-build.pid');
-    try { fs.writeFileSync(pidFile, String(proc.pid)); } catch { /* non-fatal */ }
+    try { writePidFile(pidFile, proc.pid); } catch { /* non-fatal */ }
   }
   console.log(`[thread] cache-warming build started in ${worktreePath} (PID ${proc.pid ?? 'unknown'})`);
 }
@@ -1350,7 +1332,7 @@ function runInstallSh(sessionId: string, worktreePath: string, branch: string): 
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     if (proc.pid !== undefined) {
-      try { fs.writeFileSync(path.join(worktreePath, INSTALL_SH_PID_FILE), String(proc.pid)); } catch { /* non-fatal */ }
+      try { writePidFile(path.join(worktreePath, INSTALL_SH_PID_FILE), proc.pid); } catch { /* non-fatal */ }
     }
     const forward = (data: Buffer) => { void appendLogLine(sessionId, data.toString()); };
     proc.stdout.on('data', forward);

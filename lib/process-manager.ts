@@ -16,6 +16,7 @@ import {
   unsetGitConfigValue,
   writeGitConfigValue,
 } from './git-runtime';
+import { isPidAlive, readLivePidFile, writePidFile } from './lockfile';
 
 export type ServerEnv = 'prod' | 'dev' | 'unknown';
 export type ServerStartMode = 'dev' | 'prod';
@@ -240,22 +241,6 @@ function buildPortOwners(): Map<number, Set<number>> {
   }
 
   return owners;
-}
-
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function readLivePidFile(filePath: string): number | null {
-  const text = readProcText(filePath);
-  if (!text) return null;
-  const pid = Number.parseInt(text.trim(), 10);
-  return Number.isFinite(pid) && isPidAlive(pid) ? pid : null;
 }
 
 function readAgentPidFile(worktreePath: string): number | null {
@@ -718,7 +703,7 @@ export async function startWorktreeServer(name: string, mode: ServerStartMode = 
   });
   fs.closeSync(logFd);
   if (!proc.pid) throw new Error(`Failed to start ${worktree.branch} server`);
-  fs.writeFileSync(pidPath, String(proc.pid), 'utf8');
+  writePidFile(pidPath, proc.pid);
   proc.unref();
   return {
     action: 'start',

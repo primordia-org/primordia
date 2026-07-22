@@ -169,7 +169,7 @@ type PrimordiaJob = {
 
 Useful supporting pieces:
 
-- A repo-level lock file or SQLite lease to prevent duplicate schedulers.
+- A repo-level lock file or SQLite lease to prevent duplicate schedulers; the current PID-lock implementation uses shared helpers in `lib/lockfile.ts`.
 - `runOnce` functions for every current job, separate from interval setup.
 - Structured job result records with start time, end time, status, and summary.
 - CLI commands for `jobs run`, `jobs run-one`, and `jobs schedule list|get|set`.
@@ -181,7 +181,7 @@ Useful supporting pieces:
 1. **Extract job definitions**: split each scheduler into `runOnce` plus interval wrapper. Keep current behavior working. ✅ Implemented behind `lib/scheduled-jobs.ts`.
 2. **Add CLI commands**: implement `primordia jobs run-one <name>` and `primordia jobs run` using shared job definitions. ✅ Implemented.
 3. **Add schedule interval commands**: implement `primordia jobs schedule list|get|set` so settings pages and automation can read/write Core job intervals. ✅ Implemented via git config under `primordia.jobs.*IntervalMs`.
-4. **Add a scheduler lock**: use SQLite or a repo lock file so only one daemon runs scheduled jobs per instance. ✅ Implemented as `.primordia-jobs.lock` under `PRIMORDIA_DIR` or the repo root.
+4. **Add a scheduler lock**: use SQLite or a repo lock file so only one daemon runs scheduled jobs per instance. ✅ Implemented as `.primordia-jobs.lock` under `PRIMORDIA_DIR` or the repo root, using shared PID-lock helpers in `lib/lockfile.ts`.
 5. **Move production scheduling to a dedicated service**: install `primordia-jobs.service` on exe.dev while leaving a fallback proxy-embedded mode for simple local dev.
 6. **Add observability**: persist last run/failure state and surface it in a future `primordia jobs status --json` and the relevant admin pages.
 7. **Revisit the supervisor north star**: once proxy, servers, workers, and jobs all have CLI/Core boundaries, decide whether a single `primordia core run` supervisor should own them.

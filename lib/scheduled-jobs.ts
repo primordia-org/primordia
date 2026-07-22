@@ -1,6 +1,6 @@
-import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync, spawn } from 'child_process';
+import { acquirePidLock, type PidLockHandle } from './lockfile';
 import { startDiskCleanupJobScheduler, runDiskCleanupOnce } from './jobs/disk-space-management';
 import { startDependencyAuditScheduler, runDependencyAuditJobOnce } from './jobs/dependency-audit-scheduler';
 import { startLeakDiagnosticsScheduler, runLeakDiagnosticsJobOnce } from './jobs/leak-diagnostics-scheduler';
@@ -38,7 +38,7 @@ export const PRIMORDIA_JOBS: Array<{ name: PrimordiaJobName; defaultIntervalMs: 
 ];
 
 let started = false;
-let lockPath: string | null = null;
+let schedulerLock: PidLockHandle | null = null;
 
 function defaultLogError(label: string, err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
@@ -116,33 +116,14 @@ function runtimeRoot(repoRoot: string, archiveRoot?: string): string {
 
 function acquireSchedulerLock(repoRoot: string, archiveRoot?: string): boolean {
   const root = runtimeRoot(repoRoot, archiveRoot);
-  fs.mkdirSync(root, { recursive: true });
-  const target = path.join(root, '.primordia-jobs.lock');
-  try {
-    const fd = fs.openSync(target, 'wx');
-    fs.writeFileSync(fd, `${process.pid}\n`);
-    fs.closeSync(fd);
-    lockPath = target;
-    return true;
-  } catch {
-    try {
-      const pid = Number.parseInt(fs.readFileSync(target, 'utf8').trim(), 10);
-      if (Number.isFinite(pid)) process.kill(pid, 0);
-      return false;
-    } catch {
-      try { fs.rmSync(target, { force: true }); } catch { /* ignore */ }
-      return acquireSchedulerLock(repoRoot, archiveRoot);
-    }
-  }
+  const result = acquirePidLock(path.join(root, '.primordia-jobs.lock'));
+  schedulerLock = result.handle;
+  return result.acquired;
 }
 
 function releaseSchedulerLock(): void {
-  if (!lockPath) return;
-  try {
-    const pid = Number.parseInt(fs.readFileSync(lockPath, 'utf8').trim(), 10);
-    if (pid === process.pid) fs.rmSync(lockPath, { force: true });
-  } catch { /* ignore */ }
-  lockPath = null;
+  schedulerLock?.release();
+  schedulerLock = null;
 }
 
 function registerLockCleanup(): void {

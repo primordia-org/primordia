@@ -35,6 +35,7 @@ import {
 import { ensurePrimordiaPiModelsJson } from '@/lib/pi-custom-models';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
 import { decryptWorkerSecretForUser } from '@/lib/worker-secret-env';
+import { removeLockFile, writePidFile } from '@/lib/lockfile';
 
 // ---------------------------------------------------------------------------
 // LLM backend configuration
@@ -223,13 +224,13 @@ async function main(): Promise<void> {
 
   const pidFile = path.join(worktreePath, '.primordia-worker.pid');
   try {
-    fs.writeFileSync(pidFile, String(process.pid), 'utf8');
+    writePidFile(pidFile);
   } catch (err) {
     process.stderr.write(`Warning: could not write PID file: ${err}\n`);
   }
 
   function cleanup(): void {
-    try { fs.rmSync(pidFile, { force: true }); } catch { /* best-effort */ }
+    removeLockFile(pidFile);
   }
 
   let timedOut = false;

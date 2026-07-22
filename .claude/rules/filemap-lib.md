@@ -15,6 +15,7 @@ lib/
 ├── branch-graph-layout.ts       ← Branch graph layout utilities used by /threads and export scripts
 ├── branch-parent.ts             ← Branch-marker commit helpers for persistent branch parentage with legacy git-config fallback
 ├── git-runtime.ts               ← Git runtime metadata helpers for worktree enumeration, branch ports, and production branch config
+├── lockfile.ts                  ← PID/lockfile helpers for live PID checks, stale lock cleanup, scoped per-process locks, and lock release
 ├── hooks.ts                     ← Shared React hooks: useSessionUser (fetches session on mount, provides logout)
 ├── threads.ts                   ← Shared thread creation/follow-up facade plus worktree orchestration, workers, previews, accept/reject logic; used by API routes and CLI commands so CLI scripts never import app/api/**/route.ts
 ├── page-title.ts                ← buildPageTitle(): formats <title> with branch suffix in development mode

@@ -8,6 +8,7 @@ import * as path from 'path';
 import { appendSessionEvent, getSessionNdjsonPath, type SessionEvent } from '@/lib/session-events';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
 import { decryptWorkerSecretForUser } from '@/lib/worker-secret-env';
+import { removeLockFile, writePidFile } from '@/lib/lockfile';
 
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai/v1';
 
@@ -333,8 +334,8 @@ async function main(): Promise<void> {
   const homeDir = process.env.HOME ?? '/home/exedev';
   const codexHome = path.join(homeDir, '.primordia-codex', sessionId);
 
-  fs.writeFileSync(pidFile, String(process.pid), 'utf8');
-  const cleanup = () => { try { fs.rmSync(pidFile, { force: true }); } catch {} };
+  writePidFile(pidFile);
+  const cleanup = () => removeLockFile(pidFile);
 
   let child: ReturnType<typeof spawn> | null = null;
   let timedOut = false;
