@@ -4,7 +4,7 @@ Primordia's scheduled work should be part of Primordia Core, not a side effect o
 
 ## Current Situation
 
-Scheduled jobs are now grouped behind `lib/primordia-jobs.ts`, which is the Primordia Core boundary for running and configuring background work. The reverse proxy starts that Core scheduler as an embedded migration bridge, while `bun run primordia jobs run` can run the same scheduler as a dedicated long-lived daemon. `instrumentation.ts` does not start scheduled jobs; it only reconnects thread workers after a Next.js server restart.
+Scheduled jobs are now grouped behind `lib/scheduled-jobs.ts`, which is the Primordia Core boundary for running and configuring background work. The reverse proxy starts that Core scheduler as an embedded migration bridge, while `bun run primordia jobs run` can run the same scheduler as a dedicated long-lived daemon. `instrumentation.ts` does not start scheduled jobs; it only reconnects thread workers after a Next.js server restart.
 
 Current jobs:
 
@@ -111,7 +111,7 @@ Cons:
 - Harder to reuse in terminal-only or non-proxy deployments.
 - Still risks proxy reliability being affected by job bugs unless subprocess isolation is used.
 
-This is the current bridge: `scripts/reverse-proxy.ts` calls `runPrimordiaJobs()` from `lib/primordia-jobs.ts`. If a dedicated `primordia jobs run` daemon already holds the lock, the proxy skips its embedded scheduler.
+This is the current bridge: `scripts/reverse-proxy.ts` calls `runPrimordiaJobs()` from `lib/scheduled-jobs.ts`. If a dedicated `primordia jobs run` daemon already holds the lock, the proxy skips its embedded scheduler.
 
 ## Option E: External Cron / Hosted Scheduler Calls Local API
 
@@ -178,7 +178,7 @@ Useful supporting pieces:
 
 ## Recommended Path
 
-1. **Extract job definitions**: split each scheduler into `runOnce` plus interval wrapper. Keep current behavior working. ✅ Implemented behind `lib/primordia-jobs.ts`.
+1. **Extract job definitions**: split each scheduler into `runOnce` plus interval wrapper. Keep current behavior working. ✅ Implemented behind `lib/scheduled-jobs.ts`.
 2. **Add CLI commands**: implement `primordia jobs run-one <name>` and `primordia jobs run` using shared job definitions. ✅ Implemented.
 3. **Add schedule interval commands**: implement `primordia jobs schedule list|get|set` so settings pages and automation can read/write Core job intervals. ✅ Implemented via git config under `primordia.jobs.*IntervalMs`.
 4. **Add a scheduler lock**: use SQLite or a repo lock file so only one daemon runs scheduled jobs per instance. ✅ Implemented as `.primordia-jobs.lock` under `PRIMORDIA_DIR` or the repo root.

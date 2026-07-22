@@ -35,7 +35,7 @@ import {
   watchGitConfig,
 } from '@/lib/process-manager';
 import { getPrimordiaRuntimePaths } from '@/lib/git-runtime';
-import { runPrimordiaJobs } from '@/lib/primordia-jobs';
+import { runPrimordiaJobs } from '@/lib/scheduled-jobs';
 
 // Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
 const HOP_BY_HOP = new Set([

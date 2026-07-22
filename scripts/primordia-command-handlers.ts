@@ -25,7 +25,7 @@ import {
   runPrimordiaJobs,
   setJobScheduleInterval,
   type PrimordiaJobName,
-} from '@/lib/primordia-jobs';
+} from '@/lib/scheduled-jobs';
 import { resolveCliPresetIdForUser } from './primordia-preset-helpers';
 import type { CliParsedArgs } from '@/lib/tiny-cli';
 
