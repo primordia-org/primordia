@@ -1,6 +1,16 @@
 // app/api/thread/stream/route.ts
 // Streams live session progress as SSE.
 //
+// Known deploy-time disconnect: accepting a production thread can run
+// `scripts/install.sh`, and the install script's restart path executes
+// `systemctl restart primordia` after "Production branch published". That
+// restarts the reverse-proxy service carrying this SSE response, so the browser
+// connection is severed before later install output such as "Restarted
+// primordia systemd service" can be delivered live. The log itself is not lost:
+// install stdout/stderr has already been appended as `log_line` events to the
+// worktree's `.primordia-session.ndjson`, and a page reload replays it from
+// that file. See docs/install-log-streaming-disconnect.md.
+//
 // GET ?threadId=<id>&offset=<n>
 //   threadId — the thread to watch
 
