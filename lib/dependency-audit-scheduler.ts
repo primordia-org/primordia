@@ -11,6 +11,14 @@ import { sendWebPushToCategory } from "./web-push";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
+export interface DependencyAuditSchedulerOptions {
+  intervalMs?: number;
+}
+
+export interface DependencyAuditRunOptions {
+  force?: boolean;
+}
+
 let schedulerStarted = false;
 
 function formatSecurityNotificationBody(result: ReturnType<typeof runBunAudit>): string {
@@ -23,29 +31,30 @@ function formatSecurityNotificationBody(result: ReturnType<typeof runBunAudit>):
   return `${critical.length} critical, ${high.length} high dependency issue${result.severeFindings.length === 1 ? "" : "s"} found.${packageSummary} Open Dependency Security to review the audit and start a fix session.`;
 }
 
-export function startDependencyAuditScheduler(repoRoot: string): void {
+export function startDependencyAuditScheduler(repoRoot: string, options: DependencyAuditSchedulerOptions = {}): void {
   if (schedulerStarted) return;
   schedulerStarted = true;
 
-  const intervalId = setInterval(() => runSchedulerTick(repoRoot), CHECK_INTERVAL_MS);
+  const intervalMs = options.intervalMs ?? CHECK_INTERVAL_MS;
+  const intervalId = setInterval(() => runDependencyAuditJobOnce(repoRoot), intervalMs);
   if (typeof intervalId === "object" && intervalId && "unref" in intervalId) {
     (intervalId as { unref(): void }).unref();
   }
 
   // Check shortly after boot without blocking startup.
-  const timeoutId = setTimeout(() => runSchedulerTick(repoRoot), 30_000);
+  const timeoutId = setTimeout(() => runDependencyAuditJobOnce(repoRoot), 30_000);
   if (typeof timeoutId === "object" && timeoutId && "unref" in timeoutId) {
     (timeoutId as { unref(): void }).unref();
   }
 
-  console.log(`[dependency-audit-scheduler] Started (check interval: ${CHECK_INTERVAL_MS / 1000}s)`);
+  console.log(`[dependency-audit-scheduler] Started (check interval: ${intervalMs / 1000}s)`);
 }
 
-function runSchedulerTick(repoRoot: string): void {
+export function runDependencyAuditJobOnce(repoRoot: string, options: DependencyAuditRunOptions = {}): void {
   try {
     const state = readDependencyAuditNotification(repoRoot);
     const elapsed = Date.now() - (state.lastCheckedAt ?? 0);
-    if (elapsed < DAY_MS) return;
+    if (!options.force && elapsed < DAY_MS) return;
 
     const result = runBunAudit("high");
     writeDependencyAuditNotification(repoRoot, result);

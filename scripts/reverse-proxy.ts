@@ -35,7 +35,7 @@ import {
   watchGitConfig,
 } from '@/lib/process-manager';
 import { getPrimordiaRuntimePaths } from '@/lib/git-runtime';
-import { runScheduledJobs } from '@/lib/scheduled-jobs';
+import { runPrimordiaJobs } from '@/lib/primordia-jobs';
 
 // Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
 const HOP_BY_HOP = new Set([
@@ -839,7 +839,10 @@ httpHandler.listen(0, '127.0.0.1', () => {
   });
 });
 
-runScheduledJobs({
+// Migration bridge for Option D: the proxy starts Primordia Core jobs through
+// the Core jobs boundary rather than importing individual scheduler internals.
+// A dedicated `primordia jobs run` daemon can take over by holding the jobs lock.
+runPrimordiaJobs({
   repoRoot: MAIN_REPO,
   listenPort: LISTEN_PORT,
   archiveRoot: process.env.PRIMORDIA_DIR || PRIMORDIA_ROOT,

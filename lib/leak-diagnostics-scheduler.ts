@@ -12,18 +12,25 @@ import { sendWebPushToCategory } from "./web-push";
 const CAPTURE_INTERVAL_MS = 60 * 1000;
 const NOTIFICATION_INTERVAL_MS = 5 * 60 * 1000;
 
+export interface LeakDiagnosticsSchedulerOptions {
+  captureIntervalMs?: number;
+  notificationIntervalMs?: number;
+}
+
 let schedulerStarted = false;
 
-export function startLeakDiagnosticsScheduler(repoRoot: string): void {
+export function startLeakDiagnosticsScheduler(repoRoot: string, options: LeakDiagnosticsSchedulerOptions = {}): void {
   if (schedulerStarted) return;
   schedulerStarted = true;
 
-  const captureInterval = setInterval(() => runCaptureTick(repoRoot), CAPTURE_INTERVAL_MS);
+  const captureIntervalMs = options.captureIntervalMs ?? CAPTURE_INTERVAL_MS;
+  const notificationIntervalMs = options.notificationIntervalMs ?? NOTIFICATION_INTERVAL_MS;
+  const captureInterval = setInterval(() => runCaptureTick(repoRoot), captureIntervalMs);
   if (typeof captureInterval === "object" && captureInterval && "unref" in captureInterval) {
     (captureInterval as { unref(): void }).unref();
   }
 
-  const notificationInterval = setInterval(() => runNotificationTick(repoRoot), NOTIFICATION_INTERVAL_MS);
+  const notificationInterval = setInterval(() => runNotificationTick(repoRoot), notificationIntervalMs);
   if (typeof notificationInterval === "object" && notificationInterval && "unref" in notificationInterval) {
     (notificationInterval as { unref(): void }).unref();
   }
@@ -36,7 +43,12 @@ export function startLeakDiagnosticsScheduler(repoRoot: string): void {
     (bootTimeout as { unref(): void }).unref();
   }
 
-  console.log(`[leak-diagnostics-scheduler] Started (capture interval: ${CAPTURE_INTERVAL_MS / 1000}s)`);
+  console.log(`[leak-diagnostics-scheduler] Started (capture interval: ${captureIntervalMs / 1000}s)`);
+}
+
+export function runLeakDiagnosticsJobOnce(repoRoot: string): void {
+  runCaptureTick(repoRoot);
+  runNotificationTick(repoRoot);
 }
 
 function runCaptureTick(repoRoot: string): void {

@@ -16,6 +16,16 @@ import { createThread, followupThread, manageThread, updateThread } from '@/lib/
 import { getDb } from '@/lib/db';
 import { copyProductionDbToWorktree } from '@/lib/production-db-copy';
 import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
+import {
+  formatJobInterval,
+  isPrimordiaJobName,
+  listJobSchedules,
+  parseJobInterval,
+  runPrimordiaJobOnce,
+  runPrimordiaJobs,
+  setJobScheduleInterval,
+  type PrimordiaJobName,
+} from '@/lib/primordia-jobs';
 import { resolveCliPresetIdForUser } from './primordia-preset-helpers';
 import type { CliParsedArgs } from '@/lib/tiny-cli';
 
@@ -146,16 +156,90 @@ function getCurrentThread(): { threadId: string; path: string } {
   return resolveCurrentThread(getProcessStatusReport());
 }
 
+function resolveJobName(args: CliParsedArgs): PrimordiaJobName {
+  const value = String(args._[0] ?? args.job ?? '');
+  if (!isPrimordiaJobName(value)) throw new Error(`Unknown Primordia job: ${value || '(missing)'}`);
+  return value;
+}
+
+function scheduleRows(repoRoot = process.cwd()) {
+  return listJobSchedules(repoRoot).map((schedule) => ({
+    name: schedule.name,
+    intervalMs: schedule.intervalMs,
+    interval: formatJobInterval(schedule.intervalMs),
+    defaultIntervalMs: schedule.defaultIntervalMs,
+    defaultInterval: formatJobInterval(schedule.defaultIntervalMs),
+    gitConfigKey: schedule.gitConfigKey,
+  }));
+}
+
+function printScheduleTable(rows: ReturnType<typeof scheduleRows>): void {
+  const nameWidth = Math.max('job'.length, ...rows.map((row) => row.name.length));
+  const intervalWidth = Math.max('interval'.length, ...rows.map((row) => row.interval.length));
+  console.log(`${'job'.padEnd(nameWidth)}  ${'interval'.padEnd(intervalWidth)}  git config`);
+  for (const row of rows) console.log(`${row.name.padEnd(nameWidth)}  ${row.interval.padEnd(intervalWidth)}  ${row.gitConfigKey}`);
+}
+
 export async function completeUsers(): Promise<string[]> {
   const db = await getDb();
   const users = await db.getAllUsers();
   return users.flatMap((user) => [user.username, user.id]);
 }
 
+export function completeJobNames(): string[] {
+  return listJobSchedules().map((schedule) => schedule.name);
+}
+
 export function statusCommand(args: CliParsedArgs & JsonArgs): void {
   const report = getProcessStatusReport();
   if (args.json) printJson(report);
   else console.log(formatProcessStatusReport(report));
+}
+
+export async function jobsRunCommand(args: CliParsedArgs & JsonArgs): Promise<void> {
+  const started = runPrimordiaJobs({ repoRoot: process.cwd() });
+  if (args.json) printJson({ ok: started, command: 'jobs run', schedules: scheduleRows() });
+  else console.log(started ? 'Primordia jobs daemon running. Press Ctrl-C to stop.' : 'Another Primordia jobs scheduler is already running.');
+  if (!started) return;
+  await new Promise(() => { /* keep daemon alive */ });
+}
+
+export async function jobsRunOneCommand(args: CliParsedArgs & JsonArgs): Promise<void> {
+  const job = resolveJobName(args);
+  const result = await runPrimordiaJobOnce(job, { repoRoot: process.cwd() });
+  if (args.json) printJson(result);
+  else console.log(`${result.ok ? 'ok' : 'failed'}: ${result.summary}`);
+  if (!result.ok) process.exit(1);
+}
+
+export function jobsScheduleListCommand(args: CliParsedArgs & JsonArgs): void {
+  const rows = scheduleRows();
+  if (args.json) printJson({ schedules: rows });
+  else printScheduleTable(rows);
+}
+
+export function jobsScheduleGetCommand(args: CliParsedArgs & JsonArgs): void {
+  const job = resolveJobName(args);
+  const row = scheduleRows().find((schedule) => schedule.name === job)!;
+  if (args.json) printJson(row);
+  else console.log(`${row.name}: ${row.interval} (${row.intervalMs}ms)`);
+}
+
+export function jobsScheduleSetCommand(args: CliParsedArgs & JsonArgs): void {
+  const job = resolveJobName(args);
+  const intervalValue = String(args._[1] ?? args.interval ?? '');
+  if (!intervalValue) throw new Error('interval required');
+  const updated = setJobScheduleInterval(job, parseJobInterval(intervalValue));
+  const row = {
+    name: updated.name,
+    intervalMs: updated.intervalMs,
+    interval: formatJobInterval(updated.intervalMs),
+    defaultIntervalMs: updated.defaultIntervalMs,
+    defaultInterval: formatJobInterval(updated.defaultIntervalMs),
+    gitConfigKey: updated.gitConfigKey,
+  };
+  if (args.json) printJson(row);
+  else console.log(`${row.name}: ${row.interval} (${row.gitConfigKey})`);
 }
 
 export async function serverStartCommand(args: CliParsedArgs): Promise<void> {

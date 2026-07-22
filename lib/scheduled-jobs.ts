@@ -1,34 +1,8 @@
-import { startDiskCleanupJobScheduler } from './disk-space-management';
-import { startDependencyAuditScheduler } from './dependency-audit-scheduler';
-import { startLeakDiagnosticsScheduler } from './leak-diagnostics-scheduler';
-import { startUpdateSourceScheduler } from './update-source-scheduler';
+import type { PrimordiaJobContext } from './primordia-jobs';
+import { runPrimordiaJobs } from './primordia-jobs';
 
-export interface ScheduledJobsOptions {
-  repoRoot?: string;
-  listenPort?: number;
-  archiveRoot?: string;
-  logError?: (label: string, err: unknown) => void;
-}
+export type ScheduledJobsOptions = PrimordiaJobContext;
 
-let started = false;
-
-function defaultLogError(label: string, err: unknown): void {
-  const message = err instanceof Error ? err.message : String(err);
-  console.error(`[scheduled-jobs] ${label}:`, message);
-}
-
-export function runScheduledJobs(options: ScheduledJobsOptions = {}): void {
-  if (started) return;
-  started = true;
-
-  const repoRoot = options.repoRoot ?? process.cwd();
-  startUpdateSourceScheduler(repoRoot);
-  startDependencyAuditScheduler(repoRoot);
-  startLeakDiagnosticsScheduler(repoRoot);
-  startDiskCleanupJobScheduler({
-    repoRoot,
-    listenPort: options.listenPort,
-    archiveRoot: options.archiveRoot,
-    logError: options.logError ?? defaultLogError,
-  });
+export function runScheduledJobs(options: ScheduledJobsOptions = { repoRoot: process.cwd() }): boolean {
+  return runPrimordiaJobs(options);
 }

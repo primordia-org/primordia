@@ -32,6 +32,14 @@ const FREQUENCY_MS: Partial<Record<string, number>> = {
 /** How often the scheduler wakes up to check if any source is due. */
 const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
+export interface UpdateSourceSchedulerOptions {
+  intervalMs?: number;
+}
+
+export interface UpdateSourcesRunOptions {
+  force?: boolean;
+}
+
 let schedulerStarted = false;
 
 function gitSafe(repoRoot: string, args: string[]): { stdout: string; code: number } {
@@ -78,11 +86,12 @@ function getUpdateNotificationBody(repoRoot: string, source: UpdateSource, ahead
  * Start the background update-source scheduler.
  * Safe to call multiple times — only the first call has any effect.
  */
-export function startUpdateSourceScheduler(repoRoot: string): void {
+export function startUpdateSourceScheduler(repoRoot: string, options: UpdateSourceSchedulerOptions = {}): void {
   if (schedulerStarted) return;
   schedulerStarted = true;
 
-  const intervalId = setInterval(() => runSchedulerTick(repoRoot), CHECK_INTERVAL_MS);
+  const intervalMs = options.intervalMs ?? CHECK_INTERVAL_MS;
+  const intervalId = setInterval(() => runUpdateSourcesJobOnce(repoRoot), intervalMs);
 
   // Don't let the interval keep the process alive during tests / graceful shutdown.
   if (typeof intervalId === "object" && intervalId && "unref" in intervalId) {
@@ -90,13 +99,13 @@ export function startUpdateSourceScheduler(repoRoot: string): void {
   }
 
   console.log(
-    `[update-source-scheduler] Started (check interval: ${CHECK_INTERVAL_MS / 1000}s)`,
+    `[update-source-scheduler] Started (check interval: ${intervalMs / 1000}s)`,
   );
 }
 
 // ─── Scheduler tick ───────────────────────────────────────────────────────────
 
-function runSchedulerTick(repoRoot: string): void {
+export function runUpdateSourcesJobOnce(repoRoot: string, options: UpdateSourcesRunOptions = {}): void {
   let sources: UpdateSource[];
   try {
     sources = readSources(repoRoot);
@@ -115,7 +124,7 @@ function runSchedulerTick(repoRoot: string): void {
     if (!intervalMs) continue;
 
     const elapsed = now - (source.lastFetchedAt ?? 0);
-    if (elapsed < intervalMs) continue;
+    if (!options.force && elapsed < intervalMs) continue;
 
     // This source is due for a fetch.
     const fetchError = fetchSourceUpdates(source, repoRoot);

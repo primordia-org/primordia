@@ -4,7 +4,7 @@ Primordia's scheduled work should be part of Primordia Core, not a side effect o
 
 ## Current Situation
 
-Scheduled jobs are grouped by `lib/scheduled-jobs.ts` and are currently started by the reverse proxy singleton. `instrumentation.ts` no longer starts them; it only reconnects thread workers after a Next.js server restart.
+Scheduled jobs are now grouped behind `lib/primordia-jobs.ts`, which is the Primordia Core boundary for running and configuring background work. The reverse proxy starts that Core scheduler as an embedded migration bridge, while `bun run primordia jobs run` can run the same scheduler as a dedicated long-lived daemon. `instrumentation.ts` does not start scheduled jobs; it only reconnects thread workers after a Next.js server restart.
 
 Current jobs:
 
@@ -29,12 +29,14 @@ Add a CLI command that starts all scheduled loops:
 
 ```bash
 bun run primordia jobs run
-bun run primordia jobs status --json
 bun run primordia jobs run-one dependency-audit
 bun run primordia jobs run-one update-sources
+bun run primordia jobs schedule list --json
+bun run primordia jobs schedule get update-sources
+bun run primordia jobs schedule set update-sources 5m
 ```
 
-The systemd unit would run a dedicated `primordia-jobs` service next to `primordia-proxy`.
+The systemd unit could run a dedicated `primordia-jobs` service next to `primordia-proxy`. Until install wiring exists, the proxy keeps an embedded fallback by calling the same Core jobs boundary. A repo-level jobs lock prevents both schedulers from running at once.
 
 Pros:
 
@@ -95,7 +97,7 @@ This is a good medium-term foundation if Primordia needs job history, retries, o
 
 ## Option D: Reverse Proxy Keeps Timers, But Through Core Commands
 
-Keep the proxy as the single always-on process for now, but make it spawn or call `primordia jobs run` instead of importing `lib/scheduled-jobs.ts` directly.
+Keep the proxy as the single always-on process for now, but make it call the Core jobs boundary instead of importing individual scheduler internals directly.
 
 Pros:
 
@@ -109,7 +111,7 @@ Cons:
 - Harder to reuse in terminal-only or non-proxy deployments.
 - Still risks proxy reliability being affected by job bugs unless subprocess isolation is used.
 
-This is a pragmatic bridge, not the end state.
+This is the current bridge: `scripts/reverse-proxy.ts` calls `runPrimordiaJobs()` from `lib/primordia-jobs.ts`. If a dedicated `primordia jobs run` daemon already holds the lock, the proxy skips its embedded scheduler.
 
 ## Option E: External Cron / Hosted Scheduler Calls Local API
 
@@ -170,17 +172,18 @@ Useful supporting pieces:
 - A repo-level lock file or SQLite lease to prevent duplicate schedulers.
 - `runOnce` functions for every current job, separate from interval setup.
 - Structured job result records with start time, end time, status, and summary.
-- CLI commands for `jobs list`, `jobs status`, `jobs run`, and `jobs run-one`.
+- CLI commands for `jobs run`, `jobs run-one`, and `jobs schedule list|get|set`.
 - Admin UI reads job state through shared Core modules/API, not direct timer state.
 - Install script can select a scheduler backend: `daemon`, `systemd-timers`, or `proxy-embedded`.
 
 ## Recommended Path
 
-1. **Extract job definitions**: split each scheduler into `runOnce` plus interval wrapper. Keep current behavior working.
-2. **Add CLI commands**: implement `primordia jobs run-one <name>` and `primordia jobs run` using shared job definitions.
-3. **Add a scheduler lock**: use SQLite or a repo lock file so only one daemon runs scheduled jobs per instance.
-4. **Move production scheduling to a dedicated service**: install `primordia-jobs.service` on exe.dev while leaving a fallback proxy-embedded mode for simple local dev.
-5. **Add observability**: persist last run/failure state and surface it in `primordia jobs status --json` and the relevant admin pages.
-6. **Revisit the supervisor north star**: once proxy, servers, workers, and jobs all have CLI/Core boundaries, decide whether a single `primordia core run` supervisor should own them.
+1. **Extract job definitions**: split each scheduler into `runOnce` plus interval wrapper. Keep current behavior working. ✅ Implemented behind `lib/primordia-jobs.ts`.
+2. **Add CLI commands**: implement `primordia jobs run-one <name>` and `primordia jobs run` using shared job definitions. ✅ Implemented.
+3. **Add schedule interval commands**: implement `primordia jobs schedule list|get|set` so settings pages and automation can read/write Core job intervals. ✅ Implemented via git config under `primordia.jobs.*IntervalMs`.
+4. **Add a scheduler lock**: use SQLite or a repo lock file so only one daemon runs scheduled jobs per instance. ✅ Implemented as `.primordia-jobs.lock` under `PRIMORDIA_DIR` or the repo root.
+5. **Move production scheduling to a dedicated service**: install `primordia-jobs.service` on exe.dev while leaving a fallback proxy-embedded mode for simple local dev.
+6. **Add observability**: persist last run/failure state and surface it in a future `primordia jobs status --json` and the relevant admin pages.
+7. **Revisit the supervisor north star**: once proxy, servers, workers, and jobs all have CLI/Core boundaries, decide whether a single `primordia core run` supervisor should own them.
 
 The near-term win is Option A with pieces of Option D as a migration bridge: Core owns the job API and CLI, production runs jobs outside Next.js, and the proxy stops importing scheduler internals over time.

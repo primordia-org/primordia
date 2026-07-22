@@ -22,6 +22,7 @@ export interface DiskCleanupSchedulerOptions {
   repoRoot?: string;
   listenPort?: number;
   archiveRoot?: string;
+  intervalMs?: number;
   logError?: (label: string, err: unknown) => void;
 }
 
@@ -160,10 +161,11 @@ export function startDiskCleanupJobScheduler(options: DiskCleanupSchedulerOption
     initialTimeout.unref();
   }
 
-  const intervalId = setInterval(() => runDiskCleanupJob(options), DISK_CLEANUP_INTERVAL_MS);
+  const intervalMs = options.intervalMs ?? DISK_CLEANUP_INTERVAL_MS;
+  const intervalId = setInterval(() => runDiskCleanupJob(options), intervalMs);
   if (typeof intervalId === 'object' && intervalId && 'unref' in intervalId) {
     intervalId.unref();
   }
 
-  console.log(`[disk-cleanup-scheduler] Started (check interval: ${DISK_CLEANUP_INTERVAL_MS / 1000}s)`);
+  console.log(`[disk-cleanup-scheduler] Started (check interval: ${intervalMs / 1000}s)`);
 }

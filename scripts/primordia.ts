@@ -86,6 +86,23 @@ const requestArgument: CliArgumentDef = {
   description: "Change request text. Pass '-' to read it from stdin.",
 };
 
+const jobNameArgument: CliArgumentDef = {
+  name: 'job',
+  required: true,
+  valueHint: 'job',
+  description: 'Job name: update-sources, dependency-audit, leak-diagnostics, or disk-cleanup.',
+  complete() {
+    return importCommandHandlers().then((handlers) => handlers.completeJobNames());
+  },
+};
+
+const intervalArgument: CliArgumentDef = {
+  name: 'interval',
+  required: true,
+  valueHint: 'interval',
+  description: 'Interval such as 60000, 60s, 5m, 1h, or 1d.',
+};
+
 function lazyRun(name: keyof typeof import('./primordia-command-handlers')) {
   return async ({ args }: { args: CliParsedArgs }) => {
     const handlers = await importCommandHandlers();
@@ -180,6 +197,56 @@ const rejectCommand: CliCommandDef = {
   run: lazyRun('threadRejectCommand'),
 };
 
+const jobsRunCommand: CliCommandDef = {
+  name: 'run',
+  description: 'Run the Primordia scheduled jobs daemon in this process.',
+  options: [jsonOption],
+  run: lazyRun('jobsRunCommand'),
+};
+
+const jobsRunOneCommand: CliCommandDef = {
+  name: 'run-one',
+  description: 'Run one Primordia scheduled job immediately.',
+  options: [jsonOption],
+  arguments: [jobNameArgument],
+  run: lazyRun('jobsRunOneCommand'),
+};
+
+const jobsScheduleListCommand: CliCommandDef = {
+  name: 'list',
+  description: 'List scheduled job intervals.',
+  options: [jsonOption],
+  run: lazyRun('jobsScheduleListCommand'),
+};
+
+const jobsScheduleGetCommand: CliCommandDef = {
+  name: 'get',
+  description: 'Read one scheduled job interval.',
+  options: [jsonOption],
+  arguments: [jobNameArgument],
+  run: lazyRun('jobsScheduleGetCommand'),
+};
+
+const jobsScheduleSetCommand: CliCommandDef = {
+  name: 'set',
+  description: 'Set one scheduled job interval.',
+  options: [jsonOption],
+  arguments: [jobNameArgument, intervalArgument],
+  run: lazyRun('jobsScheduleSetCommand'),
+};
+
+const jobsScheduleCommand: CliCommandDef = {
+  name: 'schedule',
+  description: 'Read or change scheduled job intervals.',
+  subcommands: [jobsScheduleListCommand, jobsScheduleGetCommand, jobsScheduleSetCommand],
+};
+
+const jobsCommand: CliCommandDef = {
+  name: 'jobs',
+  description: 'Run and configure Primordia Core scheduled jobs.',
+  subcommands: [jobsRunCommand, jobsRunOneCommand, jobsScheduleCommand],
+};
+
 const threadCommand: CliCommandDef = {
   name: 'thread',
   description: 'Manage Primordia agentic coding threads.',
@@ -195,7 +262,7 @@ const serverCommand: CliCommandDef = {
 const mainCommand: CliCommandDef = {
   name: 'primordia',
   description: 'Manage Primordia thread and server lifecycle tasks.',
-  subcommands: [statusCommand, threadCommand, serverCommand],
+  subcommands: [statusCommand, threadCommand, serverCommand, jobsCommand],
 };
 
 async function main(): Promise<void> {
