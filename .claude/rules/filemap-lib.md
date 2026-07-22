@@ -42,9 +42,8 @@ lib/
 ├── progress-prompt.ts           ← Shared harness prompt explaining `bun run progress` usage to agents
 ├── session-events.ts            ← Structured event types for session progress logs stored as NDJSON in worktrees
 ├── smart-preview-url.ts         ← Infers the most relevant preview page path from agent text/session events
-├── update-source-scheduler.ts   ← Background scheduler that fetches update sources per configured frequency
+├── scheduled-jobs.ts            ← Primordia Core jobs boundary: job registry, daemon lock, run-one helpers, and schedule interval config
 ├── dependency-audit.ts          ← Runs `bun audit`, parses findings, stores severe-audit notification state in git config
-├── dependency-audit-scheduler.ts ← Daily high/critical dependency audit scheduler and admin notification updater
 ├── update-sources.ts            ← Git-based update-source management via git config remote.{id}.* namespace
 ├── user-prefs.ts                ← Server-side helpers for per-user evolve preferences (harness, model, caveman)
 ├── events-client.ts             ← trackEvent()/appendEvent() helper that POSTs to /api/events
@@ -52,6 +51,11 @@ lib/
 ├── uuid7.ts                     ← UUID v7 helper (delegates to the `uuid` npm package)
 ├── validate-canonical-url.ts    ← Validation for Canonical URL field (HTTPS, non-localhost)
 ├── web-push.ts                  ← VAPID key, subscription, category preference, and send helpers backed by SQLite
+├── jobs/                        ← Individual scheduled job implementations used by scheduled-jobs.ts
+│   ├── update-source-scheduler.ts ← Fetches update sources per configured frequency
+│   ├── dependency-audit-scheduler.ts ← Daily high/critical dependency audit scheduler and admin notification updater
+│   ├── leak-diagnostics-scheduler.ts ← CPU/memory leak diagnostics capture and notification scheduler
+│   └── disk-space-management.ts  ← Disk pressure cleanup job for archiving/removing old non-prod worktrees
 ├── auth-providers/              ← Auth provider descriptors and explicit enabled-provider registry
 │   ├── registry.ts              ← ENABLED_PROVIDERS order/gate used by login page and middleware-safe checks
 │   ├── types.ts                 ← AuthPlugin, AuthPluginServerContext, InstalledPlugin, AuthTabProps, AuthPluginMap

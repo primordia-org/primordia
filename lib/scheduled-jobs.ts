@@ -1,10 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync, spawn } from 'child_process';
-import { startDiskCleanupJobScheduler, runDiskCleanupOnce } from './disk-space-management';
-import { startDependencyAuditScheduler, runDependencyAuditJobOnce } from './dependency-audit-scheduler';
-import { startLeakDiagnosticsScheduler, runLeakDiagnosticsJobOnce } from './leak-diagnostics-scheduler';
-import { startUpdateSourceScheduler, runUpdateSourcesJobOnce } from './update-source-scheduler';
+import { startDiskCleanupJobScheduler, runDiskCleanupOnce } from './jobs/disk-space-management';
+import { startDependencyAuditScheduler, runDependencyAuditJobOnce } from './jobs/dependency-audit-scheduler';
+import { startLeakDiagnosticsScheduler, runLeakDiagnosticsJobOnce } from './jobs/leak-diagnostics-scheduler';
+import { startUpdateSourceScheduler, runUpdateSourcesJobOnce } from './jobs/update-source-scheduler';
 
 export type PrimordiaJobName = 'update-sources' | 'dependency-audit' | 'leak-diagnostics' | 'disk-cleanup';
 

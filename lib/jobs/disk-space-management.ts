@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { gzipSync } from 'zlib';
-import { deleteWorktreeAndBranch, getProxyRoutingState, stopWorktreeServer } from './process-manager';
+import { deleteWorktreeAndBranch, getProxyRoutingState, stopWorktreeServer } from '@/lib/process-manager';
 
 export interface CleanupWorktreeTarget {
   path: string;

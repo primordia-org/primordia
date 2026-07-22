@@ -56,7 +56,7 @@ primordia/
 ├── changelog/                     ← One .md file per change: YYYY-MM-DD-HH-MM-SS Description.md
 │   └── *.md                       ← Filename = short description; body = full what+why detail
 ├── scripts/                       ← Reverse proxy source, install script, worker processes — see .claude/rules/filemap-scripts.md
-├── lib/                           ← Shared utilities, DB adapter, auth helpers — see .claude/rules/filemap-lib.md
+├── lib/                           ← Shared utilities, DB adapter, auth helpers, scheduled-jobs boundary + lib/jobs implementations — see .claude/rules/filemap-lib.md
 │                                    Also: lib/CLAUDE.md covers the git config key-value store pattern
 ├── components/                    ← Shared React components — see .claude/rules/filemap-app-pages.md
 └── app/                           ← Next.js App Router pages and API routes

@@ -1,12 +1,12 @@
-// lib/dependency-audit-scheduler.ts
+// lib/jobs/dependency-audit-scheduler.ts
 // Daily background `bun audit` severe-vulnerability checker.
 
 import {
   readDependencyAuditNotification,
   runBunAudit,
   writeDependencyAuditNotification,
-} from "./dependency-audit";
-import { sendWebPushToCategory } from "./web-push";
+} from "@/lib/dependency-audit";
+import { sendWebPushToCategory } from "@/lib/web-push";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;

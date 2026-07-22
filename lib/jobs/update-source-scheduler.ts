@@ -1,4 +1,4 @@
-// lib/update-source-scheduler.ts
+// lib/jobs/update-source-scheduler.ts
 // Background scheduler that automatically fetches update sources according to
 // the per-source fetchFrequency setting.
 //
@@ -18,8 +18,8 @@
 //     than once is a no-op (idempotent).
 
 import { execFileSync } from "child_process";
-import { readSources, setLastFetchedAt, fetchSourceUpdates, type UpdateSource } from "./update-sources";
-import { sendWebPushToCategory } from "./web-push";
+import { readSources, setLastFetchedAt, fetchSourceUpdates, type UpdateSource } from "@/lib/update-sources";
+import { sendWebPushToCategory } from "@/lib/web-push";
 
 // ─── Frequency → milliseconds ─────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-// lib/leak-diagnostics-scheduler.ts
+// lib/jobs/leak-diagnostics-scheduler.ts
 // Periodically detects CPU/memory leak symptoms and notifies when diagnostics exist.
 
 import {
@@ -6,8 +6,8 @@ import {
   readLeakDiagnosticsNotificationState,
   readLeakDiagnosticsSummary,
   writeLeakDiagnosticsNotificationState,
-} from "./leak-diagnostics";
-import { sendWebPushToCategory } from "./web-push";
+} from "@/lib/leak-diagnostics";
+import { sendWebPushToCategory } from "@/lib/web-push";
 
 const CAPTURE_INTERVAL_MS = 60 * 1000;
 const NOTIFICATION_INTERVAL_MS = 5 * 60 * 1000;

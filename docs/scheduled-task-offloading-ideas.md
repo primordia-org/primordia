@@ -8,10 +8,10 @@ Scheduled jobs are now grouped behind `lib/scheduled-jobs.ts`, which is the Prim
 
 Current jobs:
 
-- Update-source fetches (`lib/update-source-scheduler.ts`): periodically fetch configured upstream Primordia sources and send update notifications.
-- Dependency audits (`lib/dependency-audit-scheduler.ts`): daily `bun audit` for high/critical vulnerabilities and security notifications.
-- Leak diagnostics (`lib/leak-diagnostics-scheduler.ts`): periodic CPU/memory sampling, diagnostics capture, and server-health notifications.
-- Disk cleanup (`lib/disk-space-management.ts`): threshold-based deletion of old non-production worktrees with session-log archiving.
+- Update-source fetches (`lib/jobs/update-source-scheduler.ts`): periodically fetch configured upstream Primordia sources and send update notifications.
+- Dependency audits (`lib/jobs/dependency-audit-scheduler.ts`): daily `bun audit` for high/critical vulnerabilities and security notifications.
+- Leak diagnostics (`lib/jobs/leak-diagnostics-scheduler.ts`): periodic CPU/memory sampling, diagnostics capture, and server-health notifications.
+- Disk cleanup (`lib/jobs/disk-space-management.ts`): threshold-based deletion of old non-production worktrees with session-log archiving.
 
 This is already better than starting timers inside Next.js, but it still ties background work to the proxy process and in-process `setInterval` loops.
 
