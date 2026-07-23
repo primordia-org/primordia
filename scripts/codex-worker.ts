@@ -8,6 +8,8 @@ import * as path from 'path';
 import { appendSessionEvent, getSessionNdjsonPath, type SessionEvent } from '@/lib/session-events';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
 import { decryptWorkerSecretForUser } from '@/lib/worker-secret-env';
+import { storeEncryptedSecretForUser } from '@/lib/server-secrets';
+import { codexAuthJsonToStoredChatGptCredentials } from '@/lib/chatgpt-subscription';
 import { removeLockFile, writePidFile } from '@/lib/lockfile';
 
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai/v1';
@@ -94,6 +96,20 @@ function writeCodexConfig(codexHome: string, authMode: 'gateway' | 'api-key' | '
     }, null, 2),
     'utf8',
   );
+}
+
+async function persistRefreshedCodexChatGptOAuthIfChanged(codexHome: string, userId: string | undefined): Promise<void> {
+  if (!_chatGptOAuth || !_primordiaAesKey || !userId) return;
+  const authPath = path.join(codexHome, 'auth.json');
+  let refreshed: string | null = null;
+  try {
+    refreshed = codexAuthJsonToStoredChatGptCredentials(_chatGptOAuth, fs.readFileSync(authPath, 'utf8'));
+  } catch {
+    return;
+  }
+  if (!refreshed || refreshed === _chatGptOAuth) return;
+  await storeEncryptedSecretForUser(userId, 'chatgpt-subscription', refreshed, _primordiaAesKey);
+  _chatGptOAuth = refreshed;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -418,6 +434,11 @@ async function main(): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     appendSessionEvent(ndjsonPath, { type: 'result', subtype: timedOut ? 'timeout' : 'error', message: msg, ts: Date.now() });
   } finally {
+    try {
+      await persistRefreshedCodexChatGptOAuthIfChanged(codexHome, config.userId);
+    } catch (err) {
+      process.stderr.write(`Failed to persist refreshed ChatGPT tokens: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
     clearTimeout(timeoutId);
     cleanup();
   }

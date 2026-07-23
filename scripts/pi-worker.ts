@@ -35,6 +35,12 @@ import {
 import { ensurePrimordiaPiModelsJson } from '@/lib/pi-custom-models';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
 import { decryptWorkerSecretForUser } from '@/lib/worker-secret-env';
+import { storeEncryptedSecretForUser } from '@/lib/server-secrets';
+import {
+  piOAuthToStoredChatGptCredentials,
+  storedChatGptCredentialsToPiOAuth,
+  type PiChatGptOAuthCredential,
+} from '@/lib/chatgpt-subscription';
 import { removeLockFile, writePidFile } from '@/lib/lockfile';
 
 // ---------------------------------------------------------------------------
@@ -119,6 +125,16 @@ async function ensureUsableChatGptOAuth(authStorage: AuthStorage): Promise<void>
   if (!apiKey) {
     throw new Error(CHATGPT_RELOGIN_ERROR);
   }
+}
+
+async function persistRefreshedChatGptOAuthIfChanged(authStorage: AuthStorage, userId: string | undefined): Promise<void> {
+  if (!_chatGptOAuth || !_primordiaAesKey || !userId) return;
+  const credential = authStorage.get('openai-codex') as PiChatGptOAuthCredential | undefined;
+  if (credential?.type !== 'oauth') return;
+  const refreshed = piOAuthToStoredChatGptCredentials(_chatGptOAuth, credential);
+  if (refreshed === _chatGptOAuth) return;
+  await storeEncryptedSecretForUser(userId, 'chatgpt-subscription', refreshed, _primordiaAesKey);
+  _chatGptOAuth = refreshed;
 }
 
 function collectExtraContextFiles(worktreePath: string): Array<{ path: string; content: string }> {
@@ -309,27 +325,9 @@ async function main(): Promise<void> {
     // to the exe.dev LLM gateway (which handles auth with any non-empty key).
     const authStorage = AuthStorage.inMemory();
     if (_chatGptOAuth && modelProvider === 'openai-codex') {
-      const stored = JSON.parse(_chatGptOAuth) as {
-        tokens?: {
-          accessToken?: string;
-          refreshToken?: string;
-          accountId?: string | null;
-          accessTokenExpiresAt?: number | null;
-        };
-      };
-      const access = stored.tokens?.accessToken;
-      const refresh = stored.tokens?.refreshToken;
-      if (!access || !refresh) {
-        throw new Error('Stored ChatGPT subscription credentials are missing access or refresh tokens. Reconnect ChatGPT in Settings → Subscriptions.');
-      }
-      authStorage.set('openai-codex', {
-        type: 'oauth',
-        access,
-        refresh,
-        expires: stored.tokens?.accessTokenExpiresAt ?? 0,
-        accountId: stored.tokens?.accountId ?? undefined,
-      });
+      authStorage.set('openai-codex', storedChatGptCredentialsToPiOAuth(_chatGptOAuth));
       await ensureUsableChatGptOAuth(authStorage);
+      await persistRefreshedChatGptOAuthIfChanged(authStorage, config.userId);
       process.stderr.write('Using ChatGPT subscription OAuth for openai-codex\n');
     } else if (_userApiKey) {
       authStorage.setRuntimeApiKey(modelProvider, _userApiKey);

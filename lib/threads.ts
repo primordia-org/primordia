@@ -22,11 +22,12 @@ import { withSocketStatusHint } from './socket-status';
 import { getProcessStatusReport, restartWorktreeServer, stopWorktreeServer } from './process-manager';
 import { hasThreadPermission } from './auth';
 import { progressSummary, reduceProgressEventsAcrossRuns, type ProgressStateStep } from './progress-monitor';
-import { decryptStoredSecretForUser, getEncryptedSecretForUser } from './server-secrets';
+import { decryptStoredSecretForUser, getEncryptedSecretForUser, storeEncryptedSecretForUser } from './server-secrets';
 import { getDb } from './db';
 import { PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY, DEFAULT_CAVEMAN_INTENSITY, getBranchParentSource, type CavemanIntensity } from './user-prefs';
 import { BUILT_IN_PRESETS, PREF_CUSTOM_PRESETS, PREF_PRESET, normalizeAuthSource, parseCustomPresets, type ThreadPreset, type PresetAuthSource, type SecretAuthSource } from './presets';
 import { ensurePrimordiaPiModelsJson } from './pi-custom-models';
+import { piOAuthToStoredChatGptCredentials, storedChatGptCredentialsToPiOAuth, type PiChatGptOAuthCredential } from './chatgpt-subscription';
 import {
   copyProductionDbToWorktree,
   findProductionDbPath,
@@ -1716,31 +1717,14 @@ async function generateSlug(
   authSource: PresetAuthSource | null,
   apiKey?: string,
   chatGptOAuth?: string,
+  chatGptRefreshPersistence?: { userId: string; aesKeyJwkJson: string },
 ): Promise<string> {
   try {
     const { provider, modelId } = normalizeSlugModelSelection(model);
     const authStorage = AuthStorage.inMemory();
 
     if (authSource === 'chatgpt-subscription' && provider === 'openai-codex' && chatGptOAuth) {
-      const stored = JSON.parse(chatGptOAuth) as {
-        tokens?: {
-          accessToken?: string;
-          refreshToken?: string;
-          accountId?: string | null;
-          accessTokenExpiresAt?: number | null;
-        };
-      };
-      const access = stored.tokens?.accessToken;
-      const refresh = stored.tokens?.refreshToken;
-      if (access && refresh) {
-        authStorage.set('openai-codex', {
-          type: 'oauth',
-          access,
-          refresh,
-          expires: stored.tokens?.accessTokenExpiresAt ?? 0,
-          accountId: stored.tokens?.accountId ?? undefined,
-        });
-      }
+      authStorage.set('openai-codex', storedChatGptCredentialsToPiOAuth(chatGptOAuth));
     } else if (apiKey) {
       authStorage.setRuntimeApiKey(provider, apiKey);
     } else if (authSource === 'exe-dev-gateway' || authSource === 'claude-subscription' || authSource === null) {
@@ -1760,6 +1744,15 @@ async function generateSlug(
 
     const auth = await modelRegistry.getApiKeyAndHeaders(selectedModel);
     if (!auth.ok) throw new Error(auth.error);
+    if (authSource === 'chatgpt-subscription' && chatGptOAuth && chatGptRefreshPersistence) {
+      const credential = authStorage.get('openai-codex') as PiChatGptOAuthCredential | undefined;
+      if (credential?.type === 'oauth') {
+        const refreshed = piOAuthToStoredChatGptCredentials(chatGptOAuth, credential);
+        if (refreshed !== chatGptOAuth) {
+          await storeEncryptedSecretForUser(chatGptRefreshPersistence.userId, 'chatgpt-subscription', refreshed, chatGptRefreshPersistence.aesKeyJwkJson);
+        }
+      }
+    }
 
     const userMessage: UserMessage = {
       role: 'user',
@@ -1857,6 +1850,7 @@ export async function createThread({
     authSource,
     decryptedApiKeyForSlug,
     decryptedChatGptOAuthForSlug,
+    decryptedChatGptOAuthForSlug && primordiaAesKey ? { userId, aesKeyJwkJson: primordiaAesKey } : undefined,
   );
   const branch = await findUniqueBranch(slug, repoRoot);
   const sessionId = branch;
