@@ -9,7 +9,9 @@
 // primordia systemd service" can be delivered live. The log itself is not lost:
 // install stdout/stderr has already been appended as `log_line` events to the
 // worktree's `.primordia-session.ndjson`, and a page reload replays it from
-// that file. See docs/install-log-streaming-disconnect.md.
+// that file. The thread viewer's fetch-based stream reader does not currently
+// schedule a reconnect when reader.read() ends/errors; it only starts streaming
+// on mount and a few explicit UI triggers. See docs/install-log-streaming-disconnect.md.
 //
 // GET ?threadId=<id>&offset=<n>
 //   threadId — the thread to watch
