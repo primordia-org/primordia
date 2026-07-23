@@ -197,7 +197,12 @@ export function statusCommand(args: CliParsedArgs & JsonArgs): void {
 }
 
 export async function jobsRunCommand(args: CliParsedArgs & JsonArgs): Promise<void> {
-  const started = runPrimordiaJobs({ repoRoot: process.cwd() });
+  const listenPort = Number.parseInt(process.env.REVERSE_PROXY_PORT ?? '', 10);
+  const started = runPrimordiaJobs({
+    repoRoot: process.cwd(),
+    listenPort: Number.isFinite(listenPort) ? listenPort : undefined,
+    archiveRoot: process.env.PRIMORDIA_DIR,
+  });
   if (args.json) printJson({ ok: started, command: 'jobs run', schedules: scheduleRows() });
   else console.log(started ? 'Primordia jobs daemon running. Press Ctrl-C to stop.' : 'Another Primordia jobs scheduler is already running.');
   if (!started) return;

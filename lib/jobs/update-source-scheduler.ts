@@ -2,7 +2,7 @@
 // Background scheduler that automatically fetches update sources according to
 // the per-source fetchFrequency setting.
 //
-// Started by lib/scheduled-jobs.ts, currently invoked by the reverse-proxy singleton.
+// Started by lib/scheduled-jobs.ts, currently invoked by the supervised jobs daemon.
 //
 // How it works:
 //   - A single setInterval runs every CHECK_INTERVAL_MS (5 minutes).

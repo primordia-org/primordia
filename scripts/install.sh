@@ -461,40 +461,51 @@ fi
 rm -f "$_build_log"
 _done "Build complete"
 
-# ── Install reverse-proxy ─────────────────────────────────────────────────────
+# ── Install process supervisor and reverse-proxy ──────────────────────────────
 
-_CURRENT_STEP="bundle reverse proxy"
+_CURRENT_STEP="bundle core process launchers"
 REVERSE_PROXY_SOURCE="${INSTALL_DIR}/scripts/reverse-proxy.ts"
-REVERSE_PROXY_BUNDLE_DIR="$(mktemp -d)"
-REVERSE_PROXY_BUNDLE="${REVERSE_PROXY_BUNDLE_DIR}/reverse-proxy.js"
+SUPERVISOR_SOURCE="${INSTALL_DIR}/scripts/process-supervisor.ts"
+CORE_BUNDLE_DIR="$(mktemp -d)"
+REVERSE_PROXY_BUNDLE="${CORE_BUNDLE_DIR}/reverse-proxy.js"
+SUPERVISOR_BUNDLE="${CORE_BUNDLE_DIR}/process-supervisor.js"
 REVERSE_PROXY_DEST="${PRIMORDIA_DIR}/reverse-proxy.js"
+SUPERVISOR_DEST="${PRIMORDIA_DIR}/process-supervisor.js"
 MISE_CONFIG_SOURCE="${INSTALL_DIR}/mise.toml"
 MISE_CONFIG_DEST="${PRIMORDIA_DIR}/mise.toml"
 ROOT_MISE_CHANGED=false
 
-_step "Bundling reverse proxy..."
-_proxy_bundle_log=$(mktemp)
-if ! bun build "${REVERSE_PROXY_SOURCE}" --target=bun --outfile="${REVERSE_PROXY_BUNDLE}" >"$_proxy_bundle_log" 2>&1; then
+_step "Bundling core launchers..."
+_core_bundle_log=$(mktemp)
+if ! bun build "${REVERSE_PROXY_SOURCE}" "${SUPERVISOR_SOURCE}" --target=bun --outdir="${CORE_BUNDLE_DIR}" >"$_core_bundle_log" 2>&1; then
   _spin_kill
   printf "\n"
-  echo -e "${DIM}  --- reverse proxy bundle output ---${RESET}" >&2
-  cat "$_proxy_bundle_log" >&2
+  echo -e "${DIM}  --- core launcher bundle output ---${RESET}" >&2
+  cat "$_core_bundle_log" >&2
   echo -e "${DIM}  -----------------------------------${RESET}" >&2
-  rm -f "$_proxy_bundle_log"
-  rm -rf "${REVERSE_PROXY_BUNDLE_DIR}"
-  exit_with_failure 1 "$LINENO" "bun build ${REVERSE_PROXY_SOURCE} --target=bun --outfile=${REVERSE_PROXY_BUNDLE}"
+  rm -f "$_core_bundle_log"
+  rm -rf "${CORE_BUNDLE_DIR}"
+  exit_with_failure 1 "$LINENO" "bun build ${REVERSE_PROXY_SOURCE} ${SUPERVISOR_SOURCE} --target=bun --outdir=${CORE_BUNDLE_DIR}"
 fi
-rm -f "$_proxy_bundle_log"
-_done "Bundled reverse proxy"
+rm -f "$_core_bundle_log"
+_done "Bundled core launchers"
 
-_CURRENT_STEP="install reverse proxy"
-# Calculate if the proxy bundle needs updating
+_CURRENT_STEP="install core process launchers"
+# Calculate if either installed launcher needs updating.
 if [[ ! -f "${REVERSE_PROXY_DEST}" ]]; then
   PROXY_CHANGED=true
 elif ! diff -q "${REVERSE_PROXY_BUNDLE}" "${REVERSE_PROXY_DEST}" >/dev/null 2>&1; then
   PROXY_CHANGED=true
 else
   PROXY_CHANGED=false
+fi
+
+if [[ ! -f "${SUPERVISOR_DEST}" ]]; then
+  SUPERVISOR_CHANGED=true
+elif ! diff -q "${SUPERVISOR_BUNDLE}" "${SUPERVISOR_DEST}" >/dev/null 2>&1; then
+  SUPERVISOR_CHANGED=true
+else
+  SUPERVISOR_CHANGED=false
 fi
 
 if [[ "${PROXY_CHANGED}" == "true" ]]; then
@@ -504,7 +515,15 @@ if [[ "${PROXY_CHANGED}" == "true" ]]; then
 else
   success "Using reverse-proxy.js"
 fi
-rm -rf "${REVERSE_PROXY_BUNDLE_DIR}"
+
+if [[ "${SUPERVISOR_CHANGED}" == "true" ]]; then
+  cp -f "${SUPERVISOR_BUNDLE}" "${SUPERVISOR_DEST}"
+  rm -f "${PRIMORDIA_DIR}/process-supervisor.ts"
+  success "Installed process-supervisor.js"
+else
+  success "Using process-supervisor.js"
+fi
+rm -rf "${CORE_BUNDLE_DIR}"
 
 if [[ ! -f "${MISE_CONFIG_DEST}" ]] || ! diff -q "${MISE_CONFIG_SOURCE}" "${MISE_CONFIG_DEST}" >/dev/null 2>&1; then
   cp -f "${MISE_CONFIG_SOURCE}" "${MISE_CONFIG_DEST}"
@@ -554,7 +573,7 @@ if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; t
   fi
   GENERATED_UNIT=$(cat << UNIT
 [Unit]
-Description=Primordia Reverse Proxy
+Description=Primordia Process Supervisor
 After=network.target
 
 [Service]
@@ -565,8 +584,9 @@ Environment=REVERSE_PROXY_PORT=${REVERSE_PROXY_PORT}
 Environment=HOME=${HOME}
 Environment=PATH=${MISE_SHIMS_DIR}:$(dirname "${MISE_BIN}"):/usr/local/bin:/usr/bin:/bin
 Environment=MISE_TRUSTED_CONFIG_PATHS=${PRIMORDIA_DIR}:${WORKTREES_DIR}
+Environment=PRIMORDIA_MISE_BIN=${MISE_BIN}
 ${PARENT_URL_ENV_LINE}
-ExecStart=${MISE_BIN} exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/reverse-proxy.js
+ExecStart=${MISE_BIN} exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/process-supervisor.js
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -709,12 +729,12 @@ SERVICE_READY=false
 
 
 # Zero-downtime eligibility:
-# - Server install: proxy running + neither proxy script nor service unit changed
+# - Server install: proxy running + neither core launcher nor service unit changed
 # - Non-server (local dev): proxy running (can't auto-restart proxy, so always attempt
 #   zero-downtime; if PROXY_CHANGED, warn user to restart proxy manually afterward)
 if [[ "${PROXY_RUNNING}" == "true" ]] && \
    { [[ "${PROBABLY_A_SERVER}" == "false" ]] || \
-     [[ "${PROXY_CHANGED}" == "false" && "${SERVICE_CHANGED}" == "false" && "${ROOT_MISE_CHANGED}" == "false" ]]; }; then
+     [[ "${PROXY_CHANGED}" == "false" && "${SUPERVISOR_CHANGED}" == "false" && "${SERVICE_CHANGED}" == "false" && "${ROOT_MISE_CHANGED}" == "false" ]]; }; then
   # ── Zero-downtime path ────────────────────────────────────────────────────
   # The proxy is running and neither it nor the service unit changed. Start the
   # new production server through the process-manager CLI, then publish it through
@@ -731,8 +751,8 @@ if [[ "${PROXY_RUNNING}" == "true" ]] && \
       _done "Production branch published"
       SERVICE_READY=true
       advance_main_and_push
-      if [[ "${PROBABLY_A_SERVER}" == "false" ]] && { [[ "${PROXY_CHANGED}" == "true" ]] || [[ "${ROOT_MISE_CHANGED}" == "true" ]]; }; then
-        warn "Proxy runtime files changed — restart the proxy manually to pick up the new version."
+      if [[ "${PROBABLY_A_SERVER}" == "false" ]] && { [[ "${PROXY_CHANGED}" == "true" ]] || [[ "${SUPERVISOR_CHANGED}" == "true" ]] || [[ "${ROOT_MISE_CHANGED}" == "true" ]]; }; then
+        warn "Core runtime files changed — restart the supervisor manually to pick up the new version."
       fi
       echo -e "${GREEN}✓${RESET} Congratulations! Primordia is running!"
     else
@@ -768,7 +788,11 @@ if [[ "${SERVICE_READY}" == "false" ]]; then
   _done "Production branch published"
 
   if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; then
-    if [[ "${PROXY_RUNNING}" == "true" ]]; then
+    if [[ "${PROXY_RUNNING}" == "true" && "${SERVICE_CHANGED}" == "false" && "${SUPERVISOR_CHANGED}" == "false" ]]; then
+      _CURRENT_STEP="reload supervised core processes"
+      sudo systemctl kill --kill-whom=main --signal=SIGUSR2 primordia
+      success "Reloaded Primordia core processes"
+    elif [[ "${PROXY_RUNNING}" == "true" ]]; then
       _CURRENT_STEP="restart systemd service"
       sudo systemctl restart --quiet primordia
       success "Restarted primordia systemd service"
@@ -778,7 +802,7 @@ if [[ "${SERVICE_READY}" == "false" ]]; then
       success "Started primordia systemd service"
     fi
 
-    # Only poll for readiness when we actually started/restarted a managed service.
+    # Poll for readiness after starting, restarting, or reloading managed core processes.
     _CURRENT_STEP="wait for service to be ready"
     _step "Waiting for Primordia to be ready..."
     for i in $(seq 1 30); do
@@ -810,7 +834,7 @@ if [[ "${SERVICE_READY}" == "false" ]]; then
     advance_main_and_push
     echo -e "${GREEN}✓${RESET} Congratulations! Primordia is ready."
     if [[ "${PROXY_RUNNING}" == "false" ]]; then
-      info "Proxy not detected — start it with: mise exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/reverse-proxy.js"
+      info "Supervisor not detected — start it with: mise exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/process-supervisor.js"
     fi
   fi
 fi
