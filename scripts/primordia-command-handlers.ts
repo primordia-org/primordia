@@ -1,3 +1,4 @@
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -33,6 +34,7 @@ type UserSelectorArgs = { user?: string };
 type JsonArgs = { json?: boolean };
 type ModeArgs = { dev?: boolean; prod?: boolean };
 type PresetArgs = { preset?: string };
+type SupervisedServiceName = 'reverse-proxy' | 'scheduled-jobs';
 
 const MISSING_CLI_KEY_MESSAGE =
   'PRIMORDIA_CLI_KEY is required for `primordia thread create`, `primordia thread followup`, and `primordia thread accept`. ' +
@@ -180,6 +182,46 @@ function printScheduleTable(rows: ReturnType<typeof scheduleRows>): void {
   for (const row of rows) console.log(`${row.name.padEnd(nameWidth)}  ${row.interval.padEnd(intervalWidth)}  ${row.gitConfigKey}`);
 }
 
+function serviceSignal(service: SupervisedServiceName): NodeJS.Signals {
+  return service === 'reverse-proxy' ? 'SIGUSR1' : 'SIGUSR2';
+}
+
+function signalSupervisorViaSystemd(signal: NodeJS.Signals): boolean {
+  const unit = process.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
+  try {
+    execFileSync('systemctl', ['is-active', '--quiet', unit], { stdio: 'ignore' });
+    execFileSync('systemctl', ['kill', '--kill-whom=main', `--signal=${signal}`, unit], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function signalSupervisorViaPgrep(signal: NodeJS.Signals): number[] {
+  let output = '';
+  try {
+    output = execFileSync('pgrep', ['-f', 'process-supervisor\\.(js|ts)'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return [];
+  }
+  const pids = output
+    .split(/\s+/)
+    .map((value) => Number.parseInt(value, 10))
+    .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
+  for (const pid of pids) process.kill(pid, signal);
+  return pids;
+}
+
+function restartSupervisedService(service: SupervisedServiceName, json: boolean | undefined): void {
+  const signal = serviceSignal(service);
+  const viaSystemd = signalSupervisorViaSystemd(signal);
+  const pids = viaSystemd ? [] : signalSupervisorViaPgrep(signal);
+  if (!viaSystemd && pids.length === 0) throw new Error('Primordia process supervisor is not running or could not be signaled');
+  const result = { ok: true, service, action: 'restart', signal, via: viaSystemd ? 'systemd' : 'process', pids };
+  if (json) printJson(result);
+  else console.log(`Signaled ${service} restart via ${result.via} (${signal}).`);
+}
+
 export async function completeUsers(): Promise<string[]> {
   const db = await getDb();
   const users = await db.getAllUsers();
@@ -215,6 +257,14 @@ export async function jobsRunOneCommand(args: CliParsedArgs & JsonArgs): Promise
   if (args.json) printJson(result);
   else console.log(`${result.ok ? 'ok' : 'failed'}: ${result.summary}`);
   if (!result.ok) process.exit(1);
+}
+
+export function serviceReverseProxyRestartCommand(args: CliParsedArgs & JsonArgs): void {
+  restartSupervisedService('reverse-proxy', args.json);
+}
+
+export function serviceScheduledJobsRestartCommand(args: CliParsedArgs & JsonArgs): void {
+  restartSupervisedService('scheduled-jobs', args.json);
 }
 
 export function jobsScheduleListCommand(args: CliParsedArgs & JsonArgs): void {

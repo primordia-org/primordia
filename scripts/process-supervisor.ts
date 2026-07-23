@@ -1,8 +1,9 @@
 // scripts/process-supervisor.ts
 // Small systemd-facing launcher for Primordia's long-lived core processes.
 // systemd keeps this stub alive; the stub owns the reverse proxy and scheduled
-// jobs daemon, restarting either child if it crashes and reloading both when the
-// stub receives SIGHUP or SIGUSR2 after code changes.
+// jobs daemon, restarting either child if it crashes. SIGHUP reloads both
+// children; SIGUSR1 reloads only the reverse proxy; SIGUSR2 reloads only the
+// scheduled jobs daemon.
 
 import { spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
@@ -141,15 +142,25 @@ function stopService(service: ManagedService): void {
   }, 10_000).unref();
 }
 
+function reloadService(service: ManagedService, signal: NodeJS.Signals): void {
+  if (shuttingDown) return;
+  log(`received ${signal}; reloading ${service.name}`);
+  const child = service.child;
+  stopService(service);
+  if (!child) startService(service);
+  else child.once('exit', () => startService(service));
+}
+
+function findService(name: ServiceName): ManagedService {
+  const service = services.find((entry) => entry.name === name);
+  if (!service) throw new Error(`unknown supervised service: ${name}`);
+  return service;
+}
+
 function reloadChildren(signal: NodeJS.Signals): void {
   if (shuttingDown) return;
-  log(`received ${signal}; reloading children`);
-  for (const service of services) {
-    const child = service.child;
-    stopService(service);
-    if (!child) startService(service);
-    else child.once('exit', () => startService(service));
-  }
+  log(`received ${signal}; reloading all children`);
+  for (const service of services) reloadService(service, signal);
 }
 
 function shutdown(signal: NodeJS.Signals): void {
@@ -161,7 +172,8 @@ function shutdown(signal: NodeJS.Signals): void {
 }
 
 process.on('SIGHUP', reloadChildren);
-process.on('SIGUSR2', reloadChildren);
+process.on('SIGUSR1', (signal) => reloadService(findService('reverse-proxy'), signal));
+process.on('SIGUSR2', (signal) => reloadService(findService('scheduled-jobs'), signal));
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 process.on('uncaughtException', (err) => logError('uncaught exception', err));

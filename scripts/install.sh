@@ -790,7 +790,7 @@ if [[ "${SERVICE_READY}" == "false" ]]; then
   if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; then
     if [[ "${PROXY_RUNNING}" == "true" && "${SERVICE_CHANGED}" == "false" && "${SUPERVISOR_CHANGED}" == "false" ]]; then
       _CURRENT_STEP="reload supervised core processes"
-      sudo systemctl kill --kill-whom=main --signal=SIGUSR2 primordia
+      sudo systemctl kill --kill-whom=main --signal=SIGHUP primordia
       success "Reloaded Primordia core processes"
     elif [[ "${PROXY_RUNNING}" == "true" ]]; then
       _CURRENT_STEP="restart systemd service"

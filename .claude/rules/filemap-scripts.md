@@ -7,7 +7,7 @@ paths:
 
 ```
 scripts/
-├── process-supervisor.ts         ← Small systemd-facing monitor that spawns/restarts the reverse proxy and scheduled jobs daemon; reloads children on SIGHUP/SIGUSR2
+├── process-supervisor.ts         ← Small systemd-facing monitor that spawns/restarts the reverse proxy and scheduled jobs daemon; SIGHUP reloads both, SIGUSR1 reloads proxy, SIGUSR2 reloads jobs
 ├── reverse-proxy.ts              ← HTTP reverse proxy for blue/green production and preview servers; watches git config; owns prod spawn/log SSE endpoints; routes /preview/{branchName}
 ├── assign-branch-ports.sh        ← Idempotent migration script: assigns ephemeral branch ports in git config; main gets 3001, others 3002+
 ├── rollback.ts                   ← Standalone emergency rollback CLI for when the app/admin UI is unavailable
