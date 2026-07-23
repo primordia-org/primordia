@@ -247,6 +247,13 @@ const jobsCommand: CliCommandDef = {
   subcommands: [jobsRunCommand, jobsRunOneCommand, jobsScheduleCommand],
 };
 
+const processSupervisorServiceRestartCommand: CliCommandDef = {
+  name: 'restart',
+  description: 'Restart only the Primordia process supervisor systemd service.',
+  options: [jsonOption],
+  run: lazyRun('serviceProcessSupervisorRestartCommand'),
+};
+
 const reverseProxyServiceRestartCommand: CliCommandDef = {
   name: 'restart',
   description: 'Signal the Primordia supervisor to restart only the reverse proxy.',
@@ -259,6 +266,12 @@ const scheduledJobsServiceRestartCommand: CliCommandDef = {
   description: 'Signal the Primordia supervisor to restart only the scheduled jobs daemon.',
   options: [jsonOption],
   run: lazyRun('serviceScheduledJobsRestartCommand'),
+};
+
+const processSupervisorServiceCommand: CliCommandDef = {
+  name: 'process-supervisor',
+  description: 'Manage the systemd-supervised Primordia process supervisor.',
+  subcommands: [processSupervisorServiceRestartCommand],
 };
 
 const reverseProxyServiceCommand: CliCommandDef = {
@@ -276,7 +289,7 @@ const scheduledJobsServiceCommand: CliCommandDef = {
 const serviceCommand: CliCommandDef = {
   name: 'service',
   description: 'Manage supervised Primordia core services.',
-  subcommands: [reverseProxyServiceCommand, scheduledJobsServiceCommand],
+  subcommands: [processSupervisorServiceCommand, reverseProxyServiceCommand, scheduledJobsServiceCommand],
 };
 
 const threadCommand: CliCommandDef = {

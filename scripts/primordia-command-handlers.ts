@@ -34,7 +34,8 @@ type UserSelectorArgs = { user?: string };
 type JsonArgs = { json?: boolean };
 type ModeArgs = { dev?: boolean; prod?: boolean };
 type PresetArgs = { preset?: string };
-type SupervisedServiceName = 'reverse-proxy' | 'scheduled-jobs';
+type PrimordiaServiceName = 'process-supervisor' | 'reverse-proxy' | 'scheduled-jobs';
+type SupervisedServiceName = Exclude<PrimordiaServiceName, 'process-supervisor'>;
 
 const MISSING_CLI_KEY_MESSAGE =
   'PRIMORDIA_CLI_KEY is required for `primordia thread create`, `primordia thread followup`, and `primordia thread accept`. ' +
@@ -212,6 +213,18 @@ function signalSupervisorViaPgrep(signal: NodeJS.Signals): number[] {
   return pids;
 }
 
+function restartProcessSupervisor(json: boolean | undefined): void {
+  const unit = process.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
+  try {
+    execFileSync('systemctl', ['restart', unit], { stdio: 'ignore' });
+  } catch {
+    throw new Error(`Could not restart ${unit}; process-supervisor restart requires systemd access`);
+  }
+  const result = { ok: true, service: 'process-supervisor', action: 'restart', via: 'systemd' };
+  if (json) printJson(result);
+  else console.log('Restarted process-supervisor via systemd.');
+}
+
 function restartSupervisedService(service: SupervisedServiceName, json: boolean | undefined): void {
   const signal = serviceSignal(service);
   const viaSystemd = signalSupervisorViaSystemd(signal);
@@ -257,6 +270,10 @@ export async function jobsRunOneCommand(args: CliParsedArgs & JsonArgs): Promise
   if (args.json) printJson(result);
   else console.log(`${result.ok ? 'ok' : 'failed'}: ${result.summary}`);
   if (!result.ok) process.exit(1);
+}
+
+export function serviceProcessSupervisorRestartCommand(args: CliParsedArgs & JsonArgs): void {
+  restartProcessSupervisor(args.json);
 }
 
 export function serviceReverseProxyRestartCommand(args: CliParsedArgs & JsonArgs): void {

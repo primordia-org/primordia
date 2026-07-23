@@ -461,23 +461,24 @@ fi
 rm -f "$_build_log"
 _done "Build complete"
 
-# ── Install process supervisor and reverse-proxy ──────────────────────────────
+# ── Install process supervisor and Primordia service bundles ──────────────────
 
 _CURRENT_STEP="bundle core process launchers"
-REVERSE_PROXY_SOURCE="${INSTALL_DIR}/scripts/reverse-proxy.ts"
-SUPERVISOR_SOURCE="${INSTALL_DIR}/scripts/process-supervisor.ts"
 CORE_BUNDLE_DIR="$(mktemp -d)"
-REVERSE_PROXY_BUNDLE="${CORE_BUNDLE_DIR}/reverse-proxy.js"
-SUPERVISOR_BUNDLE="${CORE_BUNDLE_DIR}/process-supervisor.js"
-REVERSE_PROXY_DEST="${PRIMORDIA_DIR}/reverse-proxy.js"
-SUPERVISOR_DEST="${PRIMORDIA_DIR}/process-supervisor.js"
+PROCESS_SUPERVISOR_CHANGED=false
+REVERSE_PROXY_CHANGED=false
+SCHEDULED_JOBS_CHANGED=false
 MISE_CONFIG_SOURCE="${INSTALL_DIR}/mise.toml"
 MISE_CONFIG_DEST="${PRIMORDIA_DIR}/mise.toml"
 ROOT_MISE_CHANGED=false
 
 _step "Bundling core launchers..."
 _core_bundle_log=$(mktemp)
-if ! bun build "${REVERSE_PROXY_SOURCE}" "${SUPERVISOR_SOURCE}" --target=bun --outdir="${CORE_BUNDLE_DIR}" >"$_core_bundle_log" 2>&1; then
+if ! bun build \
+  "${INSTALL_DIR}/scripts/process-supervisor.ts" \
+  "${INSTALL_DIR}/scripts/reverse-proxy.ts" \
+  "${INSTALL_DIR}/scripts/scheduled-jobs.ts" \
+  --target=bun --outdir="${CORE_BUNDLE_DIR}" >"$_core_bundle_log" 2>&1; then
   _spin_kill
   printf "\n"
   echo -e "${DIM}  --- core launcher bundle output ---${RESET}" >&2
@@ -485,44 +486,39 @@ if ! bun build "${REVERSE_PROXY_SOURCE}" "${SUPERVISOR_SOURCE}" --target=bun --o
   echo -e "${DIM}  -----------------------------------${RESET}" >&2
   rm -f "$_core_bundle_log"
   rm -rf "${CORE_BUNDLE_DIR}"
-  exit_with_failure 1 "$LINENO" "bun build ${REVERSE_PROXY_SOURCE} ${SUPERVISOR_SOURCE} --target=bun --outdir=${CORE_BUNDLE_DIR}"
+  exit_with_failure 1 "$LINENO" "bun build core launchers"
 fi
 rm -f "$_core_bundle_log"
 _done "Bundled core launchers"
 
+install_primordia_service() {
+  local service_name="$1"
+  local var_prefix="$2"
+  local bundle="${CORE_BUNDLE_DIR}/${service_name}.js"
+  local dest="${PRIMORDIA_DIR}/${service_name}.js"
+  local changed=false
+
+  if [[ ! -f "$dest" ]]; then
+    changed=true
+  elif ! diff -q "$bundle" "$dest" >/dev/null 2>&1; then
+    changed=true
+  fi
+
+  if [[ "$changed" == "true" ]]; then
+    cp -f "$bundle" "$dest"
+    rm -f "${PRIMORDIA_DIR}/${service_name}.ts"
+    success "Installed ${service_name}.js"
+  else
+    success "Using ${service_name}.js"
+  fi
+
+  printf -v "${var_prefix}_CHANGED" '%s' "$changed"
+}
+
 _CURRENT_STEP="install core process launchers"
-# Calculate if either installed launcher needs updating.
-if [[ ! -f "${REVERSE_PROXY_DEST}" ]]; then
-  PROXY_CHANGED=true
-elif ! diff -q "${REVERSE_PROXY_BUNDLE}" "${REVERSE_PROXY_DEST}" >/dev/null 2>&1; then
-  PROXY_CHANGED=true
-else
-  PROXY_CHANGED=false
-fi
-
-if [[ ! -f "${SUPERVISOR_DEST}" ]]; then
-  SUPERVISOR_CHANGED=true
-elif ! diff -q "${SUPERVISOR_BUNDLE}" "${SUPERVISOR_DEST}" >/dev/null 2>&1; then
-  SUPERVISOR_CHANGED=true
-else
-  SUPERVISOR_CHANGED=false
-fi
-
-if [[ "${PROXY_CHANGED}" == "true" ]]; then
-  cp -f "${REVERSE_PROXY_BUNDLE}" "${REVERSE_PROXY_DEST}"
-  rm -f "${PRIMORDIA_DIR}/reverse-proxy.ts"
-  success "Installed reverse-proxy.js"
-else
-  success "Using reverse-proxy.js"
-fi
-
-if [[ "${SUPERVISOR_CHANGED}" == "true" ]]; then
-  cp -f "${SUPERVISOR_BUNDLE}" "${SUPERVISOR_DEST}"
-  rm -f "${PRIMORDIA_DIR}/process-supervisor.ts"
-  success "Installed process-supervisor.js"
-else
-  success "Using process-supervisor.js"
-fi
+install_primordia_service "process-supervisor" "PROCESS_SUPERVISOR"
+install_primordia_service "reverse-proxy" "REVERSE_PROXY"
+install_primordia_service "scheduled-jobs" "SCHEDULED_JOBS"
 rm -rf "${CORE_BUNDLE_DIR}"
 
 if [[ ! -f "${MISE_CONFIG_DEST}" ]] || ! diff -q "${MISE_CONFIG_SOURCE}" "${MISE_CONFIG_DEST}" >/dev/null 2>&1; then
@@ -560,18 +556,20 @@ fi
 # Whether we restart the proxy depends on the zero-downtime check below.
 
 _CURRENT_STEP="install systemd service"
-SERVICE_CHANGED=false
+SYSTEMD_SERVICE_CHANGED=false
 
-if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; then
-  success "Detected systemd v$(systemctl --version | awk 'NR==1 {print $2}')"
-  _step "Installing systemd service..."
-  SYSTEMD_SERVICE_DIR="/etc/systemd/system"
-  PROXY_SERVICE_DST="${SYSTEMD_SERVICE_DIR}/primordia.service"
-  PARENT_URL_ENV_LINE=""
+install_systemd_service() {
+  local service_name="$1"
+  local changed_var="$2"
+  local unit_name="primordia"
+  local service_dst="/etc/systemd/system/${unit_name}.service"
+  local parent_url_env_line=""
   if [[ -n "${PRIMORDIA_PARENT_URL}" ]]; then
-    PARENT_URL_ENV_LINE="Environment=PRIMORDIA_PARENT_URL=${PRIMORDIA_PARENT_URL}"
+    parent_url_env_line="Environment=PRIMORDIA_PARENT_URL=${PRIMORDIA_PARENT_URL}"
   fi
-  GENERATED_UNIT=$(cat << UNIT
+
+  local generated_unit
+  generated_unit=$(cat << UNIT
 [Unit]
 Description=Primordia Process Supervisor
 After=network.target
@@ -585,8 +583,8 @@ Environment=HOME=${HOME}
 Environment=PATH=${MISE_SHIMS_DIR}:$(dirname "${MISE_BIN}"):/usr/local/bin:/usr/bin:/bin
 Environment=MISE_TRUSTED_CONFIG_PATHS=${PRIMORDIA_DIR}:${WORKTREES_DIR}
 Environment=PRIMORDIA_MISE_BIN=${MISE_BIN}
-${PARENT_URL_ENV_LINE}
-ExecStart=${MISE_BIN} exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/process-supervisor.js
+${parent_url_env_line}
+ExecStart=${MISE_BIN} exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/${service_name}.js
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -597,27 +595,43 @@ WantedBy=multi-user.target
 UNIT
 )
 
-  # Calculate if the service unit needs updating
-  if [[ ! -f "${PROXY_SERVICE_DST}" ]] || ! diff -q <(echo "$GENERATED_UNIT") "${PROXY_SERVICE_DST}" >/dev/null 2>&1; then
-    SERVICE_CHANGED=true
-  else
-    SERVICE_CHANGED=false
+  local changed=false
+  if [[ ! -f "${service_dst}" ]] || ! diff -q <(echo "$generated_unit") "${service_dst}" >/dev/null 2>&1; then
+    changed=true
   fi
 
-  # Install/update the service unit
-  if [[ "$SERVICE_CHANGED" == "true" ]]; then
-    echo "$GENERATED_UNIT" | sudo tee "${PROXY_SERVICE_DST}" >/dev/null
+  if [[ "$changed" == "true" ]]; then
+    echo "$generated_unit" | sudo tee "${service_dst}" >/dev/null
     sudo systemctl daemon-reload
     _done "Installed primordia systemd service"
   else
     _done "Using primordia systemd service"
   fi
 
-  # Enable the service so it starts automatically on boot
-  if ! systemctl is-enabled --quiet primordia 2>/dev/null; then
-    sudo systemctl enable --quiet primordia 2>/dev/null
+  if ! systemctl is-enabled --quiet "$unit_name" 2>/dev/null; then
+    sudo systemctl enable --quiet "$unit_name" 2>/dev/null
     success "Enabled primordia systemd service"
   fi
+
+  printf -v "$changed_var" '%s' "$changed"
+}
+
+restart_primordia_service() {
+  local service_name="$1"
+  local display_name="$2"
+  local restart_log
+  restart_log="$(mktemp)"
+  _INSTALL_COMMAND_OUTPUT_FILE="$restart_log"
+  ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia service "$service_name" restart --json >"$restart_log" 2>&1
+  _INSTALL_COMMAND_OUTPUT_FILE=""
+  rm -f "$restart_log"
+  success "Restarted ${display_name}"
+}
+
+if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; then
+  success "Detected systemd v$(systemctl --version | awk 'NR==1 {print $2}')"
+  _step "Installing systemd service..."
+  install_systemd_service "process-supervisor" "SYSTEMD_SERVICE_CHANGED"
 fi
 
 # ── Zero-downtime cutover (or first-time start) ───────────────────────────────
@@ -731,10 +745,10 @@ SERVICE_READY=false
 # Zero-downtime eligibility:
 # - Server install: proxy running + neither core launcher nor service unit changed
 # - Non-server (local dev): proxy running (can't auto-restart proxy, so always attempt
-#   zero-downtime; if PROXY_CHANGED, warn user to restart proxy manually afterward)
+#   zero-downtime; if core files changed, warn user to restart manually afterward)
 if [[ "${PROXY_RUNNING}" == "true" ]] && \
    { [[ "${PROBABLY_A_SERVER}" == "false" ]] || \
-     [[ "${PROXY_CHANGED}" == "false" && "${SUPERVISOR_CHANGED}" == "false" && "${SERVICE_CHANGED}" == "false" && "${ROOT_MISE_CHANGED}" == "false" ]]; }; then
+     [[ "${REVERSE_PROXY_CHANGED}" == "false" && "${SCHEDULED_JOBS_CHANGED}" == "false" && "${PROCESS_SUPERVISOR_CHANGED}" == "false" && "${SYSTEMD_SERVICE_CHANGED}" == "false" && "${ROOT_MISE_CHANGED}" == "false" ]]; }; then
   # ── Zero-downtime path ────────────────────────────────────────────────────
   # The proxy is running and neither it nor the service unit changed. Start the
   # new production server through the process-manager CLI, then publish it through
@@ -751,8 +765,8 @@ if [[ "${PROXY_RUNNING}" == "true" ]] && \
       _done "Production branch published"
       SERVICE_READY=true
       advance_main_and_push
-      if [[ "${PROBABLY_A_SERVER}" == "false" ]] && { [[ "${PROXY_CHANGED}" == "true" ]] || [[ "${SUPERVISOR_CHANGED}" == "true" ]] || [[ "${ROOT_MISE_CHANGED}" == "true" ]]; }; then
-        warn "Core runtime files changed — restart the supervisor manually to pick up the new version."
+      if [[ "${PROBABLY_A_SERVER}" == "false" ]] && { [[ "${REVERSE_PROXY_CHANGED}" == "true" ]] || [[ "${SCHEDULED_JOBS_CHANGED}" == "true" ]] || [[ "${PROCESS_SUPERVISOR_CHANGED}" == "true" ]] || [[ "${ROOT_MISE_CHANGED}" == "true" ]]; }; then
+        warn "Core runtime files changed — restart the relevant Primordia services manually to pick up the new version."
       fi
       echo -e "${GREEN}✓${RESET} Congratulations! Primordia is running!"
     else
@@ -788,21 +802,27 @@ if [[ "${SERVICE_READY}" == "false" ]]; then
   _done "Production branch published"
 
   if [[ "${PROBABLY_A_SERVER}" == "true" ]] && command -v systemctl &>/dev/null; then
-    if [[ "${PROXY_RUNNING}" == "true" && "${SERVICE_CHANGED}" == "false" && "${SUPERVISOR_CHANGED}" == "false" ]]; then
-      _CURRENT_STEP="reload supervised core processes"
-      sudo systemctl kill --kill-whom=main --signal=SIGHUP primordia
-      success "Reloaded Primordia core processes"
-    elif [[ "${PROXY_RUNNING}" == "true" ]]; then
-      _CURRENT_STEP="restart systemd service"
+    if [[ "${PROXY_RUNNING}" == "true" ]] && { [[ "${SYSTEMD_SERVICE_CHANGED}" == "true" ]] || [[ "${PROCESS_SUPERVISOR_CHANGED}" == "true" ]]; }; then
+      _CURRENT_STEP="restart process supervisor"
       sudo systemctl restart --quiet primordia
-      success "Restarted primordia systemd service"
-    else
+      success "Restarted process supervisor"
+    elif [[ "${PROXY_RUNNING}" == "false" ]]; then
       _CURRENT_STEP="start systemd service"
       sudo systemctl start --quiet primordia
       success "Started primordia systemd service"
     fi
 
-    # Poll for readiness after starting, restarting, or reloading managed core processes.
+    if [[ "${PROXY_RUNNING}" == "true" && "${REVERSE_PROXY_CHANGED}" == "true" ]]; then
+      _CURRENT_STEP="restart reverse proxy service"
+      restart_primordia_service "reverse-proxy" "reverse proxy"
+    fi
+
+    if [[ "${PROXY_RUNNING}" == "true" && "${SCHEDULED_JOBS_CHANGED}" == "true" ]]; then
+      _CURRENT_STEP="restart scheduled jobs service"
+      restart_primordia_service "scheduled-jobs" "scheduled jobs"
+    fi
+
+    # Poll for readiness after starting or restarting managed core processes.
     _CURRENT_STEP="wait for service to be ready"
     _step "Waiting for Primordia to be ready..."
     for i in $(seq 1 30); do
