@@ -1746,6 +1746,8 @@ export default function ThreadView({
   const [diffSummaryError, setDiffSummaryError] = useState<string | null>(null);
   const [diffRefreshToken, setDiffRefreshToken] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamRunIdRef = useRef(0);
   /** Tracks how many NDJSON lines the client has received, for SSE reconnection offset. */
   const lineCountRef = useRef(initialLineCount);
   /** Mirrors current status so the visibilitychange handler can read it without a stale closure. */
@@ -1787,6 +1789,8 @@ export default function ThreadView({
   // Stop the SSE stream on unmount
   useEffect(() => {
     return () => {
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
       abortControllerRef.current?.abort();
     };
   }, []);
@@ -1898,24 +1902,46 @@ export default function ThreadView({
   // Extracted streaming logic — can be called on mount and after follow-up / restart.
   async function startStreaming() {
     // Abort any in-flight stream before opening a new one.
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = null;
     abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    const runId = streamRunIdRef.current + 1;
+    streamRunIdRef.current = runId;
     const offset = lineCountRef.current;
+    let shouldReconnect = false;
+    let streamFinishedByEndpoint = false;
+
+    const isTerminalStatus = (value: string) => value === "accepted" || value === "rejected";
+    const scheduleReconnect = () => {
+      if (streamRunIdRef.current !== runId || controller.signal.aborted || isTerminalStatus(statusRef.current)) return;
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null;
+        if (streamRunIdRef.current !== runId || isTerminalStatus(statusRef.current)) return;
+        void startStreaming();
+      }, 1_500);
+    };
 
     try {
       const response = await fetch(
         withBasePath(`/api/thread/stream?threadId=${sessionId}&offset=${offset}`),
         { signal: controller.signal },
       );
-      if (!response.ok || !response.body) return;
+      if (!response.ok || !response.body) {
+        shouldReconnect = true;
+        return;
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          shouldReconnect = !streamFinishedByEndpoint;
+          break;
+        }
 
         const chunk = decoder.decode(value, { stream: true });
         for (const line of chunk.split("\n")) {
@@ -1942,7 +1968,11 @@ export default function ThreadView({
               lineCountRef.current = parsed.lineCount;
             }
             if (parsed.status != null) {
+              statusRef.current = parsed.status;
               setStatus(parsed.status);
+            }
+            if (parsed.done) {
+              streamFinishedByEndpoint = true;
             }
             if ("previewUrl" in parsed) {
               const newUrl = parsed.previewUrl ?? null;
@@ -1965,7 +1995,12 @@ export default function ThreadView({
       }
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
-      // Network error — leave the UI in its last known state
+      // Network error — the reverse proxy may have restarted during deploy.
+      // Reconnect from the last received NDJSON offset so persisted install
+      // output continues streaming when the service comes back.
+      shouldReconnect = true;
+    } finally {
+      if (shouldReconnect) scheduleReconnect();
     }
   }
 
