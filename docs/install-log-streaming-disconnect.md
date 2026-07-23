@@ -24,13 +24,13 @@ is written after the restart command returns, so the browser often misses it liv
 
 ## Does the client auto-reconnect?
 
-Not for this disconnect path.
+Yes. The thread viewer now reconnects for this disconnect path.
 
-`app/thread/[id]/ThreadView.tsx` uses `fetch()` plus `ReadableStream.getReader()` for the SSE stream, not the browser's `EventSource` API. `startStreaming()` is called on page mount, after explicit thread actions, and when the tab becomes visible again if the status is not terminal. However, when `reader.read()` returns `done` or throws a non-abort network error, the function simply exits and leaves the UI in its last known state. There is no retry loop, backoff, or immediate reconnect scheduled from the stream-close/error path itself.
+`app/thread/[id]/ThreadView.tsx` uses `fetch()` plus `ReadableStream.getReader()` for the SSE stream, not the browser's `EventSource` API. `startStreaming()` is called on page mount, after explicit thread actions, and when the tab becomes visible again if the status is not terminal. It also schedules a short retry when the reader ends without an endpoint `done` event or throws a non-abort network error.
 
-That means the proxy restart can kill the live stream and the thread viewer will not automatically reconnect unless another trigger happens later, such as a page reload, visibility-change reconnect while the thread is still non-terminal, or another explicit action that calls `startStreaming()`.
+The reconnect uses the last received NDJSON line offset (`lineCountRef.current`) in `/api/thread/stream?offset=...`, so output already delivered is not duplicated and output written while the proxy was restarting is replayed when the service comes back. Retries stop once the session reaches a terminal `accepted` or `rejected` status, or when a newer stream run replaces the old one.
 
-Reloading the thread page opens a fresh connection through the restarted proxy and replays the already-persisted session events, which is why the full install log is visible after refresh.
+Reloading the thread page still opens a fresh connection through the restarted proxy and replays the already-persisted session events, but it should no longer be required for this install-stream gap.
 
 ## Where the log is stored
 
