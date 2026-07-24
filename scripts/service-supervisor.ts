@@ -1,7 +1,7 @@
-// scripts/process-supervisor.ts
-// Small systemd-facing monitor for Primordia's long-lived core processes.
+// scripts/service-supervisor.ts
+// Small systemd-facing monitor for Primordia services.
 // systemd keeps this stub alive; the stub keeps the reverse proxy and scheduled
-// jobs daemon alive as independent detached processes. The installer sets the
+// jobs daemon alive as independent detached services. The installer sets the
 // systemd unit to KillMode=process so restarting the supervisor itself does not
 // stop or restart either supervised Primordia service.
 // SIGHUP checks both services, SIGUSR1 restarts only reverse-proxy, and SIGUSR2
@@ -19,6 +19,7 @@ interface ManagedService {
   scriptName: string;
   signal: NodeJS.Signals;
   pidFile: string;
+  logFile: string;
   restartTimer: NodeJS.Timeout | null;
   crashCount: number;
 }
@@ -33,6 +34,7 @@ const services: ManagedService[] = [
     scriptName: 'reverse-proxy.js',
     signal: 'SIGUSR1',
     pidFile: path.join(paths.root, '.primordia-reverse-proxy.pid'),
+    logFile: path.join(paths.root, '.primordia-reverse-proxy.log'),
     restartTimer: null,
     crashCount: 0,
   },
@@ -41,6 +43,7 @@ const services: ManagedService[] = [
     scriptName: 'scheduled-jobs.js',
     signal: 'SIGUSR2',
     pidFile: path.join(paths.root, '.primordia-scheduled-jobs.pid'),
+    logFile: path.join(paths.root, '.primordia-scheduled-jobs.log'),
     restartTimer: null,
     crashCount: 0,
   },
@@ -89,6 +92,14 @@ function spawnService(service: ManagedService): void {
   if (existingPid) return;
 
   const scriptPath = path.join(paths.root, service.scriptName);
+  const logFd = fs.openSync(service.logFile, 'a');
+  let logFdOpen = true;
+  const closeLogFd = () => {
+    if (!logFdOpen) return;
+    logFdOpen = false;
+    fs.closeSync(logFd);
+  };
+  fs.writeSync(logFd, `\n[service-supervisor] starting ${service.name} at ${new Date().toISOString()}\n`);
   const child = spawn('bun', [scriptPath], {
     cwd: paths.root,
     detached: true,
@@ -97,8 +108,10 @@ function spawnService(service: ManagedService): void {
       PRIMORDIA_DIR: paths.root,
       MISE_TRUSTED_CONFIG_PATHS: trustedConfigPaths,
     },
-    stdio: ['ignore', 'inherit', 'inherit'],
+    stdio: ['ignore', logFd, logFd],
   });
+  child.once('spawn', closeLogFd);
+  child.once('error', closeLogFd);
 
   if (!child.pid) throw new Error(`failed to spawn ${service.name}`);
   writePid(service.pidFile, child.pid);

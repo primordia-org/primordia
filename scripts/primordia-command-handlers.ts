@@ -34,8 +34,9 @@ type UserSelectorArgs = { user?: string };
 type JsonArgs = { json?: boolean };
 type ModeArgs = { dev?: boolean; prod?: boolean };
 type PresetArgs = { preset?: string };
-type PrimordiaServiceName = 'process-supervisor' | 'reverse-proxy' | 'scheduled-jobs';
-type SupervisedServiceName = Exclude<PrimordiaServiceName, 'process-supervisor'>;
+type PrimordiaServiceName = 'service-supervisor' | 'reverse-proxy' | 'scheduled-jobs';
+type SupervisedServiceName = Exclude<PrimordiaServiceName, 'service-supervisor'>;
+type ServiceLogArgs = JsonArgs & { lines?: string; n?: string; follow?: boolean; f?: boolean };
 
 const MISSING_CLI_KEY_MESSAGE =
   'PRIMORDIA_CLI_KEY is required for `primordia thread create`, `primordia thread followup`, and `primordia thread accept`. ' +
@@ -201,7 +202,7 @@ function signalSupervisorViaSystemd(signal: NodeJS.Signals): boolean {
 function signalSupervisorViaPgrep(signal: NodeJS.Signals): number[] {
   let output = '';
   try {
-    output = execFileSync('pgrep', ['-f', 'process-supervisor\\.(js|ts)'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    output = execFileSync('pgrep', ['-f', 'service-supervisor\\.(js|ts)'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch {
     return [];
   }
@@ -213,23 +214,23 @@ function signalSupervisorViaPgrep(signal: NodeJS.Signals): number[] {
   return pids;
 }
 
-function restartProcessSupervisor(json: boolean | undefined): void {
+function restartServiceSupervisor(json: boolean | undefined): void {
   const unit = process.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
   try {
     execFileSync('systemctl', ['restart', unit], { stdio: 'ignore' });
   } catch {
-    throw new Error(`Could not restart ${unit}; process-supervisor restart requires systemd access`);
+    throw new Error(`Could not restart ${unit}; service-supervisor restart requires systemd access`);
   }
-  const result = { ok: true, service: 'process-supervisor', action: 'restart', via: 'systemd' };
+  const result = { ok: true, service: 'service-supervisor', action: 'restart', via: 'systemd' };
   if (json) printJson(result);
-  else console.log('Restarted process-supervisor via systemd.');
+  else console.log('Restarted service-supervisor via systemd.');
 }
 
 function restartSupervisedService(service: SupervisedServiceName, json: boolean | undefined): void {
   const signal = serviceSignal(service);
   const viaSystemd = signalSupervisorViaSystemd(signal);
   const pids = viaSystemd ? [] : signalSupervisorViaPgrep(signal);
-  if (!viaSystemd && pids.length === 0) throw new Error('Primordia process supervisor is not running or could not be signaled');
+  if (!viaSystemd && pids.length === 0) throw new Error('Primordia service-supervisor is not running or could not be signaled');
   const result = { ok: true, service, action: 'restart', signal, via: viaSystemd ? 'systemd' : 'process', pids };
   if (json) printJson(result);
   else console.log(`Signaled ${service} restart via ${result.via} (${signal}).`);
@@ -272,16 +273,56 @@ export async function jobsRunOneCommand(args: CliParsedArgs & JsonArgs): Promise
   if (!result.ok) process.exit(1);
 }
 
-export function serviceProcessSupervisorRestartCommand(args: CliParsedArgs & JsonArgs): void {
-  restartProcessSupervisor(args.json);
+function serviceLogFile(service: SupervisedServiceName): string {
+  const root = process.env.PRIMORDIA_DIR || process.cwd();
+  return path.join(root, service === 'reverse-proxy' ? '.primordia-reverse-proxy.log' : '.primordia-scheduled-jobs.log');
 }
 
-export function serviceReverseProxyRestartCommand(args: CliParsedArgs & JsonArgs): void {
+function resolveLogLineCount(args: ServiceLogArgs): number {
+  const raw = args.lines ?? args.n ?? '100';
+  const count = Number.parseInt(String(raw), 10);
+  if (!Number.isInteger(count) || count < 0) throw new Error('--lines/-n must be a non-negative integer');
+  return count;
+}
+
+async function renderServiceLog(service: SupervisedServiceName, args: ServiceLogArgs): Promise<void> {
+  const logFile = serviceLogFile(service);
+  const lineCount = resolveLogLineCount(args);
+  const follow = Boolean(args.follow || args.f);
+  if (args.json && follow) throw new Error('--json and --follow cannot be combined');
+  const text = fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8') : '';
+  const lines = text.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  const recent = lineCount === 0 ? [] : lines.slice(-lineCount);
+  if (args.json) {
+    printJson({ service, logFile, lines: recent });
+    return;
+  }
+  if (recent.length > 0) console.log(recent.join('\n'));
+  if (follow) {
+    const child = execFileSync('tail', ['-n', '0', '-F', logFile], { stdio: ['ignore', 'inherit', 'inherit'] });
+    void child;
+  }
+}
+
+export function systemdServiceSupervisorRestartCommand(args: CliParsedArgs & JsonArgs): void {
+  restartServiceSupervisor(args.json);
+}
+
+export function reverseProxyRestartCommand(args: CliParsedArgs & JsonArgs): void {
   restartSupervisedService('reverse-proxy', args.json);
 }
 
-export function serviceScheduledJobsRestartCommand(args: CliParsedArgs & JsonArgs): void {
+export async function reverseProxyLogsCommand(args: CliParsedArgs & ServiceLogArgs): Promise<void> {
+  await renderServiceLog('reverse-proxy', args);
+}
+
+export function jobsRestartCommand(args: CliParsedArgs & JsonArgs): void {
   restartSupervisedService('scheduled-jobs', args.json);
+}
+
+export async function jobsLogsCommand(args: CliParsedArgs & ServiceLogArgs): Promise<void> {
+  await renderServiceLog('scheduled-jobs', args);
 }
 
 export function jobsScheduleListCommand(args: CliParsedArgs & JsonArgs): void {

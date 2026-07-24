@@ -2,7 +2,7 @@
 // Next.js instrumentation hook — runs once when the server starts.
 // Used to recover thread workers after a server restart.
 // Background schedulers are started as a supervised Primordia jobs daemon via
-// scripts/process-supervisor.ts and lib/scheduled-jobs.ts.
+// scripts/service-supervisor.ts and lib/scheduled-jobs.ts.
 // See: https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
 
 export async function register() {
