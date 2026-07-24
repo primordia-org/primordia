@@ -1595,7 +1595,7 @@ interface ThreadViewProps {
   serverLogsNode: ReactNode;
   /** The currently checked-out branch in this instance. Used in confirmation copy and NavHeader. */
   branch?: string | null;
-  /** The branch this session was branched from (from git config). Used in upstream-changes display. */
+  /** The branch this session was branched from (from branch-marker commits). Used in upstream-changes display. */
   parentBranch?: string | null;
   /** The preview branch name created for this session. */
   sessionBranch: string;

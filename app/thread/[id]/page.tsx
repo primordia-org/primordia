@@ -9,10 +9,10 @@ import type { Metadata } from "next";
 import { execSync } from "child_process";
 import * as fs from "fs";
 import { getSessionUser, hasThreadPermission } from "@/lib/auth";
-import { getBranchParentSource, getThreadPrefs } from "@/lib/user-prefs";
+import { getThreadPrefs } from "@/lib/user-prefs";
 import { buildPageTitle } from "@/lib/page-title";
 import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem, type SessionEvent } from "@/lib/session-events";
-import { getParentBranch, type BranchParentSource } from "@/lib/branch-parent";
+import { getParentBranch } from "@/lib/branch-parent";
 import { getWorktreeLogPath } from "@/lib/process-manager";
 import { SseLogFile } from "@/components/SseLogFile";
 import ThreadView from "./ThreadView";
@@ -66,9 +66,9 @@ function getRenamePathsFromNumstatFile(file: string): { oldPath: string; newPath
   };
 }
 
-function getGitDiffSummary(sessionBranch: string, parentSource: BranchParentSource): DiffFileSummary[] {
+function getGitDiffSummary(sessionBranch: string): DiffFileSummary[] {
   try {
-    const parentBranch = getParentBranch(sessionBranch, undefined, parentSource);
+    const parentBranch = getParentBranch(sessionBranch);
     if (!parentBranch) return [];
 
     const output = execSync(
@@ -96,9 +96,9 @@ function getGitDiffSummary(sessionBranch: string, parentSource: BranchParentSour
   }
 }
 
-function getUpstreamCommitCount(sessionBranch: string, parentSource: BranchParentSource): number {
+function getUpstreamCommitCount(sessionBranch: string): number {
   try {
-    const parentBranch = getParentBranch(sessionBranch, undefined, parentSource);
+    const parentBranch = getParentBranch(sessionBranch);
     if (!parentBranch) return 0;
     const count = execSync(
       `git rev-list ${sessionBranch}..${parentBranch} --count`,
@@ -138,7 +138,6 @@ export default async function ThreadPage({
   const user = await getSessionUser();
   const canStartThreads = user ? await hasThreadPermission(user.id) : false;
   const threadPrefs = user ? await getThreadPrefs(user.id) : { initialHarness: undefined, initialModel: undefined, initialCavemanMode: undefined, initialCavemanIntensity: undefined };
-  const parentSource = await getBranchParentSource(user?.id);
 
   const { id } = await params;
 
@@ -147,14 +146,14 @@ export default async function ThreadPage({
 
   const branch = readGitBranch();
 
-  const parentBranch = getParentBranch(session.branch, undefined, parentSource);
+  const parentBranch = getParentBranch(session.branch);
 
   // Only allow accept/reject when the session branch was branched directly off
   // the currently checked-out branch.
   const canAcceptReject = parentBranch !== null && branch !== null && branch === parentBranch;
 
-  const upstreamCommitCount = getUpstreamCommitCount(session.branch, parentSource);
-  const diffSummary = getGitDiffSummary(session.branch, parentSource);
+  const upstreamCommitCount = getUpstreamCommitCount(session.branch);
+  const diffSummary = getGitDiffSummary(session.branch);
 
   const serverLogPath = getWorktreeLogPath(session.branch, process.cwd());
   const initialServerLogs = readLogTail(serverLogPath);

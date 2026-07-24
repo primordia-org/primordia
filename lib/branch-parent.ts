@@ -8,9 +8,6 @@ export const MARKER_SUBJECT = '[branch marker]';
 export const BRANCHED_FROM_TRAILER = 'Branched-From';
 export const BASE_COMMIT_TRAILER = 'Base-Commit';
 
-export const BRANCH_PARENT_SOURCES = ['git-config', 'branch-marker'] as const;
-export type BranchParentSource = typeof BRANCH_PARENT_SOURCES[number];
-export const DEFAULT_BRANCH_PARENT_SOURCE: BranchParentSource = 'git-config';
 
 function repoPath(override?: string): string {
   return override ?? process.cwd();
@@ -91,28 +88,6 @@ export function readBranchMarker(
   }
 }
 
-function readGitConfigParent(branch: string, root: string): { parentBranch: string; parentSha: string } | null {
-  try {
-    const parentBranch = execFileSync(
-      'git',
-      ['-C', root, 'config', '--get', `branch.${branch}.parent`],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-    ).trim();
-    if (!parentBranch) return null;
-    try {
-      const parentSha = execFileSync('git', ['-C', root, 'rev-parse', parentBranch], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
-      return { parentBranch, parentSha };
-    } catch {
-      return { parentBranch, parentSha: '' };
-    }
-  } catch {
-    return null;
-  }
-}
-
 function readProductionBranch(root: string): string | null {
   try {
     return execFileSync('git', ['-C', root, 'config', '--get', 'primordia.productionBranch'], {
@@ -150,25 +125,14 @@ function isAncestor(ancestor: string, descendant: string, root: string): boolean
 
 /**
  * Returns the effective parent branch for computing diffs and upstream syncs.
- *
- * When source is `git-config`, this preserves the legacy behavior and reads
- * branch.<name>.parent from local git config only.
- *
- * When source is `branch-marker`, this reads the branch's marker trailers.
- * If no marker exists, it returns null. If the recorded parent has since been
- * deployed, it returns current production.
+ * Reads branch-marker trailers only. If no marker exists, it returns null. If
+ * the recorded parent has since been deployed, it returns current production.
  */
 export function getParentBranch(
   branch: string,
   repo?: string,
-  source: BranchParentSource = DEFAULT_BRANCH_PARENT_SOURCE,
 ): string | null {
   const root = repoPath(repo);
-
-  if (source === 'git-config') {
-    return readGitConfigParent(branch, root)?.parentBranch ?? null;
-  }
-
   const marker = readBranchMarker(branch, root);
   if (!marker) return null;
 
@@ -184,16 +148,11 @@ export function getParentBranch(
 }
 
 /**
- * Returns immutable branch ancestry according to the selected source.
- * Used by the /threads tree to show original parentage.
+ * Returns immutable branch-marker ancestry for the /threads tree.
  */
 export function getBranchParent(
   branch: string,
   repo?: string,
-  source: BranchParentSource = DEFAULT_BRANCH_PARENT_SOURCE,
 ): { parentBranch: string; parentSha: string } | null {
-  const root = repoPath(repo);
-  return source === 'git-config'
-    ? readGitConfigParent(branch, root)
-    : readBranchMarker(branch, root);
+  return readBranchMarker(branch, repoPath(repo));
 }

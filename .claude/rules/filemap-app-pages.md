@@ -58,7 +58,6 @@ app/                             ← Next.js App Router
 │   └── web-push-test/           ← Web push notification diagnostics and category simulation
 ├── threads/                     ← Thread tree page and branch-to-thread actions
 │   ├── page.tsx                 ← Server component: git branch/thread tree; publicly viewable; admin-only actions conditionally hidden
-│   ├── BranchParentSourceToggle.tsx ← Client toggle for parent source (`git-config` vs `branch-marker`)
 │   └── CreateSessionFromBranchButton.tsx ← Client component: "+ thread" inline form for existing branches
 ├── changelog/                   ← Runtime changelog reader
 │   ├── page.tsx                 ← Server component: reads changelog/ filenames and lazy-loads bodies

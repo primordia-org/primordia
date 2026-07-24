@@ -5,7 +5,7 @@
 //
 // Update sources piggyback on the standard `remote.*` git config namespace,
 // extending it with Primordia-specific fields — exactly the same way the
-// codebase extends `branch.*` with `branch.{name}.port` and `branch.{name}.parent`.
+// codebase extends `branch.*` with `branch.{name}.port`.
 //
 // A source entry in .git/config looks like:
 //

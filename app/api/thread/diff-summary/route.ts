@@ -9,9 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { execSync } from "child_process";
 import { getSessionFromFilesystem } from "@/lib/session-events";
 import type { DiffFileSummary } from "@/app/thread/[id]/page";
-import { getSessionUser } from "@/lib/auth";
 import { getParentBranch } from "@/lib/branch-parent";
-import { getBranchParentSource } from "@/lib/user-prefs";
 
 function getRenamePathsFromNumstatFile(file: string): { oldPath: string; newPath: string } | null {
   if (!file.includes(" => ")) return null;
@@ -46,9 +44,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const user = await getSessionUser();
-    const parentSource = await getBranchParentSource(user?.id);
-    const parentBranch = getParentBranch(session.branch, undefined, parentSource);
+    const parentBranch = getParentBranch(session.branch);
 
     if (!parentBranch) {
       return NextResponse.json({ files: [] }, { headers: { "Cache-Control": "no-cache" } });
