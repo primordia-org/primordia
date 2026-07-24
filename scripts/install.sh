@@ -587,6 +587,7 @@ ${parent_url_env_line}
 ExecStart=${MISE_BIN} exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/${service_name}.js
 Restart=always
 RestartSec=5
+KillMode=process
 StandardOutput=journal
 StandardError=journal
 

@@ -1,8 +1,9 @@
 // scripts/process-supervisor.ts
 // Small systemd-facing monitor for Primordia's long-lived core processes.
 // systemd keeps this stub alive; the stub keeps the reverse proxy and scheduled
-// jobs daemon alive as independent detached processes. Restarting the supervisor
-// itself does not stop or restart either supervised Primordia service.
+// jobs daemon alive as independent detached processes. The installer sets the
+// systemd unit to KillMode=process so restarting the supervisor itself does not
+// stop or restart either supervised Primordia service.
 // SIGHUP checks both services, SIGUSR1 restarts only reverse-proxy, and SIGUSR2
 // restarts only scheduled-jobs.
 
