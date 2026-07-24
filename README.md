@@ -4,7 +4,7 @@
   <img src="public/primordia-logo.png" alt="Primordia logo" width="120" />
 </p>
 
-> A self-modifying web application. Describe changes in plain English — Primordia builds them for you.
+> Your app with agentic coding built in.
 
 [![Deploy on exe.dev](https://raw.githubusercontent.com/boldsoftware/exe.dev/main/assets/buttons/deploy-on-exe-dev.png)](https://exe.dev/new?repo=https://github.com/primordia-org/primordia)
 

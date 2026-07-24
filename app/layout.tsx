@@ -11,7 +11,7 @@ export const viewport = {
 
 export const metadata: Metadata = {
   title: "Primordia",
-  description: "The anything app with agentic coding built in.",
+  description: "Your app with agentic coding built in.",
 };
 
 export default async function RootLayout({
