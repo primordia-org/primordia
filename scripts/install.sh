@@ -74,6 +74,31 @@ install_or_update_bashrc_block() {
   return 0
 }
 
+remove_bashrc_block() {
+  local bashrc="$1"
+  local marker_start="$2"
+  local marker_end="$3"
+  local tmp
+
+  [[ -f "${bashrc}" ]] || return 1
+  grep -Fq "${marker_start}" "${bashrc}" || return 1
+  tmp="$(mktemp)"
+
+  awk -v start="${marker_start}" -v end="${marker_end}" '
+    $0 == start { in_block=1; next }
+    in_block && $0 == end { in_block=0; next }
+    !in_block { print }
+  ' "${bashrc}" > "${tmp}"
+
+  if cmp -s "${tmp}" "${bashrc}"; then
+    rm -f "${tmp}"
+    return 1
+  fi
+
+  mv "${tmp}" "${bashrc}"
+  return 0
+}
+
 socket_status_hint_for_log() {
   local log_file="$1"
   if grep -Eiq 'socket(\.dev|security)?' "$log_file" && grep -Eiq '\b503\b|service unavailable|temporar(y|ily) unavailable|bad gateway|gateway timeout' "$log_file"; then
@@ -574,29 +599,41 @@ fi
 
 # ── Configure bash helpers ────────────────────────────────────────────────────
 
-_CURRENT_STEP="configure bash helpers"
-PRIMORDIA_BASH_MARKER_START="# Primordia shell helpers"
-PRIMORDIA_BASH_MARKER_END="# End Primordia shell helpers"
+_CURRENT_STEP="configure primordia bash alias"
+PRIMORDIA_LEGACY_BASH_MARKER_START="# Primordia shell helpers"
+PRIMORDIA_LEGACY_BASH_MARKER_END="# End Primordia shell helpers"
+PRIMORDIA_ALIAS_MARKER_START="# Primordia bash alias"
+PRIMORDIA_ALIAS_MARKER_END="# End Primordia bash alias"
 PRIMORDIA_DIR_QUOTED="$(shell_quote "${PRIMORDIA_DIR}")"
-PRIMORDIA_BASH_CONTENT=$(cat << HELPERS
+PRIMORDIA_ALIAS_CONTENT=$(cat << HELPERS
 export PRIMORDIA_DIR=${PRIMORDIA_DIR_QUOTED}
 alias primordia='bun run --silent primordia'
 HELPERS
 )
 
+remove_bashrc_block "${BASHRC}" "${PRIMORDIA_LEGACY_BASH_MARKER_START}" "${PRIMORDIA_LEGACY_BASH_MARKER_END}" || true
+if install_or_update_bashrc_block "${BASHRC}" "${PRIMORDIA_ALIAS_MARKER_START}" "${PRIMORDIA_ALIAS_MARKER_END}" "${PRIMORDIA_ALIAS_CONTENT}"; then
+  success "Installed primordia bash alias"
+else
+  success "Using primordia bash alias"
+fi
+
 if [[ "${HOSTNAME_FQDN}" == *.exe.xyz ]]; then
-  PRIMORDIA_BASH_CONTENT="${PRIMORDIA_BASH_CONTENT}"$'\n'"$(cat <<'HELPERS'
+  _CURRENT_STEP="configure cdprod bash function"
+  CDPROD_MARKER_START="# Primordia cdprod bash function"
+  CDPROD_MARKER_END="# End Primordia cdprod bash function"
+  CDPROD_CONTENT=$(cat <<'HELPERS'
 cdprod() {
 	cd ${PRIMORDIA_DIR}/$(git -C ${PRIMORDIA_DIR}/source.git config primordia.productionBranch)
 }
 HELPERS
-)"
-fi
+)
 
-if install_or_update_bashrc_block "${BASHRC}" "${PRIMORDIA_BASH_MARKER_START}" "${PRIMORDIA_BASH_MARKER_END}" "${PRIMORDIA_BASH_CONTENT}"; then
-  success "Installed bash helpers"
-else
-  success "Using bash helpers"
+  if install_or_update_bashrc_block "${BASHRC}" "${CDPROD_MARKER_START}" "${CDPROD_MARKER_END}" "${CDPROD_CONTENT}"; then
+    success "Installed cdprod bash function"
+  else
+    success "Using cdprod bash function"
+  fi
 fi
 
 # ── Install systemd service ───────────────────────────────────────────────────
