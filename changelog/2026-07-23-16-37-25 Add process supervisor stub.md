@@ -1,0 +1,7 @@
+# Add service supervisor stub
+
+Primordia now includes a small systemd-facing service-supervisor. The supervisor keeps both the reverse proxy and the scheduled jobs daemon alive as independent detached services, restarts either service if it exits unexpectedly, checks both services when it receives `SIGHUP`, restarts only the reverse proxy when it receives `SIGUSR1`, and restarts only the scheduled jobs daemon when it receives `SIGUSR2`. Restarting the supervisor itself no longer stops or restarts either Primordia service.
+
+The installer now bundles and installs three core launchers: `service-supervisor.js`, `reverse-proxy.js`, and `scheduled-jobs.js`. It points the `primordia` systemd unit at the supervisor with `KillMode=process`, uses small Bash helper functions to install the systemd service and bundled Primordia services, and restarts changed child services through the Primordia CLI instead of signaling systemd directly. Scheduled jobs now run from the bundled `scheduled-jobs.js` entrypoint instead of being embedded inside the reverse proxy.
+
+The CLI uses clearer command boundaries: `bun run primordia systemd service-supervisor restart` restarts only the systemd-backed supervisor, `bun run primordia reverse-proxy restart` restarts the supervised reverse proxy, and `bun run primordia jobs restart` restarts the supervised scheduled jobs daemon. `bun run primordia reverse-proxy logs [-n count] [-f]` and `bun run primordia jobs logs [-n count] [-f]` read the per-service log files written by the service-supervisor.

@@ -68,8 +68,18 @@ export interface ReverseProxyStatus {
   childPids: number[];
 }
 
+export interface PrimordiaServiceStatus {
+  name: 'service-supervisor' | 'reverse-proxy' | 'scheduled-jobs';
+  pid: number | null;
+  state: string;
+  childPids: number[];
+  pidFile: string | null;
+  logFile: string | null;
+}
+
 export interface ProcessStatusReport {
   productionBranch: string | null;
+  services: PrimordiaServiceStatus[];
   reverseProxy: ReverseProxyStatus[];
   worktrees: WorktreeProcessStatus[];
 }
@@ -323,6 +333,53 @@ function isReverseProxyProcess(proc: ProcessInfo): boolean {
   return /(^|\s)(?:\S*\/)?reverse-proxy\.(?:ts|js)(?:\s|$)/.test(proc.command);
 }
 
+function isServiceSupervisorProcess(proc: ProcessInfo): boolean {
+  return /(^|\s)(?:\S*\/)?service-supervisor\.(?:ts|js)(?:\s|$)/.test(proc.command);
+}
+
+function isScheduledJobsProcess(proc: ProcessInfo): boolean {
+  return /(^|\s)(?:\S*\/)?scheduled-jobs\.(?:ts|js)(?:\s|$)/.test(proc.command);
+}
+
+function runtimeRootForStatus(repoRoot: string): string {
+  return path.basename(repoRoot) === 'source.git' ? path.dirname(repoRoot) : repoRoot;
+}
+
+function readPidNumber(pidFile: string): number | null {
+  try {
+    const pid = Number.parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+    return Number.isInteger(pid) && pid > 0 && isPidAlive(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function serviceStatusFromProcess(
+  name: PrimordiaServiceStatus['name'],
+  proc: ProcessInfo | undefined,
+  childrenByParent: Map<number, number[]>,
+  pidFile: string | null,
+  logFile: string | null,
+): PrimordiaServiceStatus {
+  if (!proc) return { name, pid: null, state: 'not-running', childPids: [], pidFile, logFile };
+  return { name, pid: proc.pid, state: proc.state, childPids: getDescendantPids(proc.pid, childrenByParent), pidFile, logFile };
+}
+
+function getPrimordiaServiceStatuses(repoRoot: string, processes: ProcessInfo[], childrenByParent: Map<number, number[]>): PrimordiaServiceStatus[] {
+  const runtimeRoot = runtimeRootForStatus(repoRoot);
+  const serviceSupervisor = processes.find(isServiceSupervisorProcess);
+  const reverseProxy = processes.find(isReverseProxyProcess)
+    ?? processes.find((proc) => proc.pid === readPidNumber(path.join(runtimeRoot, '.primordia-reverse-proxy.pid')));
+  const scheduledJobs = processes.find(isScheduledJobsProcess)
+    ?? processes.find((proc) => proc.pid === readPidNumber(path.join(runtimeRoot, '.primordia-scheduled-jobs.pid')));
+
+  return [
+    serviceStatusFromProcess('service-supervisor', serviceSupervisor, childrenByParent, null, null),
+    serviceStatusFromProcess('reverse-proxy', reverseProxy, childrenByParent, path.join(runtimeRoot, '.primordia-reverse-proxy.pid'), path.join(runtimeRoot, '.primordia-reverse-proxy.log')),
+    serviceStatusFromProcess('scheduled-jobs', scheduledJobs, childrenByParent, path.join(runtimeRoot, '.primordia-scheduled-jobs.pid'), path.join(runtimeRoot, '.primordia-scheduled-jobs.log')),
+  ];
+}
+
 function getReverseProxyStatuses(processes: ProcessInfo[], childrenByParent: Map<number, number[]>): ReverseProxyStatus[] {
   return processes
     .filter(isReverseProxyProcess)
@@ -379,6 +436,7 @@ export function getProcessStatusReport(cwd = process.cwd()): ProcessStatusReport
 
   return {
     productionBranch,
+    services: getPrimordiaServiceStatuses(repoRoot, processes, childrenByParent),
     reverseProxy: getReverseProxyStatuses(processes, childrenByParent),
     worktrees: worktreeStatuses,
   };
@@ -728,16 +786,15 @@ export async function restartWorktreeServer(name: string, mode: ServerStartMode 
 }
 
 export function formatProcessStatusReport(report: ProcessStatusReport): string {
-  const proxyHeaders = ['Proxy', 'Port', 'State', 'PID', 'Children'] as const;
-  const proxyRows = report.reverseProxy.length > 0
-    ? report.reverseProxy.map((proxy) => [
-      'reverse-proxy',
-      proxy.port === null ? '—' : String(proxy.port),
-      proxy.state,
-      String(proxy.pid),
-      String(proxy.childPids.length),
-    ])
-    : [['reverse-proxy', '—', 'not-running', '—', '—']];
+  const serviceHeaders = ['Service', 'State', 'PID', 'Children', 'PID file', 'Log'] as const;
+  const serviceRows = report.services.map((service) => [
+    service.name,
+    service.state,
+    service.pid === null ? '—' : String(service.pid),
+    String(service.childPids.length),
+    service.pidFile ?? '—',
+    service.logFile ?? '—',
+  ]);
 
   const worktreeHeaders = ['Worktree', 'Port', 'State', 'Env', 'PID', 'Children', 'Agents'] as const;
   const worktreeRows = report.worktrees.map((status) => [
@@ -755,8 +812,8 @@ export function formatProcessStatusReport(report: ProcessStatusReport): string {
   return [
     `Production branch: ${report.productionBranch ?? '—'}`,
     '',
-    'Reverse proxy',
-    renderTable(proxyHeaders, proxyRows),
+    'Primordia services',
+    renderTable(serviceHeaders, serviceRows),
     '',
     'Worktrees',
     renderTable(worktreeHeaders, worktreeRows),
@@ -764,5 +821,5 @@ export function formatProcessStatusReport(report: ProcessStatusReport): string {
 }
 
 export function formatProcessStatusTable(statuses: WorktreeProcessStatus[]): string {
-  return formatProcessStatusReport({ productionBranch: null, reverseProxy: [], worktrees: statuses }).split('\n').slice(5).join('\n');
+  return formatProcessStatusReport({ productionBranch: null, services: [], reverseProxy: [], worktrees: statuses }).split('\n').slice(5).join('\n');
 }

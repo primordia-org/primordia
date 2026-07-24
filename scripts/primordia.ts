@@ -79,6 +79,14 @@ const followOption: CliOptionDef = {
   description: 'Keep streaming appended log lines.',
 };
 
+const linesOption: CliOptionDef = {
+  name: 'lines',
+  alias: 'n',
+  type: 'string',
+  valueHint: 'count',
+  description: 'Number of recent log lines to print.',
+};
+
 const requestArgument: CliArgumentDef = {
   name: 'request',
   required: false,
@@ -241,10 +249,63 @@ const jobsScheduleCommand: CliCommandDef = {
   subcommands: [jobsScheduleListCommand, jobsScheduleGetCommand, jobsScheduleSetCommand],
 };
 
+const jobsRestartCommand: CliCommandDef = {
+  name: 'restart',
+  description: 'Restart the supervised scheduled jobs daemon.',
+  options: [jsonOption],
+  run: lazyRun('jobsRestartCommand'),
+};
+
+const jobsLogsCommand: CliCommandDef = {
+  name: 'logs',
+  description: 'Print the supervised scheduled jobs daemon log.',
+  options: [jsonOption, linesOption, followOption],
+  run: lazyRun('jobsLogsCommand'),
+};
+
 const jobsCommand: CliCommandDef = {
   name: 'jobs',
   description: 'Run and configure Primordia Core scheduled jobs.',
-  subcommands: [jobsRunCommand, jobsRunOneCommand, jobsScheduleCommand],
+  subcommands: [jobsRunCommand, jobsRunOneCommand, jobsRestartCommand, jobsLogsCommand, jobsScheduleCommand],
+};
+
+const reverseProxyRestartCommand: CliCommandDef = {
+  name: 'restart',
+  description: 'Restart the supervised reverse proxy service.',
+  options: [jsonOption],
+  run: lazyRun('reverseProxyRestartCommand'),
+};
+
+const reverseProxyLogsCommand: CliCommandDef = {
+  name: 'logs',
+  description: 'Print the supervised reverse proxy service log.',
+  options: [jsonOption, linesOption, followOption],
+  run: lazyRun('reverseProxyLogsCommand'),
+};
+
+const reverseProxyCommand: CliCommandDef = {
+  name: 'reverse-proxy',
+  description: 'Manage the supervised reverse proxy service.',
+  subcommands: [reverseProxyRestartCommand, reverseProxyLogsCommand],
+};
+
+const serviceSupervisorRestartCommand: CliCommandDef = {
+  name: 'restart',
+  description: 'Restart only the Primordia service-supervisor systemd service.',
+  options: [jsonOption],
+  run: lazyRun('systemdServiceSupervisorRestartCommand'),
+};
+
+const serviceSupervisorCommand: CliCommandDef = {
+  name: 'service-supervisor',
+  description: 'Manage the systemd-supervised Primordia service supervisor.',
+  subcommands: [serviceSupervisorRestartCommand],
+};
+
+const systemdCommand: CliCommandDef = {
+  name: 'systemd',
+  description: 'Manage Primordia systemd-backed processes.',
+  subcommands: [serviceSupervisorCommand],
 };
 
 const threadCommand: CliCommandDef = {
@@ -262,7 +323,7 @@ const serverCommand: CliCommandDef = {
 const mainCommand: CliCommandDef = {
   name: 'primordia',
   description: 'Manage Primordia thread and server lifecycle tasks.',
-  subcommands: [statusCommand, threadCommand, serverCommand, jobsCommand],
+  subcommands: [statusCommand, threadCommand, serverCommand, jobsCommand, reverseProxyCommand, systemdCommand],
 };
 
 async function main(): Promise<void> {

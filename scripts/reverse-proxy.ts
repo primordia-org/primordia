@@ -7,7 +7,7 @@
 //
 // On startup and on demand, if the production Next.js server is not already
 // running, the proxy asks lib/process-manager.ts to start it as a detached
-// process. The proxy itself owns no app server child processes.
+// process. The proxy itself owns no app server or scheduled-job child processes.
 //
 // Preview server management: the proxy routes preview traffic and delegates
 // dev-server start/stop/log handling to lib/process-manager.ts. When a request
@@ -35,7 +35,6 @@ import {
   watchGitConfig,
 } from '@/lib/process-manager';
 import { getPrimordiaRuntimePaths } from '@/lib/git-runtime';
-import { runPrimordiaJobs } from '@/lib/scheduled-jobs';
 
 // Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
 const HOP_BY_HOP = new Set([
@@ -837,16 +836,6 @@ httpHandler.listen(0, '127.0.0.1', () => {
     console.log(`[proxy] main repo: ${MAIN_REPO}`);
     console.log(`[proxy] worktrees: ${WORKTREES_DIR}`);
   });
-});
-
-// Migration bridge for Option D: the proxy starts Primordia Core jobs through
-// the Core jobs boundary rather than importing individual scheduler internals.
-// A dedicated `primordia jobs run` daemon can take over by holding the jobs lock.
-runPrimordiaJobs({
-  repoRoot: MAIN_REPO,
-  listenPort: LISTEN_PORT,
-  archiveRoot: process.env.PRIMORDIA_DIR || PRIMORDIA_ROOT,
-  logError: logCrashBoundary,
 });
 
 process.on('unhandledRejection', (reason) => {
