@@ -74,31 +74,6 @@ install_or_update_bashrc_block() {
   return 0
 }
 
-remove_bashrc_block() {
-  local bashrc="$1"
-  local marker_start="$2"
-  local marker_end="$3"
-  local tmp
-
-  [[ -f "${bashrc}" ]] || return 1
-  grep -Fq "${marker_start}" "${bashrc}" || return 1
-  tmp="$(mktemp)"
-
-  awk -v start="${marker_start}" -v end="${marker_end}" '
-    $0 == start { in_block=1; next }
-    in_block && $0 == end { in_block=0; next }
-    !in_block { print }
-  ' "${bashrc}" > "${tmp}"
-
-  if cmp -s "${tmp}" "${bashrc}"; then
-    rm -f "${tmp}"
-    return 1
-  fi
-
-  mv "${tmp}" "${bashrc}"
-  return 0
-}
-
 socket_status_hint_for_log() {
   local log_file="$1"
   if grep -Eiq 'socket(\.dev|security)?' "$log_file" && grep -Eiq '\b503\b|service unavailable|temporar(y|ily) unavailable|bad gateway|gateway timeout' "$log_file"; then
@@ -600,8 +575,6 @@ fi
 # ── Configure bash helpers ────────────────────────────────────────────────────
 
 _CURRENT_STEP="configure primordia bash alias"
-PRIMORDIA_LEGACY_BASH_MARKER_START="# Primordia shell helpers"
-PRIMORDIA_LEGACY_BASH_MARKER_END="# End Primordia shell helpers"
 PRIMORDIA_ALIAS_MARKER_START="# Primordia bash alias"
 PRIMORDIA_ALIAS_MARKER_END="# End Primordia bash alias"
 PRIMORDIA_DIR_QUOTED="$(shell_quote "${PRIMORDIA_DIR}")"
@@ -611,7 +584,6 @@ alias primordia='bun run --silent primordia'
 HELPERS
 )
 
-remove_bashrc_block "${BASHRC}" "${PRIMORDIA_LEGACY_BASH_MARKER_START}" "${PRIMORDIA_LEGACY_BASH_MARKER_END}" || true
 if install_or_update_bashrc_block "${BASHRC}" "${PRIMORDIA_ALIAS_MARKER_START}" "${PRIMORDIA_ALIAS_MARKER_END}" "${PRIMORDIA_ALIAS_CONTENT}"; then
   success "Installed primordia bash alias"
 else
