@@ -612,7 +612,7 @@ if [[ "${HOSTNAME_FQDN}" == *.exe.xyz ]]; then
   CDPROD_MARKER_END="# End Primordia cdprod bash function"
   CDPROD_CONTENT=$(cat <<'HELPERS'
 cdprod() {
-	cd ${PRIMORDIA_DIR}/$(git -C ${PRIMORDIA_DIR}/source.git config primordia.productionBranch)
+	cd ${PRIMORDIA_DIR}/worktrees/$(git -C ${PRIMORDIA_DIR}/source.git config primordia.productionBranch)
 }
 HELPERS
 )
