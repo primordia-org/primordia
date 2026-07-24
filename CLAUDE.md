@@ -89,9 +89,15 @@ Install Primordia on a local machine, VM, or exe.dev server with the one-line in
 curl -fsSL https://primordia.exe.xyz/install.sh | bash -s
 ```
 
-The installer clones Primordia, installs the pinned runtime and dependencies when needed, writes `.env.local`, starts the `primordia` service, and prints the URL to open.
+If the repository is already cloned, run the installer from the repo root instead:
 
-For manual development from a source checkout, copy `.env.example` to `.env.local`, set `REVERSE_PROXY_PORT`, then run `mise install && bun install && bun run dev`.
+```bash
+./scripts/install.sh
+```
+
+The installer clones Primordia when needed, installs the pinned runtime and dependencies when needed, writes `.env.local`, starts the `primordia` service, and prints the URL to open.
+
+For manual development without the service installer, copy `.env.example` to `.env.local`, set `REVERSE_PROXY_PORT`, then run `mise install && bun install && bun run dev`.
 
 ---
 

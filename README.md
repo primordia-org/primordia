@@ -46,6 +46,12 @@ Install Primordia on a local machine, VM, or exe.dev server with one command:
 curl -fsSL https://primordia.exe.xyz/install.sh | bash -s
 ```
 
+If you have already cloned the repository, run the installer from the repo root instead:
+
+```bash
+./scripts/install.sh
+```
+
 The installer checks system requirements, installs the pinned runtime when needed, creates the production configuration, and starts Primordia as a service. When it finishes, it prints the URL to open.
 
 The first user to register is automatically granted the `admin` role.
@@ -68,7 +74,7 @@ Click the **Deploy on exe.dev** button above, or create an exe.dev server and ru
 curl -fsSL https://primordia.exe.xyz/install.sh | bash -s
 ```
 
-The installer clones Primordia, installs dependencies and the pinned runtime if missing, starts the `primordia` service, and prints the URL to open.
+The installer clones Primordia, installs dependencies and the pinned runtime if missing, starts the `primordia` service, and prints the URL to open. If you already cloned Primordia yourself, skip the curl command and run `./scripts/install.sh` from the repo root.
 
 Sign in with exe.dev on the login page. The first user to sign in is automatically granted the `admin` role.
 
