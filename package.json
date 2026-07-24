@@ -9,7 +9,6 @@
     "start": "NEXT_DEPLOYMENT_ID=$(git rev-parse HEAD 2>/dev/null || echo local-development) bun --bun ./node_modules/next/dist/bin/next start",
     "lint": "eslint .",
     "typecheck": "bun --bun ./node_modules/next/dist/bin/next typegen && tsc --noEmit",
-    "deploy-to-exe.dev": "bash scripts/deploy-to-exe-dev.sh",
     "rollback": "bun scripts/rollback.ts",
     "proxy": "bun scripts/reverse-proxy.ts",
     "supervisor": "bun scripts/service-supervisor.ts",

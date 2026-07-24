@@ -74,7 +74,7 @@ export function HeroSection({ installUrl, defaultVmName, installBranch }: { inst
 
       {/* Sub-headline */}
       <p className="animate-fade-up-3 relative max-w-xl text-lg sm:text-xl text-gray-400 leading-relaxed mb-10">
-        The anything app with agentic coding built in.
+        Your app with agentic coding built in.
       </p>
 
       {/* Primary CTA — two-step install */}

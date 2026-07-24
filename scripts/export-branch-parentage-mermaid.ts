@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { spawnSync } from "node:child_process";
-import { getBranchParent, type BranchParentSource } from "@/lib/branch-parent";
+import { getBranchParent } from "@/lib/branch-parent";
 
 interface GitResult {
   stdout: string;
@@ -31,21 +31,12 @@ function runGit(args: string[], cwd: string): GitResult {
   };
 }
 
-function parseArgs(): { source: BranchParentSource; cwd: string } {
-  let source: BranchParentSource = "branch-marker";
+function parseArgs(): { cwd: string } {
   let cwd = process.cwd();
 
   for (const arg of process.argv.slice(2)) {
-    if (arg === "--branch-marker") {
-      source = "branch-marker";
-    } else if (arg === "--git-config") {
-      source = "git-config";
-    } else if (arg.startsWith("--source=")) {
-      const value = arg.slice("--source=".length);
-      if (value !== "git-config" && value !== "branch-marker") {
-        throw new Error(`Unknown parent source: ${value}`);
-      }
-      source = value;
+    if (arg === "--branch-marker" || arg === "--source=branch-marker") {
+      continue;
     } else if (arg.startsWith("--cwd=")) {
       cwd = arg.slice("--cwd=".length);
     } else {
@@ -53,10 +44,10 @@ function parseArgs(): { source: BranchParentSource; cwd: string } {
     }
   }
 
-  return { source, cwd };
+  return { cwd };
 }
 
-function listBranches(cwd: string, source: BranchParentSource): BranchInfo[] {
+function listBranches(cwd: string): BranchInfo[] {
   const branchList = runGit(["branch", "--format=%(refname:short)"], cwd);
   const branchNames = branchList.stdout
     ? branchList.stdout.split("\n").filter(Boolean)
@@ -83,7 +74,7 @@ function listBranches(cwd: string, source: BranchParentSource): BranchInfo[] {
         name,
         tipSha: tip.code === 0 ? tip.stdout : "",
         markerSha: marker.code === 0 && marker.stdout ? marker.stdout : null,
-        parent: getBranchParent(name, cwd, source)?.parentBranch ?? null,
+        parent: getBranchParent(name, cwd)?.parentBranch ?? null,
       };
     });
 }
@@ -133,10 +124,10 @@ function buildMergeEdges(branches: BranchInfo[], cwd: string): EdgeInfo[] {
   return edges;
 }
 
-function renderMermaid(branches: BranchInfo[], edges: EdgeInfo[], source: BranchParentSource): string {
+function renderMermaid(branches: BranchInfo[], edges: EdgeInfo[]): string {
   const lines = [
     "flowchart BT",
-    `  %% parent source: ${source === "branch-marker" ? "branch markers" : "git config"}`,
+    "  %% parent source: branch markers",
     "  %% parent edges point from parent branch to child branch",
     "  %% merge edges point from merged branch to receiving branch",
   ];
@@ -158,10 +149,10 @@ function renderMermaid(branches: BranchInfo[], edges: EdgeInfo[], source: Branch
   return `${lines.join("\n")}\n`;
 }
 
-const { source, cwd } = parseArgs();
-const branches = listBranches(cwd, source);
+const { cwd } = parseArgs();
+const branches = listBranches(cwd);
 const edges = [
   ...buildParentEdges(branches),
   ...buildMergeEdges(branches, cwd),
 ];
-process.stdout.write(renderMermaid(branches, edges, source));
+process.stdout.write(renderMermaid(branches, edges));

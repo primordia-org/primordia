@@ -736,21 +736,8 @@ else
   fi
 fi
 
-# Reparent sibling sessions whose legacy git-config parent was the old production
-# branch so the old branch-parent source remains usable while branch-marker tracking
-# is being tested.
 DB_NAME=".primordia-auth.db"
 OLD_PROD_BRANCH="$(git -C "${BARE_REPO}" config --get primordia.productionBranch 2>/dev/null || true)"
-if [[ -n "$OLD_PROD_BRANCH" && "$OLD_PROD_BRANCH" != "$BRANCH" ]]; then
-  while read -r key val; do
-    # key looks like: branch.<name>.parent  (space-separated, git config --get-regexp output)
-    sibling="${key#branch.}"; sibling="${sibling%.parent}"
-    if [[ "$val" == "$OLD_PROD_BRANCH" && "$sibling" != "$BRANCH" ]]; then
-      git -C "${BARE_REPO}" config "branch.${sibling}.parent" "$BRANCH" 2>/dev/null || true
-    fi
-  done < <(git -C "${BARE_REPO}" config --get-regexp 'branch\..*\.parent' 2>/dev/null || true)
-fi
-
 # Copy DB from old production slot before activating, so the new slot
 # inherits all users/sessions/passkeys.  Mirrors what blueGreenAccept() does.
 if [[ -n "$OLD_PROD_BRANCH" && "$OLD_PROD_BRANCH" != "$BRANCH" ]]; then
@@ -779,8 +766,6 @@ advance_main_and_push() {
   _CURRENT_STEP="advance main ref: rev-parse branch"
   local branch_sha
   branch_sha="$(git -C "${BARE_REPO}" rev-parse "$BRANCH")"
-  diag "advance_main_and_push: BRANCH=${BRANCH} sha=${branch_sha}"
-
   # Find the worktree (if any) that has main checked out.
   _CURRENT_STEP="advance main ref: find main worktree"
   local main_worktree=""
@@ -796,14 +781,10 @@ advance_main_and_push() {
       break
     fi
   done < <(git -C "${BARE_REPO}" worktree list --porcelain)
-  diag "advance_main_and_push: main_worktree=${main_worktree:-<none>}"
-
   _CURRENT_STEP="advance main ref: reset/update-ref"
   if [[ -n "$main_worktree" ]]; then
-    diag "advance_main_and_push: git reset --hard ${branch_sha} in ${main_worktree}"
     git -C "$main_worktree" reset --hard "$branch_sha"
   else
-    diag "advance_main_and_push: git update-ref refs/heads/main ${branch_sha}"
     git -C "${BARE_REPO}" update-ref refs/heads/main "$branch_sha"
   fi
 
@@ -836,7 +817,6 @@ if [[ "${PROXY_RUNNING}" == "true" ]] && \
   _CURRENT_STEP="zero-downtime start: process-manager"
   _step "Deploying to new slot (zero-downtime)..."
   _PROCESS_JSON="$(mktemp)"
-  diag "zero-downtime start: bun run primordia server start --prod"
   if ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia server start --prod --json >"$_PROCESS_JSON" 2>&1; then
     _done "Server started"
     _CURRENT_STEP="zero-downtime start: publish production branch"
@@ -869,13 +849,11 @@ if [[ "${SERVICE_READY}" == "false" ]]; then
   _step "Starting production server..."
   _PROCESS_JSON="$(mktemp)"
   _INSTALL_COMMAND_OUTPUT_FILE="$_PROCESS_JSON"
-  diag "restart path: bun run primordia server start --prod"
   ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia server start --prod --json >"$_PROCESS_JSON" 2>&1
   _done "Production server started"
 
   _CURRENT_STEP="restart path: publish production branch"
   _step "Publishing production branch..."
-  diag "restart path: bun run primordia server publish"
   ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia server publish --json >"$_PROCESS_JSON" 2>&1
   _INSTALL_COMMAND_OUTPUT_FILE=""
   rm -f "$_PROCESS_JSON"

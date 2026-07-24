@@ -6,7 +6,7 @@ import { AuthStorage, ModelRegistry } from '@earendil-works/pi-coding-agent';
 import { complete, type UserMessage } from '@earendil-works/pi-ai';
 import * as path from 'path';
 import * as fs from 'fs';
-import { getParentBranch, readBranchMarker, writeBranchMarker } from './branch-parent';
+import { BASE_COMMIT_TRAILER, BRANCHED_FROM_TRAILER, getParentBranch, readBranchMarker, writeBranchMarker } from './branch-parent';
 import {
   appendSessionEvent,
   readSessionEvents,
@@ -24,7 +24,7 @@ import { hasThreadPermission } from './auth';
 import { progressSummary, reduceProgressEventsAcrossRuns, type ProgressStateStep } from './progress-monitor';
 import { decryptStoredSecretForUser, getEncryptedSecretForUser, storeEncryptedSecretForUser } from './server-secrets';
 import { getDb } from './db';
-import { PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY, DEFAULT_CAVEMAN_INTENSITY, getBranchParentSource, type CavemanIntensity } from './user-prefs';
+import { PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY, DEFAULT_CAVEMAN_INTENSITY, type CavemanIntensity } from './user-prefs';
 import { BUILT_IN_PRESETS, PREF_CUSTOM_PRESETS, PREF_PRESET, normalizeAuthSource, parseCustomPresets, type ThreadPreset, type PresetAuthSource, type SecretAuthSource } from './presets';
 import { ensurePrimordiaPiModelsJson } from './pi-custom-models';
 import { piOAuthToStoredChatGptCredentials, storedChatGptCredentialsToPiOAuth, type PiChatGptOAuthCredential } from './chatgpt-subscription';
@@ -484,6 +484,25 @@ export function runGit(
   });
 }
 
+async function mergeParentIntoThread(
+  worktreePath: string,
+  parentBranch: string,
+  branch: string,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  const parentShaResult = await runGit(['rev-parse', parentBranch], worktreePath);
+  const parentSha = parentShaResult.stdout.trim();
+  if (parentShaResult.code !== 0 || !parentSha) return parentShaResult;
+
+  const message = [
+    `chore: merge ${parentBranch} into ${branch}`,
+    '',
+    `${BRANCHED_FROM_TRAILER}: ${parentBranch}`,
+    `${BASE_COMMIT_TRAILER}: ${parentSha}`,
+  ].join('\n');
+
+  return runGit(['merge', parentBranch, '--no-ff', '-m', message], worktreePath);
+}
+
 async function trustMiseConfig(worktreePath: string): Promise<boolean> {
   const miseConfigPath = path.join(worktreePath, 'mise.toml');
   if (!fs.existsSync(miseConfigPath)) return false;
@@ -729,19 +748,13 @@ export async function startLocalThread(
       appendSessionEvent(ndjsonPath, { type: 'setup_step', label: '`mise trust` complete', done: true, ts: Date.now() });
     }
 
-    // Keep the legacy git-config parent metadata for new branches while also
-    // writing branch-marker commits. The branch may already have been created
+    // Write an empty "branch marker" commit to record parentage so it travels
+    // with the branch through clones. The branch may already have been created
     // synchronously by the route handler so the session page can load
-    // immediately; it still needs the marker commit in that case.
-    if (!options.skipBranchCreation) {
-      await runGit(['config', `branch.${session.branch}.parent`, parentBranch], repoRoot);
-
-      // Write an empty "branch marker" commit to record parentage so it travels
-      // with the branch through clones. Avoid duplicating it if a retry resumes
-      // after the marker has already been written.
-      if (parentSha && !readBranchMarker(session.branch, repoRoot)) {
-        writeBranchMarker(session.worktreePath, parentBranch, parentSha);
-      }
+    // immediately; it still needs the marker commit in that case. Avoid
+    // duplicating it if a retry resumes after the marker has already been written.
+    if (!options.skipBranchCreation && parentSha && !readBranchMarker(session.branch, repoRoot)) {
+      writeBranchMarker(session.worktreePath, parentBranch, parentSha);
     }
 
     // Assign an ephemeral port to this branch in git config (idempotent).
@@ -1514,12 +1527,11 @@ export async function updateThread({ userId, threadId }: UpdateThreadOptions): P
   if (!session) return { ok: false, status: 404, error: 'Thread not found' };
 
   const { worktreePath, branch } = session;
-  const parentSource = await getBranchParentSource(userId);
-  const parentBranch = getParentBranch(branch, undefined, parentSource);
+  const parentBranch = getParentBranch(branch);
   if (!parentBranch) return { ok: false, status: 400, error: 'Could not determine parent thread' };
 
   try {
-    const result = await runGit(['merge', parentBranch, '--no-ff', '-m', `chore: merge ${parentBranch} into ${branch}`], worktreePath);
+    const result = await mergeParentIntoThread(worktreePath, parentBranch, branch);
     let outcome: 'merged' | 'merged-with-conflict-resolution' = 'merged';
     let conflictLog = '';
     if (result.code !== 0) {
@@ -1586,8 +1598,7 @@ export async function manageThread({ userId, threadId, action, authSource: reque
   const encryptedSecret = action === 'accept' ? await getEncryptedSecretForUser(userId, authSource) : null;
   if (action === 'accept' && needsStoredSecret && !encryptedSecret) return { ok: false, status: 400, error: 'Selected billing source has no stored secret. Reconnect it in Settings, then try again.' };
 
-  const parentSource = await getBranchParentSource(userId);
-  const parentBranch = getParentBranch(branch, undefined, parentSource) ?? 'main';
+  const parentBranch = getParentBranch(branch) ?? 'main';
   const useProductionPromotion = isProductionAcceptTarget(parentBranch, repoRoot);
   if (action === 'reject' || useProductionPromotion) {
     try { await stopWorktreeServer(threadId, repoRoot); } catch { /* preview server may already be gone */ }
@@ -1604,7 +1615,7 @@ export async function manageThread({ userId, threadId, action, authSource: reque
     if (action === 'accept') {
       const ancestorCheck = await runGit(['merge-base', '--is-ancestor', parentBranch, 'HEAD'], worktreePath);
       if (ancestorCheck.code !== 0) {
-        const mergeResult = await runGit(['merge', parentBranch, '--no-ff', '-m', `chore: merge ${parentBranch} into ${branch}`], worktreePath);
+        const mergeResult = await mergeParentIntoThread(worktreePath, parentBranch, branch);
         if (mergeResult.code !== 0) {
           const resolution = await resolveConflictsWithAgent(worktreePath, parentBranch, branch, { id: threadId, userId, aesKey, authSource, harness: agentSelection.harness, model: agentSelection.model }, repoRoot);
           if (!resolution.success) {
@@ -1873,11 +1884,6 @@ export async function createThread({
   const wtResult = await runGit(['worktree', 'add', worktreePath, '-b', branch], repoRoot);
   if (wtResult.code !== 0) {
     return { ok: false, status: 500, error: `Failed to create thread workspace: ${wtResult.stderr}` };
-  }
-
-  const parentConfigResult = await runGit(['config', `branch.${branch}.parent`, parentBranch], repoRoot);
-  if (parentConfigResult.code !== 0) {
-    return { ok: false, status: 500, error: `Failed to record parent branch metadata: ${parentConfigResult.stderr}` };
   }
 
   try {

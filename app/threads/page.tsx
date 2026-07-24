@@ -14,15 +14,14 @@ import { PageNavBar } from "@/components/PageNavBar";
 import { CreateSessionFromBranchButton } from "./CreateSessionFromBranchButton";
 import { buildPageTitle } from "@/lib/page-title";
 import { getSessionUser, isAdmin, hasThreadPermission } from "@/lib/auth";
-import { getBranchParentSource, getThreadPrefs } from "@/lib/user-prefs";
+import { getThreadPrefs } from "@/lib/user-prefs";
 import { withBasePath } from "@/lib/base-path";
-import { getBranchParent, type BranchParentSource } from "@/lib/branch-parent";
+import { getBranchParent } from "@/lib/branch-parent";
 import {
   computeBranchGraphLayout,
   computeBranchGraphUnicodeRows,
   type BranchGraphMergeEdge,
 } from "@/lib/branch-graph-layout";
-import { BranchParentSourceToggle } from "./BranchParentSourceToggle";
 
 export const dynamic = "force-dynamic";
 
@@ -104,7 +103,7 @@ function gitConfigValue(key: string, cwd: string): string | null {
 
 // ─── Data fetching ──────────────────────────────────────────────────────────────
 
-async function getBranchData(parentSource: BranchParentSource): Promise<{
+async function getBranchData(): Promise<{
   branches: BranchData[];
   productionBranch: string;
   diag: DiagnosticInfo;
@@ -142,7 +141,7 @@ async function getBranchData(parentSource: BranchParentSource): Promise<{
     // supported for preview or session URLs).
     .filter((name) => name !== 'main' && !name.includes('/'))
     .map((name) => {
-      const parent = getBranchParent(name, cwd, parentSource)?.parentBranch ?? null;
+      const parent = getBranchParent(name, cwd)?.parentBranch ?? null;
       const session = sessionByBranch.get(name);
       const tipSha = runGit(["rev-parse", name], cwd);
       const markerInfo = runGit([
@@ -450,11 +449,11 @@ function GitResultRow({
 
 export default async function ThreadsPage() {
   const user = await getSessionUser();
-  const [userIsAdmin, userCanStartThreads, threadPrefs, parentSource] = user
-    ? await Promise.all([isAdmin(user.id), hasThreadPermission(user.id), getThreadPrefs(user.id), getBranchParentSource(user.id)])
-    : [false, false, null, await getBranchParentSource(null)];
+  const [userIsAdmin, userCanStartThreads, threadPrefs] = user
+    ? await Promise.all([isAdmin(user.id), hasThreadPermission(user.id), getThreadPrefs(user.id)])
+    : [false, false, null];
 
-  const { branches, productionBranch, diag } = await getBranchData(parentSource);
+  const { branches, productionBranch, diag } = await getBranchData();
 
   const [headerStore] = await Promise.all([headers()]);
   const sessionUser = user
@@ -479,11 +478,6 @@ export default async function ThreadsPage() {
         initialModel={threadPrefs?.initialModel}
         initialCavemanMode={threadPrefs?.initialCavemanMode}
         initialCavemanIntensity={threadPrefs?.initialCavemanIntensity}
-      />
-
-      <BranchParentSourceToggle
-        initialSource={parentSource}
-        disabled={!user}
       />
 
       {/* ── Connected production graph ── */}

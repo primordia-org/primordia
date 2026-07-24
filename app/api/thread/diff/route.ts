@@ -9,9 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { execFileSync } from "child_process";
 import { createHash } from "crypto";
 import { getSessionFromFilesystem } from "@/lib/session-events";
-import { getSessionUser } from "@/lib/auth";
 import { getParentBranch } from "@/lib/branch-parent";
-import { getBranchParentSource } from "@/lib/user-prefs";
 
 function getRenamePathsFromDisplayFile(file: string): { oldPath: string; newPath: string } | null {
   if (!file.includes(" => ")) return null;
@@ -57,9 +55,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const user = await getSessionUser();
-    const parentSource = await getBranchParentSource(user?.id);
-    const parentBranch = getParentBranch(session.branch, undefined, parentSource);
+    const parentBranch = getParentBranch(session.branch);
 
     if (!parentBranch) {
       return NextResponse.json({ error: "No parent thread found" }, { status: 404 });

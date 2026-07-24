@@ -13,7 +13,7 @@ lib/
 ├── cli-utils.ts                 ← Shared CLI formatting helpers, including box-drawing table rendering
 ├── tiny-cli.ts                  ← Small internal CLI definition/parser/help/completion helper used by scripts/primordia.ts
 ├── branch-graph-layout.ts       ← Branch graph layout utilities used by /threads and export scripts
-├── branch-parent.ts             ← Branch-marker commit helpers for persistent branch parentage with legacy git-config fallback
+├── branch-parent.ts             ← Branch-marker commit helpers for persistent branch parentage
 ├── git-runtime.ts               ← Git runtime metadata helpers for worktree enumeration, branch ports, and production branch config
 ├── lockfile.ts                  ← PID/lockfile helpers for live PID checks, stale lock cleanup, scoped per-process locks, and lock release
 ├── hooks.ts                     ← Shared React hooks: useSessionUser (fetches session on mount, provides logout)
@@ -81,7 +81,6 @@ Primordia uses `.git/config` as a lightweight key-value store for **non-sensitiv
 | `primordia.*` | `primordia.productionHistory` | Multi-value list of previous production branch names (written with `--add`) |
 | `primordia.*` | `primordia.previewInactivityMin` | Proxy tuning knobs (see `app/api/admin/proxy-settings/route.ts`) |
 | `branch.{name}.*` | `branch.main.port` | Per-branch ephemeral port; proxy discovers preview servers this way |
-| `branch.{name}.*` | `branch.feature-x.parent` | Legacy parent branch metadata; still written while branch-marker commit trailer tracking is user-toggleable |
 | `remote.{name}.*` | `remote.primordia-official.updateSource` | Update source metadata extending the standard git remote section |
 
 ### Output format of `--get-regexp`

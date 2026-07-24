@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { spawnSync } from "node:child_process";
-import { getBranchParent, type BranchParentSource } from "@/lib/branch-parent";
+import { getBranchParent } from "@/lib/branch-parent";
 import {
   computeBranchGraphLayout,
   renderBranchGraphUnicode,
@@ -22,20 +22,14 @@ function gitConfigValue(key: string, cwd: string): string | null {
   return result.code === 0 && result.stdout ? result.stdout : null;
 }
 
-function parseArgs(): { source: BranchParentSource; cwd: string } {
-  let source: BranchParentSource = "branch-marker";
+function parseArgs(): { cwd: string } {
   let cwd = process.cwd();
   for (const arg of process.argv.slice(2)) {
-    if (arg === "--branch-marker") source = "branch-marker";
-    else if (arg === "--git-config") source = "git-config";
-    else if (arg.startsWith("--source=")) {
-      const value = arg.slice("--source=".length);
-      if (value !== "git-config" && value !== "branch-marker") throw new Error(`Unknown parent source: ${value}`);
-      source = value;
-    } else if (arg.startsWith("--cwd=")) cwd = arg.slice("--cwd=".length);
+    if (arg === "--branch-marker" || arg === "--source=branch-marker") continue;
+    else if (arg.startsWith("--cwd=")) cwd = arg.slice("--cwd=".length);
     else throw new Error(`Unknown argument: ${arg}`);
   }
-  return { source, cwd };
+  return { cwd };
 }
 
 function markerInfo(branch: string, cwd: string): { timestamp: number | null; sha: string | null } {
@@ -55,7 +49,7 @@ function markerInfo(branch: string, cwd: string): { timestamp: number | null; sh
   return { timestamp: Number.isNaN(timestamp) ? null : timestamp, sha: sha ?? null };
 }
 
-function listBranches(cwd: string, source: BranchParentSource): BranchInfo[] {
+function listBranches(cwd: string): BranchInfo[] {
   const branchList = runGit(["branch", "--format=%(refname:short)"], cwd);
   const branchNames = branchList.stdout ? branchList.stdout.split("\n").filter(Boolean) : [];
   return branchNames
@@ -65,7 +59,7 @@ function listBranches(cwd: string, source: BranchParentSource): BranchInfo[] {
       const marker = markerInfo(name, cwd);
       return {
         name,
-        parent: getBranchParent(name, cwd, source)?.parentBranch ?? null,
+        parent: getBranchParent(name, cwd)?.parentBranch ?? null,
         markerTimestamp: marker.timestamp,
         tipSha: tip.code === 0 ? tip.stdout : "",
         markerSha: marker.sha,
@@ -97,9 +91,9 @@ function buildMergeEdges(branches: BranchInfo[], cwd: string): BranchGraphMergeE
   return edges;
 }
 
-const { source, cwd } = parseArgs();
+const { cwd } = parseArgs();
 const productionBranch = gitConfigValue("primordia.productionBranch", cwd) ?? "main";
-const branches = listBranches(cwd, source);
+const branches = listBranches(cwd);
 const layout = computeBranchGraphLayout(branches, productionBranch);
 const mergeEdges = buildMergeEdges(branches, cwd);
 process.stdout.write(renderBranchGraphUnicode(layout, mergeEdges, productionBranch));

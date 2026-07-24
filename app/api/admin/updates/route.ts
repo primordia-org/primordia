@@ -383,11 +383,6 @@ export async function POST(request: Request) {
       return Response.json({ error: `Failed to create thread workspace: ${wtResult.stderr}` }, { status: 500 });
     }
 
-    const parentConfigResult = await runGit(["config", `branch.${sessionBranch}.parent`, parentBranch], repoRoot);
-    if (parentConfigResult.code !== 0) {
-      return Response.json({ error: `Failed to record parent branch metadata: ${parentConfigResult.stderr}` }, { status: 500 });
-    }
-
     try {
       writeBranchMarker(worktreePath, parentBranch, parentSha);
     } catch (err) {
