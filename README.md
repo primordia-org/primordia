@@ -6,6 +6,8 @@
 
 > A self-modifying web application. Describe changes in plain English — Primordia builds them for you.
 
+[![Deploy on exe.dev](https://raw.githubusercontent.com/boldsoftware/exe.dev/main/assets/buttons/deploy-on-exe-dev.png)](https://exe.dev/new?repo=https://github.com/primordia-org/primordia)
+
 Primordia is a chat interface powered by an AI agent. Users can open the **hamburger (☰) menu** in the header and choose **"Propose a change"** to open the thread dialog and describe changes they want made to the app itself. Those requests are automatically built as local git worktree previews via the AI coding agent SDK — no coding or git knowledge required.
 
 ## How It Works
@@ -14,7 +16,7 @@ Primordia is a chat interface powered by an AI agent. Users can open the **hambu
 Talk to an AI agent directly. Primordia streams responses from the Anthropic SDK via SSE.
 
 ### Threads
-Describe a change you want (e.g. *"add a dark mode toggle"* or *"make the header sticky"*"). Primordia will:
+Describe a change you want (e.g. *"add a dark mode toggle"* or *"make the header sticky"*). Primordia will:
 
 1. Create a git branch + worktree for your request
 2. Run an AI coding agent inside the worktree
@@ -34,35 +36,19 @@ You can attach images or files to any request. Follow-up requests on the same br
 | AI (chat) | Anthropic SDK via SSE |
 | AI (code gen) | Anthropic Agent SDK — `query()` in git worktrees |
 | Database | bun:sqlite — passkey auth + thread persistence |
-| Hosting | exe.dev (remote dev server) or local `bun run dev` |
+| Hosting | Local machine, VM, or exe.dev via the one-line installer |
 
 ## Setup
 
-### Prerequisites
-- [mise](https://mise.jdx.dev) runtime version manager, which installs the Bun version pinned in `mise.toml`
-- An [exe.dev](https://exe.dev) server (provides the LLM gateway — no API key required)
-
-### Local Development
+Install Primordia on a local machine, VM, or exe.dev server with one command:
 
 ```bash
-cp .env.example .env.local
-
-mise install
-bun install
-bun run dev
+curl -fsSL https://primordia.exe.xyz/install.sh | bash -s
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+The installer checks system requirements, installs the pinned runtime when needed, creates the production configuration, and starts Primordia as a service. When it finishes, it prints the URL to open.
 
 The first user to register is automatically granted the `admin` role.
-
-### Deploy to exe.dev
-
-```bash
-bun run deploy-to-exe.dev <server-name>
-```
-
-This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts Primordia as a systemd service. The exe.dev LLM gateway handles all LLM requests — no API key is required.
 
 ## Hosting on exe.dev
 
@@ -76,20 +62,15 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 
 ### Create your own Primordia on exe.dev
 
-1. **Fork** this repo to your GitHub account.
-2. **Create a server** on [exe.dev](https://exe.dev). Note the server name (e.g. `myapp` → `myapp.exe.xyz`).
-3. **Configure `.env.local`** — copy `.env.example` and fill in `REVERSE_PROXY_PORT`.
-4. **Deploy**:
-   ```bash
-   bun run deploy-to-exe.dev <server-name>
-   ```
-   The script will:
-   - Copy your `.env.local` to the server via `scp`
-   - Install `git`, `mise`, and the pinned Bun runtime if missing
-   - Clone your repo and install dependencies
-   - Start Primordia as a `systemd` service and wait for it to be ready
-5. **Open** `http://<server-name>.exe.xyz:3000`.
-6. **Sign in** — click *Login with exe.dev* on the login page. The first user to sign in is automatically granted the `admin` role.
+Click the **Deploy on exe.dev** button above, or create an exe.dev server and run the same one-line installer:
+
+```bash
+curl -fsSL https://primordia.exe.xyz/install.sh | bash -s
+```
+
+The installer clones Primordia, installs dependencies and the pinned runtime if missing, starts the `primordia` service, and prints the URL to open.
+
+Sign in with exe.dev on the login page. The first user to sign in is automatically granted the `admin` role.
 
 > Both the chat interface and the thread pipeline use the exe.dev LLM gateway — no API key is needed.
 
@@ -97,7 +78,7 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 
 | Variable | Required | Description |
 |---|---|---|
-| `REVERSE_PROXY_PORT` | Yes | Port the reverse proxy listens on (e.g. `3000`). Required for blue/green deploys and preview routing. |
+| `REVERSE_PROXY_PORT` | Usually no | Port the reverse proxy listens on. The installer writes this automatically; set it manually only for source checkouts or custom deployments. |
 
 ## Features
 
@@ -111,7 +92,7 @@ This SSH-deploys to `<server-name>.exe.xyz`, installs dependencies, and starts P
 | Passkey authentication (WebAuthn) | ✅ Live |
 | Cross-device QR sign-in | ✅ Live |
 | RBAC — admin and thread access roles | ✅ Live |
-| exe.dev one-command deploy | ✅ Live |
+| One-line installer for local machines, VMs, and exe.dev | ✅ Live |
 | Dark theme | ✅ Live |
 
 ## Architecture

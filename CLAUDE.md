@@ -42,7 +42,7 @@ primordia/
 ├── CLAUDE.md                      ← You are here. Read me first, update me last.
 ├── README.md                      ← Public-facing project readme
 ├── LICENSE
-├── .env.example                   ← Copy to .env.local, fill in secrets
+├── .env.example                   ← Template for manual source checkouts; install.sh writes production .env.local automatically
 ├── .gitignore
 ├── instrumentation.ts             ← Next.js instrumentation hook; reconnects/recover thread workers on server boot; scheduled jobs run through the supervised Primordia Core jobs daemon instead
 ├── bunfig.toml                    ← Bun package install hardening: 24h minimum release age + Socket scanner
@@ -71,13 +71,11 @@ primordia/
 
 ## Environment Variables
 
-These must be set in:
-- **Local development**: `.env.local` (copy from `.env.example`)
-- **exe.dev**: `.env.local` is created by `scripts/install.sh` during provisioning
+For normal installs, `scripts/install.sh` creates `.env.local` automatically. For manual source checkouts, copy `.env.example` to `.env.local` and set the values you need.
 
 | Variable | Required | Description |
 |---|---|---|
-| `REVERSE_PROXY_PORT` | Yes | Port the reverse proxy listens on (e.g. `3000`). Blue/green accepts and rollbacks use zero-downtime cutover via the proxy. |
+| `REVERSE_PROXY_PORT` | Installer-managed | Port the reverse proxy listens on (e.g. `3000` locally or `8000` on hosted installs). Blue/green accepts and rollbacks use zero-downtime cutover via the proxy. Set manually only for source checkouts or custom deployments. |
 | `PRIMORDIA_DIR` | No | Root directory of the Primordia installation. Set by the installer in the systemd service — not intended for manual configuration. Fresh installs: repo root. Worktree installs: two levels above the worktree (`$PRIMORDIA_DIR/worktrees/{branch}`). |
 | `NEXT_BASE_PATH` | No | URL sub-path prefix (e.g. `/primordia`) for hosting the app at a non-root path. Leave unset to serve from `/` (default). Sets both Next.js `basePath` config and `NEXT_PUBLIC_BASE_PATH` for client-side `fetch()` calls. Also set automatically on preview dev servers to `/preview/{sessionId}` when `REVERSE_PROXY_PORT` is active. |
 
@@ -85,12 +83,15 @@ These must be set in:
 
 ## Setup Checklist (One-Time)
 
-1. **Clone** this repo.
-2. **Copy** `.env.example` to `.env.local` and fill in `REVERSE_PROXY_PORT`.
-3. **Run** `mise install && bun install && bun run dev`.
-4. The app is live at `http://localhost:3000`.
+Install Primordia on a local machine, VM, or exe.dev server with the one-line installer:
 
-To deploy to exe.dev: `bun run deploy-to-exe.dev <server-name>`
+```bash
+curl -fsSL https://primordia.exe.xyz/install.sh | bash -s
+```
+
+The installer clones Primordia, installs the pinned runtime and dependencies when needed, writes `.env.local`, starts the `primordia` service, and prints the URL to open.
+
+For manual development from a source checkout, copy `.env.example` to `.env.local`, set `REVERSE_PROXY_PORT`, then run `mise install && bun install && bun run dev`.
 
 ---
 
@@ -129,7 +130,7 @@ When implementing changes, follow these principles:
 | Git diff summary | ✅ Live | Thread page shows a collapsible "Files changed" section (file names + +/- LOC), keeps it visible while agents are running with a stale-state warning, and offers a manual reload button for fresh file lists |
 | Thread from existing branch | ✅ Live | Threads page shows "+ thread" next to branches with no active thread; thread users can attach the full AI preview pipeline to any pre-existing local branch; the current branch is shown with its descendant tree even when it is outside production ancestry |
 | Upstream updates (/admin/updates) | ✅ Live | Admin-only; pull upstream Primordia changes from configured update sources; auto-scheduled fetches run through the Primordia Core jobs boundary |
-| exe.dev deploy | ✅ Live | One-command SSH deploy via `bun run deploy-to-exe.dev <server-name>` |
+| One-line installer | ✅ Live | `curl -fsSL https://primordia.exe.xyz/install.sh \| bash -s` installs Primordia on a local machine, VM, or exe.dev server |
 | Dark theme | ✅ Live | Default dark UI with Tailwind |
 | Passkey authentication | ✅ Live | WebAuthn passkeys via /login; sessions stored in SQLite |
 | Cross-device QR sign-in | ✅ Live | Laptop shows QR code; authenticated phone scans it and approves; laptop gets a session |
