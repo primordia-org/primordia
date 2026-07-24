@@ -8,7 +8,7 @@
 
 [![Deploy on exe.dev](https://raw.githubusercontent.com/boldsoftware/exe.dev/main/assets/buttons/deploy-on-exe-dev.png)](https://exe.dev/new?repo=https://github.com/primordia-org/primordia)
 
-Primordia is a chat interface powered by an AI agent. Users can open the **hamburger (☰) menu** in the header and choose **"Propose a change"** to open the thread dialog and describe changes they want made to the app itself. Those requests are automatically built as local git worktree previews via the AI coding agent SDK — no coding or git knowledge required.
+Primordia brings an AI coding agent directly into your product, so users can request changes, review real previews, and ship updates from the app itself. Open the **hamburger (☰) menu** and choose **"Propose a change"** to describe what should change — no coding or git knowledge required.
 
 ## How It Works
 

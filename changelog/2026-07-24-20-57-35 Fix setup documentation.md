@@ -7,3 +7,5 @@ The README now includes the requested Deploy on exe.dev button, removes outdated
 Removed the now-unused `deploy-to-exe.dev` package script so the CLI surface matches the installer-first setup flow documented here.
 
 Updated the product tagline in the README, landing page hero, and page metadata to: “Your app with agentic coding built in.”
+
+Revised the README introduction to describe Primordia like the landing page: an app with an AI coding agent built directly into the product for requesting changes, reviewing previews, and shipping updates from the app itself.
