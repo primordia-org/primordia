@@ -6,7 +6,7 @@ import { AuthStorage, ModelRegistry } from '@earendil-works/pi-coding-agent';
 import { complete, type UserMessage } from '@earendil-works/pi-ai';
 import * as path from 'path';
 import * as fs from 'fs';
-import { getParentBranch, readBranchMarker, writeBranchMarker } from './branch-parent';
+import { BASE_COMMIT_TRAILER, BRANCHED_FROM_TRAILER, getParentBranch, readBranchMarker, writeBranchMarker } from './branch-parent';
 import {
   appendSessionEvent,
   readSessionEvents,
@@ -482,6 +482,25 @@ export function runGit(
     proc.on('close', (code) => resolve({ stdout, stderr, code: code ?? 1 }));
     proc.on('error', (err) => resolve({ stdout: '', stderr: err.message, code: 1 }));
   });
+}
+
+async function mergeParentIntoThread(
+  worktreePath: string,
+  parentBranch: string,
+  branch: string,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  const parentShaResult = await runGit(['rev-parse', parentBranch], worktreePath);
+  const parentSha = parentShaResult.stdout.trim();
+  if (parentShaResult.code !== 0 || !parentSha) return parentShaResult;
+
+  const message = [
+    `chore: merge ${parentBranch} into ${branch}`,
+    '',
+    `${BRANCHED_FROM_TRAILER}: ${parentBranch}`,
+    `${BASE_COMMIT_TRAILER}: ${parentSha}`,
+  ].join('\n');
+
+  return runGit(['merge', parentBranch, '--no-ff', '-m', message], worktreePath);
 }
 
 async function trustMiseConfig(worktreePath: string): Promise<boolean> {
@@ -1512,7 +1531,7 @@ export async function updateThread({ userId, threadId }: UpdateThreadOptions): P
   if (!parentBranch) return { ok: false, status: 400, error: 'Could not determine parent thread' };
 
   try {
-    const result = await runGit(['merge', parentBranch, '--no-ff', '-m', `chore: merge ${parentBranch} into ${branch}`], worktreePath);
+    const result = await mergeParentIntoThread(worktreePath, parentBranch, branch);
     let outcome: 'merged' | 'merged-with-conflict-resolution' = 'merged';
     let conflictLog = '';
     if (result.code !== 0) {
@@ -1596,7 +1615,7 @@ export async function manageThread({ userId, threadId, action, authSource: reque
     if (action === 'accept') {
       const ancestorCheck = await runGit(['merge-base', '--is-ancestor', parentBranch, 'HEAD'], worktreePath);
       if (ancestorCheck.code !== 0) {
-        const mergeResult = await runGit(['merge', parentBranch, '--no-ff', '-m', `chore: merge ${parentBranch} into ${branch}`], worktreePath);
+        const mergeResult = await mergeParentIntoThread(worktreePath, parentBranch, branch);
         if (mergeResult.code !== 0) {
           const resolution = await resolveConflictsWithAgent(worktreePath, parentBranch, branch, { id: threadId, userId, aesKey, authSource, harness: agentSelection.harness, model: agentSelection.model }, repoRoot);
           if (!resolution.success) {
