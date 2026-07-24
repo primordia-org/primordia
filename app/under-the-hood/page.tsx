@@ -92,7 +92,9 @@ export default function UnderTheHoodPage() {
               <InlineCode>@anthropic-ai/claude-agent-sdk</InlineCode>), but you can also use
               OpenAI Codex or the &ldquo;pi&rdquo; harness. Each harness edits files, runs
               builds, and commits the result. A dev server boots from the worktree —
-              that&apos;s your live preview.
+              that&apos;s your live preview. Shelley has been evaluated as a feasible future
+              harness backend, but it needs a wrapper-worker integration before it should
+              appear as a production choice.
             </p>
             <p>
               If you accept the change, the worktree branch is merged to{" "}
@@ -100,6 +102,34 @@ export default function UnderTheHoodPage() {
               it, the worktree is deleted and nothing changes in production. You can also chain
               multiple agent passes on the same branch with follow-up requests before
               accepting.
+            </p>
+          </Section>
+
+          <Section title="Shelley harness feasibility">
+            <p>
+              Shelley is a web-first coding agent from Bold Software with HTTP APIs, SSE
+              streams, git/file tools, and multi-model support. That makes it a plausible
+              fourth Primordia harness backend.
+            </p>
+            <p>
+              The main mismatch is lifecycle. Primordia expects each harness to behave like a
+              detached one-shot worker that writes normalized session events, while Shelley is
+              primarily a long-running web app with its own SQLite conversation database. The
+              recommended approach is a private <InlineCode>shelley-worker</InlineCode> wrapper:
+              launch Shelley against the thread worktree, drive one conversation through its
+              API, translate stream events into Primordia progress events, then cleanly exit.
+            </p>
+            <p>
+              See the full feasibility note in{" "}
+              <a
+                href="https://github.com/boldsoftware/shelley"
+                className="text-blue-400 hover:text-blue-300 underline underline-offset-4"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Shelley&apos;s repository
+              </a>{" "}
+              and <InlineCode>docs/shelley-harness-feasibility.md</InlineCode> in this repo.
             </p>
           </Section>
 
