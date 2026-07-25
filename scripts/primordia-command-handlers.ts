@@ -18,6 +18,16 @@ import { getDb } from '@/lib/db';
 import { copyProductionDbToWorktree } from '@/lib/production-db-copy';
 import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
 import {
+  CAVEMAN_INTENSITIES,
+  PREF_CAVEMAN,
+  PREF_CAVEMAN_INTENSITY,
+  PREF_HARNESS,
+  PREF_MODEL,
+  getThreadPrefs,
+} from '@/lib/user-prefs';
+import { HARNESS_OPTIONS, MODEL_OPTIONS } from '@/lib/agent-config';
+import { BUILT_IN_PRESETS, PREF_CUSTOM_PRESETS, PREF_PRESET, parseCustomPresets } from '@/lib/presets';
+import {
   formatJobInterval,
   isPrimordiaJobName,
   listJobSchedules,
@@ -34,6 +44,12 @@ type UserSelectorArgs = { user?: string };
 type JsonArgs = { json?: boolean };
 type ModeArgs = { dev?: boolean; prod?: boolean };
 type PresetArgs = { preset?: string };
+type PreferenceSetArgs = PresetArgs & {
+  harness?: string;
+  model?: string;
+  caveman?: string;
+  'caveman-intensity'?: string;
+};
 type PrimordiaServiceName = 'service-supervisor' | 'reverse-proxy' | 'scheduled-jobs';
 type SupervisedServiceName = Exclude<PrimordiaServiceName, 'service-supervisor'>;
 type ServiceLogArgs = JsonArgs & { lines?: string; n?: string; follow?: boolean; f?: boolean };
@@ -246,6 +262,10 @@ export function completeJobNames(): string[] {
   return listJobSchedules().map((schedule) => schedule.name);
 }
 
+export function completeModelIds(): string[] {
+  return [...new Set(Object.values(MODEL_OPTIONS).flatMap((models) => models.map((model) => model.id)))];
+}
+
 export function statusCommand(args: CliParsedArgs & JsonArgs): void {
   const report = getProcessStatusReport();
   if (args.json) printJson(report);
@@ -353,6 +373,109 @@ export function jobsScheduleSetCommand(args: CliParsedArgs & JsonArgs): void {
   };
   if (args.json) printJson(row);
   else console.log(`${row.name}: ${row.interval} (${row.gitConfigKey})`);
+}
+
+function parseCliBoolean(value: string | undefined, optionName: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (value === 'true' || value === '1' || value === 'yes' || value === 'on') return true;
+  if (value === 'false' || value === '0' || value === 'no' || value === 'off') return false;
+  throw new Error(`--${optionName} must be true or false`);
+}
+
+function validateHarness(value: string): string {
+  if (!HARNESS_OPTIONS.some((harness) => harness.id === value)) {
+    throw new Error(`Unknown harness: ${value}. Expected one of: ${HARNESS_OPTIONS.map((harness) => harness.id).join(', ')}`);
+  }
+  return value;
+}
+
+function validateModelForHarness(harness: string, model: string): string {
+  const models = MODEL_OPTIONS[harness] ?? [];
+  if (!models.some((candidate) => candidate.id === model)) {
+    throw new Error(`Unknown model for ${harness}: ${model}`);
+  }
+  return model;
+}
+
+function validateCavemanIntensity(value: string): string {
+  if (!(CAVEMAN_INTENSITIES as readonly string[]).includes(value)) {
+    throw new Error(`Unknown caveman intensity: ${value}. Expected one of: ${CAVEMAN_INTENSITIES.join(', ')}`);
+  }
+  return value;
+}
+
+async function resolveAndValidatePreferencePreset(userId: string, cliPresetId: string): Promise<string> {
+  const resolvedPreset = await resolveCliPresetIdForUser(userId, cliPresetId);
+  if (!resolvedPreset) throw new Error('preset required');
+  const db = await getDb();
+  const prefs = await db.getUserPreferences(userId, [PREF_CUSTOM_PRESETS]);
+  const customPresets = parseCustomPresets(prefs[PREF_CUSTOM_PRESETS]);
+  const exists = [...BUILT_IN_PRESETS, ...customPresets].some((preset) => preset.id === resolvedPreset);
+  if (!exists) throw new Error(`Preset not found: ${cliPresetId}`);
+  return resolvedPreset;
+}
+
+export async function preferencesGetCommand(args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
+  rejectUnexpectedRequestText(args, 'preferences get');
+  const user = await resolveCliUser(args.user);
+  const db = await getDb();
+  const [raw, effective] = await Promise.all([
+    db.getUserPreferences(user.id, [PREF_PRESET, PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY]),
+    getThreadPrefs(user.id),
+  ]);
+  const result = {
+    user,
+    preferences: {
+      preferredPreset: raw[PREF_PRESET] ?? null,
+      preferredHarness: raw[PREF_HARNESS] ?? null,
+      preferredModel: raw[PREF_MODEL] ?? null,
+      cavemanMode: raw[PREF_CAVEMAN] ?? null,
+      cavemanIntensity: raw[PREF_CAVEMAN_INTENSITY] ?? null,
+    },
+    effectiveThreadFormDefaults: effective,
+  };
+  if (args.json) printJson(result);
+  else {
+    console.log(`User: ${user.username} (${user.id})`);
+    console.log(`preferred preset: ${result.preferences.preferredPreset ?? '(not set)'}`);
+    console.log(`fallback harness: ${result.effectiveThreadFormDefaults.initialHarness}`);
+    console.log(`fallback model: ${result.effectiveThreadFormDefaults.initialModel}`);
+    console.log(`caveman mode: ${result.effectiveThreadFormDefaults.initialCavemanMode}`);
+    console.log(`caveman intensity: ${result.effectiveThreadFormDefaults.initialCavemanIntensity}`);
+  }
+}
+
+export async function preferencesSetCommand(args: CliParsedArgs & JsonArgs & UserSelectorArgs & PreferenceSetArgs): Promise<void> {
+  rejectUnexpectedRequestText(args, 'preferences set');
+  const user = await resolveCliUser(args.user);
+  const updates: Record<string, string> = {};
+
+  if (args.preset !== undefined) {
+    updates[PREF_PRESET] = await resolveAndValidatePreferencePreset(user.id, args.preset);
+  }
+
+  const currentPrefs = await getThreadPrefs(user.id);
+  const nextHarness = args.harness !== undefined ? validateHarness(args.harness) : currentPrefs.initialHarness;
+  if (args.harness !== undefined) updates[PREF_HARNESS] = nextHarness;
+  if (args.model !== undefined) updates[PREF_MODEL] = validateModelForHarness(nextHarness, args.model);
+
+  const cavemanMode = parseCliBoolean(args.caveman, 'caveman');
+  if (cavemanMode !== undefined) updates[PREF_CAVEMAN] = String(cavemanMode);
+  if (args['caveman-intensity'] !== undefined) updates[PREF_CAVEMAN_INTENSITY] = validateCavemanIntensity(args['caveman-intensity']);
+
+  if (Object.keys(updates).length === 0) {
+    throw new Error('No preferences supplied. Use one or more of --preset, --harness, --model, --caveman, or --caveman-intensity.');
+  }
+
+  const db = await getDb();
+  await db.setUserPreferences(user.id, updates);
+  const effective = await getThreadPrefs(user.id);
+  const result = { ok: true, user, updated: updates, effectiveThreadFormDefaults: effective };
+  if (args.json) printJson(result);
+  else {
+    console.log(`Updated preferences for ${user.username}.`);
+    for (const [key, value] of Object.entries(updates)) console.log(`${key}: ${value}`);
+  }
 }
 
 export async function serverStartCommand(args: CliParsedArgs): Promise<void> {
