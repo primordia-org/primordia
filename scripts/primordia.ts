@@ -72,6 +72,46 @@ const presetOption: CliOptionDef = {
   },
 };
 
+const harnessOption: CliOptionDef = {
+  name: 'harness',
+  type: 'string',
+  valueHint: 'harness',
+  description: 'Preferred fallback harness for the thread form: claude-code, pi, or codex.',
+  complete() {
+    return ['claude-code', 'pi', 'codex'];
+  },
+};
+
+const modelOption: CliOptionDef = {
+  name: 'model',
+  type: 'string',
+  valueHint: 'model',
+  description: 'Preferred fallback model id for the selected harness.',
+  complete() {
+    return importCommandHandlers().then((handlers) => handlers.completeModelIds());
+  },
+};
+
+const cavemanOption: CliOptionDef = {
+  name: 'caveman',
+  type: 'string',
+  valueHint: 'true|false',
+  description: 'Whether caveman mode should be enabled by default in thread forms.',
+  complete() {
+    return ['true', 'false'];
+  },
+};
+
+const cavemanIntensityOption: CliOptionDef = {
+  name: 'caveman-intensity',
+  type: 'string',
+  valueHint: 'intensity',
+  description: 'Default caveman intensity: lite, full, ultra, wenyan-lite, wenyan-full, or wenyan-ultra.',
+  complete() {
+    return ['lite', 'full', 'ultra', 'wenyan-lite', 'wenyan-full', 'wenyan-ultra'];
+  },
+};
+
 const followOption: CliOptionDef = {
   name: 'follow',
   alias: 'f',
@@ -308,6 +348,26 @@ const systemdCommand: CliCommandDef = {
   subcommands: [serviceSupervisorCommand],
 };
 
+const preferencesGetCommand: CliCommandDef = {
+  name: 'get',
+  description: 'Show saved user preferences used by thread creation.',
+  options: [jsonOption, userOption],
+  run: lazyRun('preferencesGetCommand'),
+};
+
+const preferencesSetCommand: CliCommandDef = {
+  name: 'set',
+  description: 'Set saved user preferences used by thread creation.',
+  options: [jsonOption, userOption, presetOption, harnessOption, modelOption, cavemanOption, cavemanIntensityOption],
+  run: lazyRun('preferencesSetCommand'),
+};
+
+const preferencesCommand: CliCommandDef = {
+  name: 'preferences',
+  description: 'Read and set per-user thread preferences.',
+  subcommands: [preferencesGetCommand, preferencesSetCommand],
+};
+
 const threadCommand: CliCommandDef = {
   name: 'thread',
   description: 'Manage Primordia agentic coding threads.',
@@ -323,7 +383,7 @@ const serverCommand: CliCommandDef = {
 const mainCommand: CliCommandDef = {
   name: 'primordia',
   description: 'Manage Primordia thread and server lifecycle tasks.',
-  subcommands: [statusCommand, threadCommand, serverCommand, jobsCommand, reverseProxyCommand, systemdCommand],
+  subcommands: [statusCommand, threadCommand, preferencesCommand, serverCommand, jobsCommand, reverseProxyCommand, systemdCommand],
 };
 
 async function main(): Promise<void> {
