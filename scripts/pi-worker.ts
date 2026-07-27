@@ -18,8 +18,8 @@
 
 import {
   createAgentSession,
-  AuthStorage,
   ModelRegistry,
+  ModelRuntime,
   SessionManager,
   DefaultResourceLoader,
   getAgentDir,
@@ -32,6 +32,7 @@ import {
   appendSessionEvent,
   getSessionNdjsonPath,
 } from '@/lib/session-events';
+import { InMemoryPiCredentialStore } from '@/lib/pi-auth-storage';
 import { ensurePrimordiaPiModelsJson } from '@/lib/pi-custom-models';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
 import { decryptWorkerSecretForUser } from '@/lib/worker-secret-env';
@@ -120,16 +121,16 @@ function parseRulesPaths(content: string): string[] | null {
  *    at least one file that exists in the worktree — "RAG-ified" file map
  *    entries that only load when relevant.
  */
-async function ensureUsableChatGptOAuth(authStorage: AuthStorage): Promise<void> {
-  const apiKey = await authStorage.getApiKey('openai-codex', { includeFallback: false });
-  if (!apiKey) {
+async function ensureUsableChatGptOAuth(modelRuntime: ModelRuntime): Promise<void> {
+  const auth = await modelRuntime.getAuth('openai-codex');
+  if (!auth?.auth.apiKey) {
     throw new Error(CHATGPT_RELOGIN_ERROR);
   }
 }
 
-async function persistRefreshedChatGptOAuthIfChanged(authStorage: AuthStorage, userId: string | undefined): Promise<void> {
+async function persistRefreshedChatGptOAuthIfChanged(credentials: InMemoryPiCredentialStore, userId: string | undefined): Promise<void> {
   if (!_chatGptOAuth || !_primordiaAesKey || !userId) return;
-  const credential = authStorage.get('openai-codex') as PiChatGptOAuthCredential | undefined;
+  const credential = credentials.get('openai-codex') as PiChatGptOAuthCredential | undefined;
   if (credential?.type !== 'oauth') return;
   const refreshed = piOAuthToStoredChatGptCredentials(_chatGptOAuth, credential);
   if (refreshed === _chatGptOAuth) return;
@@ -323,24 +324,25 @@ async function main(): Promise<void> {
 
     // Auth — use the user-supplied API key when available, otherwise fall back
     // to the exe.dev LLM gateway (which handles auth with any non-empty key).
-    const authStorage = AuthStorage.inMemory();
+    const credentials = new InMemoryPiCredentialStore();
+    const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: ensurePrimordiaPiModelsJson() });
     if (_chatGptOAuth && modelProvider === 'openai-codex') {
-      authStorage.set('openai-codex', storedChatGptCredentialsToPiOAuth(_chatGptOAuth));
-      await ensureUsableChatGptOAuth(authStorage);
-      await persistRefreshedChatGptOAuthIfChanged(authStorage, config.userId);
+      await credentials.set('openai-codex', storedChatGptCredentialsToPiOAuth(_chatGptOAuth));
+      await ensureUsableChatGptOAuth(modelRuntime);
+      await persistRefreshedChatGptOAuthIfChanged(credentials, config.userId);
       process.stderr.write('Using ChatGPT subscription OAuth for openai-codex\n');
     } else if (_userApiKey) {
-      authStorage.setRuntimeApiKey(modelProvider, _userApiKey);
+      await modelRuntime.setRuntimeApiKey(modelProvider, _userApiKey);
       process.stderr.write(`Using user-supplied ${modelProvider} API key\n`);
     } else {
       // Gateway handles auth for Anthropic/OpenAI — set a placeholder key for each
       // supported gateway provider so the SDK knows auth is configured.
-      authStorage.setRuntimeApiKey('anthropic', 'gateway');
-      authStorage.setRuntimeApiKey('openai', 'gateway');
+      await modelRuntime.setRuntimeApiKey('anthropic', 'gateway');
+      await modelRuntime.setRuntimeApiKey('openai', 'gateway');
       process.stderr.write('Using exe.dev LLM gateway\n');
     }
 
-    const modelRegistry = ModelRegistry.create(authStorage, ensurePrimordiaPiModelsJson());
+    const modelRegistry = new ModelRegistry(modelRuntime);
 
     // Resolve the model object from the string ID, if provided.
     let model: ReturnType<typeof modelRegistry.find> | undefined;
@@ -408,8 +410,7 @@ async function main(): Promise<void> {
     const { session } = await createAgentSession({
       cwd: worktreePath,
       ...(model ? { model } : {}),
-      authStorage,
-      modelRegistry,
+      modelRuntime,
       resourceLoader: loader,
       sessionManager: sessionMgr,
       tools: ["read", "bash", "edit", "write"],

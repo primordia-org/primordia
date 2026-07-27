@@ -2,8 +2,8 @@
 // Shared thread creation, follow-up, worktree orchestration, workers, previews, and accept/reject helpers.
 
 import { execFileSync, spawn } from 'child_process';
-import { AuthStorage, ModelRegistry } from '@earendil-works/pi-coding-agent';
-import { complete, type UserMessage } from '@earendil-works/pi-ai';
+import { ModelRegistry, ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { complete, type UserMessage } from '@earendil-works/pi-ai/compat';
 import * as path from 'path';
 import * as fs from 'fs';
 import { BASE_COMMIT_TRAILER, BRANCHED_FROM_TRAILER, getParentBranch, readBranchMarker, writeBranchMarker } from './branch-parent';
@@ -26,6 +26,7 @@ import { decryptStoredSecretForUser, getEncryptedSecretForUser, storeEncryptedSe
 import { getDb } from './db';
 import { PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY, DEFAULT_CAVEMAN_INTENSITY, type CavemanIntensity } from './user-prefs';
 import { BUILT_IN_PRESETS, PREF_CUSTOM_PRESETS, PREF_PRESET, normalizeAuthSource, parseCustomPresets, type ThreadPreset, type PresetAuthSource, type SecretAuthSource } from './presets';
+import { InMemoryPiCredentialStore } from './pi-auth-storage';
 import { ensurePrimordiaPiModelsJson } from './pi-custom-models';
 import { piOAuthToStoredChatGptCredentials, storedChatGptCredentialsToPiOAuth, type PiChatGptOAuthCredential } from './chatgpt-subscription';
 import {
@@ -1732,19 +1733,20 @@ async function generateSlug(
 ): Promise<string> {
   try {
     const { provider, modelId } = normalizeSlugModelSelection(model);
-    const authStorage = AuthStorage.inMemory();
+    const credentials = new InMemoryPiCredentialStore();
+    const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: ensurePrimordiaPiModelsJson() });
 
     if (authSource === 'chatgpt-subscription' && provider === 'openai-codex' && chatGptOAuth) {
-      authStorage.set('openai-codex', storedChatGptCredentialsToPiOAuth(chatGptOAuth));
+      await credentials.set('openai-codex', storedChatGptCredentialsToPiOAuth(chatGptOAuth));
     } else if (apiKey) {
-      authStorage.setRuntimeApiKey(provider, apiKey);
+      await modelRuntime.setRuntimeApiKey(provider, apiKey);
     } else if (authSource === 'exe-dev-gateway' || authSource === 'claude-subscription' || authSource === null) {
       // The exe.dev gateway handles Anthropic/OpenAI auth with any non-empty key.
-      authStorage.setRuntimeApiKey('anthropic', 'gateway');
-      authStorage.setRuntimeApiKey('openai', 'gateway');
+      await modelRuntime.setRuntimeApiKey('anthropic', 'gateway');
+      await modelRuntime.setRuntimeApiKey('openai', 'gateway');
     }
 
-    const modelRegistry = ModelRegistry.create(authStorage, ensurePrimordiaPiModelsJson());
+    const modelRegistry = new ModelRegistry(modelRuntime);
     if (!apiKey && (authSource === 'exe-dev-gateway' || authSource === 'claude-subscription' || authSource === null)) {
       modelRegistry.registerProvider('anthropic', { baseUrl: ANTHROPIC_GATEWAY_BASE_URL });
       modelRegistry.registerProvider('openai', { baseUrl: OPENAI_GATEWAY_BASE_URL });
@@ -1756,7 +1758,7 @@ async function generateSlug(
     const auth = await modelRegistry.getApiKeyAndHeaders(selectedModel);
     if (!auth.ok) throw new Error(auth.error);
     if (authSource === 'chatgpt-subscription' && chatGptOAuth && chatGptRefreshPersistence) {
-      const credential = authStorage.get('openai-codex') as PiChatGptOAuthCredential | undefined;
+      const credential = credentials.get('openai-codex') as PiChatGptOAuthCredential | undefined;
       if (credential?.type === 'oauth') {
         const refreshed = piOAuthToStoredChatGptCredentials(chatGptOAuth, credential);
         if (refreshed !== chatGptOAuth) {

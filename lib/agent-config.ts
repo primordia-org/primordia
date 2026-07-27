@@ -40,7 +40,7 @@ export const HARNESS_OPTIONS: HarnessOption[] = [
 ];
 
 export const DEFAULT_HARNESS = 'pi';
-export const DEFAULT_MODEL = 'claude-sonnet-4-6';
+export const DEFAULT_MODEL = 'claude-sonnet-5';
 
 import _modelOptions from './models.generated.json';
 

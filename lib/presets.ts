@@ -31,7 +31,7 @@ export const BUILT_IN_PRESETS: ThreadPreset[] = [
     name: 'Claude Code — exe.dev gateway',
     authSource: 'exe-dev-gateway',
     harness: 'claude-code',
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
     builtIn: true,
   },
   {
@@ -39,7 +39,7 @@ export const BUILT_IN_PRESETS: ThreadPreset[] = [
     name: 'Claude Code — subscription',
     authSource: 'claude-subscription',
     harness: 'claude-code',
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
     builtIn: true,
   },
   {
@@ -47,7 +47,7 @@ export const BUILT_IN_PRESETS: ThreadPreset[] = [
     name: 'Claude Code — API key',
     authSource: 'anthropic-api-key',
     harness: 'claude-code',
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
     builtIn: true,
   },
   {
@@ -55,7 +55,7 @@ export const BUILT_IN_PRESETS: ThreadPreset[] = [
     name: 'Codex — exe.dev gateway',
     authSource: 'exe-dev-gateway',
     harness: 'codex',
-    model: 'gpt-5.5',
+    model: 'gpt-5.6-luna',
     builtIn: true,
   },
   {
@@ -63,7 +63,7 @@ export const BUILT_IN_PRESETS: ThreadPreset[] = [
     name: 'Codex — ChatGPT subscription',
     authSource: 'chatgpt-subscription',
     harness: 'codex',
-    model: 'openai-codex:gpt-5.5',
+    model: 'openai-codex:gpt-5.6-luna',
     builtIn: true,
   },
   {
@@ -71,23 +71,23 @@ export const BUILT_IN_PRESETS: ThreadPreset[] = [
     name: 'Codex — OpenAI API key',
     authSource: 'openai-api-key',
     harness: 'codex',
-    model: 'gpt-5.5',
+    model: 'gpt-5.6-luna',
     builtIn: true,
   },
   {
     id: 'builtin:pi-chatgpt-codex-mini',
-    name: 'Pi + ChatGPT + GPT 5.5',
+    name: 'Pi + ChatGPT + GPT-5.6 Luna',
     authSource: 'chatgpt-subscription',
     harness: 'pi',
-    model: 'openai-codex:gpt-5.5',
+    model: 'openai-codex:gpt-5.6-luna',
     builtIn: true,
   },
   {
     id: 'builtin:pi-openrouter-sonnet',
-    name: 'Pi + OpenRouter + Sonnet',
+    name: 'Pi + OpenRouter + Sonnet 5',
     authSource: 'openrouter-api-key',
     harness: 'pi',
-    model: 'anthropic/claude-sonnet-4.6',
+    model: 'anthropic/claude-sonnet-5',
     builtIn: true,
   },
   {
@@ -103,7 +103,7 @@ export const BUILT_IN_PRESETS: ThreadPreset[] = [
     name: 'Free Option',
     authSource: 'openrouter-api-key',
     harness: 'pi',
-    model: 'baidu/cobuddy:free',
+    model: 'cohere/north-mini-code:free',
     builtIn: true,
   },
   {

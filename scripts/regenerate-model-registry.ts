@@ -9,9 +9,10 @@
 
 import { writeFileSync } from 'fs';
 import { join } from 'path';
-import { ModelRegistry, AuthStorage } from '@earendil-works/pi-coding-agent';
+import { ModelRegistry, ModelRuntime } from '@earendil-works/pi-coding-agent';
 import type { ModelOption } from '@/lib/agent-config';
-import { GEMINI_3_5_FLASH_MODEL_ID, OPENROUTER_GEMINI_3_5_FLASH_MODEL_ID } from '@/lib/pi-custom-models';
+import { InMemoryPiCredentialStore } from '@/lib/pi-auth-storage';
+import { GEMINI_3_5_FLASH_MODEL_ID, OPENROUTER_GEMINI_3_5_FLASH_MODEL_ID, ensurePrimordiaPiModelsJson } from '@/lib/pi-custom-models';
 
 const PRIMORDIA_DIRECT_GOOGLE_MODEL_OPTIONS: ModelOption[] = [
   {
@@ -145,12 +146,14 @@ function filterToLatestVersions(models: RawModel[]): RawModel[] {
   return Array.from(groups.values()).map(g => g.model);
 }
 
-const auth = AuthStorage.inMemory();
-auth.setRuntimeApiKey('anthropic', 'gateway');
-auth.setRuntimeApiKey('openai', 'gateway');
-auth.set('openai-codex', { type: 'oauth', access: 'placeholder', refresh: 'placeholder', expires: Date.now() + 60_000 });
-auth.setRuntimeApiKey('openrouter', 'placeholder');
-const registry = ModelRegistry.create(auth);
+const credentials = new InMemoryPiCredentialStore();
+await credentials.set('openai-codex', { type: 'oauth', access: 'placeholder', refresh: 'placeholder', expires: Date.now() + 60_000 });
+const runtime = await ModelRuntime.create({ credentials, modelsPath: ensurePrimordiaPiModelsJson() });
+await runtime.setRuntimeApiKey('anthropic', 'gateway');
+await runtime.setRuntimeApiKey('openai', 'gateway');
+await runtime.setRuntimeApiKey('openrouter', 'placeholder');
+await runtime.setRuntimeApiKey('google', 'placeholder');
+const registry = new ModelRegistry(runtime);
 const allModels = (registry as unknown as { getAll(): RawModel[] }).getAll();
 
 const result: Record<string, ModelOption[]> = {};

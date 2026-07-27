@@ -8,18 +8,25 @@
       "inputPriceLabel": "$1/M"
     },
     {
-      "id": "claude-sonnet-4-6",
-      "label": "Claude Sonnet 4.6",
-      "description": "Anthropic · reasoning · $3→$15/M",
-      "pricingLabel": "$3→$15/M",
-      "inputPriceLabel": "$3/M"
+      "id": "claude-sonnet-5",
+      "label": "Claude Sonnet 5",
+      "description": "Anthropic · reasoning · $2→$10/M",
+      "pricingLabel": "$2→$10/M",
+      "inputPriceLabel": "$2/M"
     },
     {
-      "id": "claude-opus-4-7",
-      "label": "Claude Opus 4.7",
+      "id": "claude-opus-5",
+      "label": "Claude Opus 5",
       "description": "Anthropic · reasoning · $5→$25/M",
       "pricingLabel": "$5→$25/M",
       "inputPriceLabel": "$5/M"
+    },
+    {
+      "id": "claude-fable-5",
+      "label": "Claude Fable 5",
+      "description": "Anthropic · reasoning · $10→$50/M",
+      "pricingLabel": "$10→$50/M",
+      "inputPriceLabel": "$10/M"
     }
   ],
   "pi": [
@@ -31,15 +38,15 @@
       "inputPriceLabel": "$1/M"
     },
     {
-      "id": "claude-sonnet-4-6",
-      "label": "Claude Sonnet 4.6",
-      "description": "Anthropic · reasoning · $3→$15/M",
-      "pricingLabel": "$3→$15/M",
-      "inputPriceLabel": "$3/M"
+      "id": "claude-sonnet-5",
+      "label": "Claude Sonnet 5",
+      "description": "Anthropic · reasoning · $2→$10/M",
+      "pricingLabel": "$2→$10/M",
+      "inputPriceLabel": "$2/M"
     },
     {
-      "id": "claude-opus-4-7",
-      "label": "Claude Opus 4.7",
+      "id": "claude-opus-5",
+      "label": "Claude Opus 5",
       "description": "Anthropic · reasoning · $5→$25/M",
       "pricingLabel": "$5→$25/M",
       "inputPriceLabel": "$5/M"
@@ -80,18 +87,32 @@
       "inputPriceLabel": "10¢/M"
     },
     {
+      "id": "claude-fable-5",
+      "label": "Claude Fable 5",
+      "description": "Anthropic · reasoning · $10→$50/M",
+      "pricingLabel": "$10→$50/M",
+      "inputPriceLabel": "$10/M"
+    },
+    {
       "id": "openai-codex:gpt-5.4-mini",
-      "label": "GPT-5.4 Mini",
+      "label": "GPT-5.4 mini",
       "description": "ChatGPT · reasoning · 75¢→$4.5/M",
       "pricingLabel": "75¢→$4.5/M",
       "inputPriceLabel": "75¢/M"
     },
     {
-      "id": "openai-codex:gpt-5.3-codex",
-      "label": "GPT-5.3 Codex",
-      "description": "ChatGPT · reasoning · $1.8→$14/M",
-      "pricingLabel": "$1.8→$14/M",
-      "inputPriceLabel": "$1.8/M"
+      "id": "openai-codex:gpt-5.6-luna",
+      "label": "GPT-5.6 Luna",
+      "description": "ChatGPT · reasoning · $1→$6/M",
+      "pricingLabel": "$1→$6/M",
+      "inputPriceLabel": "$1/M"
+    },
+    {
+      "id": "openai-codex:gpt-5.6-terra",
+      "label": "GPT-5.6 Terra",
+      "description": "ChatGPT · reasoning · $2.5→$15/M",
+      "pricingLabel": "$2.5→$15/M",
+      "inputPriceLabel": "$2.5/M"
     },
     {
       "id": "openai-codex:gpt-5.5",
@@ -101,11 +122,11 @@
       "inputPriceLabel": "$5/M"
     },
     {
-      "id": "gpt-5.1-codex-mini",
-      "label": "GPT-5.1 Codex mini",
-      "description": "OpenAI · reasoning · 25¢→$2/M",
-      "pricingLabel": "25¢→$2/M",
-      "inputPriceLabel": "25¢/M"
+      "id": "openai-codex:gpt-5.6-sol",
+      "label": "GPT-5.6 Sol",
+      "description": "ChatGPT · reasoning · $5→$30/M",
+      "pricingLabel": "$5→$30/M",
+      "inputPriceLabel": "$5/M"
     },
     {
       "id": "gpt-5.4-mini",
@@ -113,6 +134,13 @@
       "description": "OpenAI · reasoning · 75¢→$4.5/M",
       "pricingLabel": "75¢→$4.5/M",
       "inputPriceLabel": "75¢/M"
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "label": "GPT-5.6 Luna",
+      "description": "OpenAI · reasoning · $1→$6/M",
+      "pricingLabel": "$1→$6/M",
+      "inputPriceLabel": "$1/M"
     },
     {
       "id": "o4-mini",
@@ -136,6 +164,20 @@
       "inputPriceLabel": "$2/M"
     },
     {
+      "id": "gpt-5.6-terra",
+      "label": "GPT-5.6 Terra",
+      "description": "OpenAI · reasoning · $2.5→$15/M",
+      "pricingLabel": "$2.5→$15/M",
+      "inputPriceLabel": "$2.5/M"
+    },
+    {
+      "id": "gpt-realtime-2.1",
+      "label": "GPT-Realtime-2.1",
+      "description": "OpenAI · reasoning · $4→$24/M",
+      "pricingLabel": "$4→$24/M",
+      "inputPriceLabel": "$4/M"
+    },
+    {
       "id": "gpt-5.5",
       "label": "GPT-5.5",
       "description": "OpenAI · reasoning · $5→$30/M",
@@ -143,18 +185,32 @@
       "inputPriceLabel": "$5/M"
     },
     {
-      "id": "meta-llama/llama-3.1-8b-instruct",
-      "label": "Meta: Llama 3.1 8B Instruct",
-      "description": "OpenRouter · 2¢→5¢/M",
-      "pricingLabel": "2¢→5¢/M",
-      "inputPriceLabel": "2¢/M"
+      "id": "gpt-5.6-sol",
+      "label": "GPT-5.6 Sol",
+      "description": "OpenAI · reasoning · $5→$30/M",
+      "pricingLabel": "$5→$30/M",
+      "inputPriceLabel": "$5/M"
+    },
+    {
+      "id": "inclusionai/ling-2.6-flash",
+      "label": "inclusionAI: Ling-2.6-flash",
+      "description": "OpenRouter · 1¢→3¢/M",
+      "pricingLabel": "1¢→3¢/M",
+      "inputPriceLabel": "1¢/M"
     },
     {
       "id": "mistralai/mistral-nemo",
       "label": "Mistral: Mistral Nemo",
-      "description": "OpenRouter · 2¢→3¢/M",
-      "pricingLabel": "2¢→3¢/M",
-      "inputPriceLabel": "2¢/M"
+      "description": "OpenRouter · 1.9¢→3¢/M",
+      "pricingLabel": "1.9¢→3¢/M",
+      "inputPriceLabel": "1.9¢/M"
+    },
+    {
+      "id": "nex-agi/nex-n2-mini",
+      "label": "Nex AGI: Nex-N2-Mini",
+      "description": "OpenRouter · reasoning · 2.5¢→10¢/M",
+      "pricingLabel": "2.5¢→10¢/M",
+      "inputPriceLabel": "2.5¢/M"
     },
     {
       "id": "amazon/nova-micro-v1",
@@ -166,23 +222,9 @@
     {
       "id": "openai/gpt-oss-120b",
       "label": "OpenAI: gpt-oss-120b",
-      "description": "OpenRouter · reasoning · 3.9¢→18¢/M",
-      "pricingLabel": "3.9¢→18¢/M",
-      "inputPriceLabel": "3.9¢/M"
-    },
-    {
-      "id": "google/gemma-3-12b-it",
-      "label": "Google: Gemma 3 12B",
-      "description": "OpenRouter · 4¢→13¢/M",
-      "pricingLabel": "4¢→13¢/M",
-      "inputPriceLabel": "4¢/M"
-    },
-    {
-      "id": "nvidia/nemotron-nano-9b-v2",
-      "label": "NVIDIA: Nemotron Nano 9B V2",
-      "description": "OpenRouter · reasoning · 4¢→16¢/M",
-      "pricingLabel": "4¢→16¢/M",
-      "inputPriceLabel": "4¢/M"
+      "description": "OpenRouter · reasoning · 3.7¢→17¢/M",
+      "pricingLabel": "3.7¢→17¢/M",
+      "inputPriceLabel": "3.7¢/M"
     },
     {
       "id": "qwen/qwen-2.5-7b-instruct",
@@ -192,24 +234,31 @@
       "inputPriceLabel": "4¢/M"
     },
     {
-      "id": "qwen/qwen3.5-9b",
-      "label": "Qwen: Qwen3.5-9B",
-      "description": "OpenRouter · reasoning · 4¢→15¢/M",
-      "pricingLabel": "4¢→15¢/M",
-      "inputPriceLabel": "4¢/M"
+      "id": "qwen/qwen3-30b-a3b-instruct-2507",
+      "label": "Qwen: Qwen3 30B A3B Instruct 2507",
+      "description": "OpenRouter · 4.8¢→19¢/M",
+      "pricingLabel": "4.8¢→19¢/M",
+      "inputPriceLabel": "4.8¢/M"
     },
     {
-      "id": "arcee-ai/trinity-mini",
-      "label": "Arcee AI: Trinity Mini",
-      "description": "OpenRouter · reasoning · 4.5¢→15¢/M",
-      "pricingLabel": "4.5¢→15¢/M",
-      "inputPriceLabel": "4.5¢/M"
+      "id": "google/gemma-3-12b-it",
+      "label": "Google: Gemma 3 12B",
+      "description": "OpenRouter · 5¢→15¢/M",
+      "pricingLabel": "5¢→15¢/M",
+      "inputPriceLabel": "5¢/M"
     },
     {
       "id": "ibm-granite/granite-4.1-8b",
       "label": "IBM: Granite 4.1 8B",
       "description": "OpenRouter · 5¢→10¢/M",
       "pricingLabel": "5¢→10¢/M",
+      "inputPriceLabel": "5¢/M"
+    },
+    {
+      "id": "meta-llama/llama-3.1-8b-instruct",
+      "label": "Meta: Llama 3.1 8B Instruct",
+      "description": "OpenRouter · 5¢→8¢/M",
+      "pricingLabel": "5¢→8¢/M",
       "inputPriceLabel": "5¢/M"
     },
     {
@@ -220,24 +269,10 @@
       "inputPriceLabel": "5¢/M"
     },
     {
-      "id": "qwen/qwen3-8b",
-      "label": "Qwen: Qwen3 8B",
-      "description": "OpenRouter · reasoning · 5¢→40¢/M",
-      "pricingLabel": "5¢→40¢/M",
-      "inputPriceLabel": "5¢/M"
-    },
-    {
-      "id": "google/gemma-4-26b-a4b-it",
-      "label": "Google: Gemma 4 26B A4B ",
-      "description": "OpenRouter · reasoning · 6¢→33¢/M",
-      "pricingLabel": "6¢→33¢/M",
-      "inputPriceLabel": "6¢/M"
-    },
-    {
-      "id": "qwen/qwen3-14b",
-      "label": "Qwen: Qwen3 14B",
-      "description": "OpenRouter · reasoning · 6¢→24¢/M",
-      "pricingLabel": "6¢→24¢/M",
+      "id": "poolside/laguna-xs-2.1",
+      "label": "Poolside: Laguna XS 2.1",
+      "description": "OpenRouter · reasoning · 6¢→12¢/M",
+      "pricingLabel": "6¢→12¢/M",
       "inputPriceLabel": "6¢/M"
     },
     {
@@ -248,11 +283,11 @@
       "inputPriceLabel": "6¢/M"
     },
     {
-      "id": "baidu/ernie-4.5-21b-a3b",
-      "label": "Baidu: ERNIE 4.5 21B A3B",
-      "description": "OpenRouter · 7¢→28¢/M",
-      "pricingLabel": "7¢→28¢/M",
-      "inputPriceLabel": "7¢/M"
+      "id": "tencent/hy3-preview",
+      "label": "Tencent: Hy3 preview",
+      "description": "OpenRouter · reasoning · 6.3¢→21¢/M",
+      "pricingLabel": "6.3¢→21¢/M",
+      "inputPriceLabel": "6.3¢/M"
     },
     {
       "id": "qwen/qwen3-coder-30b-a3b-instruct",
@@ -262,13 +297,6 @@
       "inputPriceLabel": "7¢/M"
     },
     {
-      "id": "qwen/qwen3-235b-a22b-2507",
-      "label": "Qwen: Qwen3 235B A22B Instruct 2507",
-      "description": "OpenRouter · 7.1¢→10¢/M",
-      "pricingLabel": "7.1¢→10¢/M",
-      "inputPriceLabel": "7.1¢/M"
-    },
-    {
       "id": "bytedance-seed/seed-1.6-flash",
       "label": "ByteDance Seed: Seed 1.6 Flash",
       "description": "OpenRouter · reasoning · 7.5¢→30¢/M",
@@ -276,87 +304,45 @@
       "inputPriceLabel": "7.5¢/M"
     },
     {
-      "id": "mistralai/mistral-small-3.2-24b-instruct",
-      "label": "Mistral: Mistral Small 3.2 24B",
-      "description": "OpenRouter · 7.5¢→20¢/M",
-      "pricingLabel": "7.5¢→20¢/M",
+      "id": "inclusionai/ling-2.6-1t",
+      "label": "inclusionAI: Ling-2.6-1T",
+      "description": "OpenRouter · 7.5¢→63¢/M",
+      "pricingLabel": "7.5¢→63¢/M",
+      "inputPriceLabel": "7.5¢/M"
+    },
+    {
+      "id": "inclusionai/ring-2.6-1t",
+      "label": "inclusionAI: Ring-2.6-1T",
+      "description": "OpenRouter · reasoning · 7.5¢→63¢/M",
+      "pricingLabel": "7.5¢→63¢/M",
       "inputPriceLabel": "7.5¢/M"
     },
     {
       "id": "google/gemma-3-27b-it",
       "label": "Google: Gemma 3 27B",
-      "description": "OpenRouter · 8¢→16¢/M",
-      "pricingLabel": "8¢→16¢/M",
-      "inputPriceLabel": "8¢/M"
-    },
-    {
-      "id": "inclusionai/ling-2.6-flash",
-      "label": "inclusionAI: Ling-2.6-flash",
-      "description": "OpenRouter · 8¢→24¢/M",
-      "pricingLabel": "8¢→24¢/M",
-      "inputPriceLabel": "8¢/M"
-    },
-    {
-      "id": "meta-llama/llama-4-scout",
-      "label": "Meta: Llama 4 Scout",
-      "description": "OpenRouter · 8¢→30¢/M",
-      "pricingLabel": "8¢→30¢/M",
-      "inputPriceLabel": "8¢/M"
-    },
-    {
-      "id": "qwen/qwen3-30b-a3b-thinking-2507",
-      "label": "Qwen: Qwen3 30B A3B Thinking 2507",
-      "description": "OpenRouter · reasoning · 8¢→40¢/M",
-      "pricingLabel": "8¢→40¢/M",
+      "description": "OpenRouter · 8¢→45¢/M",
+      "pricingLabel": "8¢→45¢/M",
       "inputPriceLabel": "8¢/M"
     },
     {
       "id": "qwen/qwen3-32b",
       "label": "Qwen: Qwen3 32B",
-      "description": "OpenRouter · reasoning · 8¢→24¢/M",
-      "pricingLabel": "8¢→24¢/M",
+      "description": "OpenRouter · reasoning · 8¢→28¢/M",
+      "pricingLabel": "8¢→28¢/M",
       "inputPriceLabel": "8¢/M"
     },
     {
       "id": "nvidia/nemotron-3-super-120b-a12b",
       "label": "NVIDIA: Nemotron 3 Super",
-      "description": "OpenRouter · reasoning · 9¢→45¢/M",
-      "pricingLabel": "9¢→45¢/M",
-      "inputPriceLabel": "9¢/M"
+      "description": "OpenRouter · reasoning · 8.5¢→40¢/M",
+      "pricingLabel": "8.5¢→40¢/M",
+      "inputPriceLabel": "8.5¢/M"
     },
     {
-      "id": "qwen/qwen3-30b-a3b",
-      "label": "Qwen: Qwen3 30B A3B",
-      "description": "OpenRouter · reasoning · 9¢→45¢/M",
-      "pricingLabel": "9¢→45¢/M",
-      "inputPriceLabel": "9¢/M"
-    },
-    {
-      "id": "qwen/qwen3-30b-a3b-instruct-2507",
-      "label": "Qwen: Qwen3 30B A3B Instruct 2507",
-      "description": "OpenRouter · 9¢→30¢/M",
-      "pricingLabel": "9¢→30¢/M",
-      "inputPriceLabel": "9¢/M"
-    },
-    {
-      "id": "qwen/qwen3-next-80b-a3b-instruct",
-      "label": "Qwen: Qwen3 Next 80B A3B Instruct",
-      "description": "OpenRouter · 9¢→$1.1/M",
-      "pricingLabel": "9¢→$1.1/M",
-      "inputPriceLabel": "9¢/M"
-    },
-    {
-      "id": "alibaba/tongyi-deepresearch-30b-a3b",
-      "label": "Tongyi DeepResearch 30B A3B",
-      "description": "OpenRouter · reasoning · 9¢→45¢/M",
-      "pricingLabel": "9¢→45¢/M",
-      "inputPriceLabel": "9¢/M"
-    },
-    {
-      "id": "xiaomi/mimo-v2-flash",
-      "label": "Xiaomi: MiMo-V2-Flash",
-      "description": "OpenRouter · reasoning · 9¢→29¢/M",
-      "pricingLabel": "9¢→29¢/M",
+      "id": "qwen/qwen3-235b-a22b-2507",
+      "label": "Qwen: Qwen3 235B A22B Instruct 2507",
+      "description": "OpenRouter · 9¢→55¢/M",
+      "pricingLabel": "9¢→55¢/M",
       "inputPriceLabel": "9¢/M"
     },
     {
@@ -374,29 +360,8 @@
       "inputPriceLabel": "10¢/M"
     },
     {
-      "id": "google/gemini-2.5-flash-lite",
-      "label": "Google: Gemini 2.5 Flash Lite",
-      "description": "OpenRouter · reasoning · 10¢→40¢/M",
-      "pricingLabel": "10¢→40¢/M",
-      "inputPriceLabel": "10¢/M"
-    },
-    {
-      "id": "google/gemini-2.5-flash-lite-preview-09-2025",
-      "label": "Google: Gemini 2.5 Flash Lite Preview 09-2025",
-      "description": "OpenRouter · reasoning · 10¢→40¢/M",
-      "pricingLabel": "10¢→40¢/M",
-      "inputPriceLabel": "10¢/M"
-    },
-    {
-      "id": "meta-llama/llama-3.3-70b-instruct",
-      "label": "Meta: Llama 3.3 70B Instruct",
-      "description": "OpenRouter · 10¢→32¢/M",
-      "pricingLabel": "10¢→32¢/M",
-      "inputPriceLabel": "10¢/M"
-    },
-    {
-      "id": "mistralai/devstral-small",
-      "label": "Mistral: Devstral Small 1.1",
+      "id": "meta-llama/llama-4-scout",
+      "label": "Meta: Llama 4 Scout",
       "description": "OpenRouter · 10¢→30¢/M",
       "pricingLabel": "10¢→30¢/M",
       "inputPriceLabel": "10¢/M"
@@ -409,6 +374,13 @@
       "inputPriceLabel": "10¢/M"
     },
     {
+      "id": "mistralai/mistral-small-3.2-24b-instruct",
+      "label": "Mistral: Mistral Small 3.2 24B",
+      "description": "OpenRouter · 10¢→30¢/M",
+      "pricingLabel": "10¢→30¢/M",
+      "inputPriceLabel": "10¢/M"
+    },
+    {
       "id": "mistralai/voxtral-small-24b-2507",
       "label": "Mistral: Voxtral Small 24B 2507",
       "description": "OpenRouter · 10¢→30¢/M",
@@ -416,29 +388,29 @@
       "inputPriceLabel": "10¢/M"
     },
     {
-      "id": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-      "label": "NVIDIA: Llama 3.3 Nemotron Super 49B V1.5",
-      "description": "OpenRouter · reasoning · 10¢→40¢/M",
-      "pricingLabel": "10¢→40¢/M",
+      "id": "poolside/laguna-s-2.1",
+      "label": "Poolside: Laguna S 2.1",
+      "description": "OpenRouter · reasoning · 10¢→20¢/M",
+      "pricingLabel": "10¢→20¢/M",
+      "inputPriceLabel": "10¢/M"
+    },
+    {
+      "id": "qwen/qwen3-next-80b-a3b-instruct",
+      "label": "Qwen: Qwen3 Next 80B A3B Instruct",
+      "description": "OpenRouter · 10¢→$1.1/M",
+      "pricingLabel": "10¢→$1.1/M",
+      "inputPriceLabel": "10¢/M"
+    },
+    {
+      "id": "qwen/qwen3.5-9b",
+      "label": "Qwen: Qwen3.5-9B",
+      "description": "OpenRouter · reasoning · 10¢→15¢/M",
+      "pricingLabel": "10¢→15¢/M",
       "inputPriceLabel": "10¢/M"
     },
     {
       "id": "rekaai/reka-edge",
       "label": "Reka Edge",
-      "description": "OpenRouter · 10¢→10¢/M",
-      "pricingLabel": "10¢→10¢/M",
-      "inputPriceLabel": "10¢/M"
-    },
-    {
-      "id": "stepfun/step-3.5-flash",
-      "label": "StepFun: Step 3.5 Flash",
-      "description": "OpenRouter · reasoning · 10¢→30¢/M",
-      "pricingLabel": "10¢→30¢/M",
-      "inputPriceLabel": "10¢/M"
-    },
-    {
-      "id": "z-ai/glm-4-32b",
-      "label": "Z.ai: GLM 4 32B ",
       "description": "OpenRouter · 10¢→10¢/M",
       "pricingLabel": "10¢→10¢/M",
       "inputPriceLabel": "10¢/M"
@@ -451,10 +423,38 @@
       "inputPriceLabel": "11¢/M"
     },
     {
-      "id": "google/gemma-4-31b-it",
-      "label": "Google: Gemma 4 31B",
-      "description": "OpenRouter · reasoning · 13¢→38¢/M",
-      "pricingLabel": "13¢→38¢/M",
+      "id": "qwen/qwen3-8b",
+      "label": "Qwen: Qwen3 8B",
+      "description": "OpenRouter · reasoning · 12¢→46¢/M",
+      "pricingLabel": "12¢→46¢/M",
+      "inputPriceLabel": "12¢/M"
+    },
+    {
+      "id": "google/gemma-4-26b-a4b-it",
+      "label": "Google: Gemma 4 26B A4B ",
+      "description": "OpenRouter · reasoning · 12¢→35¢/M",
+      "pricingLabel": "12¢→35¢/M",
+      "inputPriceLabel": "12¢/M"
+    },
+    {
+      "id": "qwen/qwen3-30b-a3b",
+      "label": "Qwen: Qwen3 30B A3B",
+      "description": "OpenRouter · reasoning · 12¢→50¢/M",
+      "pricingLabel": "12¢→50¢/M",
+      "inputPriceLabel": "12¢/M"
+    },
+    {
+      "id": "meta-llama/llama-3.3-70b-instruct",
+      "label": "Meta: Llama 3.3 70B Instruct",
+      "description": "OpenRouter · 13¢→40¢/M",
+      "pricingLabel": "13¢→40¢/M",
+      "inputPriceLabel": "13¢/M"
+    },
+    {
+      "id": "qwen/qwen3-30b-a3b-thinking-2507",
+      "label": "Qwen: Qwen3 30B A3B Thinking 2507",
+      "description": "OpenRouter · reasoning · 13¢→$1.6/M",
+      "pricingLabel": "13¢→$1.6/M",
       "inputPriceLabel": "13¢/M"
     },
     {
@@ -465,11 +465,11 @@
       "inputPriceLabel": "13¢/M"
     },
     {
-      "id": "nex-agi/deepseek-v3.1-nex-n1",
-      "label": "Nex AGI: DeepSeek V3.1 Nex N1",
-      "description": "OpenRouter · 14¢→50¢/M",
-      "pricingLabel": "14¢→50¢/M",
-      "inputPriceLabel": "14¢/M"
+      "id": "tencent/hy3",
+      "label": "Tencent: Hy3",
+      "description": "OpenRouter · reasoning · 13¢→53¢/M",
+      "pricingLabel": "13¢→53¢/M",
+      "inputPriceLabel": "13¢/M"
     },
     {
       "id": "deepseek/deepseek-v4-flash",
@@ -479,18 +479,25 @@
       "inputPriceLabel": "14¢/M"
     },
     {
-      "id": "qwen/qwen3-235b-a22b-thinking-2507",
-      "label": "Qwen: Qwen3 235B A22B Thinking 2507",
-      "description": "OpenRouter · reasoning · 15¢→$1.5/M",
-      "pricingLabel": "15¢→$1.5/M",
-      "inputPriceLabel": "15¢/M"
+      "id": "google/gemma-4-31b-it",
+      "label": "Google: Gemma 4 31B",
+      "description": "OpenRouter · reasoning · 14¢→40¢/M",
+      "pricingLabel": "14¢→40¢/M",
+      "inputPriceLabel": "14¢/M"
     },
     {
-      "id": "arcee-ai/trinity-large-preview",
-      "label": "Arcee AI: Trinity Large Preview",
-      "description": "OpenRouter · 15¢→45¢/M",
-      "pricingLabel": "15¢→45¢/M",
-      "inputPriceLabel": "15¢/M"
+      "id": "qwen/qwen3.6-35b-a3b",
+      "label": "Qwen: Qwen3.6 35B A3B",
+      "description": "OpenRouter · reasoning · 14¢→$1/M",
+      "pricingLabel": "14¢→$1/M",
+      "inputPriceLabel": "14¢/M"
+    },
+    {
+      "id": "xiaomi/mimo-v2.5",
+      "label": "Xiaomi: MiMo-V2.5",
+      "description": "OpenRouter · reasoning · 14¢→28¢/M",
+      "pricingLabel": "14¢→28¢/M",
+      "inputPriceLabel": "14¢/M"
     },
     {
       "id": "cohere/command-r-08-2024",
@@ -500,10 +507,10 @@
       "inputPriceLabel": "15¢/M"
     },
     {
-      "id": "essentialai/rnj-1-instruct",
-      "label": "EssentialAI: Rnj 1 Instruct",
-      "description": "OpenRouter · 15¢→15¢/M",
-      "pricingLabel": "15¢→15¢/M",
+      "id": "kwaipilot/kat-coder-air-v2.5",
+      "label": "Kwaipilot: KAT-Coder-Air V2.5",
+      "description": "OpenRouter · 15¢→60¢/M",
+      "pricingLabel": "15¢→60¢/M",
       "inputPriceLabel": "15¢/M"
     },
     {
@@ -521,18 +528,18 @@
       "inputPriceLabel": "15¢/M"
     },
     {
-      "id": "qwen/qwen3.6-35b-a3b",
-      "label": "Qwen: Qwen3.6 35B A3B",
-      "description": "OpenRouter · reasoning · 15¢→$1/M",
-      "pricingLabel": "15¢→$1/M",
-      "inputPriceLabel": "15¢/M"
-    },
-    {
       "id": "upstage/solar-pro-3",
       "label": "Upstage: Solar Pro 3",
       "description": "OpenRouter · reasoning · 15¢→60¢/M",
       "pricingLabel": "15¢→60¢/M",
       "inputPriceLabel": "15¢/M"
+    },
+    {
+      "id": "qwen/qwen3.6-flash",
+      "label": "Qwen: Qwen3.6 Flash",
+      "description": "OpenRouter · reasoning · 19¢→$1.1/M",
+      "pricingLabel": "19¢→$1.1/M",
+      "inputPriceLabel": "19¢/M"
     },
     {
       "id": "qwen/qwen3-coder-flash",
@@ -542,10 +549,10 @@
       "inputPriceLabel": "20¢/M"
     },
     {
-      "id": "deepseek/deepseek-chat-v3-0324",
-      "label": "DeepSeek: DeepSeek V3 0324",
-      "description": "OpenRouter · 20¢→77¢/M",
-      "pricingLabel": "20¢→77¢/M",
+      "id": "meta-llama/llama-4-maverick",
+      "label": "Meta: Llama 4 Maverick",
+      "description": "OpenRouter · 20¢→80¢/M",
+      "pricingLabel": "20¢→80¢/M",
       "inputPriceLabel": "20¢/M"
     },
     {
@@ -563,24 +570,17 @@
       "inputPriceLabel": "20¢/M"
     },
     {
-      "id": "prime-intellect/intellect-3",
-      "label": "Prime Intellect: INTELLECT-3",
+      "id": "poolside/laguna-m.1",
+      "label": "Poolside: Laguna M.1",
+      "description": "OpenRouter · reasoning · 20¢→40¢/M",
+      "pricingLabel": "20¢→40¢/M",
+      "inputPriceLabel": "20¢/M"
+    },
+    {
+      "id": "stepfun/step-3.7-flash",
+      "label": "StepFun: Step 3.7 Flash",
       "description": "OpenRouter · reasoning · 20¢→$1.1/M",
       "pricingLabel": "20¢→$1.1/M",
-      "inputPriceLabel": "20¢/M"
-    },
-    {
-      "id": "x-ai/grok-4.1-fast",
-      "label": "xAI: Grok 4.1 Fast",
-      "description": "OpenRouter · reasoning · 20¢→50¢/M",
-      "pricingLabel": "20¢→50¢/M",
-      "inputPriceLabel": "20¢/M"
-    },
-    {
-      "id": "x-ai/grok-code-fast-1",
-      "label": "xAI: Grok Code Fast 1",
-      "description": "OpenRouter · reasoning · 20¢→$1.5/M",
-      "pricingLabel": "20¢→$1.5/M",
       "inputPriceLabel": "20¢/M"
     },
     {
@@ -591,11 +591,11 @@
       "inputPriceLabel": "22¢/M"
     },
     {
-      "id": "qwen/qwen3-coder",
-      "label": "Qwen: Qwen3 Coder 480B A35B",
-      "description": "OpenRouter · 22¢→$1.8/M",
-      "pricingLabel": "22¢→$1.8/M",
-      "inputPriceLabel": "22¢/M"
+      "id": "qwen/qwen3-14b",
+      "label": "Qwen: Qwen3 14B",
+      "description": "OpenRouter · reasoning · 23¢→91¢/M",
+      "pricingLabel": "23¢→91¢/M",
+      "inputPriceLabel": "23¢/M"
     },
     {
       "id": "bytedance-seed/seed-1.6",
@@ -633,20 +633,6 @@
       "inputPriceLabel": "25¢/M"
     },
     {
-      "id": "qwen/qwen3.6-flash",
-      "label": "Qwen: Qwen3.6 Flash",
-      "description": "OpenRouter · reasoning · 25¢→$1.5/M",
-      "pricingLabel": "25¢→$1.5/M",
-      "inputPriceLabel": "25¢/M"
-    },
-    {
-      "id": "deepseek/deepseek-v3.2",
-      "label": "DeepSeek: DeepSeek V3.2",
-      "description": "OpenRouter · reasoning · 25¢→38¢/M",
-      "pricingLabel": "25¢→38¢/M",
-      "inputPriceLabel": "25¢/M"
-    },
-    {
       "id": "qwen/qwen-plus-2025-07-28",
       "label": "Qwen: Qwen Plus 0728",
       "description": "OpenRouter · 26¢→78¢/M",
@@ -668,10 +654,24 @@
       "inputPriceLabel": "26¢/M"
     },
     {
+      "id": "deepseek/deepseek-v3.2",
+      "label": "DeepSeek: DeepSeek V3.2",
+      "description": "OpenRouter · reasoning · 27¢→40¢/M",
+      "pricingLabel": "27¢→40¢/M",
+      "inputPriceLabel": "27¢/M"
+    },
+    {
+      "id": "deepseek/deepseek-chat-v3-0324",
+      "label": "DeepSeek: DeepSeek V3 0324",
+      "description": "OpenRouter · 27¢→$1.1/M",
+      "pricingLabel": "27¢→$1.1/M",
+      "inputPriceLabel": "27¢/M"
+    },
+    {
       "id": "deepseek/deepseek-v3.1-terminus",
       "label": "DeepSeek: DeepSeek V3.1 Terminus",
-      "description": "OpenRouter · reasoning · 27¢→95¢/M",
-      "pricingLabel": "27¢→95¢/M",
+      "description": "OpenRouter · reasoning · 27¢→$1/M",
+      "pricingLabel": "27¢→$1/M",
       "inputPriceLabel": "27¢/M"
     },
     {
@@ -689,8 +689,8 @@
       "inputPriceLabel": "30¢/M"
     },
     {
-      "id": "google/gemini-2.5-flash",
-      "label": "Google: Gemini 2.5 Flash",
+      "id": "google/gemini-3.5-flash-lite",
+      "label": "Google: Gemini 3.5 Flash Lite",
       "description": "OpenRouter · reasoning · 30¢→$2.5/M",
       "pricingLabel": "30¢→$2.5/M",
       "inputPriceLabel": "30¢/M"
@@ -703,8 +703,15 @@
       "inputPriceLabel": "30¢/M"
     },
     {
-      "id": "minimax/minimax-m2.7",
-      "label": "MiniMax: MiniMax M2.7",
+      "id": "meituan/longcat-2.0",
+      "label": "Meituan: LongCat 2.0",
+      "description": "OpenRouter · reasoning · 30¢→$1.2/M",
+      "pricingLabel": "30¢→$1.2/M",
+      "inputPriceLabel": "30¢/M"
+    },
+    {
+      "id": "minimax/minimax-m3",
+      "label": "MiniMax: MiniMax M3",
       "description": "OpenRouter · reasoning · 30¢→$1.2/M",
       "pricingLabel": "30¢→$1.2/M",
       "inputPriceLabel": "30¢/M"
@@ -717,32 +724,32 @@
       "inputPriceLabel": "30¢/M"
     },
     {
-      "id": "tngtech/deepseek-r1t2-chimera",
-      "label": "TNG: DeepSeek R1T2 Chimera",
-      "description": "OpenRouter · reasoning · 30¢→$1.1/M",
-      "pricingLabel": "30¢→$1.1/M",
+      "id": "qwen/qwen3-235b-a22b-thinking-2507",
+      "label": "Qwen: Qwen3 235B A22B Thinking 2507",
+      "description": "OpenRouter · reasoning · 30¢→$3/M",
+      "pricingLabel": "30¢→$3/M",
       "inputPriceLabel": "30¢/M"
     },
     {
-      "id": "x-ai/grok-3-mini",
-      "label": "xAI: Grok 3 Mini",
-      "description": "OpenRouter · reasoning · 30¢→50¢/M",
-      "pricingLabel": "30¢→50¢/M",
+      "id": "qwen/qwen3-coder",
+      "label": "Qwen: Qwen3 Coder 480B A35B",
+      "description": "OpenRouter · 30¢→$1/M",
+      "pricingLabel": "30¢→$1/M",
       "inputPriceLabel": "30¢/M"
     },
     {
-      "id": "x-ai/grok-3-mini-beta",
-      "label": "xAI: Grok 3 Mini Beta",
-      "description": "OpenRouter · reasoning · 30¢→50¢/M",
-      "pricingLabel": "30¢→50¢/M",
+      "id": "qwen/qwen3.5-plus-20260420",
+      "label": "Qwen: Qwen3.5 Plus 2026-04-20",
+      "description": "OpenRouter · reasoning · 30¢→$1.8/M",
+      "pricingLabel": "30¢→$1.8/M",
       "inputPriceLabel": "30¢/M"
     },
     {
       "id": "qwen/qwen3.6-27b",
       "label": "Qwen: Qwen3.6 27B",
-      "description": "OpenRouter · reasoning · 32¢→$3.2/M",
-      "pricingLabel": "32¢→$3.2/M",
-      "inputPriceLabel": "32¢/M"
+      "description": "OpenRouter · reasoning · 30¢→$2/M",
+      "pricingLabel": "30¢→$2/M",
+      "inputPriceLabel": "30¢/M"
     },
     {
       "id": "qwen/qwen-2.5-72b-instruct",
@@ -766,52 +773,17 @@
       "inputPriceLabel": "40¢/M"
     },
     {
-      "id": "mistralai/devstral-medium",
-      "label": "Mistral: Devstral Medium",
-      "description": "OpenRouter · 40¢→$2/M",
-      "pricingLabel": "40¢→$2/M",
-      "inputPriceLabel": "40¢/M"
-    },
-    {
-      "id": "moonshotai/kimi-k2-0905",
-      "label": "MoonshotAI: Kimi K2 0905",
-      "description": "OpenRouter · 40¢→$2/M",
-      "pricingLabel": "40¢→$2/M",
-      "inputPriceLabel": "40¢/M"
-    },
-    {
-      "id": "qwen/qwen3.5-plus-20260420",
-      "label": "Qwen: Qwen3.5 Plus 2026-04-20",
-      "description": "OpenRouter · reasoning · 40¢→$2.4/M",
-      "pricingLabel": "40¢→$2.4/M",
-      "inputPriceLabel": "40¢/M"
-    },
-    {
-      "id": "xiaomi/mimo-v2-omni",
-      "label": "Xiaomi: MiMo-V2-Omni",
-      "description": "OpenRouter · reasoning · 40¢→$2/M",
-      "pricingLabel": "40¢→$2/M",
-      "inputPriceLabel": "40¢/M"
-    },
-    {
-      "id": "xiaomi/mimo-v2.5",
-      "label": "Xiaomi: MiMo-V2.5",
-      "description": "OpenRouter · reasoning · 40¢→$2/M",
-      "pricingLabel": "40¢→$2/M",
-      "inputPriceLabel": "40¢/M"
-    },
-    {
       "id": "qwen/qwen3-235b-a22b",
       "label": "Qwen: Qwen3 235B A22B",
-      "description": "OpenRouter · reasoning · 45¢→$1.8/M",
-      "pricingLabel": "45¢→$1.8/M",
-      "inputPriceLabel": "45¢/M"
+      "description": "OpenRouter · reasoning · 46¢→$1.8/M",
+      "pricingLabel": "46¢→$1.8/M",
+      "inputPriceLabel": "46¢/M"
     },
     {
       "id": "deepseek/deepseek-r1-0528",
       "label": "DeepSeek: R1 0528",
-      "description": "OpenRouter · reasoning · 50¢→$2.2/M",
-      "pricingLabel": "50¢→$2.2/M",
+      "description": "OpenRouter · reasoning · 50¢→$2.1/M",
+      "pricingLabel": "50¢→$2.1/M",
       "inputPriceLabel": "50¢/M"
     },
     {
@@ -836,11 +808,11 @@
       "inputPriceLabel": "50¢/M"
     },
     {
-      "id": "mistralai/mixtral-8x7b-instruct",
-      "label": "Mistral: Mixtral 8x7B Instruct",
-      "description": "OpenRouter · 54¢→54¢/M",
-      "pricingLabel": "54¢→54¢/M",
-      "inputPriceLabel": "54¢/M"
+      "id": "nvidia/nemotron-3-ultra-550b-a55b",
+      "label": "NVIDIA: Nemotron 3 Ultra",
+      "description": "OpenRouter · reasoning · 50¢→$2.2/M",
+      "pricingLabel": "50¢→$2.2/M",
+      "inputPriceLabel": "50¢/M"
     },
     {
       "id": "moonshotai/kimi-k2",
@@ -848,6 +820,13 @@
       "description": "OpenRouter · 57¢→$2.3/M",
       "pricingLabel": "57¢→$2.3/M",
       "inputPriceLabel": "57¢/M"
+    },
+    {
+      "id": "moonshotai/kimi-k2-0905",
+      "label": "MoonshotAI: Kimi K2 0905",
+      "description": "OpenRouter · 60¢→$2.5/M",
+      "pricingLabel": "60¢→$2.5/M",
+      "inputPriceLabel": "60¢/M"
     },
     {
       "id": "moonshotai/kimi-k2-thinking",
@@ -864,6 +843,13 @@
       "inputPriceLabel": "65¢/M"
     },
     {
+      "id": "aion-labs/aion-3.0-mini",
+      "label": "AionLabs: Aion-3.0-Mini",
+      "description": "OpenRouter · reasoning · 70¢→$1.4/M",
+      "pricingLabel": "70¢→$1.4/M",
+      "inputPriceLabel": "70¢/M"
+    },
+    {
       "id": "deepseek/deepseek-r1",
       "label": "DeepSeek: R1",
       "description": "OpenRouter · reasoning · 70¢→$2.5/M",
@@ -871,17 +857,24 @@
       "inputPriceLabel": "70¢/M"
     },
     {
+      "id": "moonshotai/kimi-k2.7-code",
+      "label": "MoonshotAI: Kimi K2.7 Code",
+      "description": "OpenRouter · reasoning · 73¢→$3.5/M",
+      "pricingLabel": "73¢→$3.5/M",
+      "inputPriceLabel": "73¢/M"
+    },
+    {
+      "id": "kwaipilot/kat-coder-pro-v2.5",
+      "label": "Kwaipilot: KAT-Coder-Pro V2.5",
+      "description": "OpenRouter · 74¢→$3/M",
+      "pricingLabel": "74¢→$3/M",
+      "inputPriceLabel": "74¢/M"
+    },
+    {
       "id": "arcee-ai/virtuoso-large",
       "label": "Arcee AI: Virtuoso Large",
       "description": "OpenRouter · 75¢→$1.2/M",
       "pricingLabel": "75¢→$1.2/M",
-      "inputPriceLabel": "75¢/M"
-    },
-    {
-      "id": "moonshotai/kimi-k2.6",
-      "label": "MoonshotAI: Kimi K2.6",
-      "description": "OpenRouter · reasoning · 75¢→$3.5/M",
-      "pricingLabel": "75¢→$3.5/M",
       "inputPriceLabel": "75¢/M"
     },
     {
@@ -899,6 +892,13 @@
       "inputPriceLabel": "80¢/M"
     },
     {
+      "id": "z-ai/glm-5.2",
+      "label": "Z.ai: GLM 5.2",
+      "description": "OpenRouter · reasoning · 81¢→$2.5/M",
+      "pricingLabel": "81¢→$2.5/M",
+      "inputPriceLabel": "81¢/M"
+    },
+    {
       "id": "anthropic/claude-haiku-4.5",
       "label": "Anthropic: Claude Haiku 4.5",
       "description": "OpenRouter · reasoning · $1→$5/M",
@@ -906,10 +906,24 @@
       "inputPriceLabel": "$1/M"
     },
     {
-      "id": "z-ai/glm-5.1",
-      "label": "Z.ai: GLM 5.1",
-      "description": "OpenRouter · reasoning · $1→$3.5/M",
-      "pricingLabel": "$1→$3.5/M",
+      "id": "openai/gpt-5.6-luna",
+      "label": "OpenAI: GPT-5.6 Luna",
+      "description": "OpenRouter · reasoning · $1→$6/M",
+      "pricingLabel": "$1→$6/M",
+      "inputPriceLabel": "$1/M"
+    },
+    {
+      "id": "thinkingmachines/inkling",
+      "label": "Thinking Machines: Inkling",
+      "description": "OpenRouter · reasoning · $1→$4/M",
+      "pricingLabel": "$1→$4/M",
+      "inputPriceLabel": "$1/M"
+    },
+    {
+      "id": "x-ai/grok-build-0.1",
+      "label": "xAI: Grok Build 0.1",
+      "description": "OpenRouter · reasoning · $1→$2/M",
+      "pricingLabel": "$1→$2/M",
       "inputPriceLabel": "$1/M"
     },
     {
@@ -927,13 +941,6 @@
       "inputPriceLabel": "$1.1/M"
     },
     {
-      "id": "nvidia/llama-3.1-nemotron-70b-instruct",
-      "label": "NVIDIA: Llama 3.1 Nemotron 70B Instruct",
-      "description": "OpenRouter · $1.2→$1.2/M",
-      "pricingLabel": "$1.2→$1.2/M",
-      "inputPriceLabel": "$1.2/M"
-    },
-    {
       "id": "google/gemini-2.5-pro-preview-05-06",
       "label": "Google: Gemini 2.5 Pro Preview 05-06",
       "description": "OpenRouter · reasoning · $1.3→$10/M",
@@ -948,11 +955,11 @@
       "inputPriceLabel": "$1.3/M"
     },
     {
-      "id": "x-ai/grok-4.3",
-      "label": "xAI: Grok 4.3",
-      "description": "OpenRouter · reasoning · $1.3→$2.5/M",
-      "pricingLabel": "$1.3→$2.5/M",
-      "inputPriceLabel": "$1.3/M"
+      "id": "google/gemini-3.6-flash",
+      "label": "Google: Gemini 3.6 Flash",
+      "description": "OpenRouter · reasoning · $1.5→$7.5/M",
+      "pricingLabel": "$1.5→$7.5/M",
+      "inputPriceLabel": "$1.5/M"
     },
     {
       "id": "mistralai/mistral-medium-3-5",
@@ -976,6 +983,13 @@
       "inputPriceLabel": "$2/M"
     },
     {
+      "id": "anthropic/claude-sonnet-5",
+      "label": "Anthropic: Claude Sonnet 5",
+      "description": "OpenRouter · reasoning · $2→$10/M",
+      "pricingLabel": "$2→$10/M",
+      "inputPriceLabel": "$2/M"
+    },
+    {
       "id": "google/gemini-3.1-pro-preview",
       "label": "Google: Gemini 3.1 Pro Preview",
       "description": "OpenRouter · reasoning · $2→$12/M",
@@ -990,8 +1004,15 @@
       "inputPriceLabel": "$2/M"
     },
     {
-      "id": "mistralai/mistral-large-2411",
-      "label": "Mistral Large 2411",
+      "id": "google/gemini-3-pro-image",
+      "label": "Google: Nano Banana Pro (Gemini 3 Pro Image)",
+      "description": "OpenRouter · reasoning · $2→$12/M",
+      "pricingLabel": "$2→$12/M",
+      "inputPriceLabel": "$2/M"
+    },
+    {
+      "id": "mistralai/mistral-large-2407",
+      "label": "Mistral Large 2407",
       "description": "OpenRouter · $2→$6/M",
       "pricingLabel": "$2→$6/M",
       "inputPriceLabel": "$2/M"
@@ -1004,17 +1025,17 @@
       "inputPriceLabel": "$2/M"
     },
     {
-      "id": "mistralai/pixtral-large-2411",
-      "label": "Mistral: Pixtral Large 2411",
-      "description": "OpenRouter · $2→$6/M",
-      "pricingLabel": "$2→$6/M",
-      "inputPriceLabel": "$2/M"
-    },
-    {
       "id": "openai/o3",
       "label": "OpenAI: o3",
       "description": "OpenRouter · reasoning · $2→$8/M",
       "pricingLabel": "$2→$8/M",
+      "inputPriceLabel": "$2/M"
+    },
+    {
+      "id": "x-ai/grok-4.5",
+      "label": "xAI: Grok 4.5",
+      "description": "OpenRouter · reasoning · $2→$6/M",
+      "pricingLabel": "$2→$6/M",
       "inputPriceLabel": "$2/M"
     },
     {
@@ -1032,22 +1053,36 @@
       "inputPriceLabel": "$2.5/M"
     },
     {
-      "id": "anthropic/claude-sonnet-4.6",
-      "label": "Anthropic: Claude Sonnet 4.6",
+      "id": "openai/gpt-5.6-terra",
+      "label": "OpenAI: GPT-5.6 Terra",
+      "description": "OpenRouter · reasoning · $2.5→$15/M",
+      "pricingLabel": "$2.5→$15/M",
+      "inputPriceLabel": "$2.5/M"
+    },
+    {
+      "id": "aion-labs/aion-3.0",
+      "label": "AionLabs: Aion-3.0",
+      "description": "OpenRouter · reasoning · $3→$6/M",
+      "pricingLabel": "$3→$6/M",
+      "inputPriceLabel": "$3/M"
+    },
+    {
+      "id": "moonshotai/kimi-k3",
+      "label": "MoonshotAI: Kimi K3",
       "description": "OpenRouter · reasoning · $3→$15/M",
       "pricingLabel": "$3→$15/M",
       "inputPriceLabel": "$3/M"
     },
     {
-      "id": "x-ai/grok-3-beta",
-      "label": "xAI: Grok 3 Beta",
-      "description": "OpenRouter · $3→$15/M",
-      "pricingLabel": "$3→$15/M",
-      "inputPriceLabel": "$3/M"
+      "id": "anthropic/claude-opus-4.8",
+      "label": "Anthropic: Claude Opus 4.8",
+      "description": "OpenRouter · reasoning · $5→$25/M",
+      "pricingLabel": "$5→$25/M",
+      "inputPriceLabel": "$5/M"
     },
     {
-      "id": "anthropic/claude-opus-4.7",
-      "label": "Anthropic: Claude Opus 4.7",
+      "id": "anthropic/claude-opus-5",
+      "label": "Claude Opus 5",
       "description": "OpenRouter · reasoning · $5→$25/M",
       "pricingLabel": "$5→$25/M",
       "inputPriceLabel": "$5/M"
@@ -1060,22 +1095,43 @@
       "inputPriceLabel": "$5/M"
     },
     {
-      "id": "anthropic/claude-opus-4.6-fast",
-      "label": "Anthropic: Claude Opus 4.6 (Fast)",
-      "description": "OpenRouter · reasoning · $30→$150/M",
-      "pricingLabel": "$30→$150/M",
-      "inputPriceLabel": "$30/M"
+      "id": "openai/gpt-5.6-sol",
+      "label": "OpenAI: GPT-5.6 Sol",
+      "description": "OpenRouter · reasoning · $5→$30/M",
+      "pricingLabel": "$5→$30/M",
+      "inputPriceLabel": "$5/M"
     },
     {
-      "id": "openai/gpt-4-0314",
-      "label": "OpenAI: GPT-4 (older v0314)",
-      "description": "OpenRouter · $30→$60/M",
-      "pricingLabel": "$30→$60/M",
-      "inputPriceLabel": "$30/M"
+      "id": "sakana/fugu-ultra",
+      "label": "Sakana: Fugu Ultra",
+      "description": "OpenRouter · reasoning · $5→$30/M",
+      "pricingLabel": "$5→$30/M",
+      "inputPriceLabel": "$5/M"
     },
     {
-      "id": "baidu/cobuddy:free",
-      "label": "Baidu Qianfan: CoBuddy (free)",
+      "id": "anthropic/claude-fable-5",
+      "label": "Anthropic: Claude Fable 5",
+      "description": "OpenRouter · reasoning · $10→$50/M",
+      "pricingLabel": "$10→$50/M",
+      "inputPriceLabel": "$10/M"
+    },
+    {
+      "id": "anthropic/claude-opus-4.8-fast",
+      "label": "Anthropic: Claude Opus 4.8 (Fast)",
+      "description": "OpenRouter · reasoning · $10→$50/M",
+      "pricingLabel": "$10→$50/M",
+      "inputPriceLabel": "$10/M"
+    },
+    {
+      "id": "anthropic/claude-opus-5-fast",
+      "label": "Claude Opus 5 (Fast)",
+      "description": "OpenRouter · reasoning · $10→$50/M",
+      "pricingLabel": "$10→$50/M",
+      "inputPriceLabel": "$10/M"
+    },
+    {
+      "id": "cohere/north-mini-code:free",
+      "label": "Cohere: North Mini Code (free)",
       "description": "OpenRouter · reasoning · free",
       "pricingLabel": "free",
       "inputPriceLabel": "free"
@@ -1095,22 +1151,8 @@
       "inputPriceLabel": "free"
     },
     {
-      "id": "inclusionai/ling-2.6-1t:free",
-      "label": "inclusionAI: Ling-2.6-1T (free)",
-      "description": "OpenRouter · free",
-      "pricingLabel": "free",
-      "inputPriceLabel": "free"
-    },
-    {
-      "id": "meta-llama/llama-3.3-70b-instruct:free",
-      "label": "Meta: Llama 3.3 70B Instruct (free)",
-      "description": "OpenRouter · free",
-      "pricingLabel": "free",
-      "inputPriceLabel": "free"
-    },
-    {
-      "id": "minimax/minimax-m2.5:free",
-      "label": "MiniMax: MiniMax M2.5 (free)",
+      "id": "inclusionai/ling-3.0-flash:free",
+      "label": "Ling-3.0-flash (free)",
       "description": "OpenRouter · reasoning · free",
       "pricingLabel": "free",
       "inputPriceLabel": "free"
@@ -1137,6 +1179,13 @@
       "inputPriceLabel": "free"
     },
     {
+      "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "label": "NVIDIA: Nemotron 3 Ultra (free)",
+      "description": "OpenRouter · reasoning · free",
+      "pricingLabel": "free",
+      "inputPriceLabel": "free"
+    },
+    {
       "id": "nvidia/nemotron-nano-9b-v2:free",
       "label": "NVIDIA: Nemotron Nano 9B V2 (free)",
       "description": "OpenRouter · reasoning · free",
@@ -1144,8 +1193,8 @@
       "inputPriceLabel": "free"
     },
     {
-      "id": "openai/gpt-oss-120b:free",
-      "label": "OpenAI: gpt-oss-120b (free)",
+      "id": "openai/gpt-oss-20b:free",
+      "label": "OpenAI: gpt-oss-20b (free)",
       "description": "OpenRouter · reasoning · free",
       "pricingLabel": "free",
       "inputPriceLabel": "free"
@@ -1158,36 +1207,15 @@
       "inputPriceLabel": "free"
     },
     {
-      "id": "poolside/laguna-xs.2:free",
-      "label": "Poolside: Laguna XS.2 (free)",
+      "id": "poolside/laguna-s-2.1:free",
+      "label": "Poolside: Laguna S 2.1 (free)",
       "description": "OpenRouter · reasoning · free",
       "pricingLabel": "free",
       "inputPriceLabel": "free"
     },
     {
-      "id": "qwen/qwen3-coder:free",
-      "label": "Qwen: Qwen3 Coder 480B A35B (free)",
-      "description": "OpenRouter · free",
-      "pricingLabel": "free",
-      "inputPriceLabel": "free"
-    },
-    {
-      "id": "qwen/qwen3-next-80b-a3b-instruct:free",
-      "label": "Qwen: Qwen3 Next 80B A3B Instruct (free)",
-      "description": "OpenRouter · free",
-      "pricingLabel": "free",
-      "inputPriceLabel": "free"
-    },
-    {
-      "id": "tencent/hy3-preview:free",
-      "label": "Tencent: Hy3 preview (free)",
-      "description": "OpenRouter · reasoning · free",
-      "pricingLabel": "free",
-      "inputPriceLabel": "free"
-    },
-    {
-      "id": "z-ai/glm-4.5-air:free",
-      "label": "Z.ai: GLM 4.5 Air (free)",
+      "id": "poolside/laguna-xs-2.1:free",
+      "label": "Poolside: Laguna XS 2.1 (free)",
       "description": "OpenRouter · reasoning · free",
       "pricingLabel": "free",
       "inputPriceLabel": "free"
@@ -1196,17 +1224,24 @@
   "codex": [
     {
       "id": "openai-codex:gpt-5.4-mini",
-      "label": "GPT-5.4 Mini",
+      "label": "GPT-5.4 mini",
       "description": "ChatGPT · reasoning · 75¢→$4.5/M",
       "pricingLabel": "75¢→$4.5/M",
       "inputPriceLabel": "75¢/M"
     },
     {
-      "id": "openai-codex:gpt-5.3-codex",
-      "label": "GPT-5.3 Codex",
-      "description": "ChatGPT · reasoning · $1.8→$14/M",
-      "pricingLabel": "$1.8→$14/M",
-      "inputPriceLabel": "$1.8/M"
+      "id": "openai-codex:gpt-5.6-luna",
+      "label": "GPT-5.6 Luna",
+      "description": "ChatGPT · reasoning · $1→$6/M",
+      "pricingLabel": "$1→$6/M",
+      "inputPriceLabel": "$1/M"
+    },
+    {
+      "id": "openai-codex:gpt-5.6-terra",
+      "label": "GPT-5.6 Terra",
+      "description": "ChatGPT · reasoning · $2.5→$15/M",
+      "pricingLabel": "$2.5→$15/M",
+      "inputPriceLabel": "$2.5/M"
     },
     {
       "id": "openai-codex:gpt-5.5",
@@ -1216,11 +1251,11 @@
       "inputPriceLabel": "$5/M"
     },
     {
-      "id": "gpt-5.1-codex-mini",
-      "label": "GPT-5.1 Codex mini",
-      "description": "OpenAI · reasoning · 25¢→$2/M",
-      "pricingLabel": "25¢→$2/M",
-      "inputPriceLabel": "25¢/M"
+      "id": "openai-codex:gpt-5.6-sol",
+      "label": "GPT-5.6 Sol",
+      "description": "ChatGPT · reasoning · $5→$30/M",
+      "pricingLabel": "$5→$30/M",
+      "inputPriceLabel": "$5/M"
     },
     {
       "id": "gpt-5.4-mini",
@@ -1228,6 +1263,13 @@
       "description": "OpenAI · reasoning · 75¢→$4.5/M",
       "pricingLabel": "75¢→$4.5/M",
       "inputPriceLabel": "75¢/M"
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "label": "GPT-5.6 Luna",
+      "description": "OpenAI · reasoning · $1→$6/M",
+      "pricingLabel": "$1→$6/M",
+      "inputPriceLabel": "$1/M"
     },
     {
       "id": "o4-mini",
@@ -1251,8 +1293,29 @@
       "inputPriceLabel": "$2/M"
     },
     {
+      "id": "gpt-5.6-terra",
+      "label": "GPT-5.6 Terra",
+      "description": "OpenAI · reasoning · $2.5→$15/M",
+      "pricingLabel": "$2.5→$15/M",
+      "inputPriceLabel": "$2.5/M"
+    },
+    {
+      "id": "gpt-realtime-2.1",
+      "label": "GPT-Realtime-2.1",
+      "description": "OpenAI · reasoning · $4→$24/M",
+      "pricingLabel": "$4→$24/M",
+      "inputPriceLabel": "$4/M"
+    },
+    {
       "id": "gpt-5.5",
       "label": "GPT-5.5",
+      "description": "OpenAI · reasoning · $5→$30/M",
+      "pricingLabel": "$5→$30/M",
+      "inputPriceLabel": "$5/M"
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "label": "GPT-5.6 Sol",
       "description": "OpenAI · reasoning · $5→$30/M",
       "pricingLabel": "$5→$30/M",
       "inputPriceLabel": "$5/M"
