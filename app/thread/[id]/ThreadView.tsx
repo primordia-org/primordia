@@ -1193,7 +1193,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
   const finalEventSet = new Set<RenderableEvent>(finalEvents);
   const progressPanelEvents = events.filter((event) => !finalEventSet.has(event as RenderableEvent));
   const chatGptReloginReason = hasError ? detectChatGptReloginReason(events, resultEvent?.message) : null;
-  const showRawFinalEvents = shouldRenderFinalSummaryOutsideProgress({
+  const showRawFinalEvents = !hasError && shouldRenderFinalSummaryOutsideProgress({
     finalEventCount: finalEvents.length,
     hasReloginReason: chatGptReloginReason != null,
   });
