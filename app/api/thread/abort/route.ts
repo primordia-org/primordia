@@ -65,8 +65,7 @@ export async function POST(request: Request) {
       type: 'result',
       subtype: 'aborted',
       message:
-        '🛑 Thread recovered. The server restarted while AI Agent was running. ' +
-        'Moving to ready state with work completed so far.' +
+        '⏹ Agent stopped by user. Moving to ready state with work completed so far.' +
         (record.status === 'fixing-types' ? ' (Auto-accept was cancelled — you can accept or reject manually.)' : ''),
       ts: Date.now(),
     });
