@@ -1159,26 +1159,29 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
   // contains accurate totals, while earlier intermediate events are partial
   // snapshots emitted after each assistant turn.
   const metricsEvent = [...events].reverse().find((e): e is Extract<SessionEvent, { type: 'metrics' }> => e.type === 'metrics');
-  const hasError = resultEvent?.subtype === 'error' || resultEvent?.subtype === 'timeout' || resultEvent?.subtype === 'aborted';
+  const wasAborted = resultEvent?.subtype === 'aborted';
+  const hasError = resultEvent?.subtype === 'error' || resultEvent?.subtype === 'timeout';
 
   // Convert UTC time in error message to local timezone (client-side only to avoid SSR hydration mismatch)
   const [convertedMessage, setConvertedMessage] = useState<string | null>(null);
   useEffect(() => {
-    if (hasError && resultEvent?.message) {
+    if ((hasError || wasAborted) && resultEvent?.message) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setConvertedMessage(convertUtcTimeToLocal(resultEvent.message));
     } else {
       setConvertedMessage(null);
     }
-  }, [hasError, resultEvent?.message]);
+  }, [hasError, wasAborted, resultEvent?.message]);
 
   const borderClass = isAutoCommitSection ? "border-green-700/50" : isTypeFixSection ? "border-orange-700/50" : "border-blue-700/50";
   const headingClass = isAutoCommitSection ? "text-green-300" : isTypeFixSection ? "text-orange-300" : "text-blue-300";
-  const doneBorderClass = hasError ? "border-red-700/50" : borderClass;
-  const doneHeadingClass = hasError ? "text-red-400" : headingClass;
+  const doneBorderClass = hasError ? "border-red-700/50" : wasAborted ? "border-gray-700/50" : borderClass;
+  const doneHeadingClass = hasError ? "text-red-400" : wasAborted ? "text-gray-300" : headingClass;
   const doneTitle = hasError
     ? (isAutoCommitSection ? "❌ Auto-commit failed" : isTypeFixSection ? "❌ Auto-fix failed" : "❌")
-    : (isAutoCommitSection ? "📦 Unstaged changes committed" : isTypeFixSection ? "🔧 Type errors fixed" : null);
+    : wasAborted
+      ? "⏹ Agent stopped"
+      : (isAutoCommitSection ? "📦 Unstaged changes committed" : isTypeFixSection ? "🔧 Type errors fixed" : null);
 
   const { finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
   const hasProgressEvents = events.some((event) => event.type === 'progress_plan' || event.type === 'progress_step');
@@ -1200,7 +1203,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
       <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
         {doneTitle ? <span className={`font-semibold text-xs ${doneHeadingClass}`}>{doneTitle}</span> : null}
         {!isTypeFixSection && !isAutoCommitSection && <AgentIdentityLine authSource={authSource} auth={auth} harness={harness} model={model} className={`font-semibold text-xs ${doneHeadingClass}`} />}
-        {!isTypeFixSection && !isAutoCommitSection && <span className="ml-auto text-xs text-gray-500">{hasError ? "errored" : "finished"}</span>}
+        {!isTypeFixSection && !isAutoCommitSection && <span className="ml-auto text-xs text-gray-500">{hasError ? "errored" : wasAborted ? "stopped" : "finished"}</span>}
       </div>
       {showProgressPanel && (
         <TaskAccordionEvents events={progressPanelEvents} sessionId={sessionId} worktreePath={worktreePath} legacyClassName="px-4 py-3 space-y-2 border-b border-gray-800" initialProgressState={initialProgressState} />
@@ -1229,6 +1232,12 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
         <div className="px-4 py-3 border-t border-gray-800">
           <p className="text-xs font-semibold text-red-400 mb-1">Error details</p>
           <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{convertedMessage}</pre>
+        </div>
+      )}
+      {wasAborted && convertedMessage && (
+        <div className="px-4 py-3 border-t border-gray-800">
+          <p className="text-xs font-semibold text-gray-400 mb-1">Status</p>
+          <pre className="text-xs text-gray-300 whitespace-pre-wrap break-all font-mono bg-gray-800/50 rounded p-2">{convertedMessage}</pre>
         </div>
       )}
       {metricsEvent && (
