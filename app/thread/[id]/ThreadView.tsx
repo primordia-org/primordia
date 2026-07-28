@@ -612,6 +612,24 @@ function ThinkingBlock({
 }
 
 /** Split content events into "detail" events (before/including last tool_use) and "final" events. */
+function extractStructuredErrorMessage(text: string): string {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    try {
+      const parsed = JSON.parse(text.slice(start, end + 1)) as {
+        message?: unknown;
+        error?: { message?: unknown };
+      };
+      if (typeof parsed.error?.message === 'string') return parsed.error.message;
+      if (typeof parsed.message === 'string') return parsed.message;
+    } catch {
+      // Keep the original provider text when it is not valid JSON.
+    }
+  }
+  return text;
+}
+
 function splitAgentEventsForDisplay(events: SessionEvent[]): {
   detailEvents: RenderableEvent[];
   finalEvents: RenderableEvent[];
@@ -1185,7 +1203,10 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
 
   const { finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
   const detailedErrorMessage = hasError
-    ? [...finalEvents].reverse().find((event): event is Extract<RenderableEvent, { type: 'text' }> => event.type === 'text')?.content.trim()
+    ? (() => {
+        const text = [...finalEvents].reverse().find((event): event is Extract<RenderableEvent, { type: 'text' }> => event.type === 'text')?.content.trim();
+        return text ? extractStructuredErrorMessage(text) : null;
+      })()
     : null;
   const hasProgressEvents = events.some((event) => event.type === 'progress_plan' || event.type === 'progress_step');
   const showProgressPanel = shouldRenderAgentProgressPanel({
