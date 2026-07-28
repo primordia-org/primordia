@@ -1184,6 +1184,9 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
       : (isAutoCommitSection ? "📦 Unstaged changes committed" : isTypeFixSection ? "🔧 Type errors fixed" : null);
 
   const { finalEvents, toolCallCount } = splitAgentEventsForDisplay(events);
+  const detailedErrorMessage = hasError
+    ? [...finalEvents].reverse().find((event): event is Extract<RenderableEvent, { type: 'text' }> => event.type === 'text')?.content.trim()
+    : null;
   const hasProgressEvents = events.some((event) => event.type === 'progress_plan' || event.type === 'progress_step');
   const showProgressPanel = shouldRenderAgentProgressPanel({
     isAgentSection: !isTypeFixSection && !isAutoCommitSection,
@@ -1231,7 +1234,7 @@ function DoneAgentSection({ events, isTypeFixSection, isAutoCommitSection, sessi
       {hasError && convertedMessage && !chatGptReloginReason && (
         <div className="px-4 py-3 border-t border-gray-800">
           <p className="text-xs font-semibold text-red-400 mb-1">Error details</p>
-          <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{convertedMessage}</pre>
+          <pre className="text-xs text-red-300 whitespace-pre-wrap break-all font-mono bg-red-950/30 rounded p-2">{[convertedMessage, detailedErrorMessage].filter(Boolean).join('\n\n')}</pre>
         </div>
       )}
       {wasAborted && convertedMessage && (
