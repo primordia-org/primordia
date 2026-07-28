@@ -1,7 +1,6 @@
 import * as fs from 'fs';
-import * as path from 'path';
 import { execFileSync } from 'child_process';
-import { gzipSync } from 'zlib';
+import { archiveSessionNdjsonLog } from '@/lib/session-archive';
 import { deleteWorktreeAndBranch, getProxyRoutingState, stopWorktreeServer } from '@/lib/process-manager';
 
 export interface CleanupWorktreeTarget {
@@ -31,31 +30,6 @@ let diskCleanupSchedulerStarted = false;
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-function safeArchiveFilenamePart(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'session';
-}
-
-function archiveSessionNdjsonLogBeforeCleanup(worktreePath: string, sessionId: string, archiveRoot: string): void {
-  const ndjsonPath = path.join(worktreePath, '.primordia-session.ndjson');
-  if (!fs.existsSync(ndjsonPath)) return;
-
-  const content = fs.readFileSync(ndjsonPath);
-  if (content.length === 0) return;
-
-  const archiveDir = path.join(archiveRoot, 'past-sessions');
-  fs.mkdirSync(archiveDir, { recursive: true });
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const safeSessionId = safeArchiveFilenamePart(sessionId || path.basename(worktreePath));
-  const baseName = `${timestamp}-${safeSessionId}.ndjson.gz`;
-  let archivePath = path.join(archiveDir, baseName);
-  for (let i = 2; fs.existsSync(archivePath); i++) {
-    archivePath = path.join(archiveDir, `${timestamp}-${safeSessionId}-${i}.ndjson.gz`);
-  }
-
-  fs.writeFileSync(archivePath, gzipSync(content));
 }
 
 export function getDiskUsedPercent(mountPoint = '/'): number | null {
@@ -102,7 +76,7 @@ export async function deleteWorktreeForCleanup(
   } catch { /* server may already be stopped */ }
 
   try {
-    archiveSessionNdjsonLogBeforeCleanup(target.path, target.branch, options.archiveRoot ?? process.env.PRIMORDIA_DIR ?? repoRoot);
+    archiveSessionNdjsonLog(target.path, { sessionId: target.branch, primordiaDir: options.archiveRoot ?? process.env.PRIMORDIA_DIR ?? repoRoot });
   } catch (err) {
     options.warn?.(`[disk-cleanup] failed to archive session log for ${target.branch}: ${errorMessage(err)}`);
   }

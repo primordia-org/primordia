@@ -6,7 +6,7 @@ import { getSessionNdjsonPath } from './session-events';
 export interface ArchiveSessionNdjsonOptions {
   /** Branch/session id. Used only for the archive filename. */
   sessionId?: string | null;
-  /** Primordia installation root. Defaults to PRIMORDIA_DIR, then process.cwd(). */
+  /** Primordia installation root. Defaults to PRIMORDIA_DIR, then inferred from the worktree path. */
   primordiaDir?: string | null;
 }
 
@@ -30,6 +30,18 @@ function uniqueArchivePath(directory: string, baseName: string): string {
   }
 }
 
+export function resolvePrimordiaArchiveRoot(candidateRoot?: string | null, worktreePath = process.cwd()): string {
+  const candidate = path.resolve(candidateRoot || process.env.PRIMORDIA_DIR || worktreePath || process.cwd());
+  const base = path.basename(candidate);
+  const parent = path.dirname(candidate);
+
+  if (base === 'source.git') return parent;
+  if (base === 'worktrees') return parent;
+  if (path.basename(parent) === 'worktrees') return path.dirname(parent);
+
+  return candidate;
+}
+
 /**
  * Saves a gzipped copy of a session's structured NDJSON log before the owning
  * worktree is deleted. Missing or empty logs are ignored so cleanup paths do
@@ -45,7 +57,7 @@ export function archiveSessionNdjsonLog(
   const content = fs.readFileSync(ndjsonPath);
   if (content.length === 0) return null;
 
-  const primordiaDir = options.primordiaDir || process.env.PRIMORDIA_DIR || process.cwd();
+  const primordiaDir = resolvePrimordiaArchiveRoot(options.primordiaDir, worktreePath);
   const archiveDir = path.join(primordiaDir, 'past-sessions');
   fs.mkdirSync(archiveDir, { recursive: true });
 

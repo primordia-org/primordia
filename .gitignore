@@ -49,9 +49,10 @@ next-env.d.ts
 # Generated OpenAPI spec — run `bun run generate-api-docs` to rebuild
 /public/openapi.json
 
-# Structured session event log written to each worktree during Claude sessions
+# Structured session event logs and archives written during thread runs
 .primordia-session.ndjson
 .primordia-next-server.log
+/past-sessions/
 
 # Typecheck error snapshot written by the evolve pipeline
 .primordia-typecheck-errors.txt
