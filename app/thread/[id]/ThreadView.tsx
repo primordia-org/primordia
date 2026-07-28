@@ -1114,7 +1114,9 @@ function RunningAgentSection({ events, label, isTypeFixSection, isAutoCommitSect
   const runningLabel = (isTypeFixSection || isAutoCommitSection) ? label : null;
 
   // Live elapsed-time counter updated every second.
-  const [elapsed, setElapsed] = useState<number>(() => startTs ? Date.now() - startTs : 0);
+  // Start from a deterministic value so the server and first client render match.
+  // The effect below fills in the live elapsed time after hydration.
+  const [elapsed, setElapsed] = useState<number>(0);
   useEffect(() => {
     if (!startTs) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
