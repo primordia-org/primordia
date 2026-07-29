@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import CopyButton from "@/app/CopyButton";
+import { LocalizedTimestampClient } from "@/components/LocalizedTimestampClient";
 import { withBasePath } from "@/lib/base-path";
 
 const AES_KEY_STORAGE = "primordia_aes_key";
@@ -29,9 +30,7 @@ function shellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function formatDate(ms: number): string {
-  return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
+const timestampOptions: Intl.DateTimeFormatOptions = { dateStyle: "medium", timeStyle: "short" };
 
 function validStoredAesKey(value: string | null): value is string {
   if (!value) return false;
@@ -204,7 +203,7 @@ export default function ApiKeysSettingsClient({ initialKeys }: { initialKeys: Ap
         {adding.map((client) => <CreateApiKeyCard key={client} client={client} aesKey={aesKey} onCreated={async (key, secret) => { setCreated({ shortId: key.shortId, client, secret }); setAdding((current) => current.filter((value) => value !== client)); setKeys((current) => [key, ...current]); }} />)}
         <AddApiKey added={adding} onAdd={(client) => setAdding((current) => [...current, client])} />
       </div>}
-      {keys.length === 0 ? <p className="text-sm text-gray-500">No API keys yet.</p> : <div className="grid gap-2">{keys.map((key) => { const revoked = key.revokedAt !== null; const isCreated = created?.shortId === key.shortId; return <div key={key.shortId} className={`rounded-xl border bg-gray-950/70 p-4 ${isCreated ? "border-emerald-500" : "border-gray-800"}`}><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><span className="font-mono text-sm text-gray-100">{key.version}.{key.shortId}</span><span className="rounded-full border border-gray-700 bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-300">{key.client}</span>{revoked && <span className="rounded-full border border-red-900/70 bg-red-950/40 px-2 py-0.5 text-[11px] font-medium text-red-200">Revoked</span>}</div><div className="mt-1 text-xs text-gray-500">{key.note || "No note"} · {revoked ? `revoked ${formatDate(key.revokedAt!)}` : `expires ${formatDate(key.expiresAt)}`} · created {formatDate(key.createdAt)}</div></div><div className="flex gap-2"><button type="button" onClick={() => extend(key.shortId)} disabled={busy === key.shortId || revoked} className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:border-gray-500 disabled:opacity-50">Extend 30d</button><button type="button" onClick={() => revoke(key.shortId)} disabled={busy === key.shortId || revoked} className="rounded-lg border border-red-800/70 px-3 py-1.5 text-xs text-red-200 hover:border-red-500 disabled:opacity-50">{revoked ? "Revoked" : "Revoke"}</button></div></div>{isCreated && created && <CreatedApiKeyDetails client={created.client} secret={created.secret} />}</div>; })}</div>}
+      {keys.length === 0 ? <p className="text-sm text-gray-500">No API keys yet.</p> : <div className="grid gap-2">{keys.map((key) => { const revoked = key.revokedAt !== null; const isCreated = created?.shortId === key.shortId; return <div key={key.shortId} className={`rounded-xl border bg-gray-950/70 p-4 ${isCreated ? "border-emerald-500" : "border-gray-800"}`}><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><span className="font-mono text-sm text-gray-100">{key.version}.{key.shortId}</span><span className="rounded-full border border-gray-700 bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-300">{key.client}</span>{revoked && <span className="rounded-full border border-red-900/70 bg-red-950/40 px-2 py-0.5 text-[11px] font-medium text-red-200">Revoked</span>}</div><div className="mt-1 text-xs text-gray-500">{key.note || "No note"} · {revoked ? <>revoked <LocalizedTimestampClient timestamp={key.revokedAt!} options={timestampOptions} serverText="" /></> : <>expires <LocalizedTimestampClient timestamp={key.expiresAt} options={timestampOptions} serverText="" /></>} · created <LocalizedTimestampClient timestamp={key.createdAt} options={timestampOptions} serverText="" /></div></div><div className="flex gap-2"><button type="button" onClick={() => extend(key.shortId)} disabled={busy === key.shortId || revoked} className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:border-gray-500 disabled:opacity-50">Extend 30d</button><button type="button" onClick={() => revoke(key.shortId)} disabled={busy === key.shortId || revoked} className="rounded-lg border border-red-800/70 px-3 py-1.5 text-xs text-red-200 hover:border-red-500 disabled:opacity-50">{revoked ? "Revoked" : "Revoke"}</button></div></div>{isCreated && created && <CreatedApiKeyDetails client={created.client} secret={created.secret} />}</div>; })}</div>}
     </section>
   );
 }
