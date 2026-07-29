@@ -127,6 +127,27 @@ const linesOption: CliOptionDef = {
   description: 'Number of recent log lines to print.',
 };
 
+const hostOption: CliOptionDef = {
+  name: 'host',
+  type: 'string',
+  valueHint: 'host',
+  description: 'Host/interface for the Primordia Core protocol server. Defaults to 127.0.0.1.',
+};
+
+const portOption: CliOptionDef = {
+  name: 'port',
+  type: 'string',
+  valueHint: 'port',
+  description: 'Port for the Primordia Core protocol server. Defaults to 7042.',
+};
+
+const tokenOption: CliOptionDef = {
+  name: 'token',
+  type: 'string',
+  valueHint: 'token',
+  description: 'Bearer token required by Primordia Core protocol clients. Defaults to PRIMORDIA_CORE_TOKEN when set.',
+};
+
 const requestArgument: CliArgumentDef = {
   name: 'request',
   required: false,
@@ -191,6 +212,7 @@ const logsCommand: CliCommandDef = {
   name: 'logs',
   description: "Print the thread's server log file.",
   options: [jsonOption, followOption],
+  protocol: { streaming: true },
   run: lazyRun('serverLogsCommand'),
 };
 
@@ -249,6 +271,7 @@ const jobsRunCommand: CliCommandDef = {
   name: 'run',
   description: 'Run the Primordia scheduled jobs daemon in this process.',
   options: [jsonOption],
+  protocol: { streaming: true },
   run: lazyRun('jobsRunCommand'),
 };
 
@@ -300,6 +323,7 @@ const jobsLogsCommand: CliCommandDef = {
   name: 'logs',
   description: 'Print the supervised scheduled jobs daemon log.',
   options: [jsonOption, linesOption, followOption],
+  protocol: { streaming: true },
   run: lazyRun('jobsLogsCommand'),
 };
 
@@ -320,6 +344,7 @@ const reverseProxyLogsCommand: CliCommandDef = {
   name: 'logs',
   description: 'Print the supervised reverse proxy service log.',
   options: [jsonOption, linesOption, followOption],
+  protocol: { streaming: true },
   run: lazyRun('reverseProxyLogsCommand'),
 };
 
@@ -380,10 +405,35 @@ const serverCommand: CliCommandDef = {
   subcommands: [startCommand, stopCommand, restartCommand, logsCommand, publishCommand, copyDbCommand],
 };
 
+const coreServeCommand: CliCommandDef = {
+  name: 'serve',
+  description: 'Run the Primordia Core bidirectional protocol server.',
+  options: [hostOption, portOption, tokenOption],
+  protocol: { expose: false },
+  async run({ args }) {
+    const { serveCoreProtocol } = await import('@/lib/core-protocol-server');
+    const rawPort = typeof args.port === 'string' ? Number.parseInt(args.port, 10) : 7042;
+    if (!Number.isInteger(rawPort) || rawPort <= 0 || rawPort > 65535) throw new Error('--port must be a valid TCP port');
+    serveCoreProtocol(mainCommand, {
+      host: typeof args.host === 'string' && args.host ? args.host : '127.0.0.1',
+      port: rawPort,
+      token: typeof args.token === 'string' ? args.token : process.env.PRIMORDIA_CORE_TOKEN,
+      commandPath: import.meta.path,
+    });
+    await new Promise(() => undefined);
+  },
+};
+
+const coreCommand: CliCommandDef = {
+  name: 'core',
+  description: 'Expose Primordia Core to non-Next.js clients.',
+  subcommands: [coreServeCommand],
+};
+
 const mainCommand: CliCommandDef = {
   name: 'primordia',
   description: 'Manage Primordia thread and server lifecycle tasks.',
-  subcommands: [statusCommand, threadCommand, preferencesCommand, serverCommand, jobsCommand, reverseProxyCommand, systemdCommand],
+  subcommands: [statusCommand, threadCommand, preferencesCommand, serverCommand, jobsCommand, reverseProxyCommand, systemdCommand, coreCommand],
 };
 
 async function main(): Promise<void> {

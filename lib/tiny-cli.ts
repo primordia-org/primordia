@@ -31,6 +31,15 @@ export interface CliArgumentDef {
   complete?: CliCompletionSource;
 }
 
+export interface CliProtocolDef {
+  /** Expose this runnable command through the Primordia Core protocol. Defaults to true for runnable commands. */
+  expose?: boolean;
+  /** Stable method name. Defaults to the command path after the root, joined with dots. */
+  method?: string;
+  /** Whether clients should expect long-running output and prefer the streaming transport. */
+  streaming?: boolean;
+}
+
 export interface CliCommandDef {
   name: string;
   description: string;
@@ -39,7 +48,17 @@ export interface CliCommandDef {
   subcommands?: CliCommandDef[];
   complete?: CliCompletionSource;
   hidden?: boolean;
+  protocol?: CliProtocolDef;
   run?: (context: { args: CliParsedArgs; rawArgs: string[]; commandPath: string[] }) => unknown | Promise<unknown>;
+}
+
+export interface CliProtocolMethodDef {
+  method: string;
+  commandPath: string[];
+  description: string;
+  streaming: boolean;
+  options: Array<Pick<CliOptionDef, 'name' | 'alias' | 'type' | 'valueHint' | 'description'>>;
+  arguments: Array<Pick<CliArgumentDef, 'name' | 'required' | 'valueHint' | 'description'>>;
 }
 
 interface ResolvedCommand {
@@ -75,6 +94,28 @@ function flattenCommands(command: CliCommandDef, prefix = command.name): Array<{
     rows.push(...flattenCommands(subcommand, path));
   }
   return rows;
+}
+
+function flattenCommandEntries(command: CliCommandDef, path: string[] = [command.name]): Array<{ path: string[]; command: CliCommandDef }> {
+  const rows: Array<{ path: string[]; command: CliCommandDef }> = [{ path, command }];
+  for (const subcommand of command.subcommands ?? []) {
+    rows.push(...flattenCommandEntries(subcommand, [...path, subcommand.name]));
+  }
+  return rows;
+}
+
+export function listCliProtocolMethods(root: CliCommandDef): CliProtocolMethodDef[] {
+  return flattenCommandEntries(root)
+    .filter(({ path, command }) => path.length > 1 && Boolean(command.run) && command.protocol?.expose !== false && !command.hidden)
+    .map(({ path, command }) => ({
+      method: command.protocol?.method ?? path.slice(1).join('.'),
+      commandPath: path.slice(1),
+      description: command.description,
+      streaming: command.protocol?.streaming ?? false,
+      options: (command.options ?? []).map(({ name, alias, type, valueHint, description }) => ({ name, alias, type, valueHint, description })),
+      arguments: (command.arguments ?? []).map(({ name, required, valueHint, description }) => ({ name, required, valueHint, description })),
+    }))
+    .sort((a, b) => a.method.localeCompare(b.method));
 }
 
 function padRight(value: string, width: number): string {
