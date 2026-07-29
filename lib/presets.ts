@@ -83,6 +83,14 @@ export const BUILT_IN_PRESETS: ThreadPreset[] = [
     builtIn: true,
   },
   {
+    id: 'builtin:pi-chatgpt-codex-terra',
+    name: 'Pi + ChatGPT + GPT-5.6 Terra',
+    authSource: 'chatgpt-subscription',
+    harness: 'pi',
+    model: 'openai-codex:gpt-5.6-terra',
+    builtIn: true,
+  },
+  {
     id: 'builtin:pi-openrouter-sonnet',
     name: 'Pi + OpenRouter + Sonnet 5',
     authSource: 'openrouter-api-key',
