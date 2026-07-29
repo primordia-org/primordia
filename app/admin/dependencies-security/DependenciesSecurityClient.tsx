@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle, Loader, RefreshCw, ShieldAlert, WandSparkles } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import { trackEvent } from "@/lib/events-client";
+import { getStoredPrimordiaAesKey } from "@/lib/preset-credentials-client";
 import WebPushCategoryButton from "@/components/WebPushCategoryButton";
 import type { BunAuditResult } from "@/lib/dependency-audit";
 
@@ -55,14 +56,14 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
   const severeCount = audit.severeFindings.length;
   const hasFindings = audit.findings.length > 0;
 
-  async function post(action: string): Promise<Record<string, unknown> | null> {
+  async function post(action: string, extraBody: Record<string, unknown> = {}): Promise<Record<string, unknown> | null> {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch(withBasePath("/api/admin/dependencies-security"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, ...extraBody }),
       });
       
       let data: Record<string, unknown> & { error?: string } = {};
@@ -95,7 +96,7 @@ export default function DependenciesSecurityClient({ initialAudit, initialChecke
 
   async function createSession() {
     trackEvent("admin/dependency-audit-session-created/v1", { severeCount, findingCount: audit.findings.length });
-    const data = await post("create-session");
+    const data = await post("create-session", { primordiaAesKey: getStoredPrimordiaAesKey() });
     const threadId = typeof data?.threadId === "string" ? data.threadId : null;
     if (threadId) router.push(`/thread/${threadId}`);
   }

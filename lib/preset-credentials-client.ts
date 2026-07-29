@@ -7,6 +7,10 @@ import type { PresetAuthSource } from './presets';
 
 const AES_KEY_STORAGE = 'primordia_aes_key';
 
+export function getStoredPrimordiaAesKey(): string | null {
+  return localStorage.getItem(AES_KEY_STORAGE);
+}
+
 export type PresetCredentialFields = Partial<{
   primordiaAesKey: string;
 }>;
@@ -18,7 +22,7 @@ function authSourceNeedsSecret(authSource: PresetAuthSource | null | undefined):
 export async function getCredentialFieldsForAuthSource(authSource: PresetAuthSource | null | undefined): Promise<PresetCredentialFields> {
   if (!authSourceNeedsSecret(authSource)) return {};
 
-  const primordiaAesKey = localStorage.getItem(AES_KEY_STORAGE);
+  const primordiaAesKey = getStoredPrimordiaAesKey();
   return primordiaAesKey ? { primordiaAesKey } : {};
 }
 
