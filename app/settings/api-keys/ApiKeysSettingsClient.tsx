@@ -150,9 +150,9 @@ function CreatedApiKeyDetails({ client, secret }: { client: ApiKeyClient; secret
   );
 }
 
-export default function ApiKeysSettingsClient() {
+export default function ApiKeysSettingsClient({ initialKeys }: { initialKeys: ApiKeyRecord[] }) {
   const [aesKey, setAesKey] = useState<string | null>(null);
-  const [keys, setKeys] = useState<ApiKeyRecord[]>([]);
+  const [keys, setKeys] = useState<ApiKeyRecord[]>(initialKeys);
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState<ApiKeyClient[]>([]);
   const [created, setCreated] = useState<{ shortId: string; client: ApiKeyClient; secret: string } | null>(null);
@@ -171,7 +171,7 @@ export default function ApiKeysSettingsClient() {
   useEffect(() => {
     queueMicrotask(() => {
       setAesKey(localStorage.getItem(AES_KEY_STORAGE));
-      refreshKeys().catch((err) => setError(err instanceof Error ? err.message : String(err))).finally(() => setLoaded(true));
+      setLoaded(true);
     });
   }, []);
 
@@ -199,11 +199,12 @@ export default function ApiKeysSettingsClient() {
     <section className="space-y-6">
       <div><h1 className="text-2xl font-semibold text-gray-100">API keys</h1><p className="mt-1 text-sm leading-6 text-gray-400">Create revokable API keys for a Primordia CLI or web client. Each key wraps this device&apos;s encrypted billing credentials and can be revoked here.</p></div>
       {error && <div className="rounded-xl border border-red-900/70 bg-red-950/30 p-3 text-sm text-red-100">{error}</div>}
-      {!loaded ? <div className="rounded-xl border border-gray-800 bg-gray-950/60 p-4 text-sm text-gray-400">Loading API keys…</div> : !validKey ? <div className="rounded-xl border border-amber-900/70 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100"><p>No browser AES key was found on this device.</p><p className="mt-2 text-amber-100/80">Connect or reconnect a billing source from Settings → Billing sources, then return here to create an API key.</p></div> : <div className="grid gap-2">
+      {loaded && !validKey && <div className="rounded-xl border border-amber-900/70 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100"><p>No browser AES key was found on this device.</p><p className="mt-2 text-amber-100/80">Connect or reconnect a billing source from Settings → Billing sources, then return here to create an API key.</p></div>}
+      {loaded && validKey && <div className="grid gap-2">
         {adding.map((client) => <CreateApiKeyCard key={client} client={client} aesKey={aesKey} onCreated={async (key, secret) => { setCreated({ shortId: key.shortId, client, secret }); setAdding((current) => current.filter((value) => value !== client)); setKeys((current) => [key, ...current]); }} />)}
         <AddApiKey added={adding} onAdd={(client) => setAdding((current) => [...current, client])} />
-        {keys.length === 0 ? <p className="text-sm text-gray-500">No API keys yet.</p> : <div className="grid gap-2">{keys.map((key) => { const revoked = key.revokedAt !== null; const isCreated = created?.shortId === key.shortId; return <div key={key.shortId} className={`rounded-xl border bg-gray-950/70 p-4 ${isCreated ? "border-emerald-500" : "border-gray-800"}`}><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><span className="font-mono text-sm text-gray-100">{key.version}.{key.shortId}</span><span className="rounded-full border border-gray-700 bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-300">{key.client}</span>{revoked && <span className="rounded-full border border-red-900/70 bg-red-950/40 px-2 py-0.5 text-[11px] font-medium text-red-200">Revoked</span>}</div><div className="mt-1 text-xs text-gray-500">{key.note || "No note"} · {revoked ? `revoked ${formatDate(key.revokedAt!)}` : `expires ${formatDate(key.expiresAt)}`} · created {formatDate(key.createdAt)}</div></div><div className="flex gap-2"><button type="button" onClick={() => extend(key.shortId)} disabled={busy === key.shortId || revoked} className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:border-gray-500 disabled:opacity-50">Extend 30d</button><button type="button" onClick={() => revoke(key.shortId)} disabled={busy === key.shortId || revoked} className="rounded-lg border border-red-800/70 px-3 py-1.5 text-xs text-red-200 hover:border-red-500 disabled:opacity-50">{revoked ? "Revoked" : "Revoke"}</button></div></div>{isCreated && created && <CreatedApiKeyDetails client={created.client} secret={created.secret} />}</div>; })}</div>}
       </div>}
+      {keys.length === 0 ? <p className="text-sm text-gray-500">No API keys yet.</p> : <div className="grid gap-2">{keys.map((key) => { const revoked = key.revokedAt !== null; const isCreated = created?.shortId === key.shortId; return <div key={key.shortId} className={`rounded-xl border bg-gray-950/70 p-4 ${isCreated ? "border-emerald-500" : "border-gray-800"}`}><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><span className="font-mono text-sm text-gray-100">{key.version}.{key.shortId}</span><span className="rounded-full border border-gray-700 bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-300">{key.client}</span>{revoked && <span className="rounded-full border border-red-900/70 bg-red-950/40 px-2 py-0.5 text-[11px] font-medium text-red-200">Revoked</span>}</div><div className="mt-1 text-xs text-gray-500">{key.note || "No note"} · {revoked ? `revoked ${formatDate(key.revokedAt!)}` : `expires ${formatDate(key.expiresAt)}`} · created {formatDate(key.createdAt)}</div></div><div className="flex gap-2"><button type="button" onClick={() => extend(key.shortId)} disabled={busy === key.shortId || revoked} className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:border-gray-500 disabled:opacity-50">Extend 30d</button><button type="button" onClick={() => revoke(key.shortId)} disabled={busy === key.shortId || revoked} className="rounded-lg border border-red-800/70 px-3 py-1.5 text-xs text-red-200 hover:border-red-500 disabled:opacity-50">{revoked ? "Revoked" : "Revoke"}</button></div></div>{isCreated && created && <CreatedApiKeyDetails client={created.client} secret={created.secret} />}</div>; })}</div>}
     </section>
   );
 }

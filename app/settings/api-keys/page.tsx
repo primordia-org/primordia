@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSessionUser, isAdmin } from "@/lib/auth";
+import { publicRevokableAesKey } from "@/lib/cli-keys";
+import { getDb } from "@/lib/db";
 import { getThreadPrefs } from "@/lib/user-prefs";
 import { getSettingsPageData } from "@/app/settings/data";
 import { buildPageTitle } from "@/lib/page-title";
@@ -19,10 +21,11 @@ export default async function ApiKeysSettingsPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login?next=/settings/api-keys");
 
-  const [adminCheck, threadPrefs, settingsData] = await Promise.all([
+  const [adminCheck, threadPrefs, settingsData, apiKeys] = await Promise.all([
     isAdmin(user.id),
     getThreadPrefs(user.id),
     getSettingsPageData(user.id),
+    getDb().then(async (db) => (await db.listRevokableAesKeys(user.id)).map(publicRevokableAesKey)),
   ]);
   const sessionUser = { id: user.id, username: user.username, isAdmin: adminCheck };
 
@@ -32,7 +35,7 @@ export default async function ApiKeysSettingsPage() {
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
         <SettingsSubNav currentTab="api-keys" initialSecretSources={settingsData.secretSources} />
         <div className="flex-1 min-w-0">
-          <ApiKeysSettingsClient />
+          <ApiKeysSettingsClient initialKeys={apiKeys} />
         </div>
       </div>
     </main>
