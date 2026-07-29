@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import CopyButton from "@/app/CopyButton";
-import { LocalizedTimestampClient } from "@/components/LocalizedTimestampClient";
 import { withBasePath } from "@/lib/base-path";
 
 const AES_KEY_STORAGE = "primordia_aes_key";
@@ -30,7 +29,9 @@ function shellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-const timestampOptions: Intl.DateTimeFormatOptions = { dateStyle: "medium", timeStyle: "short" };
+function formatDate(ms: number): string {
+  return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
 
 function validStoredAesKey(value: string | null): value is string {
   if (!value) return false;
@@ -149,9 +150,9 @@ function CreatedApiKeyDetails({ client, secret }: { client: ApiKeyClient; secret
   );
 }
 
-export default function ApiKeysSettingsClient({ initialKeys }: { initialKeys: ApiKeyRecord[] }) {
+export default function ApiKeysSettingsClient() {
   const [aesKey, setAesKey] = useState<string | null>(null);
-  const [keys, setKeys] = useState<ApiKeyRecord[]>(initialKeys);
+  const [keys, setKeys] = useState<ApiKeyRecord[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState<ApiKeyClient[]>([]);
   const [created, setCreated] = useState<{ shortId: string; client: ApiKeyClient; secret: string } | null>(null);
@@ -170,7 +171,9 @@ export default function ApiKeysSettingsClient({ initialKeys }: { initialKeys: Ap
   useEffect(() => {
     queueMicrotask(() => {
       setAesKey(localStorage.getItem(AES_KEY_STORAGE));
-      setLoaded(true);
+      refreshKeys()
+        .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+        .finally(() => setLoaded(true));
     });
   }, []);
 
@@ -198,12 +201,11 @@ export default function ApiKeysSettingsClient({ initialKeys }: { initialKeys: Ap
     <section className="space-y-6">
       <div><h1 className="text-2xl font-semibold text-gray-100">API keys</h1><p className="mt-1 text-sm leading-6 text-gray-400">Create revokable API keys for a Primordia CLI or web client. Each key wraps this device&apos;s encrypted billing credentials and can be revoked here.</p></div>
       {error && <div className="rounded-xl border border-red-900/70 bg-red-950/30 p-3 text-sm text-red-100">{error}</div>}
-      {loaded && !validKey && <div className="rounded-xl border border-amber-900/70 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100"><p>No browser AES key was found on this device.</p><p className="mt-2 text-amber-100/80">Connect or reconnect a billing source from Settings → Billing sources, then return here to create an API key.</p></div>}
-      {loaded && validKey && <div className="grid gap-2">
+      {!loaded ? <div aria-label="Loading API keys" className="grid gap-2"><div className="h-10 animate-pulse rounded-xl border border-dashed border-gray-800 bg-gray-950/70" /><div className="rounded-xl border border-gray-800 bg-gray-950/70 p-4"><div className="h-4 w-36 animate-pulse rounded bg-gray-800" /><div className="mt-3 h-3 w-72 max-w-full animate-pulse rounded bg-gray-800" /><div className="mt-4 h-7 w-48 animate-pulse rounded bg-gray-800" /></div></div> : !validKey ? <div className="rounded-xl border border-amber-900/70 bg-amber-950/20 p-4 text-sm leading-6 text-amber-100"><p>No browser AES key was found on this device.</p><p className="mt-2 text-amber-100/80">Connect or reconnect a billing source from Settings → Billing sources, then return here to create an API key.</p></div> : <><div className="grid gap-2">
         {adding.map((client) => <CreateApiKeyCard key={client} client={client} aesKey={aesKey} onCreated={async (key, secret) => { setCreated({ shortId: key.shortId, client, secret }); setAdding((current) => current.filter((value) => value !== client)); setKeys((current) => [key, ...current]); }} />)}
         <AddApiKey added={adding} onAdd={(client) => setAdding((current) => [...current, client])} />
-      </div>}
-      {keys.length === 0 ? <p className="text-sm text-gray-500">No API keys yet.</p> : <div className="grid gap-2">{keys.map((key) => { const revoked = key.revokedAt !== null; const isCreated = created?.shortId === key.shortId; return <div key={key.shortId} className={`rounded-xl border bg-gray-950/70 p-4 ${isCreated ? "border-emerald-500" : "border-gray-800"}`}><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><span className="font-mono text-sm text-gray-100">{key.version}.{key.shortId}</span><span className="rounded-full border border-gray-700 bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-300">{key.client}</span>{revoked && <span className="rounded-full border border-red-900/70 bg-red-950/40 px-2 py-0.5 text-[11px] font-medium text-red-200">Revoked</span>}</div><div className="mt-1 text-xs text-gray-500">{key.note || "No note"} · {revoked ? <>revoked <LocalizedTimestampClient timestamp={key.revokedAt!} options={timestampOptions} serverText="" /></> : <>expires <LocalizedTimestampClient timestamp={key.expiresAt} options={timestampOptions} serverText="" /></>} · created <LocalizedTimestampClient timestamp={key.createdAt} options={timestampOptions} serverText="" /></div></div><div className="flex gap-2"><button type="button" onClick={() => extend(key.shortId)} disabled={busy === key.shortId || revoked} className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:border-gray-500 disabled:opacity-50">Extend 30d</button><button type="button" onClick={() => revoke(key.shortId)} disabled={busy === key.shortId || revoked} className="rounded-lg border border-red-800/70 px-3 py-1.5 text-xs text-red-200 hover:border-red-500 disabled:opacity-50">{revoked ? "Revoked" : "Revoke"}</button></div></div>{isCreated && created && <CreatedApiKeyDetails client={created.client} secret={created.secret} />}</div>; })}</div>}
+      </div>
+      {keys.length === 0 ? <p className="text-sm text-gray-500">No API keys yet.</p> : <div className="grid gap-2">{keys.map((key) => { const revoked = key.revokedAt !== null; const isCreated = created?.shortId === key.shortId; return <div key={key.shortId} className={`rounded-xl border bg-gray-950/70 p-4 ${isCreated ? "border-emerald-500" : "border-gray-800"}`}><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><span className="font-mono text-sm text-gray-100">{key.version}.{key.shortId}</span><span className="rounded-full border border-gray-700 bg-gray-800 px-2 py-0.5 text-[11px] font-medium text-gray-300">{key.client}</span>{revoked && <span className="rounded-full border border-red-900/70 bg-red-950/40 px-2 py-0.5 text-[11px] font-medium text-red-200">Revoked</span>}</div><div className="mt-1 text-xs text-gray-500">{key.note || "No note"} · {revoked ? `revoked ${formatDate(key.revokedAt!)}` : `expires ${formatDate(key.expiresAt)}`} · created {formatDate(key.createdAt)}</div></div><div className="flex gap-2"><button type="button" onClick={() => extend(key.shortId)} disabled={busy === key.shortId || revoked} className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:border-gray-500 disabled:opacity-50">Extend 30d</button><button type="button" onClick={() => revoke(key.shortId)} disabled={busy === key.shortId || revoked} className="rounded-lg border border-red-800/70 px-3 py-1.5 text-xs text-red-200 hover:border-red-500 disabled:opacity-50">{revoked ? "Revoked" : "Revoke"}</button></div></div>{isCreated && created && <CreatedApiKeyDetails client={created.client} secret={created.secret} />}</div>; })}</div>}</>}
     </section>
   );
 }
