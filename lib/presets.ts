@@ -83,6 +83,14 @@ export const BUILT_IN_PRESETS: ThreadPreset[] = [
     builtIn: true,
   },
   {
+    id: 'builtin:pi-chatgpt-gpt-5-5',
+    name: 'Pi + ChatGPT + GPT-5.5',
+    authSource: 'chatgpt-subscription',
+    harness: 'pi',
+    model: 'openai-codex:gpt-5.5',
+    builtIn: true,
+  },
+  {
     id: 'builtin:pi-chatgpt-codex-terra',
     name: 'Pi + ChatGPT + GPT-5.6 Terra',
     authSource: 'chatgpt-subscription',
