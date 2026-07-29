@@ -142,7 +142,7 @@ function CreatedApiKeyDetails({ client, secret }: { client: ApiKeyClient; secret
 
   return (
     <>
-      <div className="mb-3 rounded-lg border border-amber-800/60 bg-amber-950/30 p-3 text-sm text-amber-100">You&apos;ll only see this API key once. Copy it now and save it in a secret manager.</div>
+      <div className="mt-4 mb-3 rounded-lg border border-amber-800/60 bg-amber-950/30 p-3 text-sm text-amber-100">You&apos;ll only see this API key once. Copy it now and save it in a secret manager.</div>
       <div className="mb-2 flex items-center justify-between gap-3"><h2 className="text-sm font-medium text-emerald-100">API key</h2><CopyButton text={secret} /></div>
       <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-black/40 p-3 text-xs leading-5 text-emerald-200"><code>{secret}</code></pre>
       {assignment && <><div className="mt-3 flex items-center justify-between gap-3"><h2 className="text-sm font-medium text-sky-100">Export command</h2><CopyButton text={`export ${assignment}`} /></div><pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-black/40 p-3 text-xs leading-5 text-sky-200"><code>{`export ${assignment}`}</code></pre></>}
