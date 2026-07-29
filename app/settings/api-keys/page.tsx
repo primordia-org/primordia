@@ -6,18 +6,18 @@ import { getSettingsPageData } from "@/app/settings/data";
 import { buildPageTitle } from "@/lib/page-title";
 import { PageNavBar } from "@/components/PageNavBar";
 import SettingsSubNav from "@/components/SettingsSubNav";
-import PrimordiaCliSettingsClient from "./PrimordiaCliSettingsClient";
+import ApiKeysSettingsClient from "./ApiKeysSettingsClient";
 
 export function generateMetadata(): Metadata {
   return {
-    title: buildPageTitle("Primordia CLI Settings"),
-    description: "Create and revoke Primordia CLI keys for secret-backed presets.",
+    title: buildPageTitle("API Keys"),
+    description: "Create and revoke API keys for Primordia clients.",
   };
 }
 
-export default async function PrimordiaCliSettingsPage() {
+export default async function ApiKeysSettingsPage() {
   const user = await getSessionUser();
-  if (!user) redirect("/login?next=/settings/cli");
+  if (!user) redirect("/login?next=/settings/api-keys");
 
   const [adminCheck, threadPrefs, settingsData] = await Promise.all([
     isAdmin(user.id),
@@ -30,9 +30,9 @@ export default async function PrimordiaCliSettingsPage() {
     <main className="flex flex-col w-full max-w-5xl mx-auto px-4 py-6 min-h-dvh">
       <PageNavBar subtitle="Account Settings" currentPage="settings" initialSession={sessionUser} initialHarness={threadPrefs.initialHarness} initialModel={threadPrefs.initialModel} initialCavemanMode={threadPrefs.initialCavemanMode} initialCavemanIntensity={threadPrefs.initialCavemanIntensity} />
       <div className="flex flex-col lg:flex-row gap-4 lg:gap-8 items-start mt-2">
-        <SettingsSubNav currentTab="cli" initialSecretSources={settingsData.secretSources} />
+        <SettingsSubNav currentTab="api-keys" initialSecretSources={settingsData.secretSources} />
         <div className="flex-1 min-w-0">
-          <PrimordiaCliSettingsClient />
+          <ApiKeysSettingsClient />
         </div>
       </div>
     </main>

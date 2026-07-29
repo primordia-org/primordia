@@ -18,7 +18,7 @@ async function uniqueShortId(): Promise<string> {
     const candidate = randomShortId();
     if (!(await db.getRevokableAesKey(candidate))) return candidate;
   }
-  throw new Error('Could not allocate a unique CLI key id.');
+  throw new Error('Could not allocate a unique API key id.');
 }
 
 function validateExpiresAt(value: unknown): { ok: true; expiresAt: number } | { ok: false; error: string } {
@@ -35,7 +35,7 @@ export async function GET() {
   const user = await getSessionUser();
   if (!user) return Response.json({ error: 'Authentication required' }, { status: 401 });
   const db = await getDb();
-  const keys = await db.listRevokableAesKeys(user.id, 'cli');
+  const keys = await db.listRevokableAesKeys(user.id);
   return Response.json({ keys: keys.map(publicRevokableAesKey) });
 }
 
@@ -46,10 +46,11 @@ export async function POST(request: Request) {
   let body: unknown;
   try { body = await request.json(); } catch { return Response.json({ error: 'Invalid JSON body' }, { status: 400 }); }
   const record = body && typeof body === 'object' ? body as Record<string, unknown> : {};
+  const client = record.client === 'cli' || record.client === 'web' ? record.client : null;
   const encryptedAesKey = typeof record.encryptedAesKey === 'string' ? record.encryptedAesKey : '';
   const signature = typeof record.signature === 'string' ? record.signature : '';
-  if (!encryptedAesKey || !signature) {
-    return Response.json({ error: 'encryptedAesKey and signature are required' }, { status: 400 });
+  if (!client || !encryptedAesKey || !signature) {
+    return Response.json({ error: 'client, encryptedAesKey, and signature are required' }, { status: 400 });
   }
 
   const expiresAt = validateExpiresAt(record.expiresAt);
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
     shortId,
     userId: user.id,
     version: 'v1',
-    client: 'cli',
+    client,
     scopes: Array.isArray(record.scopes) ? record.scopes.join(' ') : '',
     note: typeof record.note === 'string' && record.note.trim() ? record.note.trim().slice(0, 160) : null,
     encryptedAesKey,
@@ -84,8 +85,8 @@ export async function PATCH(request: Request) {
   if (!expiresAt.ok) return Response.json({ error: expiresAt.error }, { status: 400 });
   const db = await getDb();
   const existing = await db.getRevokableAesKey(body.shortId);
-  if (!existing || existing.userId !== user.id || existing.client !== 'cli') return Response.json({ error: 'CLI key not found' }, { status: 404 });
-  if (existing.revokedAt !== null) return Response.json({ error: 'Revoked CLI keys cannot be extended' }, { status: 400 });
+  if (!existing || existing.userId !== user.id) return Response.json({ error: 'API key not found' }, { status: 404 });
+  if (existing.revokedAt !== null) return Response.json({ error: 'Revoked API keys cannot be extended' }, { status: 400 });
   await db.updateRevokableAesKeyExpiration(user.id, body.shortId, expiresAt.expiresAt);
   const updated = await db.getRevokableAesKey(body.shortId);
   return Response.json({ key: updated ? publicRevokableAesKey(updated) : null });
@@ -98,7 +99,7 @@ export async function DELETE(request: Request) {
   if (!body?.shortId) return Response.json({ error: 'shortId required' }, { status: 400 });
   const db = await getDb();
   const existing = await db.getRevokableAesKey(body.shortId);
-  if (!existing || existing.userId !== user.id || existing.client !== 'cli') return Response.json({ error: 'CLI key not found' }, { status: 404 });
+  if (!existing || existing.userId !== user.id) return Response.json({ error: 'API key not found' }, { status: 404 });
   if (existing.revokedAt === null) await db.revokeRevokableAesKey(user.id, body.shortId, Date.now());
   return Response.json({ ok: true });
 }

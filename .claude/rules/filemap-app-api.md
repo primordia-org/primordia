@@ -47,6 +47,7 @@ app/api/
 ├── secrets/[source]/route.ts       ← Per-source GET/POST/DELETE for encrypted credentials/API keys
 ├── credential-encryption/public-key/route.ts ← GET server's ephemeral RSA-OAEP public key as JWK for hybrid credential transmission
 ├── oauth/chatgpt-subscription/route.ts ← POST starts/completes ChatGPT device-code OAuth flow for subscription credentials
+├── settings/api-keys/route.ts      ← GET/POST/PATCH/DELETE current user's revokable CLI/web API keys
 ├── settings/presets/route.ts       ← GET/POST/PATCH/DELETE current user's saved evolve presets
 ├── web-push/                       ← VAPID public key, subscription, category preference, and test notification routes
 │   ├── public-key/route.ts         ← GET VAPID public key for browser PushManager subscription

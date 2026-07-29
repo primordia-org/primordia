@@ -56,7 +56,7 @@ type ServiceLogArgs = JsonArgs & { lines?: string; n?: string; follow?: boolean;
 
 const MISSING_CLI_KEY_MESSAGE =
   'PRIMORDIA_CLI_KEY is required for `primordia thread create`, `primordia thread followup`, and `primordia thread accept`. ' +
-  'Open Settings → Primordia CLI in the web app (/settings/cli), create a CLI key, copy the one-time `PRIMORDIA_CLI_KEY=...` value, and export it in this shell before retrying.';
+  'Open Settings → API keys in the web app (/settings/api-keys), create a CLI key, copy the one-time `PRIMORDIA_CLI_KEY=...` value, and export it in this shell before retrying.';
 
 function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
