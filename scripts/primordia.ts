@@ -141,13 +141,6 @@ const portOption: CliOptionDef = {
   description: 'Port for the Primordia Core protocol server. Defaults to 7042.',
 };
 
-const tokenOption: CliOptionDef = {
-  name: 'token',
-  type: 'string',
-  valueHint: 'token',
-  description: 'Bearer token required by Primordia Core protocol clients. Defaults to PRIMORDIA_CORE_TOKEN when set.',
-};
-
 const requestArgument: CliArgumentDef = {
   name: 'request',
   required: false,
@@ -407,8 +400,8 @@ const serverCommand: CliCommandDef = {
 
 const coreServeCommand: CliCommandDef = {
   name: 'serve',
-  description: 'Run the Primordia Core bidirectional protocol server.',
-  options: [hostOption, portOption, tokenOption],
+  description: 'Run the Primordia Core HTTP/SSE protocol server.',
+  options: [hostOption, portOption],
   protocol: { expose: false },
   async run({ args }) {
     const { serveCoreProtocol } = await import('@/lib/core-protocol-server');
@@ -417,7 +410,6 @@ const coreServeCommand: CliCommandDef = {
     serveCoreProtocol(mainCommand, {
       host: typeof args.host === 'string' && args.host ? args.host : '127.0.0.1',
       port: rawPort,
-      token: typeof args.token === 'string' ? args.token : process.env.PRIMORDIA_CORE_TOKEN,
       commandPath: import.meta.path,
     });
     await new Promise(() => undefined);
@@ -426,7 +418,7 @@ const coreServeCommand: CliCommandDef = {
 
 const coreCommand: CliCommandDef = {
   name: 'core',
-  description: 'Expose Primordia Core to non-Next.js clients.',
+  description: 'Expose Primordia Core to non-Next.js clients over HTTP and SSE.',
   subcommands: [coreServeCommand],
 };
 

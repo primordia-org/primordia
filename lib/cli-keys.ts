@@ -49,7 +49,7 @@ export async function resolvePrimordiaCliKey(value: string, expectedClient: 'cli
   if (!record) throw new Error('PRIMORDIA_CLI_KEY was not found. Create a new CLI key in Settings → API keys.');
   if (record.revokedAt !== null) throw new Error('PRIMORDIA_CLI_KEY has been revoked. Create a new CLI key in Settings → API keys and update this shell.');
   if (record.version !== parsed.version) throw new Error('PRIMORDIA_CLI_KEY version does not match the stored key.');
-  if (record.client !== expectedClient) throw new Error(`PRIMORDIA_CLI_KEY is restricted to ${record.client} clients.`);
+  if (record.client !== expectedClient) throw new Error(`Primordia API key is restricted to ${record.client} clients.`);
   if (record.expiresAt <= Date.now()) throw new Error('PRIMORDIA_CLI_KEY has expired. Extend it or create a new key in Settings → API keys.');
 
   const wrapperJwk: JsonWebKey = {

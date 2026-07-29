@@ -135,6 +135,20 @@ async function readRequest(args: CliParsedArgs): Promise<string> {
 }
 
 async function resolveCliAuth(selector: string | undefined): Promise<{ user: { id: string; username: string }; primordiaAesKey: string }> {
+  const coreUserId = process.env.PRIMORDIA_CORE_USER_ID;
+  const coreAesKey = process.env.PRIMORDIA_CORE_AES_KEY;
+  if (coreUserId && coreAesKey) {
+    if (selector && selector !== coreUserId) {
+      const selected = await resolveCliUser(selector);
+      if (selected.id !== coreUserId) throw new Error('The authenticated Primordia Core web key belongs to a different user than --user.');
+      return { user: selected, primordiaAesKey: coreAesKey };
+    }
+    const db = await getDb();
+    const user = await db.getUserById(coreUserId);
+    if (!user) throw new Error('The authenticated Primordia Core web key refers to a user that no longer exists.');
+    return { user, primordiaAesKey: coreAesKey };
+  }
+
   const rawCliKey = process.env.PRIMORDIA_CLI_KEY;
   if (!rawCliKey) {
     throw new Error(MISSING_CLI_KEY_MESSAGE);

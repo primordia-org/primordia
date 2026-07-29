@@ -5,6 +5,13 @@ import Link from "next/link";
 
 const TEST_PAGES = [
   {
+    href: "/test-pages/core-api-test",
+    emoji: "🌐",
+    title: "Core API",
+    description:
+      "Exercise the Primordia Core HTTP/SSE protocol with a revokable web API key from Settings → API Keys.",
+  },
+  {
     href: "/test-pages/claude-auth-test",
     emoji: "🔑",
     title: "Claude Auth",
