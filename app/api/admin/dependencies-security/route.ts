@@ -63,6 +63,7 @@ async function handlePost(request: Request) {
     return Response.json({ error: "Request body must be valid JSON." }, { status: 400 });
   }
   const action = typeof body.action === "string" ? body.action : "";
+  const primordiaAesKey = typeof body.primordiaAesKey === "string" && body.primordiaAesKey ? body.primordiaAesKey : null;
 
   if (action === "refresh") {
     const result = runBunAudit();
@@ -94,6 +95,7 @@ async function handlePost(request: Request) {
     const threadResult = await createThread({
       userId: user!.id,
       requestText: threadRequestText,
+      primordiaAesKey,
     });
 
     if (!threadResult.ok) {
