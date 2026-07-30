@@ -150,7 +150,7 @@ When implementing changes, follow these principles:
 | User event tracking | ✅ Live | `events` table in SQLite; `POST /api/events` (open, no auth); `GET /api/events` (admin); browser helper in `lib/events-client.ts`; admin viewer at `/admin/events` |
 | Web push notifications | ✅ Live | SQLite-backed VAPID keys + per-user push subscriptions + category preferences; `/api/web-push/*` endpoints; service worker at `/primordia-sw.js`; `/settings/notifications` lets thread users subscribe to Security Vulnerabilities, Primordia Updates, and Server Health Alerts; scheduled dependency audits/update fetches/leak diagnostics send actionable category notifications; developer test page at `/test-pages/web-push-test` can simulate categories |
 | Read-only git HTTP | ✅ Live | Clone/fetch via `git clone http[s]://<host>/api/git`; proxied through `git http-backend`; push permanently blocked (403) |
-| OpenAPI spec | ✅ Live | Served at `/api/openapi`; generated on first request from `openapi-gen.config.json` |
+| OpenAPI spec | ✅ Live | App REST API spec served at `/api/openapi`, generated on first request from `openapi-gen.config.json`; Primordia Core route-action spec served at `/api/core/openapi` from CLI route metadata, with `/test-pages/core-api-test` rendering it through Scalar |
 
 ## Changelog
 

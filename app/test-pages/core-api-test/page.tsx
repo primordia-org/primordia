@@ -1,26 +1,22 @@
-import Link from "next/link";
-import CoreApiTestClient from "./CoreApiTestClient";
+"use client";
 
-export const metadata = {
-  title: "Core API Test",
-  description: "Exercise the Primordia Core route-action API with a web API key."
-};
+import { ApiReferenceReact } from "@scalar/api-reference-react";
+import "@scalar/api-reference-react/style.css";
+import { withBasePath } from "@/lib/base-path";
 
 export default function CoreApiTestPage() {
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      <header className="border-b border-gray-800 bg-gray-900 px-6 py-4">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
-          <div>
-            <h1 className="text-lg font-semibold text-gray-100">🧪 Core API Test</h1>
-            <p className="mt-0.5 text-xs text-gray-500">Test Primordia Core POST route actions with a revokable web API key.</p>
-          </div>
-          <Link href="/test-pages" className="text-sm text-gray-400 hover:text-gray-200">← Test pages</Link>
-        </div>
-      </header>
-      <main className="mx-auto max-w-4xl px-6 py-8">
-        <CoreApiTestClient />
-      </main>
-    </div>
+    <ApiReferenceReact
+      configuration={{
+        _integration: "nextjs",
+        url: withBasePath("/api/core/openapi"),
+        theme: "moon",
+        layout: "modern",
+        defaultHttpClient: {
+          targetKey: "js",
+          clientKey: "fetch",
+        },
+      }}
+    />
   );
 }

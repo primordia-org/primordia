@@ -22,6 +22,15 @@ interface AuthContext {
   aesKeyJwkJson: string;
 }
 
+type JsonSchema = Record<string, unknown>;
+type OpenApiParameter = {
+  name: string;
+  in: 'path' | 'query';
+  required?: boolean;
+  schema: JsonSchema;
+  description?: string;
+};
+
 const encoder = new TextEncoder();
 const CORE_ROUTES = listCliApiRoutes(mainCommand);
 
@@ -159,6 +168,114 @@ function spawnCli(argv: string[], cwd: string | undefined, auth: AuthContext) {
   });
 }
 
+function openApiPath(routePath: string): string {
+  return `/api/core${routePath}`.replace(/\[([^\]]+)\]/g, '{$1}');
+}
+
+function routePathParamNames(routePath: string): string[] {
+  return [...routePath.matchAll(/\[([^\]]+)\]/g)].map((match) => match[1]);
+}
+
+function optionSchema(type: 'boolean' | 'string'): JsonSchema {
+  return type === 'boolean' ? { type: 'boolean' } : { type: 'string' };
+}
+
+function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
+  const origin = new URL(request.url).origin;
+  const paths: Record<string, unknown> = {};
+
+  for (const route of CORE_ROUTES) {
+    const pathParamNames = routePathParamNames(route.path);
+    const queryParameters: OpenApiParameter[] = route.options.map((option) => ({
+      name: option.name,
+      in: 'query',
+      schema: optionSchema(option.type),
+      description: option.alias ? `${option.description} Short alias: -${option.alias}.` : option.description,
+    }));
+    const pathParameters: OpenApiParameter[] = pathParamNames.map((name) => ({
+      name,
+      in: 'path',
+      required: true,
+      schema: { type: 'string' },
+      description: `Value for the ${name} path parameter.`,
+    }));
+    const requestJsonSchema: JsonSchema = {
+      type: 'object',
+      properties: {
+        request: { type: 'string', description: 'Convenience single request argument, prepended before args when present.' },
+        args: { type: 'array', items: { type: 'string' }, description: 'Positional command arguments.' },
+        options: {
+          type: 'object',
+          description: 'Command options. Query parameters with the same names are also accepted.',
+          properties: Object.fromEntries(route.options.map((option) => [option.name, optionSchema(option.type)])),
+          additionalProperties: { oneOf: [{ type: 'string' }, { type: 'boolean' }, { type: 'number' }] },
+        },
+      },
+      additionalProperties: false,
+    };
+    const requestBodyContent: Record<string, unknown> = {
+      'application/json': { schema: requestJsonSchema },
+    };
+    if (route.multipart) {
+      requestBodyContent['multipart/form-data'] = {
+        schema: {
+          type: 'object',
+          properties: {
+            request: { type: 'string' },
+            args: { type: 'string', description: 'JSON-encoded array of positional arguments.' },
+            ...Object.fromEntries(route.options.map((option) => [option.name, optionSchema(option.type)])),
+          },
+        },
+      };
+    }
+
+    paths[openApiPath(route.path)] = {
+      post: {
+        operationId: `core_${route.commandPath.join('_').replace(/[^a-zA-Z0-9_]/g, '_')}`,
+        summary: route.description,
+        description: `Runs \`bun run primordia ${route.commandPath.join(' ')}\` through the Primordia Core route-action API.`,
+        tags: ['Primordia Core'],
+        security: [{ WebApiKey: [] }],
+        parameters: [...pathParameters, ...queryParameters],
+        requestBody: {
+          required: false,
+          content: requestBodyContent,
+        },
+        responses: {
+          200: route.streaming
+            ? { description: 'Command output stream.', content: { 'text/plain': { schema: { type: 'string' } } } }
+            : { description: 'Command JSON response.', content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } } },
+          400: { description: 'Invalid request or command usage.' },
+          401: { description: 'Missing or invalid web API key.' },
+          404: { description: 'Unknown Core API route.' },
+          500: { description: 'Command failed.' },
+        },
+      },
+    };
+  }
+
+  return {
+    openapi: '3.0.3',
+    info: {
+      title: 'Primordia Core API',
+      version: '1.0.0',
+      description: 'OpenAPI description for Primordia Core route-action endpoints generated from the Primordia CLI command metadata.',
+    },
+    servers: [{ url: origin, description: 'This Primordia instance' }],
+    components: {
+      securitySchemes: {
+        WebApiKey: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'Primordia web API key',
+          description: 'Create a revokable web API key in Settings → API Keys and pass it as a Bearer token.',
+        },
+      },
+    },
+    paths,
+  };
+}
+
 async function bufferedResponse(argv: string[], cwd: string | undefined, auth: AuthContext): Promise<Response> {
   const child = spawnCli(argv, cwd, auth);
   const stdoutChunks: Buffer[] = [];
@@ -200,7 +317,8 @@ function streamingResponse(argv: string[], cwd: string | undefined, auth: AuthCo
 
 export async function GET(request: Request, context: RouteContext) {
   const parts = (await context.params).path ?? [];
-  if (parts.length > 0 && parts[0] !== 'schema') return jsonResponse({ ok: false, error: 'not found' }, { status: 404 });
+  if (parts.length > 0 && parts[0] !== 'schema' && parts[0] !== 'openapi') return jsonResponse({ ok: false, error: 'not found' }, { status: 404 });
+  if (parts[0] === 'openapi') return jsonResponse(buildCoreOpenApiSpec(request));
   try {
     await authorize(request);
     return jsonResponse({
