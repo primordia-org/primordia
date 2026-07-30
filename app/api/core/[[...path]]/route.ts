@@ -16,6 +16,7 @@ type CoreOptions = Record<string, string | boolean | undefined>;
 interface ParsedBody {
   args: string[];
   options: CoreOptions;
+  values: Record<string, string | boolean | undefined>;
 }
 
 interface AuthContext {
@@ -59,6 +60,7 @@ async function parseRequestBody(request: Request): Promise<ParsedBody> {
     const form = await request.formData();
     const args: string[] = [];
     const options: CoreOptions = {};
+    const values: Record<string, string | boolean | undefined> = {};
     for (const [key, value] of form.entries()) {
       if (typeof value !== 'string') continue;
       if (key === 'args') {
@@ -69,25 +71,38 @@ async function parseRequestBody(request: Request): Promise<ParsedBody> {
         } catch {
           args.push(value);
         }
-      } else if (key === 'request') {
-        args.push(value);
+      } else if (key === 'options') {
+        try {
+          const parsed = JSON.parse(value) as Record<string, unknown>;
+          for (const [optionKey, optionValue] of Object.entries(parsed)) {
+            if (typeof optionValue === 'string' || typeof optionValue === 'boolean') options[optionKey] = optionValue;
+            else if (typeof optionValue === 'number') options[optionKey] = String(optionValue);
+          }
+        } catch {
+          // Ignore malformed legacy options payloads; command validation will report missing values as needed.
+        }
       } else {
-        options[key] = parseValue(value);
+        values[key] = parseValue(value);
       }
     }
-    return { args, options };
+    return { args, options, values };
   }
 
-  if (!contentType.includes('application/json')) return { args: [], options: {} };
-  const body = (await request.json().catch(() => ({}))) as { args?: unknown; options?: Record<string, unknown>; request?: unknown };
+  if (!contentType.includes('application/json')) return { args: [], options: {}, values: {} };
+  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const args = Array.isArray(body.args) ? body.args.map(String) : [];
-  if (typeof body.request === 'string') args.unshift(body.request);
   const options: CoreOptions = {};
-  for (const [key, value] of Object.entries(body.options ?? {})) {
+  for (const [key, value] of Object.entries((body.options as Record<string, unknown> | undefined) ?? {})) {
     if (typeof value === 'string' || typeof value === 'boolean') options[key] = value;
     else if (typeof value === 'number') options[key] = String(value);
   }
-  return { args, options };
+  const values: Record<string, string | boolean | undefined> = {};
+  for (const [key, value] of Object.entries(body)) {
+    if (key === 'args' || key === 'options') continue;
+    if (typeof value === 'string' || typeof value === 'boolean') values[key] = value;
+    else if (typeof value === 'number') values[key] = String(value);
+  }
+  return { args, options, values };
 }
 
 function withQueryOptions(options: CoreOptions, request: Request): CoreOptions {
@@ -136,21 +151,37 @@ function resolveThreadCwd(threadId: string): string {
   return worktree.path;
 }
 
+function userFacingOptions(route: CliApiRouteDef): CliApiRouteDef['options'] {
+  return route.options.filter((option) => option.name !== 'json');
+}
+
 function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed: ParsedBody, request: Request): { argv: string[]; cwd?: string; streaming: boolean } {
   const options = withQueryOptions(parsed.options, request);
+  for (const option of userFacingOptions(route)) {
+    const bodyValue = parsed.values[option.name] ?? (option.alias ? parsed.values[option.alias] : undefined);
+    if (bodyValue !== undefined) options[option.name] = bodyValue;
+  }
+  delete options.json;
+
   const streaming = route.streaming && options.follow !== false && options.f !== false;
-  if (hasOption(route, 'json') && options.json === undefined && !streaming) options.json = true;
+  if (hasOption(route, 'json') && !streaming) options.json = true;
   if (route.streaming && hasOption(route, 'follow') && options.follow === undefined && options.f === undefined) options.follow = true;
 
   const argv = [...route.commandPath];
   for (const [name, value] of Object.entries(options)) argv.push(...optionToArg(name, value));
 
-  const args = [...parsed.args];
+  const args: string[] = [];
   for (const arg of route.arguments) {
     if (route.cwdParam === arg.name) continue;
     const paramValue = params[arg.name];
-    if (paramValue && !args.includes(paramValue)) args.unshift(paramValue);
+    if (paramValue) {
+      args.push(paramValue);
+      continue;
+    }
+    const bodyValue = parsed.values[arg.name];
+    if (bodyValue !== undefined) args.push(String(bodyValue));
   }
+  args.push(...parsed.args);
   argv.push(...args);
 
   const cwdParam = route.cwdParam ? params[route.cwdParam] : undefined;
@@ -181,14 +212,34 @@ function optionSchema(type: 'boolean' | 'string'): JsonSchema {
   return type === 'boolean' ? { type: 'boolean' } : { type: 'string' };
 }
 
+function commandTag(route: CliApiRouteDef): string {
+  const group = route.commandPath[0] ?? 'core';
+  return group === 'status' ? 'status' : group;
+}
+
+function errorResponse(description: string): Record<string, unknown> {
+  return {
+    description,
+    content: {
+      'application/json': {
+        schema: { $ref: '#/components/schemas/ErrorResponse' },
+      },
+    },
+  };
+}
+
 function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
   const basePath = process.env.NEXT_BASE_PATH ?? '';
   const serverUrl = `${getPublicOrigin(request)}${basePath}`;
   const paths: Record<string, unknown> = {};
+  const tags = new Map<string, string>();
 
   for (const route of CORE_ROUTES) {
+    const tag = commandTag(route);
+    tags.set(tag, `Core API endpoints for \`primordia ${tag}\` commands.`);
     const pathParamNames = routePathParamNames(route.path);
-    const queryParameters: OpenApiParameter[] = route.options.map((option) => ({
+    const options = userFacingOptions(route);
+    const queryParameters: OpenApiParameter[] = options.map((option) => ({
       name: option.name,
       in: 'query',
       schema: optionSchema(option.type),
@@ -201,56 +252,68 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
       schema: { type: 'string' },
       description: `Value for the ${name} path parameter.`,
     }));
-    const requestJsonSchema: JsonSchema = {
-      type: 'object',
-      properties: {
-        request: { type: 'string', description: 'Convenience single request argument, prepended before args when present.' },
-        args: { type: 'array', items: { type: 'string' }, description: 'Positional command arguments.' },
-        options: {
+    const bodyArguments = route.arguments.filter((arg) => !pathParamNames.includes(arg.name) && route.cwdParam !== arg.name);
+    const bodyProperties: Record<string, JsonSchema> = {};
+    for (const arg of bodyArguments) {
+      bodyProperties[arg.name] = {
+        type: 'string',
+        description: arg.description,
+        ...(arg.valueHint ? { example: arg.valueHint } : {}),
+      };
+    }
+    for (const option of options) {
+      bodyProperties[option.name] = {
+        ...optionSchema(option.type),
+        description: option.alias ? `${option.description} Short alias: -${option.alias}.` : option.description,
+      };
+    }
+    const requiredBodyFields = bodyArguments.filter((arg) => arg.required).map((arg) => arg.name);
+    const requestBodyContent: Record<string, unknown> = {
+      'application/json': {
+        schema: {
           type: 'object',
-          description: 'Command options. Query parameters with the same names are also accepted.',
-          properties: Object.fromEntries(route.options.map((option) => [option.name, optionSchema(option.type)])),
-          additionalProperties: { oneOf: [{ type: 'string' }, { type: 'boolean' }, { type: 'number' }] },
+          properties: bodyProperties,
+          ...(requiredBodyFields.length > 0 ? { required: requiredBodyFields } : {}),
+          additionalProperties: false,
         },
       },
-      additionalProperties: false,
-    };
-    const requestBodyContent: Record<string, unknown> = {
-      'application/json': { schema: requestJsonSchema },
     };
     if (route.multipart) {
       requestBodyContent['multipart/form-data'] = {
         schema: {
           type: 'object',
-          properties: {
-            request: { type: 'string' },
-            args: { type: 'string', description: 'JSON-encoded array of positional arguments.' },
-            ...Object.fromEntries(route.options.map((option) => [option.name, optionSchema(option.type)])),
-          },
+          properties: bodyProperties,
+          ...(requiredBodyFields.length > 0 ? { required: requiredBodyFields } : {}),
+          additionalProperties: false,
         },
       };
     }
+    const hasRequestBody = Object.keys(bodyProperties).length > 0;
 
     paths[openApiPath(route.path)] = {
       post: {
         operationId: `core_${route.commandPath.join('_').replace(/[^a-zA-Z0-9_]/g, '_')}`,
         summary: route.description,
-        description: `Runs \`bun run primordia ${route.commandPath.join(' ')}\` through the Primordia Core route-action API.`,
-        tags: ['Primordia Core'],
+        description: `Runs \`bun run primordia ${route.commandPath.join(' ')}\` through the Primordia Core route-action API. Buffered commands automatically run with \`--json\`; streaming commands return their natural stream format.`,
+        tags: [tag],
         security: [{ WebApiKey: [] }],
         parameters: [...pathParameters, ...queryParameters],
-        requestBody: {
-          required: false,
-          content: requestBodyContent,
-        },
+        ...(hasRequestBody
+          ? {
+              requestBody: {
+                required: requiredBodyFields.length > 0,
+                content: requestBodyContent,
+              },
+            }
+          : {}),
         responses: {
           200: route.streaming
             ? { description: 'Command output stream.', content: { 'text/plain': { schema: { type: 'string' } } } }
             : { description: 'Command JSON response.', content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } } },
-          400: { description: 'Invalid request or command usage.' },
-          401: { description: 'Missing or invalid web API key.' },
-          404: { description: 'Unknown Core API route.' },
-          500: { description: 'Command failed.' },
+          400: errorResponse('Invalid request or command usage. The msg field contains the command validation error.'),
+          401: errorResponse('Missing or invalid web API key.'),
+          404: errorResponse('Unknown Core API route.'),
+          500: errorResponse('Command failed.'),
         },
       },
     };
@@ -264,6 +327,7 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
       description: 'OpenAPI description for Primordia Core route-action endpoints generated from the Primordia CLI command metadata.',
     },
     servers: [{ url: serverUrl, description: 'This Primordia instance' }],
+    tags: [...tags.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, description]) => ({ name, description })),
     components: {
       securitySchemes: {
         WebApiKey: {
@@ -271,6 +335,16 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
           scheme: 'bearer',
           bearerFormat: 'Primordia web API key',
           description: 'Create a revokable web API key in Settings → API Keys and pass it as a Bearer token.',
+        },
+      },
+      schemas: {
+        ErrorResponse: {
+          type: 'object',
+          properties: {
+            msg: { type: 'string', description: 'Human-readable error message from command validation or execution.' },
+          },
+          required: ['msg'],
+          additionalProperties: false,
         },
       },
     },
@@ -289,7 +363,17 @@ async function bufferedResponse(argv: string[], cwd: string | undefined, auth: A
   const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
 
   if (code !== 0) {
-    return jsonResponse({ msg: stderr || `Command exited with code ${code ?? 'unknown'}` }, { status: code === 64 ? 400 : 500 });
+    let message = stderr;
+    if (!message && stdout.trim()) {
+      try {
+        const parsed = JSON.parse(stdout) as { error?: unknown; msg?: unknown };
+        if (typeof parsed.msg === 'string') message = parsed.msg;
+        else if (typeof parsed.error === 'string') message = parsed.error;
+      } catch {
+        message = stdout.trim();
+      }
+    }
+    return jsonResponse({ msg: message || `Command exited with code ${code ?? 'unknown'}` }, { status: code === 64 ? 400 : 500 });
   }
 
   try {
@@ -340,7 +424,7 @@ export async function POST(request: Request, context: RouteContext) {
     const auth = await authorize(request);
     const parts = (await context.params).path ?? [];
     const matched = matchRoute(parts);
-    if (!matched) return jsonResponse({ ok: false, error: 'unknown Core API route' }, { status: 404 });
+    if (!matched) return jsonResponse({ msg: 'unknown Core API route' }, { status: 404 });
     const parsed = await parseRequestBody(request);
     const { argv, cwd, streaming } = buildArgv(matched.route, matched.params, parsed, request);
     if (streaming) return streamingResponse(argv, cwd, auth);
@@ -348,6 +432,6 @@ export async function POST(request: Request, context: RouteContext) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const status = message.toLowerCase().includes('authorization') || message.toLowerCase().includes('restricted to') ? 401 : 400;
-    return jsonResponse({ ok: false, error: message }, { status });
+    return jsonResponse({ msg: message }, { status });
   }
 }
