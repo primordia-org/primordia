@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { withBasePath } from "@/lib/base-path";
 
 type CoreRoute = {
   path: string;
@@ -20,7 +21,7 @@ type SchemaResponse = {
   error?: string;
 };
 
-function withBase(path: string): string {
+function ensureLeadingSlash(path: string): string {
   return path.startsWith("/") ? path : `/${path}`;
 }
 
@@ -56,7 +57,7 @@ export default function CoreApiTestClient() {
     setBusy(true);
     setOutput([]);
     try {
-      const res = await fetch("/api/core", { headers: bearerHeaders(apiKey) });
+      const res = await fetch(withBasePath("/api/core"), { headers: bearerHeaders(apiKey) });
       const data = (await res.json()) as SchemaResponse;
       setSchema(data);
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
@@ -85,7 +86,7 @@ export default function CoreApiTestClient() {
     try {
       const headers = bearerHeaders(apiKey);
       if (!useMultipart) (headers as Record<string, string>)["content-type"] = "application/json";
-      const res = await fetch(`/api/core${withBase(concretePath)}`, {
+      const res = await fetch(withBasePath(`/api/core${ensureLeadingSlash(concretePath)}`), {
         method: "POST",
         headers,
         body: requestBody(),
@@ -148,7 +149,7 @@ export default function CoreApiTestClient() {
           </select>
         </label>
         <div className="rounded-lg border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-gray-400">
-          Concrete test URL: <code className="text-gray-200">/api/core{concretePath}</code>
+          Concrete test URL: <code className="text-gray-200">{withBasePath(`/api/core${ensureLeadingSlash(concretePath)}`)}</code>
         </div>
         <label className="flex items-center gap-2 text-sm text-gray-300">
           <input type="checkbox" checked={useMultipart} onChange={(event) => setUseMultipart(event.target.checked)} />
