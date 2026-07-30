@@ -189,7 +189,9 @@ function formatToolInput(input: Record<string, unknown>): string {
   return keys.length > 0 ? keys.join(', ') : 'no input';
 }
 
-function formatSessionEventHuman(line: string): string | null {
+type HumanLogChunk = string | { text: string; inline?: boolean };
+
+function formatSessionEventHuman(line: string): HumanLogChunk | null {
   const event = parseSessionEventLine(line);
   if (event.type === 'malformed_log_line') return event.line;
 
@@ -204,8 +206,10 @@ function formatSessionEventHuman(line: string): string | null {
       return `Follow-up: ${compactText(event.request)}`;
     case 'text':
     case 'thinking':
-    case 'log_line':
-      return compactText(event.content) || null;
+    case 'log_line': {
+      const text = compactText(event.content);
+      return text ? { text, inline: true } : null;
+    }
     case 'tool_use':
       return `Ran ${event.name}: ${formatToolInput(event.input)}`;
     case 'result':
@@ -234,7 +238,7 @@ function formatSessionEventHuman(line: string): string | null {
   }
 }
 
-async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { rawNdjson?: boolean; humanFormatter?: (line: string) => string | null } = {}): Promise<void> {
+async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { rawNdjson?: boolean; humanFormatter?: (line: string) => HumanLogChunk | null } = {}): Promise<void> {
   const lineCount = resolveLogLineCount(args);
   const follow = Boolean(args.follow || args.f);
   const recent = lineCount === 0 ? [] : readTextLogLines(logFile).slice(-lineCount);
@@ -248,16 +252,25 @@ async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { r
   }
 
   const formatter = options.humanFormatter ?? ((line: string) => line);
-  for (const line of recent) {
-    const formatted = formatter(line);
-    if (formatted) console.log(formatted);
-  }
-  if (follow) {
-    for await (const line of followTextLogLines(logFile)) {
-      const formatted = formatter(line);
-      if (formatted) process.stdout.write(`${formatted}\n`);
+  let inlineOpen = false;
+  const writeFormatted = (formatted: HumanLogChunk | null): void => {
+    if (!formatted) return;
+    if (typeof formatted === 'object' && formatted.inline) {
+      process.stdout.write(`${inlineOpen ? ' ' : ''}${formatted.text}`);
+      inlineOpen = true;
+      return;
     }
+    if (inlineOpen) process.stdout.write('\n');
+    const text = typeof formatted === 'string' ? formatted : formatted.text;
+    console.log(text);
+    inlineOpen = false;
+  };
+
+  for (const line of recent) writeFormatted(formatter(line));
+  if (follow) {
+    for await (const line of followTextLogLines(logFile)) writeFormatted(formatter(line));
   }
+  if (inlineOpen) process.stdout.write('\n');
 }
 
 async function renderServerLogs(threadId: string, args: ServiceLogArgs): Promise<void> {
