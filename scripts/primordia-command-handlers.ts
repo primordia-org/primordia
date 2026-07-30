@@ -256,7 +256,7 @@ async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { r
   const writeFormatted = (formatted: HumanLogChunk | null): void => {
     if (!formatted) return;
     if (typeof formatted === 'object' && formatted.inline) {
-      process.stdout.write(`${inlineOpen ? ' ' : ''}${formatted.text}`);
+      process.stdout.write(formatted.text);
       inlineOpen = true;
       return;
     }
