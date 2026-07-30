@@ -3,6 +3,7 @@ import { once } from 'events';
 import * as path from 'path';
 import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
 import { getProcessStatusReport } from '@/lib/process-manager';
+import { getPublicOrigin } from '@/lib/public-origin';
 import { listCliApiRoutes, type CliApiRouteDef } from '@/lib/tiny-cli';
 import { mainCommand } from '@/scripts/primordia';
 
@@ -181,7 +182,8 @@ function optionSchema(type: 'boolean' | 'string'): JsonSchema {
 }
 
 function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
-  const origin = new URL(request.url).origin;
+  const basePath = process.env.NEXT_BASE_PATH ?? '';
+  const serverUrl = `${getPublicOrigin(request)}${basePath}`;
   const paths: Record<string, unknown> = {};
 
   for (const route of CORE_ROUTES) {
@@ -261,7 +263,7 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
       version: '1.0.0',
       description: 'OpenAPI description for Primordia Core route-action endpoints generated from the Primordia CLI command metadata.',
     },
-    servers: [{ url: origin, description: 'This Primordia instance' }],
+    servers: [{ url: serverUrl, description: 'This Primordia instance' }],
     components: {
       securitySchemes: {
         WebApiKey: {
