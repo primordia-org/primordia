@@ -8,6 +8,6 @@ Resumed the archived `bidi-server-protocol` thread work by extending the existin
 - Core actions accept JSON bodies and multipart form bodies. Form fields map to command arguments/options so thread create/follow-up endpoints can grow file attachment support naturally.
 - Buffered Core actions now return the command's stdout JSON directly. Failed commands return `{ msg: stderr }`, with CLI usage errors mapped to HTTP 400 via a dedicated CLI exit code and other failures mapped to HTTP 500.
 - Streaming commands, including log-style commands, stream plain text responses by default instead of requiring a second transport.
-- Updated `/test-pages/core-api-test` so developers can paste a web API key, inspect generated Core API routes, and exercise buffered, streaming, JSON, or multipart POST action calls from the browser. The test page prefixes internal API requests with the configured Next.js base path so it works in sub-path and preview deployments, and pretty-prints JSON responses.
+- Updated `/test-pages/core-api-test` so developers can paste a web API key, inspect generated Core API routes, specify a thread id for `[threadId]` routes, and exercise buffered, streaming, JSON, or multipart POST action calls from the browser. The test page prefixes internal API requests with the configured Next.js base path so it works in sub-path and preview deployments, and pretty-prints JSON responses.
 
 This gives non-Next.js clients a route-oriented Core API sketch while keeping behavior sourced from the same command definitions used by the CLI.

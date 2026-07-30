@@ -36,14 +36,15 @@ function exampleBody(route: CoreRoute | undefined): string {
   return JSON.stringify({ args: [], options: {} }, null, 2);
 }
 
-function fillExampleParams(path: string): string {
-  return path.replaceAll("[threadId]", "core-api-cli-definitions").replaceAll("[job]", "dependency-audit");
+function fillExampleParams(path: string, threadId: string): string {
+  return path.replaceAll("[threadId]", encodeURIComponent(threadId || "core-api-cli-definitions")).replaceAll("[job]", "dependency-audit");
 }
 
 export default function CoreApiTestClient() {
   const [apiKey, setApiKey] = useState("");
   const [schema, setSchema] = useState<SchemaResponse | null>(null);
   const [routePath, setRoutePath] = useState("/status");
+  const [threadId, setThreadId] = useState("core-api-cli-definitions");
   const [bodyText, setBodyText] = useState(JSON.stringify({ args: [], options: {} }, null, 2));
   const [useMultipart, setUseMultipart] = useState(false);
   const [output, setOutput] = useState<string[]>([]);
@@ -51,7 +52,8 @@ export default function CoreApiTestClient() {
 
   const routes = useMemo(() => schema?.routes ?? [], [schema]);
   const selectedRoute = routes.find((route) => route.path === routePath);
-  const concretePath = fillExampleParams(routePath);
+  const routeNeedsThreadId = routePath.includes("[threadId]");
+  const concretePath = fillExampleParams(routePath, threadId);
 
   async function fetchSchema() {
     setBusy(true);
@@ -153,6 +155,12 @@ export default function CoreApiTestClient() {
             {routes.map((route) => <option key={route.path} value={route.path}>{route.httpMethod} {route.path}{route.streaming ? " (streams)" : ""}{route.multipart ? " (multipart)" : ""}</option>)}
           </select>
         </label>
+        {routeNeedsThreadId && (
+          <label className="block text-sm">
+            <span className="text-gray-300">Thread ID</span>
+            <input value={threadId} onChange={(event) => setThreadId(event.target.value)} placeholder="core-api-cli-definitions" className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 font-mono text-sm text-gray-100" />
+          </label>
+        )}
         <div className="rounded-lg border border-gray-800 bg-gray-950 px-3 py-2 text-xs text-gray-400">
           Concrete test URL: <code className="text-gray-200">{withBasePath(`/api/core${ensureLeadingSlash(concretePath)}`)}</code>
         </div>
