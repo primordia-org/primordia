@@ -208,12 +208,11 @@ function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed
     const bodyValue = parsed.values[option.name] ?? (option.alias ? parsed.values[option.alias] : undefined);
     if (bodyValue !== undefined) options[option.name] = bodyValue;
   }
-  const streaming = route.streaming && (options.follow === true || options.f === true);
-  const ndjson = streaming && options.json === true;
-  if (hasOption(route, 'json')) {
-    if (!streaming) options.json = true;
-    else if (!ndjson) delete options.json;
-  }
+  const explicitFollow = options.follow === true || options.f === true;
+  if (hasOption(route, 'json') && options.json !== false) options.json = true;
+  const ndjson = route.streaming && options.json === true;
+  const streaming = route.streaming && (explicitFollow || ndjson);
+  if (hasOption(route, 'json') && streaming && !ndjson) delete options.json;
 
   for (const option of route.options) {
     if (option.type === 'string' && options[option.name] === '') throw new Error(`--${option.name} requires a value`);
@@ -378,13 +377,13 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
         responses: {
           200: route.streaming
             ? {
-                description: 'Command output stream. Pass `follow=true&json=true` to receive newline-delimited JSON.',
+                description: 'Command output stream. For log commands, `json=true` means machine-formatted newline-delimited JSON rather than human-readable text.',
                 content: {
                   'text/plain': { schema: { type: 'string' } },
                   'application/x-ndjson': { schema: { type: 'string' } },
                 },
               }
-            : { description: 'Command JSON response.', content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } } },
+            : { description: 'Command machine-formatted response.', content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } } },
           400: errorResponse('Invalid request or command usage. The msg field contains the command validation error.'),
           401: errorResponse('Missing or invalid web API key.'),
           404: errorResponse('Unknown Core API route.'),

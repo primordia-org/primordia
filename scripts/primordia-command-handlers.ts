@@ -36,6 +36,7 @@ import {
   type PrimordiaJobName,
 } from '@/lib/scheduled-jobs';
 import { resolveCliPresetIdForUser } from './primordia-preset-helpers';
+import type { SessionEvent } from '@/lib/session-events';
 import type { CliParsedArgs } from '@/lib/tiny-cli';
 
 type UserSelectorArgs = { user?: string };
@@ -163,38 +164,99 @@ function formatNdjsonLine(line: string, rawNdjson: boolean): string {
       JSON.parse(line);
       return `${line}\n`;
     } catch {
-      return `${JSON.stringify({ line })}\n`;
+      return `${JSON.stringify({ type: 'malformed_log_line', line })}\n`;
     }
   }
-  return `${JSON.stringify({ line })}\n`;
+  return `${JSON.stringify({ type: 'log_line', line })}\n`;
 }
 
-async function renderLogFile(logFile: string, args: ServiceLogArgs, rawNdjson = false): Promise<void> {
+function parseSessionEventLine(line: string): SessionEvent | { type: 'malformed_log_line'; line: string } {
+  try {
+    return JSON.parse(line) as SessionEvent;
+  } catch {
+    return { type: 'malformed_log_line', line };
+  }
+}
+
+function compactText(content: string): string {
+  return content.replace(/\s+/g, ' ').trim();
+}
+
+function formatToolInput(input: Record<string, unknown>): string {
+  const command = input.command;
+  if (typeof command === 'string') return command;
+  const keys = Object.keys(input);
+  return keys.length > 0 ? keys.join(', ') : 'no input';
+}
+
+function formatSessionEventHuman(line: string): string | null {
+  const event = parseSessionEventLine(line);
+  if (event.type === 'malformed_log_line') return event.line;
+
+  switch (event.type) {
+    case 'section_start':
+      return `\n${event.label}`;
+    case 'setup_step':
+      return event.done ? `✓ ${event.label}` : `• ${event.label}`;
+    case 'initial_request':
+      return `User asked: ${compactText(event.request)}`;
+    case 'followup_request':
+      return `Follow-up: ${compactText(event.request)}`;
+    case 'text':
+    case 'thinking':
+    case 'log_line':
+      return compactText(event.content) || null;
+    case 'tool_use':
+      return `Ran ${event.name}: ${formatToolInput(event.input)}`;
+    case 'result':
+      return `${event.subtype === 'success' ? '✓' : '✗'} ${event.message ? compactText(event.message) : event.subtype}`;
+    case 'metrics': {
+      const parts = [
+        event.durationMs === null ? null : `${Math.round(event.durationMs / 1000)}s`,
+        event.inputTokens === null ? null : `${event.inputTokens} input tokens`,
+        event.outputTokens === null ? null : `${event.outputTokens} output tokens`,
+        event.costUsd === null ? null : `$${event.costUsd.toFixed(4)}`,
+      ].filter(Boolean);
+      return parts.length > 0 ? `Metrics: ${parts.join(', ')}` : null;
+    }
+    case 'progress_plan':
+      return event.steps.length > 0 ? `Plan: ${event.steps.map((step) => step.label).join(' → ')}` : null;
+    case 'progress_step':
+      return event.status === 'done'
+        ? `Completed step${event.activatedNextLabel ? `; next: ${event.activatedNextLabel}` : ''}`
+        : `Step failed${event.activatedNextLabel ? `; next: ${event.activatedNextLabel}` : ''}`;
+    case 'preview_path':
+      return `Preview: ${event.path}`;
+    case 'decision':
+      return `${event.action === 'accepted' ? 'Accepted' : 'Rejected'}: ${event.detail}`;
+    default:
+      return null;
+  }
+}
+
+async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { rawNdjson?: boolean; humanFormatter?: (line: string) => string | null } = {}): Promise<void> {
   const lineCount = resolveLogLineCount(args);
   const follow = Boolean(args.follow || args.f);
   const recent = lineCount === 0 ? [] : readTextLogLines(logFile).slice(-lineCount);
 
-  if (args.json && follow) {
-    for (const line of recent) process.stdout.write(formatNdjsonLine(line, rawNdjson));
-    for await (const line of followTextLogLines(logFile)) process.stdout.write(formatNdjsonLine(line, rawNdjson));
-    return;
-  }
-
   if (args.json) {
-    if (rawNdjson) {
-      const events = recent.map((line) => {
-        try { return JSON.parse(line) as unknown; } catch { return { line }; }
-      });
-      printJson({ logFile, lines: recent, events });
-    } else {
-      printJson({ logFile, lines: recent });
+    for (const line of recent) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
+    if (follow) {
+      for await (const line of followTextLogLines(logFile)) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
     }
     return;
   }
 
-  if (recent.length > 0) console.log(recent.join('\n'));
+  const formatter = options.humanFormatter ?? ((line: string) => line);
+  for (const line of recent) {
+    const formatted = formatter(line);
+    if (formatted) console.log(formatted);
+  }
   if (follow) {
-    for await (const line of followTextLogLines(logFile)) process.stdout.write(`${line}\n`);
+    for await (const line of followTextLogLines(logFile)) {
+      const formatted = formatter(line);
+      if (formatted) process.stdout.write(`${formatted}\n`);
+    }
   }
 }
 
@@ -592,7 +654,10 @@ export async function serverLogsCommand(args: CliParsedArgs & ServiceLogArgs): P
 
 export async function threadLogsCommand(args: CliParsedArgs & ServiceLogArgs): Promise<void> {
   const thread = getCurrentThread();
-  await renderLogFile(path.join(thread.path, '.primordia-session.ndjson'), args, true);
+  await renderLogFile(path.join(thread.path, '.primordia-session.ndjson'), args, {
+    rawNdjson: true,
+    humanFormatter: formatSessionEventHuman,
+  });
 }
 
 export async function serverPublishCommand(args: CliParsedArgs): Promise<void> {

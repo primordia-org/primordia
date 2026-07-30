@@ -22,7 +22,7 @@ function importPresetHelpers(): Promise<typeof import('./primordia-preset-helper
 const jsonOption: CliOptionDef = {
   name: 'json',
   type: 'boolean',
-  description: 'Print machine-readable JSON.',
+  description: 'Print machine-formatted output instead of human-readable output. Log commands use NDJSON.',
 };
 
 const devOption: CliOptionDef = {
@@ -203,7 +203,7 @@ const restartCommand: CliCommandDef = {
 
 const logsCommand: CliCommandDef = {
   name: 'logs',
-  description: "Print the thread's server log file.",
+  description: "Print the thread's server log file. With --json, emits NDJSON records wrapping each log line.",
   options: [jsonOption, linesOption, followOption],
   api: { path: '/server/[threadId]/logs', method: 'GET', streaming: true, cwdParam: 'threadId' },
   run: lazyRun('serverLogsCommand'),
@@ -245,7 +245,7 @@ const followupCommand: CliCommandDef = {
 
 const threadLogsCommand: CliCommandDef = {
   name: 'logs',
-  description: "Print the thread's session NDJSON log file.",
+  description: "Print the thread's session log in a human-readable form. With --json, emits raw NDJSON events.",
   options: [jsonOption, linesOption, followOption],
   api: { path: '/thread/[threadId]/logs', method: 'GET', streaming: true, cwdParam: 'threadId' },
   run: lazyRun('threadLogsCommand'),
