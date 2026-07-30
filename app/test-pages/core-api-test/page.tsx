@@ -1,22 +1,14 @@
-"use client";
+import type { Metadata } from "next";
+import { buildPageTitle } from "@/lib/page-title";
+import CoreApiScalarClient from "./CoreApiScalarClient";
 
-import { ApiReferenceReact } from "@scalar/api-reference-react";
-import "@scalar/api-reference-react/style.css";
-import { withBasePath } from "@/lib/base-path";
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: buildPageTitle("Core API Test"),
+    description: "Explore the Primordia Core route-action API with Scalar.",
+  };
+}
 
 export default function CoreApiTestPage() {
-  return (
-    <ApiReferenceReact
-      configuration={{
-        _integration: "nextjs",
-        url: withBasePath("/api/core/openapi"),
-        theme: "moon",
-        layout: "modern",
-        defaultHttpClient: {
-          targetKey: "js",
-          clientKey: "fetch",
-        },
-      }}
-    />
-  );
+  return <CoreApiScalarClient />;
 }
