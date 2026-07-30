@@ -166,13 +166,18 @@ async function bufferedResponse(argv: string[], cwd: string | undefined, auth: A
   child.stdout?.on('data', (chunk) => stdoutChunks.push(Buffer.from(chunk)));
   child.stderr?.on('data', (chunk) => stderrChunks.push(Buffer.from(chunk)));
   const [code] = await once(child, 'close') as [number | null];
-  return jsonResponse({
-    ok: code === 0,
-    code,
-    argv,
-    stdout: Buffer.concat(stdoutChunks).toString('utf8'),
-    stderr: Buffer.concat(stderrChunks).toString('utf8'),
-  }, { status: code === 0 ? 200 : 500 });
+  const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+  const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
+
+  if (code !== 0) {
+    return jsonResponse({ msg: stderr || `Command exited with code ${code ?? 'unknown'}` }, { status: code === 64 ? 400 : 500 });
+  }
+
+  try {
+    return jsonResponse(JSON.parse(stdout));
+  } catch {
+    return jsonResponse({ msg: 'Command succeeded but did not print valid JSON.', stdout }, { status: 500 });
+  }
 }
 
 function streamingResponse(argv: string[], cwd: string | undefined, auth: AuthContext): Response {

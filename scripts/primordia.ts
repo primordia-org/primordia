@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import {
+  CliUsageError,
   runCli,
   type CliArgumentDef,
   type CliCommandDef,
@@ -418,7 +419,7 @@ async function main(): Promise<void> {
     const message = err instanceof Error ? err.message : String(err);
     if (rawArgs.includes('--json')) console.log(JSON.stringify({ ok: false, error: message }, null, 2));
     else console.error(message);
-    process.exit(1);
+    process.exit(err instanceof CliUsageError ? 64 : 1);
   }
 }
 

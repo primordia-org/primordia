@@ -1,5 +1,12 @@
 export type CliValue = string | boolean | undefined;
 
+export class CliUsageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CliUsageError';
+  }
+}
+
 export interface CliParsedArgs {
   _: string[];
   [key: string]: CliValue | string[];
@@ -245,16 +252,16 @@ export function parseCliArgs(command: CliCommandDef, rawArgs: string[]): CliPars
       const negated = rawName.startsWith('no-');
       const name = negated ? rawName.slice(3) : rawName;
       const option = longOptions.get(name);
-      if (!option) throw new Error(`Unknown option: --${rawName}`);
-      if (negated && option.type !== 'boolean') throw new Error(`--${rawName} is only valid for boolean options`);
+      if (!option) throw new CliUsageError(`Unknown option: --${rawName}`);
+      if (negated && option.type !== 'boolean') throw new CliUsageError(`--${rawName} is only valid for boolean options`);
       if (option.type === 'boolean') {
         assignOption(args, option, !negated);
       } else if (token.includes('=')) {
-        if (!inlineValue) throw new Error(`--${name} requires a value`);
+        if (!inlineValue) throw new CliUsageError(`--${name} requires a value`);
         assignOption(args, option, inlineValue);
       } else {
         const next = rawArgs[index + 1];
-        if (!next || (next.startsWith('-') && next !== '-')) throw new Error(`--${name} requires a value`);
+        if (!next || (next.startsWith('-') && next !== '-')) throw new CliUsageError(`--${name} requires a value`);
         assignOption(args, option, next);
         index += 1;
       }
@@ -262,15 +269,15 @@ export function parseCliArgs(command: CliCommandDef, rawArgs: string[]): CliPars
     }
 
     const shortNames = token.slice(1).split('');
-    if (shortNames.length > 1) throw new Error(`Unknown option: ${token}. Use separate short flags instead.`);
+    if (shortNames.length > 1) throw new CliUsageError(`Unknown option: ${token}. Use separate short flags instead.`);
     const [shortName] = shortNames;
     const option = shortOptions.get(shortName);
-    if (!option) throw new Error(`Unknown option: -${shortName}`);
+    if (!option) throw new CliUsageError(`Unknown option: -${shortName}`);
     if (option.type === 'boolean') {
       assignOption(args, option, true);
     } else {
       const next = rawArgs[index + 1];
-      if (!next || (next.startsWith('-') && next !== '-')) throw new Error(`-${shortName} requires a value`);
+      if (!next || (next.startsWith('-') && next !== '-')) throw new CliUsageError(`-${shortName} requires a value`);
       assignOption(args, option, next);
       index += 1;
     }
@@ -281,7 +288,7 @@ export function parseCliArgs(command: CliCommandDef, rawArgs: string[]): CliPars
     const argument = argumentDefs[index];
     const value = args._[index];
     if (value === undefined) {
-      if (argument.required) throw new Error(`Missing required argument: ${argument.name}`);
+      if (argument.required) throw new CliUsageError(`Missing required argument: ${argument.name}`);
     } else {
       args[argument.name] = value;
     }
@@ -374,9 +381,9 @@ export async function runCli(root: CliCommandDef, rawArgs: string[]): Promise<vo
 
   const resolved = resolveCommand(root, rawArgs);
   if (visibleSubcommands(resolved.command).length > 0 && !resolved.command.run) {
-    throw new Error(`No command specified for ${resolved.path.join(' ')}`);
+    throw new CliUsageError(`No command specified for ${resolved.path.join(' ')}`);
   }
-  if (!resolved.command.run) throw new Error(`Unknown command: ${resolved.remaining[0] ?? rawArgs.join(' ')}`);
+  if (!resolved.command.run) throw new CliUsageError(`Unknown command: ${resolved.remaining[0] ?? rawArgs.join(' ')}`);
   const args = parseCliArgs(resolved.command, resolved.remaining);
   await resolved.command.run({ args, rawArgs: resolved.remaining, commandPath: resolved.path });
 }

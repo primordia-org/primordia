@@ -102,7 +102,12 @@ export default function CoreApiTestClient() {
           setOutput((current) => [...current, decoder.decode(value, { stream: true })]);
         }
       } else {
-        setOutput([await res.text()]);
+        const text = await res.text();
+        try {
+          setOutput([JSON.stringify(JSON.parse(text), null, 2)]);
+        } catch {
+          setOutput([text]);
+        }
       }
     } catch (error) {
       setOutput([error instanceof Error ? error.message : String(error)]);
@@ -139,7 +144,7 @@ export default function CoreApiTestClient() {
       <section className="rounded-xl border border-gray-800 bg-gray-900/70 p-5 space-y-4">
         <div>
           <h2 className="text-base font-semibold text-white">Run a route action</h2>
-          <p className="mt-1 text-sm text-gray-400">Commands are exposed as POST endpoints. Streaming commands, such as logs, stream plain text by default.</p>
+          <p className="mt-1 text-sm text-gray-400">Commands are exposed as POST endpoints. JSON responses are pretty-printed here; streaming commands, such as logs, stream plain text by default.</p>
         </div>
         <label className="block text-sm">
           <span className="text-gray-300">Route</span>
