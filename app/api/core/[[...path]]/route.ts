@@ -174,6 +174,10 @@ function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed
   if (hasOption(route, 'json') && !streaming) options.json = true;
   if (route.streaming && hasOption(route, 'follow') && options.follow === undefined && options.f === undefined) options.follow = true;
 
+  for (const option of route.options) {
+    if (option.type === 'string' && options[option.name] === '') throw new Error(`--${option.name} requires a value`);
+  }
+
   const argv = [...route.commandPath];
   for (const [name, value] of Object.entries(options)) argv.push(...optionToArg(name, value));
 
