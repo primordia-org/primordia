@@ -40,6 +40,12 @@ function jsonResponse(value: unknown, init?: ResponseInit): Response {
   return Response.json(value, init);
 }
 
+function terminalJsonResponse(value: unknown, init?: ResponseInit): Response {
+  const headers = new Headers(init?.headers);
+  headers.set('connection', 'close');
+  return Response.json(value, { ...init, headers });
+}
+
 async function authorize(request: Request): Promise<AuthContext> {
   const header = request.headers.get('authorization') ?? '';
   const match = header.match(/^Bearer\s+(.+)$/i);
@@ -170,9 +176,8 @@ function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed
   }
   delete options.json;
 
-  const streaming = route.streaming && options.follow !== false && options.f !== false;
+  const streaming = route.streaming && (options.follow === true || options.f === true);
   if (hasOption(route, 'json') && !streaming) options.json = true;
-  if (route.streaming && hasOption(route, 'follow') && options.follow === undefined && options.f === undefined) options.follow = true;
 
   for (const option of route.options) {
     if (option.type === 'string' && options[option.name] === '') throw new Error(`--${option.name} requires a value`);
@@ -387,13 +392,13 @@ async function bufferedResponse(argv: string[], cwd: string | undefined, auth: A
         message = stdout.trim();
       }
     }
-    return jsonResponse({ msg: message || `Command exited with code ${code ?? 'unknown'}` }, { status: code === 64 ? 400 : 500 });
+    return terminalJsonResponse({ msg: message || `Command exited with code ${code ?? 'unknown'}` }, { status: code === 64 ? 400 : 500 });
   }
 
   try {
     return jsonResponse(JSON.parse(stdout));
   } catch {
-    return jsonResponse({ msg: 'Command succeeded but did not print valid JSON.', stdout }, { status: 500 });
+    return terminalJsonResponse({ msg: 'Command succeeded but did not print valid JSON.', stdout }, { status: 500 });
   }
 }
 
@@ -419,9 +424,9 @@ async function coreActionResponse(request: Request, parts: string[], method: 'GE
   try {
     const auth = await authorize(request);
     const matched = matchRoute(parts);
-    if (!matched) return jsonResponse({ msg: 'unknown Core API route' }, { status: 404 });
+    if (!matched) return terminalJsonResponse({ msg: 'unknown Core API route' }, { status: 404 });
     if (matched.route.httpMethod !== method) {
-      return jsonResponse({ msg: `Use ${matched.route.httpMethod} for this Core API route.` }, { status: 405, headers: { allow: matched.route.httpMethod } });
+      return terminalJsonResponse({ msg: `Use ${matched.route.httpMethod} for this Core API route.` }, { status: 405, headers: { allow: matched.route.httpMethod } });
     }
     const parsed = method === 'GET' ? { args: [], options: {}, values: {} } : await parseRequestBody(request);
     const { argv, cwd, streaming } = buildArgv(matched.route, matched.params, parsed, request);
@@ -430,7 +435,7 @@ async function coreActionResponse(request: Request, parts: string[], method: 'GE
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const status = message.toLowerCase().includes('authorization') || message.toLowerCase().includes('restricted to') ? 401 : 400;
-    return jsonResponse({ msg: message }, { status });
+    return terminalJsonResponse({ msg: message }, { status });
   }
 }
 
