@@ -293,8 +293,8 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
     paths[openApiPath(route.path)] = {
       post: {
         operationId: `core_${route.commandPath.join('_').replace(/[^a-zA-Z0-9_]/g, '_')}`,
-        summary: route.description,
-        description: `Runs \`bun run primordia ${route.commandPath.join(' ')}\` through the Primordia Core route-action API. Buffered commands automatically run with \`--json\`; streaming commands return their natural stream format.`,
+        summary: route.commandPath.at(-1) ?? route.path.replace(/^\//, ''),
+        description: route.description,
         tags: [tag],
         security: [{ WebApiKey: [] }],
         parameters: [...pathParameters, ...queryParameters],
