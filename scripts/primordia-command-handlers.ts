@@ -183,7 +183,7 @@ function compactText(content: string): string {
 }
 
 function inlineText(content: string): string {
-  return content.replace(/\s+/g, ' ');
+  return content.replace(/[ \t\f\v\r]+/g, ' ');
 }
 
 function formatToolInput(input: Record<string, unknown>): string {
