@@ -1,4 +1,4 @@
-export type CliValue = string | boolean | undefined;
+export type CliValue = string | string[] | boolean | undefined;
 
 export class CliUsageError extends Error {
   constructor(message: string) {
@@ -28,6 +28,8 @@ export interface CliOptionDef {
   valueHint?: string;
   description: string;
   complete?: CliCompletionSource;
+  /** Allow the option to be provided more than once. Repeated values are exposed as string[]. */
+  multiple?: boolean;
 }
 
 export interface CliArgumentDef {
@@ -73,7 +75,7 @@ export interface CliApiRouteDef {
   streaming: boolean;
   multipart: boolean;
   cwdParam?: string;
-  options: Array<Pick<CliOptionDef, 'name' | 'alias' | 'type' | 'valueHint' | 'description'>>;
+  options: Array<Pick<CliOptionDef, 'name' | 'alias' | 'type' | 'valueHint' | 'description' | 'multiple'>>;
   arguments: Array<Pick<CliArgumentDef, 'name' | 'required' | 'valueHint' | 'description'>>;
 }
 
@@ -131,7 +133,7 @@ export function listCliApiRoutes(root: CliCommandDef): CliApiRouteDef[] {
       streaming: command.api?.streaming ?? false,
       multipart: command.api?.multipart ?? false,
       cwdParam: command.api?.cwdParam,
-      options: (command.options ?? []).map(({ name, alias, type, valueHint, description }) => ({ name, alias, type, valueHint, description })),
+      options: (command.options ?? []).map(({ name, alias, type, valueHint, description, multiple }) => ({ name, alias, type, valueHint, description, multiple })),
       arguments: (command.arguments ?? []).map(({ name, required, valueHint, description }) => ({ name, required, valueHint, description })),
     }))
     .sort((a, b) => a.path.localeCompare(b.path));
@@ -221,8 +223,17 @@ function resolveCommand(root: CliCommandDef, rawArgs: string[]): ResolvedCommand
 }
 
 function assignOption(args: CliParsedArgs, option: CliOptionDef, value: string | boolean): void {
-  args[option.name] = value;
-  if (option.alias) args[option.alias] = value;
+  if (!option.multiple) {
+    args[option.name] = value;
+    if (option.alias) args[option.alias] = value;
+    return;
+  }
+
+  if (typeof value !== 'string') throw new CliUsageError(`--${option.name} cannot be repeated as a boolean option`);
+  const existing = args[option.name];
+  const values = Array.isArray(existing) ? [...existing, value] : typeof existing === 'string' ? [existing, value] : [value];
+  args[option.name] = values;
+  if (option.alias) args[option.alias] = values;
 }
 
 export function parseCliArgs(command: CliCommandDef, rawArgs: string[]): CliParsedArgs {

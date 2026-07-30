@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { once } from 'events';
+import * as fs from 'fs';
 import * as path from 'path';
 import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
 import { getProcessStatusReport } from '@/lib/process-manager';
@@ -11,7 +12,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ path?: string[] }> };
-type CoreOptions = Record<string, string | boolean | undefined>;
+type CoreOptions = Record<string, string | string[] | boolean | undefined>;
 
 interface ParsedBody {
   args: string[];
@@ -67,8 +68,30 @@ async function parseRequestBody(request: Request): Promise<ParsedBody> {
     const args: string[] = [];
     const options: CoreOptions = {};
     const values: Record<string, string | boolean | undefined> = {};
+    const uploadDir = path.join('/tmp', `primordia-core-upload-${crypto.randomUUID()}`);
+    let wroteUpload = false;
     for (const [key, value] of form.entries()) {
-      if (typeof value !== 'string') continue;
+      if (typeof value !== 'string') {
+        const file = value as File;
+        if (file.size === 0) continue;
+        fs.mkdirSync(uploadDir, { recursive: true });
+        let safeName = path.basename(file.name || 'attachment').replace(/[^a-zA-Z0-9._-]/g, '_');
+        if (!safeName) safeName = 'attachment';
+        const ext = path.extname(safeName);
+        const stem = safeName.slice(0, safeName.length - ext.length);
+        let candidate = safeName;
+        let counter = 1;
+        while (fs.existsSync(path.join(uploadDir, candidate))) {
+          candidate = `${stem}_${counter}${ext}`;
+          counter += 1;
+        }
+        const filePath = path.join(uploadDir, candidate);
+        fs.writeFileSync(filePath, Buffer.from(await file.arrayBuffer()));
+        wroteUpload = true;
+        const existing = options.attach;
+        options.attach = Array.isArray(existing) ? [...existing, filePath] : typeof existing === 'string' ? [existing, filePath] : [filePath];
+        continue;
+      }
       if (key === 'args') {
         try {
           const parsed = JSON.parse(value) as unknown;
@@ -87,9 +110,15 @@ async function parseRequestBody(request: Request): Promise<ParsedBody> {
         } catch {
           // Ignore malformed legacy options payloads; command validation will report missing values as needed.
         }
+      } else if (key === 'attachments' || key === 'attachment' || key === 'attach') {
+        const existing = options.attach;
+        options.attach = Array.isArray(existing) ? [...existing, value] : typeof existing === 'string' ? [existing, value] : [value];
       } else {
         values[key] = parseValue(value);
       }
+    }
+    if (!wroteUpload) {
+      try { fs.rmdirSync(uploadDir); } catch { /* non-fatal */ }
     }
     return { args, options, values };
   }
@@ -147,8 +176,9 @@ function matchRoute(requestParts: string[]): { route: CliApiRouteDef; params: Re
   return null;
 }
 
-function optionToArg(name: string, value: string | boolean | undefined): string[] {
+function optionToArg(name: string, value: string | string[] | boolean | undefined): string[] {
   if (value === undefined || value === false) return [];
+  if (Array.isArray(value)) return value.flatMap((entry) => [`--${name}`, entry]);
   if (value === true) return [`--${name}`];
   return [`--${name}`, value];
 }
@@ -168,16 +198,22 @@ function userFacingOptions(route: CliApiRouteDef): CliApiRouteDef['options'] {
   return route.options.filter((option) => option.name !== 'json');
 }
 
-function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed: ParsedBody, request: Request): { argv: string[]; cwd?: string; streaming: boolean } {
+function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed: ParsedBody, request: Request): { argv: string[]; cwd?: string; streaming: boolean; ndjson: boolean } {
   const options = route.httpMethod === 'GET' ? withQueryOptions(route, parsed.options, request) : { ...parsed.options };
+  if (hasOption(route, 'json')) {
+    const jsonValue = new URL(request.url).searchParams.get('json');
+    if (jsonValue !== null) options.json = parseValue(jsonValue);
+  }
   for (const option of userFacingOptions(route)) {
     const bodyValue = parsed.values[option.name] ?? (option.alias ? parsed.values[option.alias] : undefined);
     if (bodyValue !== undefined) options[option.name] = bodyValue;
   }
-  delete options.json;
-
   const streaming = route.streaming && (options.follow === true || options.f === true);
-  if (hasOption(route, 'json') && !streaming) options.json = true;
+  const ndjson = streaming && options.json === true;
+  if (hasOption(route, 'json')) {
+    if (!streaming) options.json = true;
+    else if (!ndjson) delete options.json;
+  }
 
   for (const option of route.options) {
     if (option.type === 'string' && options[option.name] === '') throw new Error(`--${option.name} requires a value`);
@@ -201,7 +237,7 @@ function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed
   argv.push(...args);
 
   const cwdParam = route.cwdParam ? params[route.cwdParam] : undefined;
-  return { argv, cwd: cwdParam ? resolveThreadCwd(cwdParam) : undefined, streaming };
+  return { argv, cwd: cwdParam ? resolveThreadCwd(cwdParam) : undefined, streaming, ndjson };
 }
 
 function spawnCli(argv: string[], cwd: string | undefined, auth: AuthContext) {
@@ -297,15 +333,29 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
           description: arg.description,
         }))
       : [];
+    const jsonBodySchema = {
+      type: 'object',
+      properties: bodyProperties,
+      ...(requiredBodyFields.length > 0 ? { required: requiredBodyFields } : {}),
+      additionalProperties: false,
+    };
     const requestBodyContent: Record<string, unknown> = {
-      'application/json': {
-        schema: {
-          type: 'object',
-          properties: bodyProperties,
-          ...(requiredBodyFields.length > 0 ? { required: requiredBodyFields } : {}),
-          additionalProperties: false,
+      'application/json': { schema: jsonBodySchema },
+      ...(route.multipart ? {
+        'multipart/form-data': {
+          schema: {
+            ...jsonBodySchema,
+            properties: {
+              ...bodyProperties,
+              attachments: {
+                type: 'array',
+                items: { type: 'string', format: 'binary' },
+                description: 'One or more files to attach to the thread request.',
+              },
+            },
+          },
         },
-      },
+      } : {}),
     };
     const hasRequestBody = Object.keys(bodyProperties).length > 0;
 
@@ -327,7 +377,13 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
           : {}),
         responses: {
           200: route.streaming
-            ? { description: 'Command output stream.', content: { 'text/plain': { schema: { type: 'string' } } } }
+            ? {
+                description: 'Command output stream. Pass `follow=true&json=true` to receive newline-delimited JSON.',
+                content: {
+                  'text/plain': { schema: { type: 'string' } },
+                  'application/x-ndjson': { schema: { type: 'string' } },
+                },
+              }
             : { description: 'Command JSON response.', content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } } },
           400: errorResponse('Invalid request or command usage. The msg field contains the command validation error.'),
           401: errorResponse('Missing or invalid web API key.'),
@@ -402,7 +458,7 @@ async function bufferedResponse(argv: string[], cwd: string | undefined, auth: A
   }
 }
 
-function streamingResponse(argv: string[], cwd: string | undefined, auth: AuthContext): Response {
+function streamingResponse(argv: string[], cwd: string | undefined, auth: AuthContext, contentType = 'text/plain; charset=utf-8'): Response {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const child = spawnCli(argv, cwd, auth);
@@ -414,7 +470,7 @@ function streamingResponse(argv: string[], cwd: string | undefined, auth: AuthCo
   });
   return new Response(stream, {
     headers: {
-      'content-type': 'text/plain; charset=utf-8',
+      'content-type': contentType,
       'cache-control': 'no-cache, no-transform',
     },
   });
@@ -429,8 +485,8 @@ async function coreActionResponse(request: Request, parts: string[], method: 'GE
       return terminalJsonResponse({ msg: `Use ${matched.route.httpMethod} for this Core API route.` }, { status: 405, headers: { allow: matched.route.httpMethod } });
     }
     const parsed = method === 'GET' ? { args: [], options: {}, values: {} } : await parseRequestBody(request);
-    const { argv, cwd, streaming } = buildArgv(matched.route, matched.params, parsed, request);
-    if (streaming) return streamingResponse(argv, cwd, auth);
+    const { argv, cwd, streaming, ndjson } = buildArgv(matched.route, matched.params, parsed, request);
+    if (streaming) return streamingResponse(argv, cwd, auth, ndjson ? 'application/x-ndjson' : 'text/plain; charset=utf-8');
     return bufferedResponse(argv, cwd, auth);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

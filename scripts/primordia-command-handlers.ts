@@ -2,10 +2,8 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-  followWorktreeLog,
   formatProcessStatusReport,
   getProcessStatusReport,
-  readWorktreeLogLines,
   publishProductionBranch,
   restartWorktreeServer,
   startWorktreeServer,
@@ -44,6 +42,7 @@ type UserSelectorArgs = { user?: string };
 type JsonArgs = { json?: boolean };
 type ModeArgs = { dev?: boolean; prod?: boolean };
 type PresetArgs = { preset?: string };
+type AttachArgs = { attach?: string | string[]; a?: string | string[] };
 type PreferenceSetArgs = PresetArgs & {
   harness?: string;
   model?: string;
@@ -105,20 +104,109 @@ function resolveStartMode(args: ModeArgs | CliParsedArgs): ServerStartMode {
   return args.prod ? 'prod' : 'dev';
 }
 
-async function renderLogs(threadId: string, json: boolean | undefined, follow: boolean | undefined): Promise<void> {
-  if (json) {
-    if (follow) throw new Error('--json and --follow cannot be combined');
-    printJson(readWorktreeLogLines(threadId));
+function normalizeStringList(value: string | string[] | boolean | undefined): string[] {
+  if (Array.isArray(value)) return value;
+  return typeof value === 'string' ? [value] : [];
+}
+
+function resolveAttachmentPaths(args: AttachArgs): string[] {
+  const rawPaths = [...normalizeStringList(args.attach), ...normalizeStringList(args.a)];
+  const paths = [...new Set(rawPaths.map((entry) => entry.trim()).filter(Boolean))].map((entry) => path.resolve(entry));
+  for (const filePath of paths) {
+    if (!fs.existsSync(filePath)) throw new Error(`attachment not found: ${filePath}`);
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) throw new Error(`attachment is not a file: ${filePath}`);
+  }
+  return paths;
+}
+
+function readTextLogLines(logFile: string): string[] {
+  if (!fs.existsSync(logFile)) return [];
+  const text = fs.readFileSync(logFile, 'utf8');
+  if (!text) return [];
+  const lines = text.split(/\r?\n/);
+  if (lines.at(-1) === '') lines.pop();
+  return lines;
+}
+
+async function* followTextLogLines(logFile: string, pollMs = 500): AsyncGenerator<string> {
+  let offset = 0;
+  try { offset = fs.statSync(logFile).size; } catch { offset = 0; }
+  let buffered = '';
+  while (true) {
+    try {
+      const stat = fs.statSync(logFile);
+      if (stat.size < offset) {
+        offset = 0;
+        buffered = '';
+      }
+      if (stat.size > offset) {
+        const fd = fs.openSync(logFile, 'r');
+        const length = stat.size - offset;
+        const buffer = Buffer.alloc(length);
+        fs.readSync(fd, buffer, 0, length, offset);
+        fs.closeSync(fd);
+        offset = stat.size;
+        buffered += buffer.toString('utf8');
+        const parts = buffered.split(/\r?\n/);
+        buffered = parts.pop() ?? '';
+        for (const line of parts) yield line;
+      }
+    } catch { /* log may not exist yet */ }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}
+
+function formatNdjsonLine(line: string, rawNdjson: boolean): string {
+  if (rawNdjson) {
+    try {
+      JSON.parse(line);
+      return `${line}\n`;
+    } catch {
+      return `${JSON.stringify({ line })}\n`;
+    }
+  }
+  return `${JSON.stringify({ line })}\n`;
+}
+
+async function renderLogFile(logFile: string, args: ServiceLogArgs, rawNdjson = false): Promise<void> {
+  const lineCount = resolveLogLineCount(args);
+  const follow = Boolean(args.follow || args.f);
+  const recent = lineCount === 0 ? [] : readTextLogLines(logFile).slice(-lineCount);
+
+  if (args.json && follow) {
+    for (const line of recent) process.stdout.write(formatNdjsonLine(line, rawNdjson));
+    for await (const line of followTextLogLines(logFile)) process.stdout.write(formatNdjsonLine(line, rawNdjson));
     return;
   }
 
-  const lines = readWorktreeLogLines(threadId);
-  if (lines.length > 0) console.log(lines.join('\n'));
-  if (follow) {
-    for await (const chunk of followWorktreeLog(threadId)) {
-      process.stdout.write(chunk);
+  if (args.json) {
+    if (rawNdjson) {
+      const events = recent.map((line) => {
+        try { return JSON.parse(line) as unknown; } catch { return { line }; }
+      });
+      printJson({ logFile, lines: recent, events });
+    } else {
+      printJson({ logFile, lines: recent });
     }
+    return;
   }
+
+  if (recent.length > 0) console.log(recent.join('\n'));
+  if (follow) {
+    for await (const line of followTextLogLines(logFile)) process.stdout.write(`${line}\n`);
+  }
+}
+
+async function renderServerLogs(threadId: string, args: ServiceLogArgs): Promise<void> {
+  await renderLogFile(getWorktreeServerLogPath(threadId), args);
+}
+
+function getWorktreeServerLogPath(threadId: string): string {
+  const report = getProcessStatusReport();
+  const worktree = report.worktrees.find((entry) => entry.branch === threadId);
+  if (!worktree) throw new Error(`Unknown thread/worktree: ${threadId}`);
+  return path.join(worktree.path, '.primordia-next-server.log');
 }
 
 async function readRequest(args: CliParsedArgs): Promise<string> {
@@ -320,23 +408,7 @@ function resolveLogLineCount(args: ServiceLogArgs): number {
 }
 
 async function renderServiceLog(service: SupervisedServiceName, args: ServiceLogArgs): Promise<void> {
-  const logFile = serviceLogFile(service);
-  const lineCount = resolveLogLineCount(args);
-  const follow = Boolean(args.follow || args.f);
-  if (args.json && follow) throw new Error('--json and --follow cannot be combined');
-  const text = fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8') : '';
-  const lines = text.split('\n');
-  if (lines.at(-1) === '') lines.pop();
-  const recent = lineCount === 0 ? [] : lines.slice(-lineCount);
-  if (args.json) {
-    printJson({ service, logFile, lines: recent });
-    return;
-  }
-  if (recent.length > 0) console.log(recent.join('\n'));
-  if (follow) {
-    const child = execFileSync('tail', ['-n', '0', '-F', logFile], { stdio: ['ignore', 'inherit', 'inherit'] });
-    void child;
-  }
+  await renderLogFile(serviceLogFile(service), args);
 }
 
 export function systemdServiceSupervisorRestartCommand(args: CliParsedArgs & JsonArgs): void {
@@ -513,9 +585,14 @@ export async function serverRestartCommand(args: CliParsedArgs): Promise<void> {
   else console.log(result.message);
 }
 
-export async function serverLogsCommand(args: CliParsedArgs): Promise<void> {
+export async function serverLogsCommand(args: CliParsedArgs & ServiceLogArgs): Promise<void> {
   const thread = getCurrentThread();
-  await renderLogs(thread.threadId, Boolean(args.json), Boolean(args.follow ?? args.f));
+  await renderServerLogs(thread.threadId, args);
+}
+
+export async function threadLogsCommand(args: CliParsedArgs & ServiceLogArgs): Promise<void> {
+  const thread = getCurrentThread();
+  await renderLogFile(path.join(thread.path, '.primordia-session.ndjson'), args, true);
 }
 
 export async function serverPublishCommand(args: CliParsedArgs): Promise<void> {
@@ -538,7 +615,7 @@ export async function serverCopyDbCommand(args: CliParsedArgs): Promise<void> {
   if (!result.copied) process.exit(1);
 }
 
-export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs): Promise<void> {
+export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs & AttachArgs): Promise<void> {
   const requestText = await readRequest(args);
   const { user, primordiaAesKey } = await resolveCliAuth(args.user);
   const result = await createThread({
@@ -546,6 +623,7 @@ export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & Prese
     requestText,
     presetId: await resolveCliPresetIdForUser(user.id, args.preset),
     primordiaAesKey,
+    savedAttachmentPaths: resolveAttachmentPaths(args),
     runInBackground: false,
   });
   if (!result.ok) throw cliSecretError(result.error, `thread creation failed (${result.status})`);
@@ -553,7 +631,7 @@ export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & Prese
   else console.log(`New thread started in ${result.worktreePath}`);
 }
 
-export async function threadFollowupCommand(args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs): Promise<void> {
+export async function threadFollowupCommand(args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs & AttachArgs): Promise<void> {
   const requestText = await readRequest(args);
   const { user, primordiaAesKey } = await resolveCliAuth(args.user);
   const threadId = resolveCurrentThreadId();
@@ -563,6 +641,7 @@ export async function threadFollowupCommand(args: CliParsedArgs & JsonArgs & Pre
     requestText,
     presetId: await resolveCliPresetIdForUser(user.id, args.preset),
     primordiaAesKey,
+    attachmentPaths: resolveAttachmentPaths(args),
     runInBackground: false,
   });
   if (!result.ok) throw cliSecretError(result.error, 'follow-up failed');
