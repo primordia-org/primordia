@@ -105,11 +105,18 @@ async function parseRequestBody(request: Request): Promise<ParsedBody> {
   return { args, options, values };
 }
 
-function withQueryOptions(options: CoreOptions, request: Request): CoreOptions {
+function withQueryOptions(route: CliApiRouteDef, options: CoreOptions, request: Request): CoreOptions {
   const next = { ...options };
   const url = new URL(request.url);
-  for (const [key, value] of url.searchParams.entries()) next[key] = parseValue(value);
+  for (const option of userFacingOptions(route)) {
+    const value = url.searchParams.get(option.name) ?? (option.alias ? url.searchParams.get(option.alias) : null);
+    if (value !== null) next[option.name] = parseValue(value);
+  }
   return next;
+}
+
+function queryValue(request: Request, name: string): string | undefined {
+  return new URL(request.url).searchParams.get(name) ?? undefined;
 }
 
 function routePatternParts(routePath: string): string[] {
@@ -156,7 +163,7 @@ function userFacingOptions(route: CliApiRouteDef): CliApiRouteDef['options'] {
 }
 
 function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed: ParsedBody, request: Request): { argv: string[]; cwd?: string; streaming: boolean } {
-  const options = withQueryOptions(parsed.options, request);
+  const options = route.httpMethod === 'GET' ? withQueryOptions(route, parsed.options, request) : { ...parsed.options };
   for (const option of userFacingOptions(route)) {
     const bodyValue = parsed.values[option.name] ?? (option.alias ? parsed.values[option.alias] : undefined);
     if (bodyValue !== undefined) options[option.name] = bodyValue;
@@ -178,7 +185,7 @@ function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed
       args.push(paramValue);
       continue;
     }
-    const bodyValue = parsed.values[arg.name];
+    const bodyValue = parsed.values[arg.name] ?? (route.httpMethod === 'GET' ? queryValue(request, arg.name) : undefined);
     if (bodyValue !== undefined) args.push(String(bodyValue));
   }
   args.push(...parsed.args);
@@ -239,12 +246,14 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
     tags.set(tag, `Core API endpoints for \`primordia ${tag}\` commands.`);
     const pathParamNames = routePathParamNames(route.path);
     const options = userFacingOptions(route);
-    const queryParameters: OpenApiParameter[] = options.map((option) => ({
-      name: option.name,
-      in: 'query',
-      schema: optionSchema(option.type),
-      description: option.alias ? `${option.description} Short alias: -${option.alias}.` : option.description,
-    }));
+    const queryParameters: OpenApiParameter[] = route.httpMethod === 'GET'
+      ? options.map((option) => ({
+          name: option.name,
+          in: 'query',
+          schema: optionSchema(option.type),
+          description: option.description,
+        }))
+      : [];
     const pathParameters: OpenApiParameter[] = pathParamNames.map((name) => ({
       name,
       in: 'path',
@@ -261,13 +270,24 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
         ...(arg.valueHint ? { example: arg.valueHint } : {}),
       };
     }
-    for (const option of options) {
-      bodyProperties[option.name] = {
-        ...optionSchema(option.type),
-        description: option.alias ? `${option.description} Short alias: -${option.alias}.` : option.description,
-      };
+    if (route.httpMethod === 'POST') {
+      for (const option of options) {
+        bodyProperties[option.name] = {
+          ...optionSchema(option.type),
+          description: option.description,
+        };
+      }
     }
     const requiredBodyFields = bodyArguments.filter((arg) => arg.required).map((arg) => arg.name);
+    const argumentQueryParameters: OpenApiParameter[] = route.httpMethod === 'GET'
+      ? bodyArguments.map((arg) => ({
+          name: arg.name,
+          in: 'query',
+          required: arg.required,
+          schema: { type: 'string' },
+          description: arg.description,
+        }))
+      : [];
     const requestBodyContent: Record<string, unknown> = {
       'application/json': {
         schema: {
@@ -278,27 +298,17 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
         },
       },
     };
-    if (route.multipart) {
-      requestBodyContent['multipart/form-data'] = {
-        schema: {
-          type: 'object',
-          properties: bodyProperties,
-          ...(requiredBodyFields.length > 0 ? { required: requiredBodyFields } : {}),
-          additionalProperties: false,
-        },
-      };
-    }
     const hasRequestBody = Object.keys(bodyProperties).length > 0;
 
     paths[openApiPath(route.path)] = {
-      post: {
+      [route.httpMethod.toLowerCase()]: {
         operationId: `core_${route.commandPath.join('_').replace(/[^a-zA-Z0-9_]/g, '_')}`,
         summary: route.commandPath.at(-1) ?? route.path.replace(/^\//, ''),
         description: route.description,
         tags: [tag],
         security: [{ WebApiKey: [] }],
-        parameters: [...pathParameters, ...queryParameters],
-        ...(hasRequestBody
+        parameters: [...pathParameters, ...argumentQueryParameters, ...queryParameters],
+        ...(route.httpMethod === 'POST' && hasRequestBody
           ? {
               requestBody: {
                 required: requiredBodyFields.length > 0,
@@ -401,10 +411,29 @@ function streamingResponse(argv: string[], cwd: string | undefined, auth: AuthCo
   });
 }
 
+async function coreActionResponse(request: Request, parts: string[], method: 'GET' | 'POST'): Promise<Response> {
+  try {
+    const auth = await authorize(request);
+    const matched = matchRoute(parts);
+    if (!matched) return jsonResponse({ msg: 'unknown Core API route' }, { status: 404 });
+    if (matched.route.httpMethod !== method) {
+      return jsonResponse({ msg: `Use ${matched.route.httpMethod} for this Core API route.` }, { status: 405, headers: { allow: matched.route.httpMethod } });
+    }
+    const parsed = method === 'GET' ? { args: [], options: {}, values: {} } : await parseRequestBody(request);
+    const { argv, cwd, streaming } = buildArgv(matched.route, matched.params, parsed, request);
+    if (streaming) return streamingResponse(argv, cwd, auth);
+    return bufferedResponse(argv, cwd, auth);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const status = message.toLowerCase().includes('authorization') || message.toLowerCase().includes('restricted to') ? 401 : 400;
+    return jsonResponse({ msg: message }, { status });
+  }
+}
+
 export async function GET(request: Request, context: RouteContext) {
   const parts = (await context.params).path ?? [];
-  if (parts.length > 0 && parts[0] !== 'schema' && parts[0] !== 'openapi') return jsonResponse({ ok: false, error: 'not found' }, { status: 404 });
   if (parts[0] === 'openapi') return jsonResponse(buildCoreOpenApiSpec(request));
+  if (parts.length > 0 && parts[0] !== 'schema') return coreActionResponse(request, parts, 'GET');
   try {
     await authorize(request);
     return jsonResponse({
@@ -420,18 +449,6 @@ export async function GET(request: Request, context: RouteContext) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
-  try {
-    const auth = await authorize(request);
-    const parts = (await context.params).path ?? [];
-    const matched = matchRoute(parts);
-    if (!matched) return jsonResponse({ msg: 'unknown Core API route' }, { status: 404 });
-    const parsed = await parseRequestBody(request);
-    const { argv, cwd, streaming } = buildArgv(matched.route, matched.params, parsed, request);
-    if (streaming) return streamingResponse(argv, cwd, auth);
-    return bufferedResponse(argv, cwd, auth);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const status = message.toLowerCase().includes('authorization') || message.toLowerCase().includes('restricted to') ? 401 : 400;
-    return jsonResponse({ msg: message }, { status });
-  }
+  const parts = (await context.params).path ?? [];
+  return coreActionResponse(request, parts, 'POST');
 }

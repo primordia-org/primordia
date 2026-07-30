@@ -164,7 +164,7 @@ const statusCommand: CliCommandDef = {
   name: 'status',
   description: 'List reverse proxy, threads, Next.js servers, and active agents.',
   options: [jsonOption],
-  api: { path: '/status' },
+  api: { path: '/status', method: 'GET' },
   run: lazyRun('statusCommand'),
 };
 
@@ -196,7 +196,7 @@ const logsCommand: CliCommandDef = {
   name: 'logs',
   description: "Print the thread's server log file.",
   options: [jsonOption, followOption],
-  api: { path: '/server/[threadId]/logs', streaming: true, cwdParam: 'threadId' },
+  api: { path: '/server/[threadId]/logs', method: 'GET', streaming: true, cwdParam: 'threadId' },
   run: lazyRun('serverLogsCommand'),
 };
 
@@ -279,7 +279,7 @@ const jobsScheduleListCommand: CliCommandDef = {
   name: 'list',
   description: 'List scheduled job intervals.',
   options: [jsonOption],
-  api: { path: '/jobs/schedule' },
+  api: { path: '/jobs/schedule', method: 'GET' },
   run: lazyRun('jobsScheduleListCommand'),
 };
 
@@ -288,7 +288,7 @@ const jobsScheduleGetCommand: CliCommandDef = {
   description: 'Read one scheduled job interval.',
   options: [jsonOption],
   arguments: [jobNameArgument],
-  api: { path: '/jobs/schedule/[job]' },
+  api: { path: '/jobs/schedule/[job]', method: 'GET' },
   run: lazyRun('jobsScheduleGetCommand'),
 };
 
@@ -319,7 +319,7 @@ const jobsLogsCommand: CliCommandDef = {
   name: 'logs',
   description: 'Print the supervised scheduled jobs daemon log.',
   options: [jsonOption, linesOption, followOption],
-  api: { path: '/jobs/logs', streaming: true },
+  api: { path: '/jobs/logs', method: 'GET', streaming: true },
   run: lazyRun('jobsLogsCommand'),
 };
 
@@ -341,7 +341,7 @@ const reverseProxyLogsCommand: CliCommandDef = {
   name: 'logs',
   description: 'Print the supervised reverse proxy service log.',
   options: [jsonOption, linesOption, followOption],
-  api: { path: '/reverse-proxy/logs', streaming: true },
+  api: { path: '/reverse-proxy/logs', method: 'GET', streaming: true },
   run: lazyRun('reverseProxyLogsCommand'),
 };
 
@@ -375,7 +375,7 @@ const preferencesGetCommand: CliCommandDef = {
   name: 'get',
   description: 'Show saved user preferences used by thread creation.',
   options: [jsonOption, userOption],
-  api: { path: '/preferences' },
+  api: { path: '/preferences', method: 'GET' },
   run: lazyRun('preferencesGetCommand'),
 };
 

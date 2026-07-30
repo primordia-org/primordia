@@ -43,8 +43,8 @@ export interface CliApiDef {
   expose?: boolean;
   /** Route path relative to the Core API root, e.g. /status or /thread/[threadId]/followup. */
   path?: string;
-  /** HTTP method for this action. Primordia Core actions are POST by default. */
-  method?: 'POST';
+  /** HTTP method for this action. Use GET for read-only query commands and POST for mutations. */
+  method?: 'GET' | 'POST';
   /** Whether callers should expect the response body to stream by default. */
   streaming?: boolean;
   /** Whether this action accepts multipart/form-data request bodies. */
@@ -67,7 +67,7 @@ export interface CliCommandDef {
 
 export interface CliApiRouteDef {
   path: string;
-  httpMethod: 'POST';
+  httpMethod: 'GET' | 'POST';
   commandPath: string[];
   description: string;
   streaming: boolean;
