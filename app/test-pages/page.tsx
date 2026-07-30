@@ -9,7 +9,7 @@ const TEST_PAGES = [
     emoji: "🌐",
     title: "Core API",
     description:
-      "Exercise the Primordia Core HTTP/SSE protocol with a revokable web API key from Settings → API Keys.",
+      "Exercise the Primordia Core POST route-action API with a revokable web API key from Settings → API Keys.",
   },
   {
     href: "/test-pages/claude-auth-test",

@@ -31,13 +31,19 @@ export interface CliArgumentDef {
   complete?: CliCompletionSource;
 }
 
-export interface CliProtocolDef {
-  /** Expose this runnable command through the Primordia Core protocol. Defaults to true for runnable commands. */
+export interface CliApiDef {
+  /** Expose this runnable command through the generated Core API. Defaults to false until a route is assigned. */
   expose?: boolean;
-  /** Stable method name. Defaults to the command path after the root, joined with dots. */
-  method?: string;
-  /** Whether clients should expect long-running output and prefer the streaming transport. */
+  /** Route path relative to the Core API root, e.g. /status or /thread/[threadId]/followup. */
+  path?: string;
+  /** HTTP method for this action. Primordia Core actions are POST by default. */
+  method?: 'POST';
+  /** Whether callers should expect the response body to stream by default. */
   streaming?: boolean;
+  /** Whether this action accepts multipart/form-data request bodies. */
+  multipart?: boolean;
+  /** Path parameter whose value should resolve the command cwd to that thread worktree. */
+  cwdParam?: string;
 }
 
 export interface CliCommandDef {
@@ -48,15 +54,18 @@ export interface CliCommandDef {
   subcommands?: CliCommandDef[];
   complete?: CliCompletionSource;
   hidden?: boolean;
-  protocol?: CliProtocolDef;
+  api?: CliApiDef;
   run?: (context: { args: CliParsedArgs; rawArgs: string[]; commandPath: string[] }) => unknown | Promise<unknown>;
 }
 
-export interface CliProtocolMethodDef {
-  method: string;
+export interface CliApiRouteDef {
+  path: string;
+  httpMethod: 'POST';
   commandPath: string[];
   description: string;
   streaming: boolean;
+  multipart: boolean;
+  cwdParam?: string;
   options: Array<Pick<CliOptionDef, 'name' | 'alias' | 'type' | 'valueHint' | 'description'>>;
   arguments: Array<Pick<CliArgumentDef, 'name' | 'required' | 'valueHint' | 'description'>>;
 }
@@ -104,18 +113,21 @@ function flattenCommandEntries(command: CliCommandDef, path: string[] = [command
   return rows;
 }
 
-export function listCliProtocolMethods(root: CliCommandDef): CliProtocolMethodDef[] {
+export function listCliApiRoutes(root: CliCommandDef): CliApiRouteDef[] {
   return flattenCommandEntries(root)
-    .filter(({ path, command }) => path.length > 1 && Boolean(command.run) && command.protocol?.expose !== false && !command.hidden)
+    .filter(({ command }) => Boolean(command.run) && Boolean(command.api?.path) && command.api?.expose !== false && !command.hidden)
     .map(({ path, command }) => ({
-      method: command.protocol?.method ?? path.slice(1).join('.'),
+      path: command.api?.path ?? `/${path.slice(1).join('/')}`,
+      httpMethod: command.api?.method ?? 'POST',
       commandPath: path.slice(1),
       description: command.description,
-      streaming: command.protocol?.streaming ?? false,
+      streaming: command.api?.streaming ?? false,
+      multipart: command.api?.multipart ?? false,
+      cwdParam: command.api?.cwdParam,
       options: (command.options ?? []).map(({ name, alias, type, valueHint, description }) => ({ name, alias, type, valueHint, description })),
       arguments: (command.arguments ?? []).map(({ name, required, valueHint, description }) => ({ name, required, valueHint, description })),
     }))
-    .sort((a, b) => a.method.localeCompare(b.method));
+    .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 function padRight(value: string, width: number): string {

@@ -127,20 +127,6 @@ const linesOption: CliOptionDef = {
   description: 'Number of recent log lines to print.',
 };
 
-const hostOption: CliOptionDef = {
-  name: 'host',
-  type: 'string',
-  valueHint: 'host',
-  description: 'Host/interface for the Primordia Core protocol server. Defaults to 127.0.0.1.',
-};
-
-const portOption: CliOptionDef = {
-  name: 'port',
-  type: 'string',
-  valueHint: 'port',
-  description: 'Port for the Primordia Core protocol server. Defaults to 7042.',
-};
-
 const requestArgument: CliArgumentDef = {
   name: 'request',
   required: false,
@@ -177,6 +163,7 @@ const statusCommand: CliCommandDef = {
   name: 'status',
   description: 'List reverse proxy, threads, Next.js servers, and active agents.',
   options: [jsonOption],
+  api: { path: '/status' },
   run: lazyRun('statusCommand'),
 };
 
@@ -184,6 +171,7 @@ const startCommand: CliCommandDef = {
   name: 'start',
   description: "Start the thread's Next.js server.",
   options: [jsonOption, devOption, prodOption],
+  api: { path: '/server/[threadId]/start', cwdParam: 'threadId' },
   run: lazyRun('serverStartCommand'),
 };
 
@@ -191,6 +179,7 @@ const stopCommand: CliCommandDef = {
   name: 'stop',
   description: "Stop the thread's active server process(es).",
   options: [jsonOption],
+  api: { path: '/server/[threadId]/stop', cwdParam: 'threadId' },
   run: lazyRun('serverStopCommand'),
 };
 
@@ -198,6 +187,7 @@ const restartCommand: CliCommandDef = {
   name: 'restart',
   description: "Stop, then start, the thread's server.",
   options: [jsonOption, devOption, prodOption],
+  api: { path: '/server/[threadId]/restart', cwdParam: 'threadId' },
   run: lazyRun('serverRestartCommand'),
 };
 
@@ -205,7 +195,7 @@ const logsCommand: CliCommandDef = {
   name: 'logs',
   description: "Print the thread's server log file.",
   options: [jsonOption, followOption],
-  protocol: { streaming: true },
+  api: { path: '/server/[threadId]/logs', streaming: true, cwdParam: 'threadId' },
   run: lazyRun('serverLogsCommand'),
 };
 
@@ -213,6 +203,7 @@ const publishCommand: CliCommandDef = {
   name: 'publish',
   description: "Health-check the thread's server, then promote it to production.",
   options: [jsonOption],
+  api: { path: '/server/[threadId]/publish', cwdParam: 'threadId' },
   run: lazyRun('serverPublishCommand'),
 };
 
@@ -220,6 +211,7 @@ const copyDbCommand: CliCommandDef = {
   name: 'copydb',
   description: 'Safely copy the production SQLite DB into the thread.',
   options: [jsonOption],
+  api: { path: '/server/[threadId]/copydb', cwdParam: 'threadId' },
   run: lazyRun('serverCopyDbCommand'),
 };
 
@@ -228,6 +220,7 @@ const createCommand: CliCommandDef = {
   description: 'Create a thread and run its initial agent turn.',
   options: [jsonOption, userOption, presetOption],
   arguments: [requestArgument],
+  api: { path: '/thread', multipart: true },
   run: lazyRun('threadCreateCommand'),
 };
 
@@ -236,6 +229,7 @@ const followupCommand: CliCommandDef = {
   description: 'Run a follow-up request on the current thread.',
   options: [jsonOption, userOption, presetOption],
   arguments: [requestArgument],
+  api: { path: '/thread/[threadId]/followup', multipart: true, cwdParam: 'threadId' },
   run: lazyRun('threadFollowupCommand'),
 };
 
@@ -243,6 +237,7 @@ const updateCommand: CliCommandDef = {
   name: 'update',
   description: 'Apply parent/prod updates to the current thread.',
   options: [jsonOption, userOption],
+  api: { path: '/thread/[threadId]/update', cwdParam: 'threadId' },
   run: lazyRun('threadUpdateCommand'),
 };
 
@@ -250,6 +245,7 @@ const acceptCommand: CliCommandDef = {
   name: 'accept',
   description: 'Accept (deploy/merge) the current thread.',
   options: [jsonOption, userOption],
+  api: { path: '/thread/[threadId]/accept', cwdParam: 'threadId' },
   run: lazyRun('threadAcceptCommand'),
 };
 
@@ -257,6 +253,7 @@ const rejectCommand: CliCommandDef = {
   name: 'reject',
   description: 'Reject (discard) the current thread.',
   options: [jsonOption, userOption],
+  api: { path: '/thread/[threadId]/reject', cwdParam: 'threadId' },
   run: lazyRun('threadRejectCommand'),
 };
 
@@ -264,7 +261,7 @@ const jobsRunCommand: CliCommandDef = {
   name: 'run',
   description: 'Run the Primordia scheduled jobs daemon in this process.',
   options: [jsonOption],
-  protocol: { streaming: true },
+  api: { path: '/jobs/run', streaming: true },
   run: lazyRun('jobsRunCommand'),
 };
 
@@ -273,6 +270,7 @@ const jobsRunOneCommand: CliCommandDef = {
   description: 'Run one Primordia scheduled job immediately.',
   options: [jsonOption],
   arguments: [jobNameArgument],
+  api: { path: '/jobs/run-one' },
   run: lazyRun('jobsRunOneCommand'),
 };
 
@@ -280,6 +278,7 @@ const jobsScheduleListCommand: CliCommandDef = {
   name: 'list',
   description: 'List scheduled job intervals.',
   options: [jsonOption],
+  api: { path: '/jobs/schedule' },
   run: lazyRun('jobsScheduleListCommand'),
 };
 
@@ -288,6 +287,7 @@ const jobsScheduleGetCommand: CliCommandDef = {
   description: 'Read one scheduled job interval.',
   options: [jsonOption],
   arguments: [jobNameArgument],
+  api: { path: '/jobs/schedule/[job]' },
   run: lazyRun('jobsScheduleGetCommand'),
 };
 
@@ -296,6 +296,7 @@ const jobsScheduleSetCommand: CliCommandDef = {
   description: 'Set one scheduled job interval.',
   options: [jsonOption],
   arguments: [jobNameArgument, intervalArgument],
+  api: { path: '/jobs/schedule/[job]/set' },
   run: lazyRun('jobsScheduleSetCommand'),
 };
 
@@ -309,6 +310,7 @@ const jobsRestartCommand: CliCommandDef = {
   name: 'restart',
   description: 'Restart the supervised scheduled jobs daemon.',
   options: [jsonOption],
+  api: { path: '/jobs/restart' },
   run: lazyRun('jobsRestartCommand'),
 };
 
@@ -316,7 +318,7 @@ const jobsLogsCommand: CliCommandDef = {
   name: 'logs',
   description: 'Print the supervised scheduled jobs daemon log.',
   options: [jsonOption, linesOption, followOption],
-  protocol: { streaming: true },
+  api: { path: '/jobs/logs', streaming: true },
   run: lazyRun('jobsLogsCommand'),
 };
 
@@ -330,6 +332,7 @@ const reverseProxyRestartCommand: CliCommandDef = {
   name: 'restart',
   description: 'Restart the supervised reverse proxy service.',
   options: [jsonOption],
+  api: { path: '/reverse-proxy/restart' },
   run: lazyRun('reverseProxyRestartCommand'),
 };
 
@@ -337,7 +340,7 @@ const reverseProxyLogsCommand: CliCommandDef = {
   name: 'logs',
   description: 'Print the supervised reverse proxy service log.',
   options: [jsonOption, linesOption, followOption],
-  protocol: { streaming: true },
+  api: { path: '/reverse-proxy/logs', streaming: true },
   run: lazyRun('reverseProxyLogsCommand'),
 };
 
@@ -351,6 +354,7 @@ const serviceSupervisorRestartCommand: CliCommandDef = {
   name: 'restart',
   description: 'Restart only the Primordia service-supervisor systemd service.',
   options: [jsonOption],
+  api: { path: '/systemd/service-supervisor/restart' },
   run: lazyRun('systemdServiceSupervisorRestartCommand'),
 };
 
@@ -370,6 +374,7 @@ const preferencesGetCommand: CliCommandDef = {
   name: 'get',
   description: 'Show saved user preferences used by thread creation.',
   options: [jsonOption, userOption],
+  api: { path: '/preferences' },
   run: lazyRun('preferencesGetCommand'),
 };
 
@@ -377,6 +382,7 @@ const preferencesSetCommand: CliCommandDef = {
   name: 'set',
   description: 'Set saved user preferences used by thread creation.',
   options: [jsonOption, userOption, presetOption, harnessOption, modelOption, cavemanOption, cavemanIntensityOption],
+  api: { path: '/preferences/set' },
   run: lazyRun('preferencesSetCommand'),
 };
 
@@ -398,34 +404,10 @@ const serverCommand: CliCommandDef = {
   subcommands: [startCommand, stopCommand, restartCommand, logsCommand, publishCommand, copyDbCommand],
 };
 
-const coreServeCommand: CliCommandDef = {
-  name: 'serve',
-  description: 'Run the Primordia Core HTTP/SSE protocol server.',
-  options: [hostOption, portOption],
-  protocol: { expose: false },
-  async run({ args }) {
-    const { serveCoreProtocol } = await import('@/lib/core-protocol-server');
-    const rawPort = typeof args.port === 'string' ? Number.parseInt(args.port, 10) : 7042;
-    if (!Number.isInteger(rawPort) || rawPort <= 0 || rawPort > 65535) throw new Error('--port must be a valid TCP port');
-    serveCoreProtocol(mainCommand, {
-      host: typeof args.host === 'string' && args.host ? args.host : '127.0.0.1',
-      port: rawPort,
-      commandPath: import.meta.path,
-    });
-    await new Promise(() => undefined);
-  },
-};
-
-const coreCommand: CliCommandDef = {
-  name: 'core',
-  description: 'Expose Primordia Core to non-Next.js clients over HTTP and SSE.',
-  subcommands: [coreServeCommand],
-};
-
-const mainCommand: CliCommandDef = {
+export const mainCommand: CliCommandDef = {
   name: 'primordia',
   description: 'Manage Primordia thread and server lifecycle tasks.',
-  subcommands: [statusCommand, threadCommand, preferencesCommand, serverCommand, jobsCommand, reverseProxyCommand, systemdCommand, coreCommand],
+  subcommands: [statusCommand, threadCommand, preferencesCommand, serverCommand, jobsCommand, reverseProxyCommand, systemdCommand],
 };
 
 async function main(): Promise<void> {
@@ -440,4 +422,4 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+if (import.meta.main) main();
