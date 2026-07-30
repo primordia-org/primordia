@@ -182,6 +182,10 @@ function compactText(content: string): string {
   return content.replace(/\s+/g, ' ').trim();
 }
 
+function inlineText(content: string): string {
+  return content.replace(/\s+/g, ' ');
+}
+
 function formatToolInput(input: Record<string, unknown>): string {
   const command = input.command;
   if (typeof command === 'string') return command;
@@ -207,7 +211,7 @@ function formatSessionEventHuman(line: string): HumanLogChunk | null {
     case 'text':
     case 'thinking':
     case 'log_line': {
-      const text = compactText(event.content);
+      const text = inlineText(event.content);
       return text ? { text, inline: true } : null;
     }
     case 'tool_use':
