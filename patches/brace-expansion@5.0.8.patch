@@ -1,0 +1,11 @@
+diff --git a/dist/commonjs/index.js b/dist/commonjs/index.js
+index be9df86be09c7655787a65c55ae6da01858894c3..64d1c0de611060d39c6ce8500a08baf2ae0fc988 100644
+--- a/dist/commonjs/index.js
++++ b/dist/commonjs/index.js
+@@ -260,4 +260,5 @@ function expand_(str, max, maxLength, isTop) {
+     }
+     return acc;
+ }
++module.exports = Object.assign(expand, exports);
+ //# sourceMappingURL=index.js.map
+\ No newline at end of file
