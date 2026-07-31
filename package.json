@@ -7,7 +7,7 @@
     "dev": "NEXT_DEPLOYMENT_ID=$(git rev-parse HEAD 2>/dev/null || echo local-development) bun --bun ./node_modules/next/dist/bin/next dev --turbopack",
     "build": "NEXT_DEPLOYMENT_ID=$(git rev-parse HEAD 2>/dev/null || echo local-development) bun --bun ./node_modules/next/dist/bin/next build",
     "start": "NEXT_DEPLOYMENT_ID=$(git rev-parse HEAD 2>/dev/null || echo local-development) bun --bun ./node_modules/next/dist/bin/next start",
-    "lint": "bun scripts/lint.ts .",
+    "lint": "eslint .",
     "typecheck": "bun --bun ./node_modules/next/dist/bin/next typegen && tsc --noEmit",
     "rollback": "bun scripts/rollback.ts",
     "proxy": "bun scripts/reverse-proxy.ts",
@@ -80,10 +80,13 @@
     "@types/uuid": "^11.0.0",
     "@types/web-push": "^3.6.4",
     "autoprefixer": "^10",
-    "eslint": "^9",
+    "eslint": "^9.39.5",
     "eslint-config-next": "16.2.11",
     "postcss": "^8.5.18",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
+  },
+  "patchedDependencies": {
+    "brace-expansion@5.0.8": "patches/brace-expansion@5.0.8.patch"
   }
 }
