@@ -186,63 +186,112 @@ function inlineText(content: string): string {
   return content.replace(/[ \t\f\v\r]+/g, ' ');
 }
 
-function formatToolInput(input: Record<string, unknown>): string {
-  const command = input.command;
-  if (typeof command === 'string') return command;
-  const keys = Object.keys(input);
-  return keys.length > 0 ? keys.join(', ') : 'no input';
+function formatThinkDuration(startTs: number, endTs: number): string {
+  const secs = Math.max(1, Math.ceil((endTs - startTs) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const minutes = Math.floor(secs / 60);
+  const seconds = secs % 60;
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+function formatToolInput(name: string, input: Record<string, unknown>): string {
+  if (typeof input.command === 'string') return input.command;
+  for (const key of ['file_path', 'path', 'pattern', 'glob']) {
+    if (typeof input[key] === 'string') return input[key];
+  }
+  if (name.toLowerCase() === 'edit' && Array.isArray(input.edits)) return `${input.edits.length} edit(s)`;
+  const entries = Object.entries(input);
+  if (entries.length === 0) return '';
+  const [key, value] = entries[0];
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return `${key}=${text.length > 80 ? `${text.slice(0, 80)}…` : text}`;
 }
 
 type HumanLogChunk = string | { text: string; inline?: boolean };
+type HumanLogRenderer = {
+  format(line: string): HumanLogChunk | null;
+  flush(): HumanLogChunk | null;
+};
 
-function formatSessionEventHuman(line: string): HumanLogChunk | null {
-  const event = parseSessionEventLine(line);
-  if (event.type === 'malformed_log_line') return event.line;
+function createSessionHumanRenderer(): HumanLogRenderer {
+  let thinkingContent = '';
+  let thinkingStartTs: number | null = null;
+  let thinkingEndTs: number | null = null;
 
-  switch (event.type) {
-    case 'section_start':
-      return `\n${event.label}`;
-    case 'setup_step':
-      return event.done ? `✓ ${event.label}` : `• ${event.label}`;
-    case 'initial_request':
-      return `User asked: ${compactText(event.request)}`;
-    case 'followup_request':
-      return `Follow-up: ${compactText(event.request)}`;
-    case 'text':
-    case 'thinking':
-    case 'log_line': {
-      const text = inlineText(event.content);
-      return text ? { text, inline: true } : null;
-    }
-    case 'tool_use':
-      return `Ran ${event.name}: ${formatToolInput(event.input)}`;
-    case 'result':
-      return `${event.subtype === 'success' ? '✓' : '✗'} ${event.message ? compactText(event.message) : event.subtype}`;
-    case 'metrics': {
-      const parts = [
-        event.durationMs === null ? null : `${Math.round(event.durationMs / 1000)}s`,
-        event.inputTokens === null ? null : `${event.inputTokens} input tokens`,
-        event.outputTokens === null ? null : `${event.outputTokens} output tokens`,
-        event.costUsd === null ? null : `$${event.costUsd.toFixed(4)}`,
-      ].filter(Boolean);
-      return parts.length > 0 ? `Metrics: ${parts.join(', ')}` : null;
-    }
-    case 'progress_plan':
-      return event.steps.length > 0 ? `Plan: ${event.steps.map((step) => step.label).join(' → ')}` : null;
-    case 'progress_step':
-      return event.status === 'done'
-        ? `Completed step${event.activatedNextLabel ? `; next: ${event.activatedNextLabel}` : ''}`
-        : `Step failed${event.activatedNextLabel ? `; next: ${event.activatedNextLabel}` : ''}`;
-    case 'preview_path':
-      return `Preview: ${event.path}`;
-    case 'decision':
-      return `${event.action === 'accepted' ? 'Accepted' : 'Rejected'}: ${event.detail}`;
-    default:
+  const flushThinking = (): HumanLogChunk | null => {
+    if (thinkingStartTs === null) return null;
+    const content = thinkingContent;
+    const startTs = thinkingStartTs;
+    const endTs = thinkingEndTs ?? thinkingStartTs;
+    thinkingContent = '';
+    thinkingStartTs = null;
+    thinkingEndTs = null;
+    const prefix = `🧠 Thought for ${formatThinkDuration(startTs, endTs)}`;
+    return content.trim() ? `${prefix}: ${content.trim()}` : `${prefix} privately`;
+  };
+
+  const formatEvent = (event: SessionEvent | { type: 'malformed_log_line'; line: string }): HumanLogChunk | null => {
+    if (event.type === 'malformed_log_line') return event.line;
+    if (event.type === 'thinking') {
+      if (thinkingStartTs === null) thinkingStartTs = event.ts;
+      thinkingEndTs = event.ts;
+      thinkingContent += event.content;
       return null;
-  }
+    }
+
+    const flushed = flushThinking();
+    const current = (() => {
+      switch (event.type) {
+        case 'section_start':
+          return `\n${event.label}`;
+        case 'setup_step':
+          return event.done ? `✅ ${event.label}` : `• ${event.label}`;
+        case 'initial_request':
+          return `User asked:\n${event.request.trim()}`;
+        case 'followup_request':
+          return `Follow-up:\n${event.request.trim()}`;
+        case 'text':
+        case 'log_line': {
+          const text = inlineText(event.content);
+          return text ? { text, inline: true } : null;
+        }
+        case 'tool_use': {
+          const summary = formatToolInput(event.name, event.input);
+          return `🔧 ${event.name}${summary ? `: ${summary}` : ''}`;
+        }
+        case 'result':
+          return `${event.subtype === 'success' ? '✅' : '❌'} ${event.message ? compactText(event.message) : event.subtype}`;
+        case 'metrics':
+          return null;
+        case 'progress_plan':
+          return event.steps.length > 0 ? `Plan: ${event.steps.map((step) => step.label).join(' → ')}` : null;
+        case 'progress_step':
+          return event.status === 'done'
+            ? `✅ Completed step${event.activatedNextLabel ? `; next: ${event.activatedNextLabel}` : ''}`
+            : `❌ Step failed${event.activatedNextLabel ? `; next: ${event.activatedNextLabel}` : ''}`;
+        case 'preview_path':
+          return `Preview: ${event.path}`;
+        case 'decision':
+          return `${event.action === 'accepted' ? 'Accepted' : 'Rejected'}: ${event.detail}`;
+        default:
+          return null;
+      }
+    })();
+
+    if (!flushed) return current;
+    if (!current) return flushed;
+    return `${typeof flushed === 'string' ? flushed : flushed.text}\n${typeof current === 'string' ? current : current.text}`;
+  };
+
+  return {
+    format(line: string): HumanLogChunk | null {
+      return formatEvent(parseSessionEventLine(line));
+    },
+    flush: flushThinking,
+  };
 }
 
-async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { rawNdjson?: boolean; humanFormatter?: (line: string) => HumanLogChunk | null } = {}): Promise<void> {
+async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { rawNdjson?: boolean; humanFormatter?: (line: string) => HumanLogChunk | null; humanRenderer?: HumanLogRenderer } = {}): Promise<void> {
   const lineCount = resolveLogLineCount(args);
   const follow = Boolean(args.follow || args.f);
   const recent = lineCount === 0 ? [] : readTextLogLines(logFile).slice(-lineCount);
@@ -255,7 +304,8 @@ async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { r
     return;
   }
 
-  const formatter = options.humanFormatter ?? ((line: string) => line);
+  const renderer = options.humanRenderer;
+  const formatter = renderer ? renderer.format : (options.humanFormatter ?? ((line: string) => line));
   let inlineOpen = false;
   const writeFormatted = (formatted: HumanLogChunk | null): void => {
     if (!formatted) return;
@@ -274,6 +324,7 @@ async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { r
   if (follow) {
     for await (const line of followTextLogLines(logFile)) writeFormatted(formatter(line));
   }
+  if (renderer) writeFormatted(renderer.flush());
   if (inlineOpen) process.stdout.write('\n');
 }
 
@@ -673,7 +724,7 @@ export async function threadLogsCommand(args: CliParsedArgs & ServiceLogArgs): P
   const thread = getCurrentThread();
   await renderLogFile(path.join(thread.path, '.primordia-session.ndjson'), args, {
     rawNdjson: true,
-    humanFormatter: formatSessionEventHuman,
+    humanRenderer: createSessionHumanRenderer(),
   });
 }
 
