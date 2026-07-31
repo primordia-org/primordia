@@ -5,7 +5,7 @@
 // Streams live agent progress via the Primordia Core API.
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown } from "lucide-react";
+import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Pause, Play, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown } from "lucide-react";
 import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
@@ -1618,6 +1618,7 @@ function WebPreviewCard({
                 }}
                 className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
               >
+                {serverLogsPaused ? <Play size={12} /> : <Pause size={12} />}
                 {serverLogsPaused ? "Follow Logs" : "Pause Logs"}
               </button>
             )}
