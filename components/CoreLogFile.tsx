@@ -81,8 +81,8 @@ export function CoreLogFile({ streamPath, active = true, paused = false, scrollC
 
   useEffect(() => {
     startLineRef.current = initialStartLine ?? countCompleteLines(initialOutput) + 1;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setOutput(initialOutput);
+    const frame = requestAnimationFrame(() => setOutput(initialOutput));
+    return () => cancelAnimationFrame(frame);
   }, [initialOutput, initialStartLine]);
 
   useEffect(() => {
@@ -164,14 +164,13 @@ export function CoreLogFile({ streamPath, active = true, paused = false, scrollC
     };
 
     document.addEventListener("visibilitychange", onVisibilityChange);
+    let idleFrame: number | null = null;
     if (active) void connect();
-    else {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setConnectionState(paused ? "paused" : "idle");
-    }
+    else idleFrame = requestAnimationFrame(() => setConnectionState(paused ? "paused" : "idle"));
 
     return () => {
       cancelled = true;
+      if (idleFrame !== null) cancelAnimationFrame(idleFrame);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       stopCurrentSubscription();
     };
