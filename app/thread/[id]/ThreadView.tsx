@@ -4,7 +4,7 @@
 // Client component rendered by /thread/[id].
 // Streams live agent progress via the Primordia Core API.
 
-import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown } from "lucide-react";
 import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
@@ -23,10 +23,11 @@ import { ChatGptSubscriptionAuthCard } from "@/components/ChatGptSubscriptionAut
 import { ThreadRequestForm } from "@/components/ThreadRequestForm";
 import Link from "next/link";
 import type { DiffFileSummary } from "./page";
+import { SseLogFile } from "@/components/SseLogFile";
 import { DiffFileExpander } from "./DiffFileExpander";
 import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
-import { inferStatusFromEvents, type SessionEvent, type AgentAuthInfo, type ProgressStepStatus } from "@/lib/session-events";
+import type { SessionEvent, AgentAuthInfo, ProgressStepStatus } from "@/lib/session-events";
 import { cloneProgressState, initialProgressState, progressStateForNewRun, progressSummary, progressTickMarks, reduceProgressEvent, shouldRenderAgentProgressPanel, shouldRenderFinalSummaryOutsideProgress, type ProgressState, type ProgressStateStep } from "@/lib/progress-monitor";
 import { convertUtcTimeToLocal } from "@/lib/utc-to-local-time";
 import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
@@ -1619,41 +1620,49 @@ function WebPreviewCard({
 
 interface ThreadViewProps {
   sessionId: string;
-  initialRequest: string;
-  /** Initial structured events loaded server-side (empty for new sessions with no NDJSON yet). */
-  initialEvents: SessionEvent[];
-  /** Number of NDJSON lines already included in initialEvents, for SSE reconnection offset. */
-  initialLineCount: number;
-  initialStatus: string;
-  initialPreviewUrl: string | null;
-  /** Streaming worktree server log output rendered by a server component. */
-  serverLogsNode: ReactNode;
-  /** The currently checked-out branch in this instance. Used in confirmation copy and NavHeader. */
-  branch?: string | null;
-  /** The branch this session was branched from (from branch-marker commits). Used in upstream-changes display. */
-  parentBranch?: string | null;
-  /** The preview branch name created for this session. */
-  sessionBranch: string;
-  /** True when the session branch is a direct child of the current branch, so Accept/Reject are safe to show. */
-  canAcceptReject: boolean;
-  /** Number of commits on the parent branch not yet in the session branch. */
-  upstreamCommitCount: number;
-  /** Per-file diff summary for files changed in this session branch vs its parent. */
-  diffSummary: DiffFileSummary[];
-  /** True when the current user has the can_evolve (or admin) permission. Actions are hidden when false. */
-  canStartThreads: boolean;
   /** True when running in production mode (NODE_ENV=production). Changes accept confirmation copy to describe blue/green cutover instead of a merge. */
   isProduction: boolean;
-  /** Absolute path to the session's worktree, used to shorten file paths in tool call display. */
-  worktreePath: string;
-  /** Sticky harness preference loaded server-side. Forwarded to FloatingThreadDialog. */
+}
+
+type CoreStatusReport = {
+  productionBranch?: string | null;
+  worktrees?: Array<{
+    path: string;
+    branch: string | null;
+    servers?: Array<{ state?: string }>;
+  }>;
+};
+
+type ThreadFormDefaults = {
   initialHarness?: string;
-  /** Sticky model preference loaded server-side. Forwarded to FloatingThreadDialog. */
   initialModel?: string;
-  /** Sticky caveman mode preference loaded server-side. Forwarded to FloatingThreadDialog. */
   initialCavemanMode?: boolean;
-  /** Sticky caveman intensity preference loaded server-side. Forwarded to FloatingThreadDialog. */
   initialCavemanIntensity?: import("@/lib/user-prefs").CavemanIntensity;
+};
+
+function inferClientStatusFromEvents(events: SessionEvent[]): string {
+  let lastResultIdx = -1;
+  let lastSectionStartIdx = -1;
+  let lastSectionType: string | null = null;
+  let decisionAction: string | null = null;
+
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i];
+    if (event.type === "result") lastResultIdx = i;
+    if (event.type === "section_start") {
+      lastSectionStartIdx = i;
+      lastSectionType = event.sectionType;
+    }
+    if (event.type === "decision") decisionAction = event.action;
+  }
+
+  if (decisionAction) return decisionAction;
+  if (lastResultIdx >= 0 && lastSectionStartIdx <= lastResultIdx) return "ready";
+  if (lastSectionType === "deploy") return "accepting";
+  if (lastSectionType === "type_fix") return "fixing-types";
+  if (lastSectionType === "auto_commit") return "running-claude";
+  if (lastSectionType === "agent" || lastSectionType === "claude" || lastSectionType === "followup" || lastSectionType === "conflict_resolution") return "running-claude";
+  return "starting";
 }
 
 // ─── CopyBranchName ──────────────────────────────────────────────────────────
@@ -1714,25 +1723,7 @@ function CopyBranchName({ branch }: { branch: string }) {
 
 export default function ThreadView({
   sessionId,
-  initialRequest,
-  initialEvents,
-  initialLineCount,
-  initialStatus,
-  initialPreviewUrl,
-  serverLogsNode,
-  branch,
-  parentBranch,
-  sessionBranch,
-  canAcceptReject,
-  upstreamCommitCount,
-  diffSummary,
-  canStartThreads,
   isProduction,
-  worktreePath,
-  initialHarness,
-  initialModel,
-  initialCavemanMode,
-  initialCavemanIntensity,
 }: ThreadViewProps) {
   const [modelOptionsByHarness, setModelOptionsByHarness] = useState<Record<string, ModelOption[]>>({});
   useEffect(() => {
@@ -1742,9 +1733,15 @@ export default function ThreadView({
       .catch(() => { /* silently fall back to empty list */ });
   }, []);
 
-  const [events, setEvents] = useState<SessionEvent[]>(initialEvents);
-  const [status, setStatus] = useState(initialStatus);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl);
+  const [events, setEvents] = useState<SessionEvent[]>([]);
+  const [status, setStatus] = useState("starting");
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [branch, setBranch] = useState<string | null>(null);
+  const [sessionBranch, setSessionBranch] = useState(sessionId);
+  const parentBranch: string | null = null;
+  const canAcceptReject = true;
+  const [worktreePath, setWorktreePath] = useState("");
+  const [threadFormDefaults, setThreadFormDefaults] = useState<ThreadFormDefaults>({});
   /** Status of the preview server as reported by the process manager. */
   const [proxyServerStatus, setProxyServerStatus] = useState<'starting' | 'running' | 'stopped' | 'unknown'>('unknown');
   const sounds = useSounds();
@@ -1753,6 +1750,7 @@ export default function ThreadView({
   const [toastSessionId, setToastSessionId] = useState<string | null>(null);
   const hamburgerRef = useRef<HTMLDivElement>(null);
   const { sessionUser, handleLogout } = useSessionUser();
+  const canStartThreads = Boolean(sessionUser?.canStartThreads);
   const [acceptRejectLoading, setAcceptRejectLoading] = useState(false);
   const [acceptRejectError, setAcceptRejectError] = useState<string | null>(null);
   /** Session ID of a stuck 'accepting' session that is blocking this accept (from a 409 response). */
@@ -1773,10 +1771,10 @@ export default function ThreadView({
   const [restartError, setRestartError] = useState<string | null>(null);
   const [isAborting, setIsAborting] = useState(false);
   const [abortError, setAbortError] = useState<string | null>(null);
-  const [remainingUpstream, setRemainingUpstream] = useState(upstreamCommitCount);
+  const [remainingUpstream, setRemainingUpstream] = useState(0);
   const [upstreamSyncLoading, setUpstreamSyncLoading] = useState<"merge" | null>(null);
   const [upstreamSyncError, setUpstreamSyncError] = useState<string | null>(null);
-  const [liveDiffSummary, setLiveDiffSummary] = useState<DiffFileSummary[]>(diffSummary);
+  const [liveDiffSummary, setLiveDiffSummary] = useState<DiffFileSummary[]>([]);
   const [isDiffSummaryRefreshing, setIsDiffSummaryRefreshing] = useState(false);
   const [diffSummaryError, setDiffSummaryError] = useState<string | null>(null);
   const [diffRefreshToken, setDiffRefreshToken] = useState(0);
@@ -1784,12 +1782,12 @@ export default function ThreadView({
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const streamRunIdRef = useRef(0);
   /** Tracks how many NDJSON lines the client has received, for SSE reconnection offset. */
-  const lineCountRef = useRef(initialLineCount);
+  const lineCountRef = useRef(0);
   /** Mirrors current status so the visibilitychange handler can read it without a stale closure. */
-  const statusRef = useRef(initialStatus);
+  const statusRef = useRef("starting");
   /** Mirrors current events so the status-change sound effect can inspect the last result
    *  event without adding `events` to that effect’s dependency array. */
-  const eventsRef = useRef(initialEvents);
+  const eventsRef = useRef<SessionEvent[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   /**
    * True when the user is scrolled to (or near) the bottom.
@@ -1798,6 +1796,47 @@ export default function ThreadView({
    * be wrong because the DOM has already grown by then.
    */
   const wasAtBottomRef = useRef(true);
+  const serverLogsNode = useMemo(() => (
+    <SseLogFile streamPath={`/api/core/server/${encodeURIComponent(sessionId)}/logs`} />
+  ), [sessionId]);
+  const initialRequest = useMemo(() => {
+    const firstRequest = events.find((event): event is Extract<SessionEvent, { type: "initial_request" }> => event.type === "initial_request");
+    return firstRequest?.request ?? "";
+  }, [events]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCoreMetadata() {
+      try {
+        const headers = await coreApiAuthorizationHeaders();
+        const [statusResponse, preferencesResponse] = await Promise.all([
+          fetch(withBasePath("/api/core/status"), { headers }),
+          fetch(withBasePath("/api/core/preferences"), { headers }).catch(() => null),
+        ]);
+
+        if (!cancelled && statusResponse.ok) {
+          const report = await statusResponse.json() as CoreStatusReport;
+          const worktree = report.worktrees?.find((entry) => entry.branch === sessionId || entry.path.endsWith(`/${sessionId}`));
+          setBranch(report.productionBranch ?? null);
+          if (worktree?.branch) setSessionBranch(worktree.branch);
+          if (worktree?.path) setWorktreePath(worktree.path);
+          const serverState = worktree?.servers?.some((server) => server.state === "running") ? "running" : worktree ? "stopped" : "unknown";
+          setProxyServerStatus(serverState);
+        }
+
+        if (!cancelled && preferencesResponse?.ok) {
+          const data = await preferencesResponse.json() as { effectiveThreadFormDefaults?: ThreadFormDefaults };
+          setThreadFormDefaults(data.effectiveThreadFormDefaults ?? {});
+        }
+      } catch {
+        // Keep the shell usable; log streams surface auth/network errors inline.
+      }
+    }
+
+    void loadCoreMetadata();
+    return () => { cancelled = true; };
+  }, [sessionId]);
 
   // Track scroll position so we know whether to auto-scroll on new content.
   useEffect(() => {
@@ -1837,7 +1876,7 @@ export default function ThreadView({
   // Central sound-on-status-change effect.
   // Using a single effect with prevStatusRef avoids duplicate sounds when
   // status is set both by handleAccept() and the SSE stream.
-  const prevStatusRef = useRef(initialStatus);
+  const prevStatusRef = useRef("starting");
   useEffect(() => {
     const prev = prevStatusRef.current;
     prevStatusRef.current = status;
@@ -2007,7 +2046,7 @@ export default function ThreadView({
           const next = [...eventsRef.current, ...parsedEvents];
           eventsRef.current = next;
           setEvents(next);
-          const nextStatus = inferStatusFromEvents(next);
+          const nextStatus = inferClientStatusFromEvents(next);
           statusRef.current = nextStatus;
           setStatus(nextStatus);
           const hasPreview = nextStatus === "ready" || next.some((event) => event.type === "preview_path");
@@ -2034,20 +2073,16 @@ export default function ThreadView({
 
   // Track session page view on mount.
   useEffect(() => {
-    trackEvent("session/page-viewed/v1", { threadId: sessionId, status: initialStatus });
+    trackEvent("session/page-viewed/v1", { threadId: sessionId, status: statusRef.current });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  // Start streaming if the session isn't already in a terminal state.
+  // Start streaming through the Core API. Even terminal sessions begin empty in
+  // this client shell, so always subscribe from line 1 on mount.
   useEffect(() => {
-    const alreadyTerminal =
-      initialStatus === "accepted" ||
-      initialStatus === "rejected";
-    if (alreadyTerminal) return;
-
     void startStreaming();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]); // intentionally omit initialStatus — run once on mount
+  }, [sessionId]);
 
   useEffect(() => {
     if (previewUrl === null && status !== "ready") return;
@@ -2354,10 +2389,10 @@ export default function ThreadView({
           <FloatingThreadDialog
             onClose={() => setThreadDialogOpen(false)}
             anchorRect={threadAnchorRect}
-            initialHarness={initialHarness}
-            initialModel={initialModel}
-            initialCavemanMode={initialCavemanMode}
-            initialCavemanIntensity={initialCavemanIntensity}
+            initialHarness={threadFormDefaults.initialHarness}
+            initialModel={threadFormDefaults.initialModel}
+            initialCavemanMode={threadFormDefaults.initialCavemanMode}
+            initialCavemanIntensity={threadFormDefaults.initialCavemanIntensity}
             onSessionCreated={(id) => setToastSessionId(id)}
           />
         )}
