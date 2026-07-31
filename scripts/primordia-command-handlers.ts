@@ -24,7 +24,7 @@ import {
   getThreadPrefs,
 } from '@/lib/user-prefs';
 import { HARNESS_OPTIONS, MODEL_OPTIONS } from '@/lib/agent-config';
-import { BUILT_IN_PRESETS, PREF_CUSTOM_PRESETS, PREF_PRESET, parseCustomPresets } from '@/lib/presets';
+import { BUILT_IN_PRESETS, PREF_CUSTOM_PRESETS, PREF_PRESET, PRESET_AUTH_SOURCE_LABELS, parseCustomPresets, type PresetAuthSource } from '@/lib/presets';
 import {
   formatJobInterval,
   isPrimordiaJobName,
@@ -186,6 +186,26 @@ function inlineText(content: string): string {
   return content.replace(/[ \t\f\v\r]+/g, ' ');
 }
 
+function authSourceFromAgentAuth(auth: Extract<SessionEvent, { type: 'section_start'; sectionType: 'agent' }>['auth']): PresetAuthSource {
+  if (!auth || auth.source === 'llm-gateway') return 'exe-dev-gateway';
+  if (auth.source === 'claude-credentials') return 'claude-subscription';
+  if (auth.source === 'chatgpt-subscription') return 'chatgpt-subscription';
+  return 'anthropic-api-key';
+}
+
+function harnessLabel(harnessIdOrLabel?: string): string {
+  if (!harnessIdOrLabel) return 'Claude Code';
+  if (harnessIdOrLabel === 'claude-code') return 'Claude Code';
+  if (harnessIdOrLabel === 'codex') return 'Codex';
+  if (harnessIdOrLabel === 'pi') return 'Pi';
+  return harnessIdOrLabel;
+}
+
+function formatAgentSectionLabel(event: Extract<SessionEvent, { type: 'section_start'; sectionType: 'agent' }>): string {
+  const authLabel = PRESET_AUTH_SOURCE_LABELS[authSourceFromAgentAuth(event.auth)];
+  return `\n🤖 ${authLabel} / ${harnessLabel(event.harnessId ?? event.harness)} / ${event.model}`;
+}
+
 function formatThinkDuration(startTs: number, endTs: number): string {
   const secs = Math.max(1, Math.ceil((endTs - startTs) / 1000));
   if (secs < 60) return `${secs}s`;
@@ -243,13 +263,13 @@ function createSessionHumanRenderer(): HumanLogRenderer {
     const current = (() => {
       switch (event.type) {
         case 'section_start':
-          return `\n${event.label}`;
+          return event.sectionType === 'agent' ? formatAgentSectionLabel(event) : `\n${event.label}`;
         case 'setup_step':
           return event.done ? `✅ ${event.label}` : `• ${event.label}`;
         case 'initial_request':
           return `User asked:\n${event.request.trim()}`;
         case 'followup_request':
-          return `Follow-up:\n${event.request.trim()}`;
+          return null;
         case 'text':
         case 'log_line': {
           const text = inlineText(event.content);
