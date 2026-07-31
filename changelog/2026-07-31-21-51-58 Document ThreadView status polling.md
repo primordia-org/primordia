@@ -1,5 +1,5 @@
-# Document ThreadView status polling
+# Stream ThreadView server status through Primordia Core
 
-ThreadView now includes an in-page explanation next to the Web Preview panel that exhaustively lists why it polls preview server process status every two seconds.
+Added `bun run primordia server status` to report the current worktree server's process status. Its `--follow --json` mode emits newline-delimited JSON only when status changes, allowing Core clients to keep one subscription open while polling stays inside the server-side command.
 
-The list clarifies that preview server state can change independently of thread session events: lazy reverse-proxy starts, asynchronous restarts, crashes, external CLI/admin actions, deploys, follow-ups, upstream updates, DB hotswaps, and UI affordances like iframe overlays, restart controls, and automatic log opening all require fresh process-status checks.
+ThreadView now consumes `/api/core/server/[threadId]/status?follow=true&json=true` instead of repeatedly invoking a Server Action from the browser. This reduces noisy browser-originated status requests in application logs and traces while preserving live Start Preview, Restart, offline iframe, and server-log behavior. The temporary in-page list of polling reasons has been removed.

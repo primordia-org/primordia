@@ -54,6 +54,7 @@ type PreferenceSetArgs = PresetArgs & {
 type PrimordiaServiceName = 'service-supervisor' | 'reverse-proxy' | 'scheduled-jobs';
 type SupervisedServiceName = Exclude<PrimordiaServiceName, 'service-supervisor'>;
 type ServiceLogArgs = JsonArgs & { lines?: string; n?: string; start?: string; s?: string; follow?: boolean; f?: boolean };
+type ServerStatusArgs = JsonArgs & { follow?: boolean; f?: boolean };
 
 const MISSING_CLI_KEY_MESSAGE =
   'PRIMORDIA_CLI_KEY is required for `primordia thread create`, `primordia thread followup`, and `primordia thread accept`. ' +
@@ -730,6 +731,35 @@ export async function preferencesSetCommand(args: CliParsedArgs & JsonArgs & Use
     console.log(`Updated preferences for ${user.username}.`);
     for (const [key, value] of Object.entries(updates)) console.log(`${key}: ${value}`);
   }
+}
+
+function getServerStatus(threadId: string): { threadId: string; status: 'running' | 'stopped' | 'unknown'; servers: ProcessStatusReport['worktrees'][number]['servers'] } {
+  const worktree = getProcessStatusReport().worktrees.find((entry) => entry.branch === threadId);
+  if (!worktree) return { threadId, status: 'unknown', servers: [] };
+  return {
+    threadId,
+    status: worktree.servers.length > 0 ? 'running' : 'stopped',
+    servers: worktree.servers,
+  };
+}
+
+function formatServerStatus(snapshot: ReturnType<typeof getServerStatus>, json: boolean): string {
+  return json ? JSON.stringify(snapshot) : `${snapshot.threadId}: ${snapshot.status}`;
+}
+
+export async function serverStatusCommand(args: CliParsedArgs & ServerStatusArgs): Promise<void> {
+  const thread = getCurrentThread();
+  let previous = '';
+  do {
+    const snapshot = getServerStatus(thread.threadId);
+    const serialized = JSON.stringify(snapshot);
+    if (serialized !== previous) {
+      console.log(formatServerStatus(snapshot, Boolean(args.json)));
+      previous = serialized;
+    }
+    if (!(args.follow || args.f)) return;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  } while (true);
 }
 
 export async function serverStartCommand(args: CliParsedArgs): Promise<void> {

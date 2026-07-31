@@ -34,7 +34,7 @@ import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
 import { normalizeAuthSource, type PresetAuthSource } from "@/lib/presets";
 import { deriveSmartPreviewUrl } from "@/lib/smart-preview-url";
 import { trackEvent } from "@/lib/events-client";
-import { getPreviewProcessSnapshot, restartPreviewServer } from "./actions";
+import { restartPreviewServer } from "./actions";
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────
 
@@ -1475,19 +1475,6 @@ function StructuredSection({
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
-const PREVIEW_SERVER_STATUS_POLLING_REASONS = [
-  "The preview server status is process state, not thread-log state, so the NDJSON/Core log stream cannot report every start, stop, or crash.",
-  "The reverse proxy can lazily start a stopped preview when the iframe or a user opens /preview/{threadId}, outside any React event handler.",
-  "Manual Start Preview and Restart actions return before the Next.js dev server is fully listening, so the UI must keep checking until starting becomes running or stopped.",
-  "The dev server may crash, exit after dependency/build errors, be killed by a cleanup/restart command, or be stopped from another tab, terminal, CLI, or admin flow.",
-  "A production deploy, supervisor restart, Core route-action restart, or reverse-proxy restart can temporarily disconnect process ownership while the thread itself remains ready.",
-  "Follow-ups, upstream updates, DB hotswaps, dependency installs, and server publish/copydb operations can invalidate or restart the preview without adding a new preview_path event.",
-  "Thread status can stay ready while the preview process changes independently, so status transitions alone cannot decide whether to show the iframe, Starting Preview, or Start Preview.",
-  "The restart button should only be offered when a server is actually running, and the Start Preview button should appear quickly when it is not.",
-  "The stopped state auto-opens server logs so the user sees the failure output without manually discovering the logs drawer.",
-  "The iframe offline overlay and element picker need an up-to-date running/stopped signal to avoid showing a dead app as selectable or hiding a newly recovered preview.",
-] as const;
-
 // Shared web-preview card: iframe/placeholder + server logs in one unit.
 // Used for both the inline (mobile) position and the desktop sidebar so the
 // two places are literally the same component.
@@ -1606,20 +1593,6 @@ function WebPreviewCard({
           </div>
         )}
       </div>
-
-      <details className="flex-shrink-0 border-t border-emerald-700/50">
-        <summary className="px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs text-gray-500">
-          Why does this check server status every 2 seconds?
-        </summary>
-        <div className="border-t border-gray-800 px-4 py-3 text-xs text-gray-400">
-          <p className="mb-2 text-gray-300">ThreadView polls constantly because preview server process state can change independently from thread events:</p>
-          <ol className="list-decimal space-y-1 pl-5">
-            {PREVIEW_SERVER_STATUS_POLLING_REASONS.map((reason) => (
-              <li key={reason}>{reason}</li>
-            ))}
-          </ol>
-        </div>
-      </details>
 
       {/* Server logs — always collapsible; auto-open when stopped */}
       <details
@@ -2150,24 +2123,41 @@ export default function ThreadView({
   }, [sessionId]);
 
   useEffect(() => {
-    if (previewUrl === null && status !== "ready") return;
     let cancelled = false;
+    let abort: AbortController | null = null;
 
-    async function pollProcessSnapshot() {
-      while (!cancelled) {
-        try {
-          const snapshot = await getPreviewProcessSnapshot(sessionId);
-          if (!cancelled) {
-            setProxyServerStatus(snapshot.status);
+    async function subscribeToServerStatus() {
+      abort = new AbortController();
+      try {
+        const response = await coreApiFetch(withBasePath(`/api/core/server/${encodeURIComponent(sessionId)}/status?follow=true&json=true`), {
+          signal: abort.signal,
+          headers: { Accept: "application/x-ndjson" },
+        });
+        if (!response.ok || !response.body) throw new Error(`Server status stream returned HTTP ${response.status}.`);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (!cancelled) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const snapshot = JSON.parse(line) as { status?: 'starting' | 'running' | 'stopped' | 'unknown' };
+            if (snapshot.status && !cancelled) setProxyServerStatus(snapshot.status);
           }
-        } catch { /* keep polling */ }
-        if (!cancelled) await new Promise<void>((r) => setTimeout(r, 2_000));
+        }
+      } catch (error) {
+        if (!cancelled && !(error instanceof Error && error.name === "AbortError")) console.warn("Server status subscription ended:", error);
       }
     }
 
-    void pollProcessSnapshot();
-    return () => { cancelled = true; };
-  }, [sessionId, previewUrl, status]);
+    void subscribeToServerStatus();
+    return () => { cancelled = true; abort?.abort(); };
+  }, [sessionId]);
   async function handleRestartServer() {
     trackEvent("session/restart-server-clicked/v1", { threadId: sessionId });
     setIsRestartingServer(true);
