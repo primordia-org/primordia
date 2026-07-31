@@ -290,7 +290,7 @@ export function ThreadRequestForm({
         formData.append("cavemanMode", String(cavemanMode));
         formData.append("cavemanIntensity", cavemanIntensity);
         for (const file of allFiles) {
-          formData.append("attachments", file);
+          formData.append("attach", file);
         }
         // Preset auth source decides which one credential to send.
         await appendCredentialFieldsForAuthSource(formData, selectedPreset.authSource);

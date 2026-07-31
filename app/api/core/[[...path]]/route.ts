@@ -61,14 +61,14 @@ function parseValue(value: string): string | boolean {
   return value;
 }
 
-async function parseRequestBody(request: Request): Promise<ParsedBody> {
+async function parseRequestBody(request: Request, uploadDirOverride?: string): Promise<ParsedBody> {
   const contentType = request.headers.get('content-type') ?? '';
   if (contentType.includes('multipart/form-data')) {
     const form = await request.formData();
     const args: string[] = [];
     const options: CoreOptions = {};
     const values: Record<string, string | boolean | undefined> = {};
-    const uploadDir = path.join('/tmp', `primordia-core-upload-${crypto.randomUUID()}`);
+    const uploadDir = uploadDirOverride ?? path.join('/tmp', `primordia-core-upload-${crypto.randomUUID()}`);
     let wroteUpload = false;
     for (const [key, value] of form.entries()) {
       if (typeof value !== 'string') {
@@ -110,14 +110,14 @@ async function parseRequestBody(request: Request): Promise<ParsedBody> {
         } catch {
           // Ignore malformed legacy options payloads; command validation will report missing values as needed.
         }
-      } else if (key === 'attachments' || key === 'attachment' || key === 'attach') {
+      } else if (key === 'attach') {
         const existing = options.attach;
         options.attach = Array.isArray(existing) ? [...existing, value] : typeof existing === 'string' ? [existing, value] : [value];
       } else {
         values[key] = parseValue(value);
       }
     }
-    if (!wroteUpload) {
+    if (!wroteUpload && !uploadDirOverride) {
       try { fs.rmdirSync(uploadDir); } catch { /* non-fatal */ }
     }
     return { args, options, values };
@@ -346,7 +346,7 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
             ...jsonBodySchema,
             properties: {
               ...bodyProperties,
-              attachments: {
+              attach: {
                 type: 'array',
                 items: { type: 'string', format: 'binary' },
                 description: 'One or more files to attach to the thread request.',
@@ -483,7 +483,10 @@ async function coreActionResponse(request: Request, parts: string[], method: 'GE
     if (matched.route.httpMethod !== method) {
       return terminalJsonResponse({ msg: `Use ${matched.route.httpMethod} for this Core API route.` }, { status: 405, headers: { allow: matched.route.httpMethod } });
     }
-    const parsed = method === 'GET' ? { args: [], options: {}, values: {} } : await parseRequestBody(request);
+    const uploadDir = method === 'POST' && matched.route.cwdParam
+      ? path.join(resolveThreadCwd(matched.params[matched.route.cwdParam]), 'attachments')
+      : undefined;
+    const parsed = method === 'GET' ? { args: [], options: {}, values: {} } : await parseRequestBody(request, uploadDir);
     const { argv, cwd, streaming, ndjson } = buildArgv(matched.route, matched.params, parsed, request);
     if (streaming) return streamingResponse(argv, cwd, auth, ndjson ? 'application/x-ndjson' : 'text/plain; charset=utf-8');
     return bufferedResponse(argv, cwd, auth);

@@ -43,7 +43,7 @@ type UserSelectorArgs = { user?: string };
 type JsonArgs = { json?: boolean };
 type ModeArgs = { dev?: boolean; prod?: boolean };
 type PresetArgs = { preset?: string };
-type AttachArgs = { attach?: string | string[]; a?: string | string[] };
+type AttachArgs = { attach?: string | string[] };
 type PreferenceSetArgs = PresetArgs & {
   harness?: string;
   model?: string;
@@ -111,7 +111,7 @@ function normalizeStringList(value: string | string[] | boolean | undefined): st
 }
 
 function resolveAttachmentPaths(args: AttachArgs): string[] {
-  const rawPaths = [...normalizeStringList(args.attach), ...normalizeStringList(args.a)];
+  const rawPaths = normalizeStringList(args.attach);
   const paths = [...new Set(rawPaths.map((entry) => entry.trim()).filter(Boolean))].map((entry) => path.resolve(entry));
   for (const filePath of paths) {
     if (!fs.existsSync(filePath)) throw new Error(`attachment not found: ${filePath}`);

@@ -130,7 +130,6 @@ const linesOption: CliOptionDef = {
 
 const attachOption: CliOptionDef = {
   name: 'attach',
-  alias: 'a',
   type: 'string',
   valueHint: 'file',
   description: 'Attach a file to the thread request. May be provided multiple times.',
