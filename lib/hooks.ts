@@ -88,7 +88,7 @@ export function useSessionUser() {
       .then((res) => res.json())
       .then((data: { user: SessionUser | null }) => {
         setSessionUser(data.user);
-        if (data.user) void ensureCoreWebApiKey().catch(() => {});
+        if (data.user?.canStartThreads) void ensureCoreWebApiKey({ canStartThreads: true }).catch(() => {});
       })
       .catch(() => {});
   }, []);

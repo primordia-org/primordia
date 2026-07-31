@@ -17,6 +17,12 @@ type ApiKeyRecord = {
   client: "web";
 };
 
+type SessionResponse = {
+  user: {
+    canStartThreads?: boolean;
+  } | null;
+};
+
 function parseStoredCoreWebApiKey(value: string | null): StoredCoreWebApiKey | null {
   if (!value) return null;
   try {
@@ -94,10 +100,20 @@ export function getStoredCoreWebApiKey(): string | null {
   return parseStoredCoreWebApiKey(localStorage.getItem(CORE_WEB_API_KEY_STORAGE))?.secret ?? null;
 }
 
-export async function ensureCoreWebApiKey(): Promise<string> {
+async function currentSessionCanStartThreads(): Promise<boolean> {
+  const res = await fetch(withBasePath("/api/auth/session"));
+  if (!res.ok) return false;
+  const data = (await res.json()) as SessionResponse;
+  return data.user?.canStartThreads === true;
+}
+
+export async function ensureCoreWebApiKey(options: { canStartThreads?: boolean; checkPermission?: boolean } = {}): Promise<string> {
   if (typeof window === "undefined") throw new Error("Browser API keys can only be created in a browser.");
   const stored = parseStoredCoreWebApiKey(localStorage.getItem(CORE_WEB_API_KEY_STORAGE));
   if (stored?.secret) return stored.secret;
+
+  const allowed = options.canStartThreads === true || (options.checkPermission === false ? false : await currentSessionCanStartThreads());
+  if (!allowed) throw new Error("Evolve permission is required to create a browser Core API key.");
 
   const aesKeyJson = await getOrCreateStoredAesKeyJson();
   const note = browserApiKeyNote();

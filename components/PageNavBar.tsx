@@ -72,7 +72,7 @@ export function PageNavBar({ subtitle, branch, currentPage, initialSession, init
       .then((res) => res.json())
       .then((data: { user: SessionUser | null }) => {
         setSessionUser(data.user);
-        if (data.user) void ensureCoreWebApiKey().catch(() => {});
+        if (data.user?.canStartThreads) void ensureCoreWebApiKey({ canStartThreads: true }).catch(() => {});
       })
       .catch(() => setSessionUser(null));
   }, [initialSession]);
