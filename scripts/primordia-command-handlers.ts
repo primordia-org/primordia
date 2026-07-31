@@ -733,13 +733,11 @@ export async function preferencesSetCommand(args: CliParsedArgs & JsonArgs & Use
   }
 }
 
-function getServerStatus(threadId: string): { threadId: string; status: 'running' | 'stopped' | 'unknown'; servers: ProcessStatusReport['worktrees'][number]['servers'] } {
+function getServerStatus(threadId: string): { threadId: string; status: 'running' | 'stopped' | 'unknown' } {
   const worktree = getProcessStatusReport().worktrees.find((entry) => entry.branch === threadId);
-  if (!worktree) return { threadId, status: 'unknown', servers: [] };
   return {
     threadId,
-    status: worktree.servers.length > 0 ? 'running' : 'stopped',
-    servers: worktree.servers,
+    status: !worktree ? 'unknown' : worktree.servers.length > 0 ? 'running' : 'stopped',
   };
 }
 
