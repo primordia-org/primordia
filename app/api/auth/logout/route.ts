@@ -9,12 +9,21 @@ import { SESSION_COOKIE } from "@/lib/auth";
  * @description Deletes the current session and clears the session cookie.
  * @tag Auth
  */
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const cookieStore = await cookies();
     const sessionId = cookieStore.get(SESSION_COOKIE)?.value;
     if (sessionId) {
       const db = await getDb();
+      const session = await db.getSession(sessionId);
+      const body = (await request.json().catch(() => null)) as { coreWebApiKeyShortId?: string | null } | null;
+      const shortId = typeof body?.coreWebApiKeyShortId === "string" ? body.coreWebApiKeyShortId : null;
+      if (session && shortId) {
+        const key = await db.getRevokableAesKey(shortId);
+        if (key && key.userId === session.userId && key.client === "web" && key.revokedAt === null) {
+          await db.revokeRevokableAesKey(session.userId, shortId, Date.now());
+        }
+      }
       await db.deleteSession(sessionId);
     }
   } catch {

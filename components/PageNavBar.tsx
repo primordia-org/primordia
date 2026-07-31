@@ -22,6 +22,7 @@ import { FloatingThreadDialog, ThreadSubmitToast } from "./FloatingThreadDialog"
 import { HamburgerMenu, buildStandardMenuItems } from "./HamburgerMenu";
 import type { SessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
+import { ensureCoreWebApiKey, logoutAndRevokeCoreWebApiKey } from "@/lib/core-api-key-client";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -69,12 +70,15 @@ export function PageNavBar({ subtitle, branch, currentPage, initialSession, init
     if (initialSession !== undefined) return;
     fetch(withBasePath("/api/auth/session"))
       .then((res) => res.json())
-      .then((data: { user: SessionUser | null }) => setSessionUser(data.user))
+      .then((data: { user: SessionUser | null }) => {
+        setSessionUser(data.user);
+        if (data.user?.canStartThreads) void ensureCoreWebApiKey({ canStartThreads: true }).catch(() => {});
+      })
       .catch(() => setSessionUser(null));
   }, [initialSession]);
 
   async function handleLogout() {
-    await fetch(withBasePath("/api/auth/logout"), { method: "POST" });
+    await logoutAndRevokeCoreWebApiKey();
     setSessionUser(null);
   }
 

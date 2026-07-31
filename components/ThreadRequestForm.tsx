@@ -14,7 +14,7 @@ import { useState, useRef, useEffect, useCallback, FormEvent, memo } from "react
 import { Paperclip, Settings, ChevronDown, Crosshair, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { withBasePath } from "@/lib/base-path";
-import { appendCredentialFieldsForAuthSource } from "@/lib/preset-credentials-client";
+import { coreApiAuthorizationHeaders } from "@/lib/core-api-key-client";
 import {
   DEFAULT_HARNESS,
   DEFAULT_MODEL,
@@ -283,23 +283,18 @@ export function ThreadRequestForm({
       } else {
         const formData = new FormData();
         formData.append("request", effectiveRequest);
-        formData.append("harness", selectedHarness);
-        formData.append("model", selectedModel);
-        formData.append("presetId", selectedPreset.id);
-        formData.append("authSource", selectedPreset.authSource);
-        formData.append("cavemanMode", String(cavemanMode));
-        formData.append("cavemanIntensity", cavemanIntensity);
+        formData.append("preset", selectedPreset.id);
+        formData.append("caveman", String(cavemanMode));
+        formData.append("caveman-intensity", cavemanIntensity);
         for (const file of allFiles) {
-          formData.append("attachments", file);
+          formData.append("attach", file);
         }
-        // Preset auth source decides which one credential to send.
-        await appendCredentialFieldsForAuthSource(formData, selectedPreset.authSource);
-
-        const res = await fetch(withBasePath("/api/thread"), { method: "POST", body: formData });
-        const data = (await res.json()) as { threadId?: string; error?: string };
+        const headers = await coreApiAuthorizationHeaders();
+        const res = await fetch(withBasePath("/api/core/thread"), { method: "POST", headers, body: formData });
+        const data = (await res.json()) as { threadId?: string; msg?: string };
 
         if (!res.ok) {
-          throw new Error(data.error ?? `API error: ${res.statusText}`);
+          throw new Error(data.msg ?? `API error: ${res.statusText}`);
         }
 
         if (onSessionCreated) {

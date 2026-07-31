@@ -206,7 +206,7 @@ function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed
   }
   for (const option of userFacingOptions(route)) {
     const bodyValue = parsed.values[option.name];
-    if (bodyValue !== undefined) options[option.name] = bodyValue;
+    if (bodyValue !== undefined) options[option.name] = option.type === 'string' && typeof bodyValue === 'boolean' ? String(bodyValue) : bodyValue;
   }
   const explicitFollow = options.follow === true || options.f === true;
   if (hasOption(route, 'json') && options.json !== false) options.json = true;
@@ -477,7 +477,6 @@ function streamingResponse(argv: string[], cwd: string | undefined, auth: AuthCo
 
 async function coreActionResponse(request: Request, parts: string[], method: 'GET' | 'POST'): Promise<Response> {
   try {
-    const auth = await authorize(request);
     const matched = matchRoute(parts);
     if (!matched) return terminalJsonResponse({ msg: 'unknown Core API route' }, { status: 404 });
     if (matched.route.httpMethod !== method) {
@@ -487,6 +486,7 @@ async function coreActionResponse(request: Request, parts: string[], method: 'GE
       ? path.join(resolveThreadCwd(matched.params[matched.route.cwdParam]), 'attachments')
       : undefined;
     const parsed = method === 'GET' ? { args: [], options: {}, values: {} } : await parseRequestBody(request, uploadDir);
+    const auth = await authorize(request);
     const { argv, cwd, streaming, ndjson } = buildArgv(matched.route, matched.params, parsed, request);
     if (streaming) return streamingResponse(argv, cwd, auth, ndjson ? 'application/x-ndjson' : 'text/plain; charset=utf-8');
     return bufferedResponse(argv, cwd, auth);

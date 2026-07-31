@@ -125,7 +125,15 @@ const linesOption: CliOptionDef = {
   alias: 'n',
   type: 'string',
   valueHint: 'count',
-  description: 'Number of recent log lines to print.',
+  description: 'Number of recent log lines to print. With --start, this limits how many lines to print from the cursor.',
+};
+
+const startLineOption: CliOptionDef = {
+  name: 'start',
+  alias: 's',
+  type: 'string',
+  valueHint: 'line',
+  description: 'Print log lines starting at 1-based line number N instead of tailing recent lines.',
 };
 
 const attachOption: CliOptionDef = {
@@ -204,7 +212,7 @@ const restartCommand: CliCommandDef = {
 const logsCommand: CliCommandDef = {
   name: 'logs',
   description: "Print the thread's server log file. With --json, emits NDJSON records wrapping each log line.",
-  options: [jsonOption, linesOption, followOption],
+  options: [jsonOption, linesOption, startLineOption, followOption],
   api: { path: '/server/[threadId]/logs', method: 'GET', streaming: true, cwdParam: 'threadId' },
   run: lazyRun('serverLogsCommand'),
 };
@@ -228,7 +236,7 @@ const copyDbCommand: CliCommandDef = {
 const createCommand: CliCommandDef = {
   name: 'create',
   description: 'Create a thread and run its initial agent turn.',
-  options: [jsonOption, userOption, presetOption, attachOption],
+  options: [jsonOption, userOption, presetOption, cavemanOption, cavemanIntensityOption, attachOption],
   arguments: [requestArgument],
   api: { path: '/thread', multipart: true },
   run: lazyRun('threadCreateCommand'),
@@ -246,7 +254,7 @@ const followupCommand: CliCommandDef = {
 const threadLogsCommand: CliCommandDef = {
   name: 'logs',
   description: "Print the thread's session log in a human-readable form. With --json, emits raw NDJSON events.",
-  options: [jsonOption, linesOption, followOption],
+  options: [jsonOption, linesOption, startLineOption, followOption],
   api: { path: '/thread/[threadId]/logs', method: 'GET', streaming: true, cwdParam: 'threadId' },
   run: lazyRun('threadLogsCommand'),
 };
@@ -335,7 +343,7 @@ const jobsRestartCommand: CliCommandDef = {
 const jobsLogsCommand: CliCommandDef = {
   name: 'logs',
   description: 'Print the supervised scheduled jobs daemon log.',
-  options: [jsonOption, linesOption, followOption],
+  options: [jsonOption, linesOption, startLineOption, followOption],
   api: { path: '/jobs/logs', method: 'GET', streaming: true },
   run: lazyRun('jobsLogsCommand'),
 };
@@ -357,7 +365,7 @@ const reverseProxyRestartCommand: CliCommandDef = {
 const reverseProxyLogsCommand: CliCommandDef = {
   name: 'logs',
   description: 'Print the supervised reverse proxy service log.',
-  options: [jsonOption, linesOption, followOption],
+  options: [jsonOption, linesOption, startLineOption, followOption],
   api: { path: '/reverse-proxy/logs', method: 'GET', streaming: true },
   run: lazyRun('reverseProxyLogsCommand'),
 };

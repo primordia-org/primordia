@@ -1,20 +1,9 @@
 // app/thread/[id]/page.tsx
-// Dedicated thread page for a single local thread run.
-//
-// The server component reads the initial thread state from the filesystem and
-// passes it to the ThreadView client component, which polls for live updates.
+// Dedicated thread page shell for a single local thread run.
+// Thread details and logs are loaded by the client through Primordia Core.
 
-import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { execSync } from "child_process";
-import * as fs from "fs";
-import { getSessionUser, hasThreadPermission } from "@/lib/auth";
-import { getThreadPrefs } from "@/lib/user-prefs";
 import { buildPageTitle } from "@/lib/page-title";
-import { readSessionEvents, getSessionNdjsonPath, getSessionFromFilesystem, type SessionEvent } from "@/lib/session-events";
-import { getParentBranch } from "@/lib/branch-parent";
-import { getWorktreeLogPath } from "@/lib/process-manager";
-import { SseLogFile } from "@/components/SseLogFile";
 import ThreadView from "./ThreadView";
 
 export async function generateMetadata({
@@ -23,25 +12,11 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const session = getSessionFromFilesystem(id, process.cwd());
 
   return {
-    title: buildPageTitle(session?.branch ?? id),
+    title: buildPageTitle(id),
     description: "Live progress for a thread.",
   };
-}
-
-function readGitBranch(): string | null {
-  try {
-    return (
-      execSync("git branch --show-current", {
-        encoding: "utf8",
-        stdio: ["pipe", "pipe", "pipe"],
-      }).trim() || null
-    );
-  } catch {
-    return null;
-  }
 }
 
 export interface DiffFileSummary {
@@ -52,149 +27,12 @@ export interface DiffFileSummary {
   deletions: number;
 }
 
-function getRenamePathsFromNumstatFile(file: string): { oldPath: string; newPath: string } | null {
-  if (!file.includes(" => ")) return null;
-
-  const oldPath = file.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, "$1");
-  const newPath = file.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, "$2");
-  if (oldPath !== file || newPath !== file) return { oldPath, newPath };
-
-  const separator = file.lastIndexOf(" => ");
-  return {
-    oldPath: file.slice(0, separator).trim(),
-    newPath: file.slice(separator + " => ".length).trim(),
-  };
-}
-
-function getGitDiffSummary(sessionBranch: string): DiffFileSummary[] {
-  try {
-    const parentBranch = getParentBranch(sessionBranch);
-    if (!parentBranch) return [];
-
-    const output = execSync(
-      `git diff --numstat -M -w ${parentBranch}...${sessionBranch}`,
-      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
-
-    if (!output) return [];
-
-    return output.split("\n").flatMap((line) => {
-      const parts = line.split("\t");
-      if (parts.length < 3) return [];
-      const file = parts[2].trim();
-      if (!file) return [];
-      const renamePaths = getRenamePathsFromNumstatFile(file);
-      return [{
-        additions: parseInt(parts[0], 10) || 0,
-        deletions: parseInt(parts[1], 10) || 0,
-        file,
-        ...(renamePaths ? { diffPath: renamePaths.newPath, oldPath: renamePaths.oldPath } : {}),
-      }];
-    });
-  } catch {
-    return [];
-  }
-}
-
-function getUpstreamCommitCount(sessionBranch: string): number {
-  try {
-    const parentBranch = getParentBranch(sessionBranch);
-    if (!parentBranch) return 0;
-    const count = execSync(
-      `git rev-list ${sessionBranch}..${parentBranch} --count`,
-      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
-    return parseInt(count, 10) || 0;
-  } catch {
-    return 0;
-  }
-}
-
-function readLogTail(logPath: string, maxBytes = 50 * 1024): string {
-  try {
-    const stat = fs.statSync(logPath);
-    const start = Math.max(0, stat.size - maxBytes);
-    const length = stat.size - start;
-    if (length <= 0) return "";
-
-    const fd = fs.openSync(logPath, "r");
-    try {
-      const buffer = Buffer.alloc(length);
-      fs.readSync(fd, buffer, 0, length, start);
-      return buffer.toString("utf8");
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return "";
-  }
-}
-
 export default async function ThreadPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const user = await getSessionUser();
-  const canStartThreads = user ? await hasThreadPermission(user.id) : false;
-  const threadPrefs = user ? await getThreadPrefs(user.id) : { initialHarness: undefined, initialModel: undefined, initialCavemanMode: undefined, initialCavemanIntensity: undefined };
-
   const { id } = await params;
 
-  const session = getSessionFromFilesystem(id, process.cwd());
-  if (!session) notFound();
-
-  const branch = readGitBranch();
-
-  const parentBranch = getParentBranch(session.branch);
-
-  // Only allow accept/reject when the session branch was branched directly off
-  // the currently checked-out branch.
-  const canAcceptReject = parentBranch !== null && branch !== null && branch === parentBranch;
-
-  const upstreamCommitCount = getUpstreamCommitCount(session.branch);
-  const diffSummary = getGitDiffSummary(session.branch);
-
-  const serverLogPath = getWorktreeLogPath(session.branch, process.cwd());
-  const initialServerLogs = readLogTail(serverLogPath);
-
-  // Load initial events from the NDJSON log.
-  let initialEvents: SessionEvent[] = [];
-  let initialLineCount = 0;
-  const ndjsonPath = getSessionNdjsonPath(session.worktreePath);
-  if (fs.existsSync(ndjsonPath)) {
-    const result = readSessionEvents(ndjsonPath);
-    initialEvents = result.events;
-    initialLineCount = result.totalLines;
-  }
-
-  return (
-    <ThreadView
-      sessionId={session.id}
-      initialRequest={session.request}
-      initialEvents={initialEvents}
-      initialLineCount={initialLineCount}
-      initialStatus={session.status}
-      initialPreviewUrl={session.previewUrl}
-      serverLogsNode={(
-        <SseLogFile
-          streamPath={`/api/server/logs?threadId=${encodeURIComponent(session.id)}`}
-          initialOutput={initialServerLogs}
-        />
-      )}
-      branch={branch}
-      parentBranch={parentBranch}
-      sessionBranch={session.branch}
-      canAcceptReject={canAcceptReject}
-      upstreamCommitCount={upstreamCommitCount}
-      diffSummary={diffSummary}
-      canStartThreads={canStartThreads}
-      isProduction={process.env.NODE_ENV === "production"}
-      worktreePath={session.worktreePath}
-      initialHarness={threadPrefs.initialHarness}
-      initialModel={threadPrefs.initialModel}
-      initialCavemanMode={threadPrefs.initialCavemanMode}
-      initialCavemanIntensity={threadPrefs.initialCavemanIntensity}
-    />
-  );
+  return <ThreadView sessionId={id} isProduction={process.env.NODE_ENV === "production"} />;
 }

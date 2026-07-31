@@ -2,10 +2,10 @@
 
 // components/ThreadView.tsx
 // Client component rendered by /thread/[id].
-// Streams live Claude Code progress via SSE from /api/thread/stream.
+// Streams live agent progress via the Primordia Core API.
 
-import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
-import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown } from "lucide-react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Pause, Play, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown } from "lucide-react";
 import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { MarkdownContent } from "@/components/MarkdownContent";
@@ -16,13 +16,14 @@ import { FloatingThreadDialog, ThreadSubmitToast } from "@/components/FloatingTh
 import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
 import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
-import { appendCredentialFieldsForAuthSource, getCredentialFieldsForAuthSource } from "@/lib/preset-credentials-client";
+import { getCredentialFieldsForAuthSource } from "@/lib/preset-credentials-client";
+import { coreApiFetch } from "@/lib/core-api-key-client";
 import { useSounds } from "@/lib/sounds";
-import { updateStoredCredentials } from "@/lib/credentials-client";
 import { ChatGptSubscriptionAuthCard } from "@/components/ChatGptSubscriptionAuthCard";
 import { ThreadRequestForm } from "@/components/ThreadRequestForm";
 import Link from "next/link";
 import type { DiffFileSummary } from "./page";
+import { CoreLogFile } from "@/components/CoreLogFile";
 import { DiffFileExpander } from "./DiffFileExpander";
 import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
@@ -1482,7 +1483,7 @@ function WebPreviewCard({
   previewUrl,
   sessionId: cardSessionId,
   proxyServerStatus,
-  serverLogsNode,
+  serverLogPath,
   canStartThreads,
   isRestartingServer,
   restartError,
@@ -1493,7 +1494,7 @@ function WebPreviewCard({
   previewUrl: string | null;
   sessionId: string;
   proxyServerStatus: 'starting' | 'running' | 'stopped' | 'unknown';
-  serverLogsNode: ReactNode;
+  serverLogPath: string;
   canStartThreads: boolean;
   isRestartingServer: boolean;
   restartError: string | null;
@@ -1501,6 +1502,8 @@ function WebPreviewCard({
   onElementSelected: (info: ElementSelection) => void;
 }) {
   const serverLogsScrollRef = useRef<HTMLDivElement>(null);
+  const [serverLogsOpen, setServerLogsOpen] = useState(proxyServerStatus === 'stopped');
+  const [serverLogsPaused, setServerLogsPaused] = useState(false);
 
   const scrollServerLogsToEnd = useCallback(() => {
     requestAnimationFrame(() => {
@@ -1513,8 +1516,14 @@ function WebPreviewCard({
   }, []);
 
   useEffect(() => {
-    if (proxyServerStatus === 'stopped') scrollServerLogsToEnd();
+    if (proxyServerStatus !== 'stopped') return;
+    setServerLogsOpen(true);
+    scrollServerLogsToEnd();
   }, [proxyServerStatus, scrollServerLogsToEnd]);
+
+  useEffect(() => {
+    if (serverLogsOpen && !serverLogsPaused) scrollServerLogsToEnd();
+  }, [serverLogsOpen, serverLogsPaused, scrollServerLogsToEnd]);
 
   return (
     <div className={`rounded-lg border border-emerald-700/50 bg-gray-900 text-sm overflow-hidden flex flex-col${fullHeight ? ' h-full' : ''}`}>
@@ -1588,28 +1597,51 @@ function WebPreviewCard({
       {/* Server logs — always collapsible; auto-open when stopped */}
       <details
         className="group flex-shrink-0 border-t border-emerald-700/50"
-        open={proxyServerStatus === 'stopped'}
+        open={serverLogsOpen}
         onToggle={(event) => {
+          setServerLogsOpen(event.currentTarget.open);
           if (event.currentTarget.open) scrollServerLogsToEnd();
         }}
       >
         <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
           <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
           <span className="text-gray-500">🪵 Server logs</span>
-          {canStartThreads && proxyServerStatus === 'running' && (
-            <button
-              data-id="session/restart-preview"
-              type="button"
-              onClick={(e) => { e.preventDefault(); onRestartServer(); }}
-              className="ml-auto flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
-            >
-              <RotateCw size={12} />Restart
-            </button>
-          )}
+          <span className="ml-auto flex items-center gap-3">
+            {serverLogsOpen && (
+              <button
+                data-id="session/toggle-server-log-follow"
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setServerLogsPaused((value) => !value);
+                }}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                {serverLogsPaused ? <Play size={12} /> : <Pause size={12} />}
+                {serverLogsPaused ? "Follow Logs" : "Pause Logs"}
+              </button>
+            )}
+            {canStartThreads && proxyServerStatus === 'running' && (
+              <button
+                data-id="session/restart-preview"
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRestartServer(); }}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                <RotateCw size={12} />Restart
+              </button>
+            )}
+          </span>
         </summary>
         <div className="px-4 py-3 border-t border-gray-800">
-          <div ref={serverLogsScrollRef} className="text-xs text-gray-400 font-mono overflow-x-auto max-h-48 overflow-y-auto">
-            {serverLogsNode}
+          <div ref={serverLogsScrollRef} className="text-xs text-gray-400 font-mono max-h-48 overflow-y-auto overflow-x-hidden">
+            <CoreLogFile
+              streamPath={serverLogPath}
+              active={serverLogsOpen && !serverLogsPaused}
+              paused={serverLogsPaused}
+              scrollContainerRef={serverLogsScrollRef}
+            />
           </div>
         </div>
       </details>
@@ -1619,41 +1651,49 @@ function WebPreviewCard({
 
 interface ThreadViewProps {
   sessionId: string;
-  initialRequest: string;
-  /** Initial structured events loaded server-side (empty for new sessions with no NDJSON yet). */
-  initialEvents: SessionEvent[];
-  /** Number of NDJSON lines already included in initialEvents, for SSE reconnection offset. */
-  initialLineCount: number;
-  initialStatus: string;
-  initialPreviewUrl: string | null;
-  /** Streaming worktree server log output rendered by a server component. */
-  serverLogsNode: ReactNode;
-  /** The currently checked-out branch in this instance. Used in confirmation copy and NavHeader. */
-  branch?: string | null;
-  /** The branch this session was branched from (from branch-marker commits). Used in upstream-changes display. */
-  parentBranch?: string | null;
-  /** The preview branch name created for this session. */
-  sessionBranch: string;
-  /** True when the session branch is a direct child of the current branch, so Accept/Reject are safe to show. */
-  canAcceptReject: boolean;
-  /** Number of commits on the parent branch not yet in the session branch. */
-  upstreamCommitCount: number;
-  /** Per-file diff summary for files changed in this session branch vs its parent. */
-  diffSummary: DiffFileSummary[];
-  /** True when the current user has the can_evolve (or admin) permission. Actions are hidden when false. */
-  canStartThreads: boolean;
   /** True when running in production mode (NODE_ENV=production). Changes accept confirmation copy to describe blue/green cutover instead of a merge. */
   isProduction: boolean;
-  /** Absolute path to the session's worktree, used to shorten file paths in tool call display. */
-  worktreePath: string;
-  /** Sticky harness preference loaded server-side. Forwarded to FloatingThreadDialog. */
+}
+
+type CoreStatusReport = {
+  productionBranch?: string | null;
+  worktrees?: Array<{
+    path: string;
+    branch: string | null;
+    servers?: Array<{ state?: string }>;
+  }>;
+};
+
+type ThreadFormDefaults = {
   initialHarness?: string;
-  /** Sticky model preference loaded server-side. Forwarded to FloatingThreadDialog. */
   initialModel?: string;
-  /** Sticky caveman mode preference loaded server-side. Forwarded to FloatingThreadDialog. */
   initialCavemanMode?: boolean;
-  /** Sticky caveman intensity preference loaded server-side. Forwarded to FloatingThreadDialog. */
   initialCavemanIntensity?: import("@/lib/user-prefs").CavemanIntensity;
+};
+
+function inferClientStatusFromEvents(events: SessionEvent[]): string {
+  let lastResultIdx = -1;
+  let lastSectionStartIdx = -1;
+  let lastSectionType: string | null = null;
+  let decisionAction: string | null = null;
+
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i];
+    if (event.type === "result") lastResultIdx = i;
+    if (event.type === "section_start") {
+      lastSectionStartIdx = i;
+      lastSectionType = event.sectionType;
+    }
+    if (event.type === "decision") decisionAction = event.action;
+  }
+
+  if (decisionAction) return decisionAction;
+  if (lastResultIdx >= 0 && lastSectionStartIdx <= lastResultIdx) return "ready";
+  if (lastSectionType === "deploy") return "accepting";
+  if (lastSectionType === "type_fix") return "fixing-types";
+  if (lastSectionType === "auto_commit") return "running-claude";
+  if (lastSectionType === "agent" || lastSectionType === "claude" || lastSectionType === "followup" || lastSectionType === "conflict_resolution") return "running-claude";
+  return "starting";
 }
 
 // ─── CopyBranchName ──────────────────────────────────────────────────────────
@@ -1714,25 +1754,7 @@ function CopyBranchName({ branch }: { branch: string }) {
 
 export default function ThreadView({
   sessionId,
-  initialRequest,
-  initialEvents,
-  initialLineCount,
-  initialStatus,
-  initialPreviewUrl,
-  serverLogsNode,
-  branch,
-  parentBranch,
-  sessionBranch,
-  canAcceptReject,
-  upstreamCommitCount,
-  diffSummary,
-  canStartThreads,
   isProduction,
-  worktreePath,
-  initialHarness,
-  initialModel,
-  initialCavemanMode,
-  initialCavemanIntensity,
 }: ThreadViewProps) {
   const [modelOptionsByHarness, setModelOptionsByHarness] = useState<Record<string, ModelOption[]>>({});
   useEffect(() => {
@@ -1742,9 +1764,16 @@ export default function ThreadView({
       .catch(() => { /* silently fall back to empty list */ });
   }, []);
 
-  const [events, setEvents] = useState<SessionEvent[]>(initialEvents);
-  const [status, setStatus] = useState(initialStatus);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl);
+  const [events, setEvents] = useState<SessionEvent[]>([]);
+  const [status, setStatus] = useState("starting");
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [branch, setBranch] = useState<string | null>(null);
+  const [sessionBranch, setSessionBranch] = useState(sessionId);
+  const parentBranch: string | null = null;
+  const canAcceptReject = true;
+  const [worktreePath, setWorktreePath] = useState("");
+  const [threadFormDefaults, setThreadFormDefaults] = useState<ThreadFormDefaults>({});
+  const [coreLoadError, setCoreLoadError] = useState<string | null>(null);
   /** Status of the preview server as reported by the process manager. */
   const [proxyServerStatus, setProxyServerStatus] = useState<'starting' | 'running' | 'stopped' | 'unknown'>('unknown');
   const sounds = useSounds();
@@ -1753,6 +1782,7 @@ export default function ThreadView({
   const [toastSessionId, setToastSessionId] = useState<string | null>(null);
   const hamburgerRef = useRef<HTMLDivElement>(null);
   const { sessionUser, handleLogout } = useSessionUser();
+  const canStartThreads = Boolean(sessionUser?.canStartThreads);
   const [acceptRejectLoading, setAcceptRejectLoading] = useState(false);
   const [acceptRejectError, setAcceptRejectError] = useState<string | null>(null);
   /** Session ID of a stuck 'accepting' session that is blocking this accept (from a 409 response). */
@@ -1773,10 +1803,10 @@ export default function ThreadView({
   const [restartError, setRestartError] = useState<string | null>(null);
   const [isAborting, setIsAborting] = useState(false);
   const [abortError, setAbortError] = useState<string | null>(null);
-  const [remainingUpstream, setRemainingUpstream] = useState(upstreamCommitCount);
+  const [remainingUpstream, setRemainingUpstream] = useState(0);
   const [upstreamSyncLoading, setUpstreamSyncLoading] = useState<"merge" | null>(null);
   const [upstreamSyncError, setUpstreamSyncError] = useState<string | null>(null);
-  const [liveDiffSummary, setLiveDiffSummary] = useState<DiffFileSummary[]>(diffSummary);
+  const [liveDiffSummary, setLiveDiffSummary] = useState<DiffFileSummary[]>([]);
   const [isDiffSummaryRefreshing, setIsDiffSummaryRefreshing] = useState(false);
   const [diffSummaryError, setDiffSummaryError] = useState<string | null>(null);
   const [diffRefreshToken, setDiffRefreshToken] = useState(0);
@@ -1784,12 +1814,12 @@ export default function ThreadView({
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const streamRunIdRef = useRef(0);
   /** Tracks how many NDJSON lines the client has received, for SSE reconnection offset. */
-  const lineCountRef = useRef(initialLineCount);
+  const lineCountRef = useRef(0);
   /** Mirrors current status so the visibilitychange handler can read it without a stale closure. */
-  const statusRef = useRef(initialStatus);
+  const statusRef = useRef("starting");
   /** Mirrors current events so the status-change sound effect can inspect the last result
    *  event without adding `events` to that effect’s dependency array. */
-  const eventsRef = useRef(initialEvents);
+  const eventsRef = useRef<SessionEvent[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   /**
    * True when the user is scrolled to (or near) the bottom.
@@ -1798,6 +1828,51 @@ export default function ThreadView({
    * be wrong because the DOM has already grown by then.
    */
   const wasAtBottomRef = useRef(true);
+  const serverLogPath = useMemo(() => `/api/core/server/${encodeURIComponent(sessionId)}/logs`, [sessionId]);
+  const initialRequest = useMemo(() => {
+    const firstRequest = events.find((event): event is Extract<SessionEvent, { type: "initial_request" }> => event.type === "initial_request");
+    return firstRequest?.request ?? "";
+  }, [events]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCoreMetadata() {
+      try {
+        const [statusResponse, preferencesResponse] = await Promise.all([
+          coreApiFetch(withBasePath("/api/core/status")),
+          coreApiFetch(withBasePath("/api/core/preferences")).catch(() => null),
+        ]);
+
+        if (!cancelled && !statusResponse.ok) {
+          const data = await statusResponse.json().catch(() => null) as { msg?: string; error?: string } | null;
+          setCoreLoadError(data?.msg ?? data?.error ?? `Primordia Core returned HTTP ${statusResponse.status}.`);
+          return;
+        }
+
+        if (!cancelled && statusResponse.ok) {
+          setCoreLoadError(null);
+          const report = await statusResponse.json() as CoreStatusReport;
+          const worktree = report.worktrees?.find((entry) => entry.branch === sessionId || entry.path.endsWith(`/${sessionId}`));
+          setBranch(report.productionBranch ?? null);
+          if (worktree?.branch) setSessionBranch(worktree.branch);
+          if (worktree?.path) setWorktreePath(worktree.path);
+          const serverState = worktree?.servers?.some((server) => server.state === "running") ? "running" : worktree ? "stopped" : "unknown";
+          setProxyServerStatus(serverState);
+        }
+
+        if (!cancelled && preferencesResponse?.ok) {
+          const data = await preferencesResponse.json() as { effectiveThreadFormDefaults?: ThreadFormDefaults };
+          setThreadFormDefaults(data.effectiveThreadFormDefaults ?? {});
+        }
+      } catch (error) {
+        if (!cancelled) setCoreLoadError(error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    void loadCoreMetadata();
+    return () => { cancelled = true; };
+  }, [sessionId]);
 
   // Track scroll position so we know whether to auto-scroll on new content.
   useEffect(() => {
@@ -1837,7 +1912,7 @@ export default function ThreadView({
   // Central sound-on-status-change effect.
   // Using a single effect with prevStatusRef avoids duplicate sounds when
   // status is set both by handleAccept() and the SSE stream.
-  const prevStatusRef = useRef(initialStatus);
+  const prevStatusRef = useRef("starting");
   useEffect(() => {
     const prev = prevStatusRef.current;
     prevStatusRef.current = status;
@@ -1918,11 +1993,16 @@ export default function ThreadView({
     queueMicrotask(() => void refreshDiffSummary());
   }, [status, refreshDiffSummary]);
 
-  // Reconnect / restart streaming when the tab regains focus, in case the
-  // browser paused the SSE connection while the tab was in the background.
+  // Unsubscribe while hidden, then re-subscribe with a Core API --start cursor
+  // when visible so the page catches up on lines written in the background.
   useEffect(() => {
     function onVisibilityChange() {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible") {
+        if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+        abortControllerRef.current?.abort();
+        return;
+      }
       const s = statusRef.current;
       const isTerminalStatus = s === "accepted" || s === "rejected";
       if (!isTerminalStatus) {
@@ -1937,6 +2017,7 @@ export default function ThreadView({
   // Extracted streaming logic — can be called on mount and after follow-up / restart.
   async function startStreaming() {
     // Abort any in-flight stream before opening a new one.
+    if (document.visibilityState === "hidden") return;
     if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
     reconnectTimerRef.current = null;
     abortControllerRef.current?.abort();
@@ -1959,17 +2040,22 @@ export default function ThreadView({
     };
 
     try {
-      const response = await fetch(
-        withBasePath(`/api/thread/stream?threadId=${sessionId}&offset=${offset}`),
-        { signal: controller.signal },
+      const startCursor = offset + 1;
+      const response = await coreApiFetch(
+        withBasePath(`/api/core/thread/${encodeURIComponent(sessionId)}/logs?json=true&follow=true&start=${startCursor}`),
+        { signal: controller.signal, headers: { Accept: "application/x-ndjson" } },
       );
       if (!response.ok || !response.body) {
-        shouldReconnect = true;
+        const data = await response.json().catch(() => null) as { msg?: string; error?: string } | null;
+        setCoreLoadError(data?.msg ?? data?.error ?? `Primordia Core returned HTTP ${response.status}.`);
+        shouldReconnect = response.status >= 500;
         return;
       }
+      setCoreLoadError(null);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -1978,54 +2064,38 @@ export default function ThreadView({
           break;
         }
 
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split("\n")) {
-          if (!line.startsWith("data: ")) continue;
-          const raw = line.slice(6).trim();
-          if (!raw) continue;
-          try {
-            const parsed = JSON.parse(raw) as {
-              events?: SessionEvent[];
-              lineCount?: number;
-              status?: string;
-              previewUrl?: string | null;
-              done?: boolean;
-              updatedCredentials?: string;
-            };
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n");
+        buffer = lines.pop() ?? "";
 
-            if (parsed.events && parsed.events.length > 0) {
-              setEvents((prev) => [...prev, ...parsed.events!]);
-              if (parsed.lineCount != null) lineCountRef.current = parsed.lineCount;
-              // Reset the stuck-button timer whenever new events arrive.
-              lastNdjsonEventTimeRef.current = Date.now();
-              setShowStuckButton(false);
-            } else if (parsed.lineCount != null) {
-              lineCountRef.current = parsed.lineCount;
-            }
-            if (parsed.status != null) {
-              statusRef.current = parsed.status;
-              setStatus(parsed.status);
-            }
-            if (parsed.done) {
-              streamFinishedByEndpoint = true;
-            }
-            if ("previewUrl" in parsed) {
-              const newUrl = parsed.previewUrl ?? null;
-              setPreviewUrl((prev) => {
-                if (!prev && newUrl) trackEvent("session/preview-loaded/v1", { threadId: sessionId, previewUrl: newUrl });
-                return newUrl;
-              });
-            }
-            // If the agent refreshed the OAuth tokens while running, re-encrypt
-            // the updated credentials and save them back to the database.
-            if (parsed.updatedCredentials) {
-              updateStoredCredentials(parsed.updatedCredentials).catch(() => {
-                // Best-effort: failure leaves old credentials in DB unchanged
-              });
-            }
+        const parsedEvents: SessionEvent[] = [];
+        for (const line of lines) {
+          const raw = line.trim();
+          if (!raw) continue;
+          lineCountRef.current += 1;
+          try {
+            parsedEvents.push(JSON.parse(raw) as SessionEvent);
           } catch {
-            // Ignore malformed SSE lines
+            // Ignore malformed NDJSON lines
           }
+        }
+
+        if (parsedEvents.length > 0) {
+          const next = [...eventsRef.current, ...parsedEvents];
+          eventsRef.current = next;
+          setEvents(next);
+          const nextStatus = inferClientStatusFromEvents(next);
+          statusRef.current = nextStatus;
+          setStatus(nextStatus);
+          const hasPreview = nextStatus === "ready" || next.some((event) => event.type === "preview_path");
+          const newUrl = hasPreview ? `/preview/${sessionId}` : null;
+          setPreviewUrl((prevUrl) => {
+            if (!prevUrl && newUrl) trackEvent("session/preview-loaded/v1", { threadId: sessionId, previewUrl: newUrl });
+            return newUrl;
+          });
+          // Reset the stuck-button timer whenever new events arrive.
+          lastNdjsonEventTimeRef.current = Date.now();
+          setShowStuckButton(false);
         }
       }
     } catch (err) {
@@ -2041,20 +2111,16 @@ export default function ThreadView({
 
   // Track session page view on mount.
   useEffect(() => {
-    trackEvent("session/page-viewed/v1", { threadId: sessionId, status: initialStatus });
+    trackEvent("session/page-viewed/v1", { threadId: sessionId, status: statusRef.current });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  // Start streaming if the session isn't already in a terminal state.
+  // Start streaming through the Core API. Even terminal sessions begin empty in
+  // this client shell, so always subscribe from line 1 on mount.
   useEffect(() => {
-    const alreadyTerminal =
-      initialStatus === "accepted" ||
-      initialStatus === "rejected";
-    if (alreadyTerminal) return;
-
     void startStreaming();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]); // intentionally omit initialStatus — run once on mount
+  }, [sessionId]);
 
   useEffect(() => {
     if (previewUrl === null && status !== "ready") return;
@@ -2361,10 +2427,10 @@ export default function ThreadView({
           <FloatingThreadDialog
             onClose={() => setThreadDialogOpen(false)}
             anchorRect={threadAnchorRect}
-            initialHarness={initialHarness}
-            initialModel={initialModel}
-            initialCavemanMode={initialCavemanMode}
-            initialCavemanIntensity={initialCavemanIntensity}
+            initialHarness={threadFormDefaults.initialHarness}
+            initialModel={threadFormDefaults.initialModel}
+            initialCavemanMode={threadFormDefaults.initialCavemanMode}
+            initialCavemanIntensity={threadFormDefaults.initialCavemanIntensity}
             onSessionCreated={(id) => setToastSessionId(id)}
           />
         )}
@@ -2375,6 +2441,13 @@ export default function ThreadView({
           />
         )}
       </header>
+
+      {coreLoadError && (
+        <div className="mb-6 rounded-lg border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+          <p className="font-semibold text-red-100">Could not load this thread from Primordia Core.</p>
+          <p className="mt-1 whitespace-pre-wrap text-red-200/90">{coreLoadError}</p>
+        </div>
+      )}
 
       {/* Original request — hidden when there was no initial prompt (e.g. instant-preview from-branch sessions) */}
       {initialRequest && (() => {
@@ -2401,7 +2474,7 @@ export default function ThreadView({
           <GitBranch size={14} strokeWidth={2} aria-hidden="true" />
           {isSetupActive ? (
             <>
-              Creating thread…
+              {events.length === 0 ? "Loading thread…" : "Creating thread…"}
               <span className="ml-1 flex items-center gap-1 text-amber-600/70 text-xs animate-pulse">
                 <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
               </span>
@@ -2713,7 +2786,7 @@ export default function ThreadView({
                 autoFocus
                 defaultHarness={sessionHarness}
                 defaultModel={sessionModel}
-                onSubmit={async ({ request, harness, model, authSource, presetId, files }) => {
+                onSubmit={async ({ request, harness, model, presetId, files }) => {
                   // Prepend element context to the request when present.
                   let fullRequest = request;
                   if (elementContext) {
@@ -2722,21 +2795,16 @@ export default function ThreadView({
                     fullRequest = `Re: <${elementContext.component}>${sourceFilePart} ${elementContext.selector}${dataIdPart}\n\n${request}`;
                   }
                   const formData = new FormData();
-                  formData.append('threadId', sessionId);
                   formData.append('request', fullRequest);
-                  formData.append('harness', harness);
-                  formData.append('model', model);
-                  formData.append('presetId', presetId);
-                  formData.append('authSource', authSource);
-                  for (const file of files) formData.append('attachments', file);
-                  await appendCredentialFieldsForAuthSource(formData, authSource);
-                  const res = await fetch(withBasePath('/api/thread/followup'), {
+                  formData.append('preset', presetId);
+                  for (const file of files) formData.append('attach', file);
+                  const res = await coreApiFetch(withBasePath(`/api/core/thread/${encodeURIComponent(sessionId)}/followup`), {
                     method: 'POST',
                     body: formData,
                   });
                   if (!res.ok) {
-                    const data = (await res.json()) as { error?: string };
-                    throw new Error(data.error ?? `Server error: ${res.status}`);
+                    const data = (await res.json()) as { msg?: string };
+                    throw new Error(data.msg ?? `Server error: ${res.status}`);
                   }
                   trackEvent("session/followup-submitted/v1", { threadId: sessionId, harness, model, hasFiles: files.length > 0, hasElementContext: !!elementContext });
                   setElementContext(null);
@@ -2860,7 +2928,7 @@ export default function ThreadView({
             previewUrl={smartPreviewUrl}
             sessionId={sessionId}
             proxyServerStatus={proxyServerStatus}
-            serverLogsNode={serverLogsNode}
+            serverLogPath={serverLogPath}
             canStartThreads={canStartThreads}
             isRestartingServer={isRestartingServer}
             restartError={restartError}
@@ -2910,7 +2978,7 @@ export default function ThreadView({
           previewUrl={smartPreviewUrl}
           sessionId={sessionId}
           proxyServerStatus={proxyServerStatus}
-          serverLogsNode={serverLogsNode}
+          serverLogPath={serverLogPath}
           canStartThreads={canStartThreads}
           isRestartingServer={isRestartingServer}
           restartError={restartError}

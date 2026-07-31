@@ -43,6 +43,7 @@ type UserSelectorArgs = { user?: string };
 type JsonArgs = { json?: boolean };
 type ModeArgs = { dev?: boolean; prod?: boolean };
 type PresetArgs = { preset?: string };
+type CavemanArgs = { caveman?: string | boolean; 'caveman-intensity'?: string };
 type AttachArgs = { attach?: string | string[]; a?: string | string[] };
 type PreferenceSetArgs = PresetArgs & {
   harness?: string;
@@ -52,7 +53,7 @@ type PreferenceSetArgs = PresetArgs & {
 };
 type PrimordiaServiceName = 'service-supervisor' | 'reverse-proxy' | 'scheduled-jobs';
 type SupervisedServiceName = Exclude<PrimordiaServiceName, 'service-supervisor'>;
-type ServiceLogArgs = JsonArgs & { lines?: string; n?: string; follow?: boolean; f?: boolean };
+type ServiceLogArgs = JsonArgs & { lines?: string; n?: string; start?: string; s?: string; follow?: boolean; f?: boolean };
 
 const MISSING_CLI_KEY_MESSAGE =
   'PRIMORDIA_CLI_KEY is required for `primordia thread create`, `primordia thread followup`, and `primordia thread accept`. ' +
@@ -312,12 +313,14 @@ function createSessionHumanRenderer(): HumanLogRenderer {
 }
 
 async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { rawNdjson?: boolean; humanFormatter?: (line: string) => HumanLogChunk | null; humanRenderer?: HumanLogRenderer } = {}): Promise<void> {
-  const lineCount = resolveLogLineCount(args);
+  const startLine = resolveLogStartLine(args);
+  const lineCount = resolveLogLineCount(args, startLine);
   const follow = Boolean(args.follow || args.f);
-  const recent = lineCount === 0 ? [] : readTextLogLines(logFile).slice(-lineCount);
+  const allLines = readTextLogLines(logFile);
+  const selectedLines = selectLogLines(allLines, lineCount, startLine);
 
   if (args.json) {
-    for (const line of recent) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
+    for (const line of selectedLines) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
     if (follow) {
       for await (const line of followTextLogLines(logFile)) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
     }
@@ -340,7 +343,7 @@ async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { r
     inlineOpen = false;
   };
 
-  for (const line of recent) writeFormatted(formatter(line));
+  for (const line of selectedLines) writeFormatted(formatter(line));
   if (follow) {
     for await (const line of followTextLogLines(logFile)) writeFormatted(formatter(line));
   }
@@ -374,8 +377,8 @@ async function readRequest(args: CliParsedArgs): Promise<string> {
 
 async function resolveCliAuth(selector: string | undefined): Promise<{ user: { id: string; username: string }; primordiaAesKey: string }> {
   const coreUserId = process.env.PRIMORDIA_CORE_USER_ID;
-  const coreAesKey = process.env.PRIMORDIA_CORE_AES_KEY;
-  if (coreUserId && coreAesKey) {
+  const coreAesKey = process.env.PRIMORDIA_CORE_AES_KEY ?? '';
+  if (coreUserId) {
     if (selector && selector !== coreUserId) {
       const selected = await resolveCliUser(selector);
       if (selected.id !== coreUserId) throw new Error('The authenticated Primordia Core web key belongs to a different user than --user.');
@@ -550,11 +553,26 @@ function serviceLogFile(service: SupervisedServiceName): string {
   return path.join(root, service === 'reverse-proxy' ? '.primordia-reverse-proxy.log' : '.primordia-scheduled-jobs.log');
 }
 
-function resolveLogLineCount(args: ServiceLogArgs): number {
-  const raw = args.lines ?? args.n ?? '100';
+function resolveLogLineCount(args: ServiceLogArgs, startLine: number | null): number {
+  const raw = args.lines ?? args.n;
+  if (raw === undefined) return startLine === null ? 100 : Number.POSITIVE_INFINITY;
   const count = Number.parseInt(String(raw), 10);
   if (!Number.isInteger(count) || count < 0) throw new Error('--lines/-n must be a non-negative integer');
   return count;
+}
+
+function resolveLogStartLine(args: ServiceLogArgs): number | null {
+  const raw = args.start ?? args.s;
+  if (raw === undefined) return null;
+  const line = Number.parseInt(String(raw), 10);
+  if (!Number.isInteger(line) || line < 1) throw new Error('--start/-s must be a positive 1-based line number');
+  return line;
+}
+
+function selectLogLines(lines: string[], lineCount: number, startLine: number | null): string[] {
+  if (lineCount === 0) return [];
+  if (startLine === null) return lines.slice(-lineCount);
+  return lines.slice(startLine - 1, startLine - 1 + lineCount);
 }
 
 async function renderServiceLog(service: SupervisedServiceName, args: ServiceLogArgs): Promise<void> {
@@ -768,15 +786,21 @@ export async function serverCopyDbCommand(args: CliParsedArgs): Promise<void> {
   if (!result.copied) process.exit(1);
 }
 
-export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs & AttachArgs): Promise<void> {
+export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & PresetArgs & CavemanArgs & UserSelectorArgs & AttachArgs): Promise<void> {
   const requestText = await readRequest(args);
   const { user, primordiaAesKey } = await resolveCliAuth(args.user);
+  const cavemanEnabled = args.caveman === true || args.caveman === 'true';
+  const cavemanIntensity = typeof args['caveman-intensity'] === 'string' && (CAVEMAN_INTENSITIES as readonly string[]).includes(args['caveman-intensity'])
+    ? args['caveman-intensity'] as (typeof CAVEMAN_INTENSITIES)[number]
+    : undefined;
   const result = await createThread({
     userId: user.id,
     requestText,
     presetId: await resolveCliPresetIdForUser(user.id, args.preset),
     primordiaAesKey,
     savedAttachmentPaths: resolveAttachmentPaths(args),
+    cavemanMode: cavemanEnabled,
+    ...(cavemanIntensity ? { cavemanIntensity } : {}),
     runInBackground: false,
   });
   if (!result.ok) throw cliSecretError(result.error, `thread creation failed (${result.status})`);
