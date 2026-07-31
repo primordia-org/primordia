@@ -14,7 +14,7 @@ import { useState, useRef, useEffect, useCallback, FormEvent, memo } from "react
 import { Paperclip, Settings, ChevronDown, Crosshair, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { withBasePath } from "@/lib/base-path";
-import { appendCredentialFieldsForAuthSource } from "@/lib/preset-credentials-client";
+import { coreApiAuthorizationHeaders } from "@/lib/core-api-key-client";
 import {
   DEFAULT_HARNESS,
   DEFAULT_MODEL,
@@ -289,10 +289,8 @@ export function ThreadRequestForm({
         for (const file of allFiles) {
           formData.append("attach", file);
         }
-        // Preset auth source decides whether the browser-held AES key is needed.
-        await appendCredentialFieldsForAuthSource(formData, selectedPreset.authSource);
-
-        const res = await fetch(withBasePath("/api/core/thread"), { method: "POST", body: formData });
+        const headers = await coreApiAuthorizationHeaders();
+        const res = await fetch(withBasePath("/api/core/thread"), { method: "POST", headers, body: formData });
         const data = (await res.json()) as { threadId?: string; msg?: string };
 
         if (!res.ok) {

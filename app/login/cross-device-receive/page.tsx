@@ -23,6 +23,7 @@ import { CheckCircle, Loader2 } from "lucide-react";
 import { withBasePath } from "@/lib/base-path";
 import { decryptPushCredentials, type PushCredBundle } from "@/lib/cross-device-creds";
 import { adoptNewAesKey } from "@/lib/secrets-client";
+import { ensureCoreWebApiKey } from "@/lib/core-api-key-client";
 
 type Phase = "loading" | "approved" | "expired" | "error";
 
@@ -96,6 +97,7 @@ function ReceivePageInner() {
             }
           }
 
+          await ensureCoreWebApiKey().catch(() => {});
           setUsername(data.username ?? null);
           setPhase("approved");
 

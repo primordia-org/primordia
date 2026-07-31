@@ -16,7 +16,8 @@ import { FloatingThreadDialog, ThreadSubmitToast } from "@/components/FloatingTh
 import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
 import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
-import { appendCredentialFieldsForAuthSource, getCredentialFieldsForAuthSource } from "@/lib/preset-credentials-client";
+import { getCredentialFieldsForAuthSource } from "@/lib/preset-credentials-client";
+import { coreApiAuthorizationHeaders } from "@/lib/core-api-key-client";
 import { useSounds } from "@/lib/sounds";
 import { updateStoredCredentials } from "@/lib/credentials-client";
 import { ChatGptSubscriptionAuthCard } from "@/components/ChatGptSubscriptionAuthCard";
@@ -2713,7 +2714,7 @@ export default function ThreadView({
                 autoFocus
                 defaultHarness={sessionHarness}
                 defaultModel={sessionModel}
-                onSubmit={async ({ request, harness, model, authSource, presetId, files }) => {
+                onSubmit={async ({ request, harness, model, presetId, files }) => {
                   // Prepend element context to the request when present.
                   let fullRequest = request;
                   if (elementContext) {
@@ -2725,9 +2726,10 @@ export default function ThreadView({
                   formData.append('request', fullRequest);
                   formData.append('preset', presetId);
                   for (const file of files) formData.append('attach', file);
-                  await appendCredentialFieldsForAuthSource(formData, authSource);
+                  const headers = await coreApiAuthorizationHeaders();
                   const res = await fetch(withBasePath(`/api/core/thread/${encodeURIComponent(sessionId)}/followup`), {
                     method: 'POST',
+                    headers,
                     body: formData,
                   });
                   if (!res.ok) {

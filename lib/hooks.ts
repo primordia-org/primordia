@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { withBasePath } from "./base-path";
+import { ensureCoreWebApiKey, logoutAndRevokeCoreWebApiKey } from "./core-api-key-client";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -85,12 +86,15 @@ export function useSessionUser() {
   useEffect(() => {
     fetch(withBasePath("/api/auth/session"))
       .then((res) => res.json())
-      .then((data: { user: SessionUser | null }) => setSessionUser(data.user))
+      .then((data: { user: SessionUser | null }) => {
+        setSessionUser(data.user);
+        if (data.user) void ensureCoreWebApiKey().catch(() => {});
+      })
       .catch(() => {});
   }, []);
 
   async function handleLogout() {
-    await fetch(withBasePath("/api/auth/logout"), { method: "POST" });
+    await logoutAndRevokeCoreWebApiKey();
     setSessionUser(null);
   }
 

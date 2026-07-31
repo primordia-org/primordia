@@ -15,6 +15,7 @@ import { ENABLED_PROVIDERS } from "@/lib/auth-providers/registry";
 import ExeDevTab from "@/components/auth-tabs/exe-dev/index";
 import PasskeyTab from "@/components/auth-tabs/passkey/index";
 import CrossDeviceTab from "@/components/auth-tabs/cross-device/index";
+import { ensureCoreWebApiKey } from "@/lib/core-api-key-client";
 
 // TypeScript enforces that this tuple matches ENABLED_PROVIDERS in order and ids.
 // If you add/remove/reorder a provider in registry.ts, update this array to match.
@@ -47,10 +48,15 @@ export default function LoginClient({ initialUser, plugins }: LoginClientProps) 
     if (activeTab) localStorage.setItem("primordia:lastLoginTab", activeTab);
   }, [activeTab]);
 
+  useEffect(() => {
+    if (initialUser) void ensureCoreWebApiKey().catch(() => {});
+  }, [initialUser]);
+
   const showLoggedInBanner = initialUser !== null && !ignoringSession;
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  function handleSuccess(_username: string) {
+  async function handleSuccess(_username: string) {
+    await ensureCoreWebApiKey().catch(() => {});
     router.push(nextUrl);
     router.refresh();
   }
