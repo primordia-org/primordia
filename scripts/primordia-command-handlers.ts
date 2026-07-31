@@ -2,10 +2,8 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-  followWorktreeLog,
   formatProcessStatusReport,
   getProcessStatusReport,
-  readWorktreeLogLines,
   publishProductionBranch,
   restartWorktreeServer,
   startWorktreeServer,
@@ -26,7 +24,7 @@ import {
   getThreadPrefs,
 } from '@/lib/user-prefs';
 import { HARNESS_OPTIONS, MODEL_OPTIONS } from '@/lib/agent-config';
-import { BUILT_IN_PRESETS, PREF_CUSTOM_PRESETS, PREF_PRESET, parseCustomPresets } from '@/lib/presets';
+import { BUILT_IN_PRESETS, PREF_CUSTOM_PRESETS, PREF_PRESET, PRESET_AUTH_SOURCE_LABELS, parseCustomPresets, type PresetAuthSource } from '@/lib/presets';
 import {
   formatJobInterval,
   isPrimordiaJobName,
@@ -38,12 +36,14 @@ import {
   type PrimordiaJobName,
 } from '@/lib/scheduled-jobs';
 import { resolveCliPresetIdForUser } from './primordia-preset-helpers';
+import type { SessionEvent } from '@/lib/session-events';
 import type { CliParsedArgs } from '@/lib/tiny-cli';
 
 type UserSelectorArgs = { user?: string };
 type JsonArgs = { json?: boolean };
 type ModeArgs = { dev?: boolean; prod?: boolean };
 type PresetArgs = { preset?: string };
+type AttachArgs = { attach?: string | string[]; a?: string | string[] };
 type PreferenceSetArgs = PresetArgs & {
   harness?: string;
   model?: string;
@@ -105,20 +105,258 @@ function resolveStartMode(args: ModeArgs | CliParsedArgs): ServerStartMode {
   return args.prod ? 'prod' : 'dev';
 }
 
-async function renderLogs(threadId: string, json: boolean | undefined, follow: boolean | undefined): Promise<void> {
-  if (json) {
-    if (follow) throw new Error('--json and --follow cannot be combined');
-    printJson(readWorktreeLogLines(threadId));
+function normalizeStringList(value: string | string[] | boolean | undefined): string[] {
+  if (Array.isArray(value)) return value;
+  return typeof value === 'string' ? [value] : [];
+}
+
+function resolveAttachmentPaths(args: AttachArgs): string[] {
+  const rawPaths = [...normalizeStringList(args.attach), ...normalizeStringList(args.a)];
+  const paths = [...new Set(rawPaths.map((entry) => entry.trim()).filter(Boolean))].map((entry) => path.resolve(entry));
+  for (const filePath of paths) {
+    if (!fs.existsSync(filePath)) throw new Error(`attachment not found: ${filePath}`);
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) throw new Error(`attachment is not a file: ${filePath}`);
+  }
+  return paths;
+}
+
+function readTextLogLines(logFile: string): string[] {
+  if (!fs.existsSync(logFile)) return [];
+  const text = fs.readFileSync(logFile, 'utf8');
+  if (!text) return [];
+  const lines = text.split(/\r?\n/);
+  if (lines.at(-1) === '') lines.pop();
+  return lines;
+}
+
+async function* followTextLogLines(logFile: string, pollMs = 500): AsyncGenerator<string> {
+  let offset = 0;
+  try { offset = fs.statSync(logFile).size; } catch { offset = 0; }
+  let buffered = '';
+  while (true) {
+    try {
+      const stat = fs.statSync(logFile);
+      if (stat.size < offset) {
+        offset = 0;
+        buffered = '';
+      }
+      if (stat.size > offset) {
+        const fd = fs.openSync(logFile, 'r');
+        const length = stat.size - offset;
+        const buffer = Buffer.alloc(length);
+        fs.readSync(fd, buffer, 0, length, offset);
+        fs.closeSync(fd);
+        offset = stat.size;
+        buffered += buffer.toString('utf8');
+        const parts = buffered.split(/\r?\n/);
+        buffered = parts.pop() ?? '';
+        for (const line of parts) yield line;
+      }
+    } catch { /* log may not exist yet */ }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}
+
+function formatNdjsonLine(line: string, rawNdjson: boolean): string {
+  if (rawNdjson) {
+    try {
+      JSON.parse(line);
+      return `${line}\n`;
+    } catch {
+      return `${JSON.stringify({ type: 'malformed_log_line', line })}\n`;
+    }
+  }
+  return `${JSON.stringify({ type: 'log_line', line })}\n`;
+}
+
+function parseSessionEventLine(line: string): SessionEvent | { type: 'malformed_log_line'; line: string } {
+  try {
+    return JSON.parse(line) as SessionEvent;
+  } catch {
+    return { type: 'malformed_log_line', line };
+  }
+}
+
+function compactText(content: string): string {
+  return content.replace(/\s+/g, ' ').trim();
+}
+
+function inlineText(content: string): string {
+  return content.replace(/[ \t\f\v\r]+/g, ' ');
+}
+
+function authSourceFromAgentAuth(auth: Extract<SessionEvent, { type: 'section_start'; sectionType: 'agent' }>['auth']): PresetAuthSource {
+  if (!auth || auth.source === 'llm-gateway') return 'exe-dev-gateway';
+  if (auth.source === 'claude-credentials') return 'claude-subscription';
+  if (auth.source === 'chatgpt-subscription') return 'chatgpt-subscription';
+  return 'anthropic-api-key';
+}
+
+function harnessLabel(harnessIdOrLabel?: string): string {
+  if (!harnessIdOrLabel) return 'Claude Code';
+  if (harnessIdOrLabel === 'claude-code') return 'Claude Code';
+  if (harnessIdOrLabel === 'codex') return 'Codex';
+  if (harnessIdOrLabel === 'pi') return 'Pi';
+  return harnessIdOrLabel;
+}
+
+function formatAgentSectionLabel(event: Extract<SessionEvent, { type: 'section_start'; sectionType: 'agent' }>): string {
+  const authLabel = PRESET_AUTH_SOURCE_LABELS[authSourceFromAgentAuth(event.auth)];
+  return `\n🤖 ${authLabel} / ${harnessLabel(event.harnessId ?? event.harness)} / ${event.model}`;
+}
+
+function formatThinkDuration(startTs: number, endTs: number): string {
+  const secs = Math.max(1, Math.ceil((endTs - startTs) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const minutes = Math.floor(secs / 60);
+  const seconds = secs % 60;
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+function formatToolInput(name: string, input: Record<string, unknown>): string {
+  if (typeof input.command === 'string') return input.command;
+  for (const key of ['file_path', 'path', 'pattern', 'glob']) {
+    if (typeof input[key] === 'string') return input[key];
+  }
+  if (name.toLowerCase() === 'edit' && Array.isArray(input.edits)) return `${input.edits.length} edit(s)`;
+  const entries = Object.entries(input);
+  if (entries.length === 0) return '';
+  const [key, value] = entries[0];
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return `${key}=${text.length > 80 ? `${text.slice(0, 80)}…` : text}`;
+}
+
+type HumanLogChunk = string | { text: string; inline?: boolean };
+type HumanLogRenderer = {
+  format(line: string): HumanLogChunk | null;
+  flush(): HumanLogChunk | null;
+};
+
+function createSessionHumanRenderer(): HumanLogRenderer {
+  let thinkingContent = '';
+  let thinkingStartTs: number | null = null;
+  let thinkingEndTs: number | null = null;
+
+  const flushThinking = (): HumanLogChunk | null => {
+    if (thinkingStartTs === null) return null;
+    const content = thinkingContent;
+    const startTs = thinkingStartTs;
+    const endTs = thinkingEndTs ?? thinkingStartTs;
+    thinkingContent = '';
+    thinkingStartTs = null;
+    thinkingEndTs = null;
+    const prefix = `🧠 Thought for ${formatThinkDuration(startTs, endTs)}`;
+    return content.trim() ? `${prefix}: ${content.trim()}` : `${prefix} privately`;
+  };
+
+  const formatEvent = (event: SessionEvent | { type: 'malformed_log_line'; line: string }): HumanLogChunk | null => {
+    if (event.type === 'malformed_log_line') return event.line;
+    if (event.type === 'thinking') {
+      if (thinkingStartTs === null) thinkingStartTs = event.ts;
+      thinkingEndTs = event.ts;
+      thinkingContent += event.content;
+      return null;
+    }
+
+    const flushed = flushThinking();
+    const current = (() => {
+      switch (event.type) {
+        case 'section_start':
+          return event.sectionType === 'agent' ? formatAgentSectionLabel(event) : `\n${event.label}`;
+        case 'setup_step':
+          return event.done ? `✅ ${event.label}` : `• ${event.label}`;
+        case 'initial_request':
+          return `User asked:\n${event.request.trim()}`;
+        case 'followup_request':
+          return null;
+        case 'text':
+        case 'log_line': {
+          const text = inlineText(event.content);
+          return text ? { text, inline: true } : null;
+        }
+        case 'tool_use': {
+          const summary = formatToolInput(event.name, event.input);
+          return `🔧 ${event.name}${summary ? `: ${summary}` : ''}`;
+        }
+        case 'result':
+          return `${event.subtype === 'success' ? '✅' : '❌'} ${event.message ? compactText(event.message) : event.subtype}`;
+        case 'metrics':
+          return null;
+        case 'progress_plan':
+          return event.steps.length > 0 ? `Plan: ${event.steps.map((step) => step.label).join(' → ')}` : null;
+        case 'progress_step':
+          return event.status === 'done'
+            ? `✅ Completed step${event.activatedNextLabel ? `; next: ${event.activatedNextLabel}` : ''}`
+            : `❌ Step failed${event.activatedNextLabel ? `; next: ${event.activatedNextLabel}` : ''}`;
+        case 'preview_path':
+          return `Preview: ${event.path}`;
+        case 'decision':
+          return `${event.action === 'accepted' ? 'Accepted' : 'Rejected'}: ${event.detail}`;
+        default:
+          return null;
+      }
+    })();
+
+    if (!flushed) return current;
+    if (!current) return flushed;
+    return `${typeof flushed === 'string' ? flushed : flushed.text}\n${typeof current === 'string' ? current : current.text}`;
+  };
+
+  return {
+    format(line: string): HumanLogChunk | null {
+      return formatEvent(parseSessionEventLine(line));
+    },
+    flush: flushThinking,
+  };
+}
+
+async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { rawNdjson?: boolean; humanFormatter?: (line: string) => HumanLogChunk | null; humanRenderer?: HumanLogRenderer } = {}): Promise<void> {
+  const lineCount = resolveLogLineCount(args);
+  const follow = Boolean(args.follow || args.f);
+  const recent = lineCount === 0 ? [] : readTextLogLines(logFile).slice(-lineCount);
+
+  if (args.json) {
+    for (const line of recent) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
+    if (follow) {
+      for await (const line of followTextLogLines(logFile)) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
+    }
     return;
   }
 
-  const lines = readWorktreeLogLines(threadId);
-  if (lines.length > 0) console.log(lines.join('\n'));
-  if (follow) {
-    for await (const chunk of followWorktreeLog(threadId)) {
-      process.stdout.write(chunk);
+  const renderer = options.humanRenderer;
+  const formatter = renderer ? renderer.format : (options.humanFormatter ?? ((line: string) => line));
+  let inlineOpen = false;
+  const writeFormatted = (formatted: HumanLogChunk | null): void => {
+    if (!formatted) return;
+    if (typeof formatted === 'object' && formatted.inline) {
+      process.stdout.write(formatted.text);
+      inlineOpen = true;
+      return;
     }
+    if (inlineOpen) process.stdout.write('\n');
+    const text = typeof formatted === 'string' ? formatted : formatted.text;
+    console.log(text);
+    inlineOpen = false;
+  };
+
+  for (const line of recent) writeFormatted(formatter(line));
+  if (follow) {
+    for await (const line of followTextLogLines(logFile)) writeFormatted(formatter(line));
   }
+  if (renderer) writeFormatted(renderer.flush());
+  if (inlineOpen) process.stdout.write('\n');
+}
+
+async function renderServerLogs(threadId: string, args: ServiceLogArgs): Promise<void> {
+  await renderLogFile(getWorktreeServerLogPath(threadId), args);
+}
+
+function getWorktreeServerLogPath(threadId: string): string {
+  const report = getProcessStatusReport();
+  const worktree = report.worktrees.find((entry) => entry.branch === threadId);
+  if (!worktree) throw new Error(`Unknown thread/worktree: ${threadId}`);
+  return path.join(worktree.path, '.primordia-next-server.log');
 }
 
 async function readRequest(args: CliParsedArgs): Promise<string> {
@@ -320,23 +558,7 @@ function resolveLogLineCount(args: ServiceLogArgs): number {
 }
 
 async function renderServiceLog(service: SupervisedServiceName, args: ServiceLogArgs): Promise<void> {
-  const logFile = serviceLogFile(service);
-  const lineCount = resolveLogLineCount(args);
-  const follow = Boolean(args.follow || args.f);
-  if (args.json && follow) throw new Error('--json and --follow cannot be combined');
-  const text = fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8') : '';
-  const lines = text.split('\n');
-  if (lines.at(-1) === '') lines.pop();
-  const recent = lineCount === 0 ? [] : lines.slice(-lineCount);
-  if (args.json) {
-    printJson({ service, logFile, lines: recent });
-    return;
-  }
-  if (recent.length > 0) console.log(recent.join('\n'));
-  if (follow) {
-    const child = execFileSync('tail', ['-n', '0', '-F', logFile], { stdio: ['ignore', 'inherit', 'inherit'] });
-    void child;
-  }
+  await renderLogFile(serviceLogFile(service), args);
 }
 
 export function systemdServiceSupervisorRestartCommand(args: CliParsedArgs & JsonArgs): void {
@@ -513,9 +735,17 @@ export async function serverRestartCommand(args: CliParsedArgs): Promise<void> {
   else console.log(result.message);
 }
 
-export async function serverLogsCommand(args: CliParsedArgs): Promise<void> {
+export async function serverLogsCommand(args: CliParsedArgs & ServiceLogArgs): Promise<void> {
   const thread = getCurrentThread();
-  await renderLogs(thread.threadId, Boolean(args.json), Boolean(args.follow ?? args.f));
+  await renderServerLogs(thread.threadId, args);
+}
+
+export async function threadLogsCommand(args: CliParsedArgs & ServiceLogArgs): Promise<void> {
+  const thread = getCurrentThread();
+  await renderLogFile(path.join(thread.path, '.primordia-session.ndjson'), args, {
+    rawNdjson: true,
+    humanRenderer: createSessionHumanRenderer(),
+  });
 }
 
 export async function serverPublishCommand(args: CliParsedArgs): Promise<void> {
@@ -538,7 +768,7 @@ export async function serverCopyDbCommand(args: CliParsedArgs): Promise<void> {
   if (!result.copied) process.exit(1);
 }
 
-export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs): Promise<void> {
+export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs & AttachArgs): Promise<void> {
   const requestText = await readRequest(args);
   const { user, primordiaAesKey } = await resolveCliAuth(args.user);
   const result = await createThread({
@@ -546,6 +776,7 @@ export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & Prese
     requestText,
     presetId: await resolveCliPresetIdForUser(user.id, args.preset),
     primordiaAesKey,
+    savedAttachmentPaths: resolveAttachmentPaths(args),
     runInBackground: false,
   });
   if (!result.ok) throw cliSecretError(result.error, `thread creation failed (${result.status})`);
@@ -553,7 +784,7 @@ export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & Prese
   else console.log(`New thread started in ${result.worktreePath}`);
 }
 
-export async function threadFollowupCommand(args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs): Promise<void> {
+export async function threadFollowupCommand(args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs & AttachArgs): Promise<void> {
   const requestText = await readRequest(args);
   const { user, primordiaAesKey } = await resolveCliAuth(args.user);
   const threadId = resolveCurrentThreadId();
@@ -563,6 +794,7 @@ export async function threadFollowupCommand(args: CliParsedArgs & JsonArgs & Pre
     requestText,
     presetId: await resolveCliPresetIdForUser(user.id, args.preset),
     primordiaAesKey,
+    attachmentPaths: resolveAttachmentPaths(args),
     runInBackground: false,
   });
   if (!result.ok) throw cliSecretError(result.error, 'follow-up failed');

@@ -821,7 +821,16 @@ export async function startLocalThread(
       const usedNames = new Set<string>(
         fs.existsSync(attachmentsDir) ? fs.readdirSync(attachmentsDir) : []
       );
+      const cleanupPaths: string[] = [];
       for (const srcPath of attachmentPaths) {
+        const resolvedSrc = path.resolve(srcPath);
+        const relativeToAttachments = path.relative(attachmentsDir, resolvedSrc);
+        const alreadyInAttachments = relativeToAttachments && !relativeToAttachments.startsWith('..') && !path.isAbsolute(relativeToAttachments);
+        if (alreadyInAttachments) {
+          worktreeAttachmentPaths.push(`attachments/${relativeToAttachments.split(path.sep).join('/')}`);
+          continue;
+        }
+
         let filename = path.basename(srcPath);
         if (usedNames.has(filename)) {
           const ext = path.extname(filename);
@@ -833,13 +842,17 @@ export async function startLocalThread(
         usedNames.add(filename);
         const dstPath = path.join(attachmentsDir, filename);
         fs.copyFileSync(srcPath, dstPath);
+        cleanupPaths.push(srcPath);
         worktreeAttachmentPaths.push(`attachments/${filename}`);
       }
-      // Clean up temp files and their directory
-      for (const srcPath of attachmentPaths) {
+      // Clean up temp files and their directory. Files uploaded directly into
+      // worktree/attachments are kept in place.
+      for (const srcPath of cleanupPaths) {
         try { fs.unlinkSync(srcPath); } catch { /* non-fatal */ }
       }
-      try { fs.rmdirSync(path.dirname(attachmentPaths[0])); } catch { /* non-fatal */ }
+      if (cleanupPaths.length > 0) {
+        try { fs.rmdirSync(path.dirname(cleanupPaths[0])); } catch { /* non-fatal */ }
+      }
       appendSessionEvent(ndjsonPath, { type: 'setup_step', label: `Copied ${worktreeAttachmentPaths.length} attachment(s) into worktree`, done: true, ts: Date.now() });
     }
 
@@ -1007,7 +1020,16 @@ async function runFollowupThreadInWorktree(
       const usedNames = new Set<string>(
         fs.existsSync(attachmentsDir) ? fs.readdirSync(attachmentsDir) : []
       );
+      const cleanupPaths: string[] = [];
       for (const srcPath of attachmentPaths) {
+        const resolvedSrc = path.resolve(srcPath);
+        const relativeToAttachments = path.relative(attachmentsDir, resolvedSrc);
+        const alreadyInAttachments = relativeToAttachments && !relativeToAttachments.startsWith('..') && !path.isAbsolute(relativeToAttachments);
+        if (alreadyInAttachments) {
+          worktreeAttachmentPaths.push(`attachments/${relativeToAttachments.split(path.sep).join('/')}`);
+          continue;
+        }
+
         let filename = path.basename(srcPath);
         if (usedNames.has(filename)) {
           const ext = path.extname(filename);
@@ -1019,13 +1041,17 @@ async function runFollowupThreadInWorktree(
         usedNames.add(filename);
         const dstPath = path.join(attachmentsDir, filename);
         fs.copyFileSync(srcPath, dstPath);
+        cleanupPaths.push(srcPath);
         worktreeAttachmentPaths.push(`attachments/${filename}`);
       }
-      // Clean up temp files and their directory
-      for (const srcPath of attachmentPaths) {
+      // Clean up temp files and their directory. Files uploaded directly into
+      // worktree/attachments are kept in place.
+      for (const srcPath of cleanupPaths) {
         try { fs.unlinkSync(srcPath); } catch { /* non-fatal */ }
       }
-      try { fs.rmdirSync(path.dirname(attachmentPaths[0])); } catch { /* non-fatal */ }
+      if (cleanupPaths.length > 0) {
+        try { fs.rmdirSync(path.dirname(cleanupPaths[0])); } catch { /* non-fatal */ }
+      }
     }
 
     const attachmentSection = worktreeAttachmentPaths.length > 0
