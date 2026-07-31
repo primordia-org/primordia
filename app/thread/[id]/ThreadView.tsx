@@ -2728,7 +2728,7 @@ export default function ThreadView({
                   formData.append('model', model);
                   formData.append('presetId', presetId);
                   formData.append('authSource', authSource);
-                  for (const file of files) formData.append('attach', file);
+                  for (const file of files) formData.append('attachments', file);
                   await appendCredentialFieldsForAuthSource(formData, authSource);
                   const res = await fetch(withBasePath('/api/thread/followup'), {
                     method: 'POST',

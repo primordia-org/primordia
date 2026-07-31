@@ -23,7 +23,7 @@ export interface ThreadPostFormData {
   cavemanMode?: string; // Enable caveman communication mode. Pass the string 'true' to enable.
   cavemanIntensity?: string; // Caveman intensity: lite, full, ultra, wenyan-lite, wenyan-full, wenyan-ultra.
   primordiaAesKey?: string; // Optional localStorage primordia_aes_key JWK used server-side to decrypt the selected stored secret.
-  attach?: string; // Optional file attachments copied into the worktree's attachments/ directory.
+  attachments?: string; // Optional file attachments copied into the worktree's attachments/ directory.
 }
 
 /**
@@ -75,7 +75,7 @@ async function handlePost(request: Request) {
     const aesKeyField = formData.get('primordiaAesKey');
     if (typeof aesKeyField === 'string' && aesKeyField) primordiaAesKey = aesKeyField;
 
-    const files = formData.getAll('attach');
+    const files = formData.getAll('attachments');
     if (files.length > 0) {
       const uploadDir = path.join('/tmp', `primordia-upload-${crypto.randomUUID()}`);
       fs.mkdirSync(uploadDir, { recursive: true });

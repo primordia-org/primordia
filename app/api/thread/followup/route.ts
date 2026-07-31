@@ -1,14 +1,13 @@
 // app/api/thread/followup/route.ts
 // Accepts a follow-up request for an existing thread.
 // POST — submit a follow-up request for a session that is in "ready" state.
-//   Body: multipart/form-data or JSON { threadId: string; request: string; attach?: File[] }
+//   Body: multipart/form-data or JSON { threadId: string; request: string; attachments?: File[] }
 //   Returns: { ok: true }
 
 import * as path from 'path';
 import * as fs from 'fs';
 import { getSessionUser } from '@/lib/auth';
 import { followupThread } from '@/lib/threads';
-import { getProcessStatusReport } from '@/lib/process-manager';
 
 /** Multipart form-data body for POST /thread/followup */
 export interface ThreadFollowupFormData {
@@ -16,7 +15,7 @@ export interface ThreadFollowupFormData {
   request: string; // The follow-up change request text for Claude Code.
   presetId?: string; // Preset ID; billing source, harness, and model are resolved from this preset.
   primordiaAesKey?: string; // Optional localStorage primordia_aes_key JWK used by the worker to decrypt the selected stored secret.
-  attach?: string; // Optional additional file attachments to include in this follow-up run.
+  attachments?: string; // Optional additional file attachments to include in this follow-up run.
 }
 
 /**
@@ -57,13 +56,11 @@ export async function POST(request: Request) {
     const aesKeyField = formData.get('primordiaAesKey');
     if (typeof aesKeyField === 'string' && aesKeyField) primordiaAesKey = aesKeyField;
 
-    const files = formData.getAll('attach');
+    const files = formData.getAll('attachments');
     if (files.length > 0) {
-      const worktree = getProcessStatusReport().worktrees.find((entry) => entry.branch === sessionId);
-      if (!worktree) return Response.json({ error: `Unknown thread/worktree: ${sessionId}` }, { status: 404 });
-      const uploadDir = path.join(worktree.path, 'attachments');
+      const uploadDir = path.join('/tmp', `primordia-upload-${crypto.randomUUID()}`);
       fs.mkdirSync(uploadDir, { recursive: true });
-      const usedNames = new Set<string>(fs.existsSync(uploadDir) ? fs.readdirSync(uploadDir) : []);
+      const usedNames = new Set<string>();
       for (const file of files) {
         if (!(file instanceof File) || file.size === 0) continue;
         const buffer = Buffer.from(await file.arrayBuffer());
