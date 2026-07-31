@@ -166,6 +166,8 @@ const MAX_REQUEST_HEADER_BYTES = 64 * 1024;
 const REQUEST_HEADER_TIMEOUT_MS = 30_000;
 /** Maximum JSON/body bytes read by proxy management endpoints before forwarding. */
 const MAX_PROXY_BODY_BYTES = 1024 * 1024;
+/** Avoid probing an already-running preview on every asset request while still detecting stale idle entries promptly. */
+const PREVIEW_RUNNING_CHECK_INTERVAL_MS = 5_000;
 
 interface StartWaiter {
   resolve: () => void;
@@ -231,6 +233,7 @@ interface ManagedServerEntry {
   status: 'starting' | 'running' | 'stopped';
   startWaiters: StartWaiter[];
   startPromise: Promise<void> | null;
+  lastReadyCheckMs: number;
 }
 
 /** Active preview server processes keyed by session ID. */
@@ -253,6 +256,7 @@ function getProdEntry(): ManagedServerEntry | null {
       status: 'stopped',
       startWaiters: [],
       startPromise: null,
+      lastReadyCheckMs: 0,
     };
   }
   return prodEntry;
@@ -287,6 +291,7 @@ async function waitForServerReady(entry: ManagedServerEntry): Promise<void> {
   while (Date.now() - startedAt <= PREVIEW_START_TIMEOUT_MS) {
     if (await isPortReady(entry.port)) {
       entry.status = 'running';
+      entry.lastReadyCheckMs = Date.now();
       console.log(`[proxy] ${serverLabel(entry)} server ready on :${entry.port}`);
       return;
     }
@@ -306,6 +311,7 @@ async function startManagedServer(entry: ManagedServerEntry): Promise<void> {
   entry.startPromise = (async () => {
     if (await isPortReady(entry.port, 750)) {
       entry.status = 'running';
+      entry.lastReadyCheckMs = Date.now();
       console.log(`[proxy] ${serverLabel(entry)} server already running on :${entry.port}`);
       settleStartWaiters(entry);
       return;
@@ -466,6 +472,12 @@ function forwardToPort(
       const entry = getProdEntry();
       if (entry) entry.status = 'stopped';
     }
+    for (const entry of previewProcesses.values()) {
+      if (entry.port === port && entry.status === 'running') {
+        console.warn(`[proxy] marking ${serverLabel(entry)} server stopped after upstream error on :${port}`);
+        entry.status = 'stopped';
+      }
+    }
     if (!clientRes.headersSent) {
       sendPlainError(clientRes, 502, 'Bad Gateway - upstream server unavailable');
     } else {
@@ -512,8 +524,19 @@ async function forwardWhenReady(
 ): Promise<void> {
   entry.lastActivityMs = Date.now();
   if (entry.status === 'running') {
-    forwardToPort(entry.port, clientReq, clientRes);
-    return;
+    const shouldCheckPreview = entry.kind === 'preview'
+      && Date.now() - entry.lastReadyCheckMs >= PREVIEW_RUNNING_CHECK_INTERVAL_MS;
+    if (!shouldCheckPreview) {
+      forwardToPort(entry.port, clientReq, clientRes);
+      return;
+    }
+    if (await isPortReady(entry.port, 750)) {
+      entry.lastReadyCheckMs = Date.now();
+      forwardToPort(entry.port, clientReq, clientRes);
+      return;
+    }
+    console.warn(`[proxy] ${serverLabel(entry)} server was marked running but :${entry.port} is down; restarting before forwarding`);
+    entry.status = 'stopped';
   }
 
   const bodyBuffer = await readRequestBodyForQueuedStart(clientReq, clientRes, serverLabel(entry));
@@ -594,6 +617,7 @@ async function handlePreviewRequest(
     status: 'stopped',
     startWaiters: [],
     startPromise: null,
+    lastReadyCheckMs: 0,
   };
   previewProcesses.set(sessionId, entry);
   await forwardWhenReady(entry, clientReq, clientRes);
