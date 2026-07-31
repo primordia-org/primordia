@@ -1,5 +1,7 @@
 # Fix bun lint dependency override
 
-Removed the global `brace-expansion` package override that forced every transitive consumer to use the latest CommonJS wrapper shape. Older `minimatch` versions bundled under ESLint expect `require("brace-expansion")` to return a function, so the forced v5 override made `bun run lint` crash before linting any files.
+Restored the audited `brace-expansion` override so dependency scans continue resolving the patched version required by `bun audit`.
 
-After reinstalling dependencies, Bun now keeps modern `brace-expansion` for modern `minimatch` while installing a compatible 1.x copy beneath ESLint's legacy `minimatch` users, allowing `bun run lint` to execute normally again.
+ESLint 9 still includes legacy `minimatch@3` copies that expect `require("brace-expansion")` to return the expand function directly, while audited `brace-expansion@5` exposes that function as `expand`. The lint script now runs ESLint through a tiny Bun shim that adapts only that CommonJS require shape for the lint process.
+
+This keeps `bun run lint` working without reintroducing vulnerable `brace-expansion` 1.x packages into the lockfile.
