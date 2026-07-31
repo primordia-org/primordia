@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { withBasePath } from "@/lib/base-path";
-import { coreApiAuthorizationHeaders } from "@/lib/core-api-key-client";
+import { coreApiFetch } from "@/lib/core-api-key-client";
 
 interface SseLogFileProps {
   /** Core API endpoint that streams plain log text. */
@@ -66,10 +66,9 @@ export function SseLogFile({ streamPath, initialOutput = "", initialStartLine }:
       setConnectionState((current) => current === "connected" ? "connected" : retryDelayMs > 1000 ? "reconnecting" : "connecting");
 
       try {
-        const headers = await coreApiAuthorizationHeaders();
-        const res = await fetch(withBasePath(withStartCursor(streamPath, startLineRef.current)), {
+        const res = await coreApiFetch(withBasePath(withStartCursor(streamPath, startLineRef.current)), {
           signal: abort.signal,
-          headers: { ...headers, Accept: "text/plain" },
+          headers: { Accept: "text/plain" },
         });
 
         if (!res.ok) {

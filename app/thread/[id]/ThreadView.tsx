@@ -17,7 +17,7 @@ import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMen
 import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
 import { getCredentialFieldsForAuthSource } from "@/lib/preset-credentials-client";
-import { coreApiAuthorizationHeaders } from "@/lib/core-api-key-client";
+import { coreApiFetch } from "@/lib/core-api-key-client";
 import { useSounds } from "@/lib/sounds";
 import { ChatGptSubscriptionAuthCard } from "@/components/ChatGptSubscriptionAuthCard";
 import { ThreadRequestForm } from "@/components/ThreadRequestForm";
@@ -1742,6 +1742,7 @@ export default function ThreadView({
   const canAcceptReject = true;
   const [worktreePath, setWorktreePath] = useState("");
   const [threadFormDefaults, setThreadFormDefaults] = useState<ThreadFormDefaults>({});
+  const [coreLoadError, setCoreLoadError] = useState<string | null>(null);
   /** Status of the preview server as reported by the process manager. */
   const [proxyServerStatus, setProxyServerStatus] = useState<'starting' | 'running' | 'stopped' | 'unknown'>('unknown');
   const sounds = useSounds();
@@ -1809,13 +1810,19 @@ export default function ThreadView({
 
     async function loadCoreMetadata() {
       try {
-        const headers = await coreApiAuthorizationHeaders();
         const [statusResponse, preferencesResponse] = await Promise.all([
-          fetch(withBasePath("/api/core/status"), { headers }),
-          fetch(withBasePath("/api/core/preferences"), { headers }).catch(() => null),
+          coreApiFetch(withBasePath("/api/core/status")),
+          coreApiFetch(withBasePath("/api/core/preferences")).catch(() => null),
         ]);
 
+        if (!cancelled && !statusResponse.ok) {
+          const data = await statusResponse.json().catch(() => null) as { msg?: string; error?: string } | null;
+          setCoreLoadError(data?.msg ?? data?.error ?? `Primordia Core returned HTTP ${statusResponse.status}.`);
+          return;
+        }
+
         if (!cancelled && statusResponse.ok) {
+          setCoreLoadError(null);
           const report = await statusResponse.json() as CoreStatusReport;
           const worktree = report.worktrees?.find((entry) => entry.branch === sessionId || entry.path.endsWith(`/${sessionId}`));
           setBranch(report.productionBranch ?? null);
@@ -1829,8 +1836,8 @@ export default function ThreadView({
           const data = await preferencesResponse.json() as { effectiveThreadFormDefaults?: ThreadFormDefaults };
           setThreadFormDefaults(data.effectiveThreadFormDefaults ?? {});
         }
-      } catch {
-        // Keep the shell usable; log streams surface auth/network errors inline.
+      } catch (error) {
+        if (!cancelled) setCoreLoadError(error instanceof Error ? error.message : String(error));
       }
     }
 
@@ -2005,15 +2012,17 @@ export default function ThreadView({
 
     try {
       const startCursor = offset + 1;
-      const headers = await coreApiAuthorizationHeaders();
-      const response = await fetch(
+      const response = await coreApiFetch(
         withBasePath(`/api/core/thread/${encodeURIComponent(sessionId)}/logs?json=true&follow=true&start=${startCursor}`),
-        { signal: controller.signal, headers: { ...headers, Accept: "application/x-ndjson" } },
+        { signal: controller.signal, headers: { Accept: "application/x-ndjson" } },
       );
       if (!response.ok || !response.body) {
-        shouldReconnect = true;
+        const data = await response.json().catch(() => null) as { msg?: string; error?: string } | null;
+        setCoreLoadError(data?.msg ?? data?.error ?? `Primordia Core returned HTTP ${response.status}.`);
+        shouldReconnect = response.status >= 500;
         return;
       }
+      setCoreLoadError(null);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -2404,6 +2413,13 @@ export default function ThreadView({
         )}
       </header>
 
+      {coreLoadError && (
+        <div className="mb-6 rounded-lg border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+          <p className="font-semibold text-red-100">Could not load this thread from Primordia Core.</p>
+          <p className="mt-1 whitespace-pre-wrap text-red-200/90">{coreLoadError}</p>
+        </div>
+      )}
+
       {/* Original request — hidden when there was no initial prompt (e.g. instant-preview from-branch sessions) */}
       {initialRequest && (() => {
         const initialReqEvent = events.find((e): e is Extract<SessionEvent, { type: 'initial_request' }> => e.type === 'initial_request');
@@ -2429,7 +2445,7 @@ export default function ThreadView({
           <GitBranch size={14} strokeWidth={2} aria-hidden="true" />
           {isSetupActive ? (
             <>
-              Creating thread…
+              {events.length === 0 ? "Loading thread…" : "Creating thread…"}
               <span className="ml-1 flex items-center gap-1 text-amber-600/70 text-xs animate-pulse">
                 <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
               </span>
@@ -2753,10 +2769,8 @@ export default function ThreadView({
                   formData.append('request', fullRequest);
                   formData.append('preset', presetId);
                   for (const file of files) formData.append('attach', file);
-                  const headers = await coreApiAuthorizationHeaders();
-                  const res = await fetch(withBasePath(`/api/core/thread/${encodeURIComponent(sessionId)}/followup`), {
+                  const res = await coreApiFetch(withBasePath(`/api/core/thread/${encodeURIComponent(sessionId)}/followup`), {
                     method: 'POST',
-                    headers,
                     body: formData,
                   });
                   if (!res.ok) {

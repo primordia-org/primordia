@@ -100,6 +100,11 @@ export function getStoredCoreWebApiKey(): string | null {
   return parseStoredCoreWebApiKey(localStorage.getItem(CORE_WEB_API_KEY_STORAGE))?.secret ?? null;
 }
 
+export function clearStoredCoreWebApiKey(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(CORE_WEB_API_KEY_STORAGE);
+}
+
 async function currentSessionCanStartThreads(): Promise<boolean> {
   const res = await fetch(withBasePath("/api/auth/session"));
   if (!res.ok) return false;
@@ -156,4 +161,31 @@ export async function logoutAndRevokeCoreWebApiKey(): Promise<void> {
 export async function coreApiAuthorizationHeaders(): Promise<HeadersInit> {
   const key = await ensureCoreWebApiKey();
   return { Authorization: `Bearer ${key}` };
+}
+
+async function isStaleStoredCoreKeyResponse(response: Response): Promise<boolean> {
+  if (response.status !== 400 && response.status !== 401) return false;
+  const clone = response.clone();
+  const data = (await clone.json().catch(() => null)) as { msg?: unknown; error?: unknown } | null;
+  const message = typeof data?.msg === "string" ? data.msg : typeof data?.error === "string" ? data.error : "";
+  return message.includes("PRIMORDIA_CLI_KEY") || message.toLowerCase().includes("web api key");
+}
+
+/**
+ * Fetch a Primordia Core endpoint with the browser web API key. If the stored
+ * key was revoked or lost server-side, create a fresh key and retry once.
+ */
+export async function coreApiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const authHeaders = new Headers(await coreApiAuthorizationHeaders());
+  authHeaders.forEach((value, key) => headers.set(key, value));
+
+  const response = await fetch(input, { ...init, headers });
+  if (!(await isStaleStoredCoreKeyResponse(response))) return response;
+
+  clearStoredCoreWebApiKey();
+  const retryHeaders = new Headers(init.headers);
+  const retryAuthHeaders = new Headers(await coreApiAuthorizationHeaders());
+  retryAuthHeaders.forEach((value, key) => retryHeaders.set(key, value));
+  return fetch(input, { ...init, headers: retryHeaders });
 }
