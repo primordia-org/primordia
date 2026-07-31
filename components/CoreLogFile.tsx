@@ -1,6 +1,6 @@
 "use client";
 
-// components/SseLogFile.tsx
+// components/CoreLogFile.tsx
 // Client component: follows a text log through the Primordia Core API without
 // keeping the page in a pending Server Component/Suspense state.
 
@@ -9,16 +9,18 @@ import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { withBasePath } from "@/lib/base-path";
 import { coreApiFetch } from "@/lib/core-api-key-client";
 
-interface SseLogFileProps {
-  /** Core API endpoint that streams plain log text. */
+interface CoreLogFileProps {
+  /** Core API endpoint that streams NDJSON log events with a .line field. */
   streamPath: string;
+  /** Start/stop the Core subscription. Useful for collapsed details panels. */
+  active?: boolean;
   /** Raw log text already rendered during the initial server response. */
   initialOutput?: string;
   /** 1-based Core API --start cursor to use for the next subscription. */
   initialStartLine?: number;
 }
 
-type ConnectionState = "connecting" | "connected" | "reconnecting" | "paused";
+type ConnectionState = "idle" | "connecting" | "connected" | "reconnecting" | "paused";
 
 function withStartCursor(path: string, startLine: number): string {
   const url = new URL(path, "http://primordia.local");
@@ -57,9 +59,9 @@ function isPageHidden(): boolean {
   return document.visibilityState === "hidden";
 }
 
-export function SseLogFile({ streamPath, initialOutput = "", initialStartLine }: SseLogFileProps) {
+export function CoreLogFile({ streamPath, active = true, initialOutput = "", initialStartLine }: CoreLogFileProps) {
   const [output, setOutput] = useState(initialOutput);
-  const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
+  const [connectionState, setConnectionState] = useState<ConnectionState>(active ? "connecting" : "idle");
   const [notice, setNotice] = useState<string | null>(null);
   const startLineRef = useRef(initialStartLine ?? countCompleteLines(initialOutput) + 1);
 
@@ -82,7 +84,7 @@ export function SseLogFile({ streamPath, initialOutput = "", initialStartLine }:
     };
 
     const connect = async () => {
-      if (cancelled || isPageHidden()) return;
+      if (cancelled || !active || isPageHidden()) return;
       stopCurrentSubscription();
       abort = new AbortController();
       setConnectionState((current) => current === "connected" ? "connected" : retryDelayMs > 1000 ? "reconnecting" : "connecting");
@@ -123,7 +125,7 @@ export function SseLogFile({ streamPath, initialOutput = "", initialStartLine }:
         setNotice(error instanceof Error ? error.message : String(error));
       }
 
-      if (cancelled || isPageHidden()) return;
+      if (cancelled || !active || isPageHidden()) return;
       setConnectionState("reconnecting");
       retryTimer = setTimeout(connect, retryDelayMs);
       retryDelayMs = Math.min(retryDelayMs * 2, 10000);
@@ -139,19 +141,20 @@ export function SseLogFile({ streamPath, initialOutput = "", initialStartLine }:
     };
 
     document.addEventListener("visibilitychange", onVisibilityChange);
-    void connect();
+    if (active) void connect();
+    else setConnectionState("idle");
 
     return () => {
       cancelled = true;
       document.removeEventListener("visibilitychange", onVisibilityChange);
       stopCurrentSubscription();
     };
-  }, [streamPath]);
+  }, [streamPath, active]);
 
   const connected = connectionState === "connected";
   const label = connected
     ? "Following log"
-    : connectionState === "paused" ? "Log stream paused while tab is hidden" : connectionState === "reconnecting" ? "Reconnecting log stream" : "Connecting log stream";
+    : connectionState === "idle" ? "Open server logs to connect" : connectionState === "paused" ? "Log stream paused while tab is hidden" : connectionState === "reconnecting" ? "Reconnecting log stream" : "Connecting log stream";
 
   return (
     <div className="space-y-2">
@@ -161,7 +164,7 @@ export function SseLogFile({ streamPath, initialOutput = "", initialStartLine }:
       </div>
       {notice && <div className="text-[11px] text-amber-300">{notice}</div>}
       {output ? (
-        <AnsiRenderer text={output} className="text-gray-400" />
+        <AnsiRenderer text={output} className="text-gray-400 whitespace-pre-wrap break-words overflow-x-hidden" />
       ) : (
         <div className="text-gray-600">Waiting for log output…</div>
       )}

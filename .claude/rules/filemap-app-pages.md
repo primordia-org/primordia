@@ -30,7 +30,7 @@ components/                      ← Shared React components
 ├── ProgressBar.tsx              ← Shared progress bar primitive
 ├── QrSignInOtherDeviceDialog.tsx ← Dialog for authenticated users to initiate push cross-device sign-in with QR code
 ├── ServerLogsClient.tsx         ← Client component: live tail of primordia systemd journal via SSE (/admin/logs)
-├── SseLogFile.tsx               ← Client component: follows a text log over SSE and renders ANSI output without recursive Suspense
+├── CoreLogFile.tsx              ← Client component: follows a Core API text/NDJSON log stream and renders ANSI output without recursive Suspense
 ├── SettingsSubNav.tsx           ← Tab subnav for account/settings pages
 ├── SimpleMarkdown.tsx           ← Minimal markdown renderer (bold, links, inline code, code blocks)
 ├── WebPushCategoryButton.tsx    ← Subscribe/test control for a single web-push notification category

@@ -4,7 +4,7 @@
 // Client component rendered by /thread/[id].
 // Streams live agent progress via the Primordia Core API.
 
-import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown } from "lucide-react";
 import { AgentIdentityLine } from "@/components/AgentIdentity";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
@@ -23,7 +23,7 @@ import { ChatGptSubscriptionAuthCard } from "@/components/ChatGptSubscriptionAut
 import { ThreadRequestForm } from "@/components/ThreadRequestForm";
 import Link from "next/link";
 import type { DiffFileSummary } from "./page";
-import { SseLogFile } from "@/components/SseLogFile";
+import { CoreLogFile } from "@/components/CoreLogFile";
 import { DiffFileExpander } from "./DiffFileExpander";
 import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
@@ -1483,7 +1483,7 @@ function WebPreviewCard({
   previewUrl,
   sessionId: cardSessionId,
   proxyServerStatus,
-  serverLogsNode,
+  serverLogPath,
   canStartThreads,
   isRestartingServer,
   restartError,
@@ -1494,7 +1494,7 @@ function WebPreviewCard({
   previewUrl: string | null;
   sessionId: string;
   proxyServerStatus: 'starting' | 'running' | 'stopped' | 'unknown';
-  serverLogsNode: ReactNode;
+  serverLogPath: string;
   canStartThreads: boolean;
   isRestartingServer: boolean;
   restartError: string | null;
@@ -1502,6 +1502,7 @@ function WebPreviewCard({
   onElementSelected: (info: ElementSelection) => void;
 }) {
   const serverLogsScrollRef = useRef<HTMLDivElement>(null);
+  const [serverLogsOpen, setServerLogsOpen] = useState(proxyServerStatus === 'stopped');
 
   const scrollServerLogsToEnd = useCallback(() => {
     requestAnimationFrame(() => {
@@ -1514,7 +1515,9 @@ function WebPreviewCard({
   }, []);
 
   useEffect(() => {
-    if (proxyServerStatus === 'stopped') scrollServerLogsToEnd();
+    if (proxyServerStatus !== 'stopped') return;
+    setServerLogsOpen(true);
+    scrollServerLogsToEnd();
   }, [proxyServerStatus, scrollServerLogsToEnd]);
 
   return (
@@ -1589,8 +1592,9 @@ function WebPreviewCard({
       {/* Server logs — always collapsible; auto-open when stopped */}
       <details
         className="group flex-shrink-0 border-t border-emerald-700/50"
-        open={proxyServerStatus === 'stopped'}
+        open={serverLogsOpen}
         onToggle={(event) => {
+          setServerLogsOpen(event.currentTarget.open);
           if (event.currentTarget.open) scrollServerLogsToEnd();
         }}
       >
@@ -1609,8 +1613,8 @@ function WebPreviewCard({
           )}
         </summary>
         <div className="px-4 py-3 border-t border-gray-800">
-          <div ref={serverLogsScrollRef} className="text-xs text-gray-400 font-mono overflow-x-auto max-h-48 overflow-y-auto">
-            {serverLogsNode}
+          <div ref={serverLogsScrollRef} className="text-xs text-gray-400 font-mono max-h-48 overflow-y-auto overflow-x-hidden">
+            <CoreLogFile streamPath={serverLogPath} active={serverLogsOpen} />
           </div>
         </div>
       </details>
@@ -1797,9 +1801,7 @@ export default function ThreadView({
    * be wrong because the DOM has already grown by then.
    */
   const wasAtBottomRef = useRef(true);
-  const serverLogsNode = useMemo(() => (
-    <SseLogFile streamPath={`/api/core/server/${encodeURIComponent(sessionId)}/logs`} />
-  ), [sessionId]);
+  const serverLogPath = useMemo(() => `/api/core/server/${encodeURIComponent(sessionId)}/logs`, [sessionId]);
   const initialRequest = useMemo(() => {
     const firstRequest = events.find((event): event is Extract<SessionEvent, { type: "initial_request" }> => event.type === "initial_request");
     return firstRequest?.request ?? "";
@@ -2899,7 +2901,7 @@ export default function ThreadView({
             previewUrl={smartPreviewUrl}
             sessionId={sessionId}
             proxyServerStatus={proxyServerStatus}
-            serverLogsNode={serverLogsNode}
+            serverLogPath={serverLogPath}
             canStartThreads={canStartThreads}
             isRestartingServer={isRestartingServer}
             restartError={restartError}
@@ -2949,7 +2951,7 @@ export default function ThreadView({
           previewUrl={smartPreviewUrl}
           sessionId={sessionId}
           proxyServerStatus={proxyServerStatus}
-          serverLogsNode={serverLogsNode}
+          serverLogPath={serverLogPath}
           canStartThreads={canStartThreads}
           isRestartingServer={isRestartingServer}
           restartError={restartError}
