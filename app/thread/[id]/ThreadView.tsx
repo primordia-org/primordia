@@ -1503,6 +1503,7 @@ function WebPreviewCard({
 }) {
   const serverLogsScrollRef = useRef<HTMLDivElement>(null);
   const [serverLogsOpen, setServerLogsOpen] = useState(proxyServerStatus === 'stopped');
+  const [serverLogsPaused, setServerLogsPaused] = useState(false);
 
   const scrollServerLogsToEnd = useCallback(() => {
     requestAnimationFrame(() => {
@@ -1519,6 +1520,10 @@ function WebPreviewCard({
     setServerLogsOpen(true);
     scrollServerLogsToEnd();
   }, [proxyServerStatus, scrollServerLogsToEnd]);
+
+  useEffect(() => {
+    if (serverLogsOpen && !serverLogsPaused) scrollServerLogsToEnd();
+  }, [serverLogsOpen, serverLogsPaused, scrollServerLogsToEnd]);
 
   return (
     <div className={`rounded-lg border border-emerald-700/50 bg-gray-900 text-sm overflow-hidden flex flex-col${fullHeight ? ' h-full' : ''}`}>
@@ -1601,20 +1606,41 @@ function WebPreviewCard({
         <summary className="flex items-center gap-2 px-4 py-2 cursor-pointer select-none hover:bg-gray-800/40 transition-colors list-none text-xs">
           <span className="text-gray-600 group-open:rotate-90 transition-transform">▶</span>
           <span className="text-gray-500">🪵 Server logs</span>
-          {canStartThreads && proxyServerStatus === 'running' && (
-            <button
-              data-id="session/restart-preview"
-              type="button"
-              onClick={(e) => { e.preventDefault(); onRestartServer(); }}
-              className="ml-auto flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
-            >
-              <RotateCw size={12} />Restart
-            </button>
-          )}
+          <span className="ml-auto flex items-center gap-3">
+            {serverLogsOpen && (
+              <button
+                data-id="session/toggle-server-log-follow"
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setServerLogsPaused((value) => !value);
+                }}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                {serverLogsPaused ? "Follow Logs" : "Pause Logs"}
+              </button>
+            )}
+            {canStartThreads && proxyServerStatus === 'running' && (
+              <button
+                data-id="session/restart-preview"
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRestartServer(); }}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                <RotateCw size={12} />Restart
+              </button>
+            )}
+          </span>
         </summary>
         <div className="px-4 py-3 border-t border-gray-800">
           <div ref={serverLogsScrollRef} className="text-xs text-gray-400 font-mono max-h-48 overflow-y-auto overflow-x-hidden">
-            <CoreLogFile streamPath={serverLogPath} active={serverLogsOpen} />
+            <CoreLogFile
+              streamPath={serverLogPath}
+              active={serverLogsOpen && !serverLogsPaused}
+              paused={serverLogsPaused}
+              scrollContainerRef={serverLogsScrollRef}
+            />
           </div>
         </div>
       </details>

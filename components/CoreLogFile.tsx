@@ -4,7 +4,7 @@
 // Client component: follows a text log through the Primordia Core API without
 // keeping the page in a pending Server Component/Suspense state.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { withBasePath } from "@/lib/base-path";
 import { coreApiFetch } from "@/lib/core-api-key-client";
@@ -14,6 +14,10 @@ interface CoreLogFileProps {
   streamPath: string;
   /** Start/stop the Core subscription. Useful for collapsed details panels. */
   active?: boolean;
+  /** True when active=false because the user explicitly paused following. */
+  paused?: boolean;
+  /** Optional scroll container to keep pinned to bottom while already at bottom. */
+  scrollContainerRef?: RefObject<HTMLDivElement | null>;
   /** Raw log text already rendered during the initial server response. */
   initialOutput?: string;
   /** 1-based Core API --start cursor to use for the next subscription. */
@@ -59,7 +63,17 @@ function isPageHidden(): boolean {
   return document.visibilityState === "hidden";
 }
 
-export function CoreLogFile({ streamPath, active = true, initialOutput = "", initialStartLine }: CoreLogFileProps) {
+function isScrolledToBottom(element: HTMLDivElement | null): boolean {
+  if (!element) return false;
+  return element.scrollTop + element.clientHeight >= element.scrollHeight - 4;
+}
+
+function scrollToBottomIfNeeded(element: HTMLDivElement | null): void {
+  if (!element || isScrolledToBottom(element)) return;
+  element.scrollTop = element.scrollHeight;
+}
+
+export function CoreLogFile({ streamPath, active = true, paused = false, scrollContainerRef, initialOutput = "", initialStartLine }: CoreLogFileProps) {
   const [output, setOutput] = useState(initialOutput);
   const [connectionState, setConnectionState] = useState<ConnectionState>(active ? "connecting" : "idle");
   const [notice, setNotice] = useState<string | null>(null);
@@ -118,7 +132,15 @@ export function CoreLogFile({ streamPath, active = true, initialOutput = "", ini
           const parsed = appendCoreLogNdjson(ndjsonBuffer, chunk);
           ndjsonBuffer = parsed.remainder;
           startLineRef.current += parsed.lineCount;
-          if (parsed.text) setOutput((prev) => prev + parsed.text);
+          if (parsed.text) {
+            const shouldStickToBottom = isScrolledToBottom(scrollContainerRef?.current ?? null);
+            setOutput((prev) => prev + parsed.text);
+            if (shouldStickToBottom) {
+              requestAnimationFrame(() => {
+                requestAnimationFrame(() => scrollToBottomIfNeeded(scrollContainerRef?.current ?? null));
+              });
+            }
+          }
         }
       } catch (error) {
         if (cancelled || (error instanceof Error && error.name === "AbortError")) return;
@@ -142,19 +164,19 @@ export function CoreLogFile({ streamPath, active = true, initialOutput = "", ini
 
     document.addEventListener("visibilitychange", onVisibilityChange);
     if (active) void connect();
-    else setConnectionState("idle");
+    else setConnectionState(paused ? "paused" : "idle");
 
     return () => {
       cancelled = true;
       document.removeEventListener("visibilitychange", onVisibilityChange);
       stopCurrentSubscription();
     };
-  }, [streamPath, active]);
+  }, [streamPath, active, paused, scrollContainerRef]);
 
   const connected = connectionState === "connected";
   const label = connected
     ? "Following log"
-    : connectionState === "idle" ? "Open server logs to connect" : connectionState === "paused" ? "Log stream paused while tab is hidden" : connectionState === "reconnecting" ? "Reconnecting log stream" : "Connecting log stream";
+    : connectionState === "idle" ? "Open server logs to connect" : connectionState === "paused" ? "Log stream paused" : connectionState === "reconnecting" ? "Reconnecting log stream" : "Connecting log stream";
 
   return (
     <div className="space-y-2">
