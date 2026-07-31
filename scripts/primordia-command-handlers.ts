@@ -43,6 +43,7 @@ type UserSelectorArgs = { user?: string };
 type JsonArgs = { json?: boolean };
 type ModeArgs = { dev?: boolean; prod?: boolean };
 type PresetArgs = { preset?: string };
+type CavemanArgs = { caveman?: string | boolean; 'caveman-intensity'?: string };
 type AttachArgs = { attach?: string | string[]; a?: string | string[] };
 type PreferenceSetArgs = PresetArgs & {
   harness?: string;
@@ -374,8 +375,8 @@ async function readRequest(args: CliParsedArgs): Promise<string> {
 
 async function resolveCliAuth(selector: string | undefined): Promise<{ user: { id: string; username: string }; primordiaAesKey: string }> {
   const coreUserId = process.env.PRIMORDIA_CORE_USER_ID;
-  const coreAesKey = process.env.PRIMORDIA_CORE_AES_KEY;
-  if (coreUserId && coreAesKey) {
+  const coreAesKey = process.env.PRIMORDIA_CORE_AES_KEY ?? '';
+  if (coreUserId) {
     if (selector && selector !== coreUserId) {
       const selected = await resolveCliUser(selector);
       if (selected.id !== coreUserId) throw new Error('The authenticated Primordia Core web key belongs to a different user than --user.');
@@ -768,15 +769,21 @@ export async function serverCopyDbCommand(args: CliParsedArgs): Promise<void> {
   if (!result.copied) process.exit(1);
 }
 
-export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs & AttachArgs): Promise<void> {
+export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & PresetArgs & CavemanArgs & UserSelectorArgs & AttachArgs): Promise<void> {
   const requestText = await readRequest(args);
   const { user, primordiaAesKey } = await resolveCliAuth(args.user);
+  const cavemanEnabled = args.caveman === true || args.caveman === 'true';
+  const cavemanIntensity = typeof args['caveman-intensity'] === 'string' && (CAVEMAN_INTENSITIES as readonly string[]).includes(args['caveman-intensity'])
+    ? args['caveman-intensity'] as (typeof CAVEMAN_INTENSITIES)[number]
+    : undefined;
   const result = await createThread({
     userId: user.id,
     requestText,
     presetId: await resolveCliPresetIdForUser(user.id, args.preset),
     primordiaAesKey,
     savedAttachmentPaths: resolveAttachmentPaths(args),
+    cavemanMode: cavemanEnabled,
+    ...(cavemanIntensity ? { cavemanIntensity } : {}),
     runInBackground: false,
   });
   if (!result.ok) throw cliSecretError(result.error, `thread creation failed (${result.status})`);

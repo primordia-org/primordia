@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import { once } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
+import { getSessionUser } from '@/lib/auth';
 import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
 import { getProcessStatusReport } from '@/lib/process-manager';
 import { getPublicOrigin } from '@/lib/public-origin';
@@ -22,7 +23,7 @@ interface ParsedBody {
 
 interface AuthContext {
   userId: string;
-  aesKeyJwkJson: string;
+  aesKeyJwkJson?: string;
 }
 
 type JsonSchema = Record<string, unknown>;
@@ -47,12 +48,18 @@ function terminalJsonResponse(value: unknown, init?: ResponseInit): Response {
   return Response.json(value, { ...init, headers });
 }
 
-async function authorize(request: Request): Promise<AuthContext> {
+async function authorize(request: Request, parsed?: ParsedBody): Promise<AuthContext> {
   const header = request.headers.get('authorization') ?? '';
   const match = header.match(/^Bearer\s+(.+)$/i);
-  if (!match) throw new Error('Authorization header must be Bearer <web-api-key>.');
-  const resolved = await resolvePrimordiaCliKey(match[1], 'web');
-  return { userId: resolved.userId, aesKeyJwkJson: resolved.aesKeyJwkJson };
+  if (match) {
+    const resolved = await resolvePrimordiaCliKey(match[1], 'web');
+    return { userId: resolved.userId, aesKeyJwkJson: resolved.aesKeyJwkJson };
+  }
+
+  const sessionUser = await getSessionUser();
+  if (!sessionUser) throw new Error('Authorization header must be Bearer <web-api-key>, or the request must include a signed-in web session.');
+  const aesKeyJwkJson = typeof parsed?.values.primordiaAesKey === 'string' ? parsed.values.primordiaAesKey : undefined;
+  return { userId: sessionUser.id, aesKeyJwkJson };
 }
 
 function parseValue(value: string): string | boolean {
@@ -206,7 +213,7 @@ function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed
   }
   for (const option of userFacingOptions(route)) {
     const bodyValue = parsed.values[option.name];
-    if (bodyValue !== undefined) options[option.name] = bodyValue;
+    if (bodyValue !== undefined) options[option.name] = option.type === 'string' && typeof bodyValue === 'boolean' ? String(bodyValue) : bodyValue;
   }
   const explicitFollow = options.follow === true || options.f === true;
   if (hasOption(route, 'json') && options.json !== false) options.json = true;
@@ -245,7 +252,7 @@ function spawnCli(argv: string[], cwd: string | undefined, auth: AuthContext) {
     env: {
       ...process.env,
       PRIMORDIA_CORE_USER_ID: auth.userId,
-      PRIMORDIA_CORE_AES_KEY: auth.aesKeyJwkJson,
+      ...(auth.aesKeyJwkJson ? { PRIMORDIA_CORE_AES_KEY: auth.aesKeyJwkJson } : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -364,7 +371,7 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
         summary: route.commandPath.at(-1) ?? route.path.replace(/^\//, ''),
         description: route.description,
         tags: [tag],
-        security: [{ WebApiKey: [] }],
+        security: [{ WebApiKey: [] }, { WebSession: [] }],
         parameters: [...pathParameters, ...argumentQueryParameters, ...queryParameters],
         ...(route.httpMethod === 'POST' && hasRequestBody
           ? {
@@ -385,7 +392,7 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
               }
             : { description: 'Command machine-formatted response.', content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } } },
           400: errorResponse('Invalid request or command usage. The msg field contains the command validation error.'),
-          401: errorResponse('Missing or invalid web API key.'),
+          401: errorResponse('Missing or invalid web API key/session.'),
           404: errorResponse('Unknown Core API route.'),
           500: errorResponse('Command failed.'),
         },
@@ -409,6 +416,12 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
           scheme: 'bearer',
           bearerFormat: 'Primordia web API key',
           description: 'Create a revokable web API key in Settings → API Keys and pass it as a Bearer token.',
+        },
+        WebSession: {
+          type: 'apiKey',
+          in: 'cookie',
+          name: 'primordia_session',
+          description: 'Signed-in first-party web session. Thread mutations may include primordiaAesKey in the request body when the selected preset needs encrypted billing credentials.',
         },
       },
       schemas: {
@@ -477,7 +490,6 @@ function streamingResponse(argv: string[], cwd: string | undefined, auth: AuthCo
 
 async function coreActionResponse(request: Request, parts: string[], method: 'GET' | 'POST'): Promise<Response> {
   try {
-    const auth = await authorize(request);
     const matched = matchRoute(parts);
     if (!matched) return terminalJsonResponse({ msg: 'unknown Core API route' }, { status: 404 });
     if (matched.route.httpMethod !== method) {
@@ -487,6 +499,7 @@ async function coreActionResponse(request: Request, parts: string[], method: 'GE
       ? path.join(resolveThreadCwd(matched.params[matched.route.cwdParam]), 'attachments')
       : undefined;
     const parsed = method === 'GET' ? { args: [], options: {}, values: {} } : await parseRequestBody(request, uploadDir);
+    const auth = await authorize(request, parsed);
     const { argv, cwd, streaming, ndjson } = buildArgv(matched.route, matched.params, parsed, request);
     if (streaming) return streamingResponse(argv, cwd, auth, ndjson ? 'application/x-ndjson' : 'text/plain; charset=utf-8');
     return bufferedResponse(argv, cwd, auth);

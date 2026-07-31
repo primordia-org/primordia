@@ -2722,21 +2722,17 @@ export default function ThreadView({
                     fullRequest = `Re: <${elementContext.component}>${sourceFilePart} ${elementContext.selector}${dataIdPart}\n\n${request}`;
                   }
                   const formData = new FormData();
-                  formData.append('threadId', sessionId);
                   formData.append('request', fullRequest);
-                  formData.append('harness', harness);
-                  formData.append('model', model);
-                  formData.append('presetId', presetId);
-                  formData.append('authSource', authSource);
-                  for (const file of files) formData.append('attachments', file);
+                  formData.append('preset', presetId);
+                  for (const file of files) formData.append('attach', file);
                   await appendCredentialFieldsForAuthSource(formData, authSource);
-                  const res = await fetch(withBasePath('/api/thread/followup'), {
+                  const res = await fetch(withBasePath(`/api/core/thread/${encodeURIComponent(sessionId)}/followup`), {
                     method: 'POST',
                     body: formData,
                   });
                   if (!res.ok) {
-                    const data = (await res.json()) as { error?: string };
-                    throw new Error(data.error ?? `Server error: ${res.status}`);
+                    const data = (await res.json()) as { msg?: string };
+                    throw new Error(data.msg ?? `Server error: ${res.status}`);
                   }
                   trackEvent("session/followup-submitted/v1", { threadId: sessionId, harness, model, hasFiles: files.length > 0, hasElementContext: !!elementContext });
                   setElementContext(null);

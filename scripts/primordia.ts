@@ -228,7 +228,7 @@ const copyDbCommand: CliCommandDef = {
 const createCommand: CliCommandDef = {
   name: 'create',
   description: 'Create a thread and run its initial agent turn.',
-  options: [jsonOption, userOption, presetOption, attachOption],
+  options: [jsonOption, userOption, presetOption, cavemanOption, cavemanIntensityOption, attachOption],
   arguments: [requestArgument],
   api: { path: '/thread', multipart: true },
   run: lazyRun('threadCreateCommand'),
