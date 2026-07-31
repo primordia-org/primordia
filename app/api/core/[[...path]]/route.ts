@@ -144,7 +144,7 @@ function withQueryOptions(route: CliApiRouteDef, options: CoreOptions, request: 
   const next = { ...options };
   const url = new URL(request.url);
   for (const option of userFacingOptions(route)) {
-    const value = url.searchParams.get(option.name) ?? (option.alias ? url.searchParams.get(option.alias) : null);
+    const value = url.searchParams.get(option.name);
     if (value !== null) next[option.name] = parseValue(value);
   }
   return next;
@@ -205,7 +205,7 @@ function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed
     if (jsonValue !== null) options.json = parseValue(jsonValue);
   }
   for (const option of userFacingOptions(route)) {
-    const bodyValue = parsed.values[option.name] ?? (option.alias ? parsed.values[option.alias] : undefined);
+    const bodyValue = parsed.values[option.name];
     if (bodyValue !== undefined) options[option.name] = bodyValue;
   }
   const explicitFollow = options.follow === true || options.f === true;
