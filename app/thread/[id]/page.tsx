@@ -4,7 +4,7 @@
 
 import type { Metadata } from "next";
 import { buildPageTitle } from "@/lib/page-title";
-import ThreadView from "./ThreadView";
+import { ThreadViewClient } from "./ThreadViewClient";
 
 export async function generateMetadata({
   params,
@@ -34,5 +34,5 @@ export default async function ThreadPage({
 }) {
   const { id } = await params;
 
-  return <ThreadView sessionId={id} isProduction={process.env.NODE_ENV === "production"} />;
+  return <ThreadViewClient sessionId={id} isProduction={process.env.NODE_ENV === "production"} />;
 }

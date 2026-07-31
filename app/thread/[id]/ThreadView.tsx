@@ -1516,9 +1516,11 @@ function WebPreviewCard({
 
   useEffect(() => {
     if (proxyServerStatus !== 'stopped') return;
-    const frame = requestAnimationFrame(() => setServerLogsOpen(true));
+    // ThreadView is loaded client-only, so this direct client state sync does not
+    // need a requestAnimationFrame hydration workaround.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setServerLogsOpen(true);
     scrollServerLogsToEnd();
-    return () => cancelAnimationFrame(frame);
   }, [proxyServerStatus, scrollServerLogsToEnd]);
 
   useEffect(() => {
