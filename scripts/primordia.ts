@@ -185,6 +185,14 @@ const statusCommand: CliCommandDef = {
   run: lazyRun('statusCommand'),
 };
 
+const serverStatusCommand: CliCommandDef = {
+  name: 'status',
+  description: "Show the current thread's server status. With --follow --json, emit an NDJSON update whenever it changes.",
+  options: [jsonOption, followOption],
+  api: { path: '/server/[threadId]/status', method: 'GET', streaming: true, cwdParam: 'threadId' },
+  run: lazyRun('serverStatusCommand'),
+};
+
 const startCommand: CliCommandDef = {
   name: 'start',
   description: "Start the thread's Next.js server.",
@@ -427,7 +435,7 @@ const threadCommand: CliCommandDef = {
 const serverCommand: CliCommandDef = {
   name: 'server',
   description: 'Manage the current thread server process.',
-  subcommands: [startCommand, stopCommand, restartCommand, logsCommand, publishCommand, copyDbCommand],
+  subcommands: [serverStatusCommand, startCommand, stopCommand, restartCommand, logsCommand, publishCommand, copyDbCommand],
 };
 
 export const mainCommand: CliCommandDef = {

@@ -34,7 +34,7 @@ import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
 import { normalizeAuthSource, type PresetAuthSource } from "@/lib/presets";
 import { deriveSmartPreviewUrl } from "@/lib/smart-preview-url";
 import { trackEvent } from "@/lib/events-client";
-import { getPreviewProcessSnapshot, restartPreviewServer } from "./actions";
+import { restartPreviewServer } from "./actions";
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────
 
@@ -2123,24 +2123,41 @@ export default function ThreadView({
   }, [sessionId]);
 
   useEffect(() => {
-    if (previewUrl === null && status !== "ready") return;
     let cancelled = false;
+    let abort: AbortController | null = null;
 
-    async function pollProcessSnapshot() {
-      while (!cancelled) {
-        try {
-          const snapshot = await getPreviewProcessSnapshot(sessionId);
-          if (!cancelled) {
-            setProxyServerStatus(snapshot.status);
+    async function subscribeToServerStatus() {
+      abort = new AbortController();
+      try {
+        const response = await coreApiFetch(withBasePath(`/api/core/server/${encodeURIComponent(sessionId)}/status?follow=true&json=true`), {
+          signal: abort.signal,
+          headers: { Accept: "application/x-ndjson" },
+        });
+        if (!response.ok || !response.body) throw new Error(`Server status stream returned HTTP ${response.status}.`);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (!cancelled) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const snapshot = JSON.parse(line) as { status?: 'starting' | 'running' | 'stopped' | 'unknown' };
+            if (snapshot.status && !cancelled) setProxyServerStatus(snapshot.status);
           }
-        } catch { /* keep polling */ }
-        if (!cancelled) await new Promise<void>((r) => setTimeout(r, 2_000));
+        }
+      } catch (error) {
+        if (!cancelled && !(error instanceof Error && error.name === "AbortError")) console.warn("Server status subscription ended:", error);
       }
     }
 
-    void pollProcessSnapshot();
-    return () => { cancelled = true; };
-  }, [sessionId, previewUrl, status]);
+    void subscribeToServerStatus();
+    return () => { cancelled = true; abort?.abort(); };
+  }, [sessionId]);
   async function handleRestartServer() {
     trackEvent("session/restart-server-clicked/v1", { threadId: sessionId });
     setIsRestartingServer(true);
