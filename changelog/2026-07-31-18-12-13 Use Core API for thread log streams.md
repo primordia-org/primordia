@@ -7,3 +7,5 @@ The thread detail server page is now only a lightweight shell. The client loads 
 The live log clients now pause their subscriptions when the page is hidden and reconnect when the page becomes visible again, using Core API `start` cursors so any log lines written while hidden are replayed without duplicating already-rendered output.
 
 If a browser's stored Core web API key was revoked or disappeared from the server, Core requests now clear the stale local key, create a replacement, and retry once. Thread pages also show explicit Core load errors instead of leaving users stuck on the default loading placeholder.
+
+Preview server logs request Core's machine log stream but render each event's `.line` value, so the UI shows the actual log output rather than raw NDJSON wrapper objects.

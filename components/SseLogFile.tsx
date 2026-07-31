@@ -23,12 +23,34 @@ type ConnectionState = "connecting" | "connected" | "reconnecting" | "paused";
 function withStartCursor(path: string, startLine: number): string {
   const url = new URL(path, "http://primordia.local");
   url.searchParams.set("follow", "true");
+  url.searchParams.set("json", "true");
   url.searchParams.set("start", String(Math.max(1, startLine)));
   return `${url.pathname}${url.search}`;
 }
 
 function countCompleteLines(text: string): number {
   return (text.match(/\n/g) ?? []).length;
+}
+
+function appendCoreLogNdjson(buffer: string, chunk: string): { text: string; lineCount: number; remainder: string } {
+  const normalized = `${buffer}${chunk}`.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  const parts = normalized.split("\n");
+  const remainder = parts.pop() ?? "";
+  let text = "";
+  let lineCount = 0;
+
+  for (const raw of parts) {
+    if (!raw.trim()) continue;
+    lineCount += 1;
+    try {
+      const parsed = JSON.parse(raw) as { line?: unknown };
+      text += `${typeof parsed.line === "string" ? parsed.line : raw}\n`;
+    } catch {
+      text += `${raw}\n`;
+    }
+  }
+
+  return { text, lineCount, remainder };
 }
 
 function isPageHidden(): boolean {
@@ -83,6 +105,7 @@ export function SseLogFile({ streamPath, initialOutput = "", initialStartLine }:
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
+        let ndjsonBuffer = "";
 
         while (!cancelled && !isPageHidden()) {
           const { done, value } = await reader.read();
@@ -90,8 +113,10 @@ export function SseLogFile({ streamPath, initialOutput = "", initialStartLine }:
 
           const chunk = decoder.decode(value, { stream: true });
           if (!chunk) continue;
-          startLineRef.current += countCompleteLines(chunk);
-          setOutput((prev) => prev + chunk);
+          const parsed = appendCoreLogNdjson(ndjsonBuffer, chunk);
+          ndjsonBuffer = parsed.remainder;
+          startLineRef.current += parsed.lineCount;
+          if (parsed.text) setOutput((prev) => prev + parsed.text);
         }
       } catch (error) {
         if (cancelled || (error instanceof Error && error.name === "AbortError")) return;
