@@ -2,7 +2,7 @@
 
 // components/ThreadView.tsx
 // Client component rendered by /thread/[id].
-// Streams live Claude Code progress via SSE from /api/thread/stream.
+// Streams live agent progress via the Primordia Core API.
 
 import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
 import { GitBranch, Loader2, FileText, Copy, Check, RotateCw, Circle, CheckCircle2, Clock, AlertCircle, ListChecks, ChevronUp, ChevronDown } from "lucide-react";
@@ -19,7 +19,6 @@ import { withBasePath } from "@/lib/base-path";
 import { getCredentialFieldsForAuthSource } from "@/lib/preset-credentials-client";
 import { coreApiAuthorizationHeaders } from "@/lib/core-api-key-client";
 import { useSounds } from "@/lib/sounds";
-import { updateStoredCredentials } from "@/lib/credentials-client";
 import { ChatGptSubscriptionAuthCard } from "@/components/ChatGptSubscriptionAuthCard";
 import { ThreadRequestForm } from "@/components/ThreadRequestForm";
 import Link from "next/link";
@@ -27,7 +26,7 @@ import type { DiffFileSummary } from "./page";
 import { DiffFileExpander } from "./DiffFileExpander";
 import { WebPreviewPanel, type ElementSelection } from "./WebPreviewPanel";
 import HorizontalResizeHandle from "./HorizontalResizeHandle";
-import type { SessionEvent, AgentAuthInfo, ProgressStepStatus } from "@/lib/session-events";
+import { inferStatusFromEvents, type SessionEvent, type AgentAuthInfo, type ProgressStepStatus } from "@/lib/session-events";
 import { cloneProgressState, initialProgressState, progressStateForNewRun, progressSummary, progressTickMarks, reduceProgressEvent, shouldRenderAgentProgressPanel, shouldRenderFinalSummaryOutsideProgress, type ProgressState, type ProgressStateStep } from "@/lib/progress-monitor";
 import { convertUtcTimeToLocal } from "@/lib/utc-to-local-time";
 import { HARNESS_OPTIONS, type ModelOption } from "@/lib/agent-config";
@@ -1919,11 +1918,16 @@ export default function ThreadView({
     queueMicrotask(() => void refreshDiffSummary());
   }, [status, refreshDiffSummary]);
 
-  // Reconnect / restart streaming when the tab regains focus, in case the
-  // browser paused the SSE connection while the tab was in the background.
+  // Unsubscribe while hidden, then re-subscribe with a Core API --start cursor
+  // when visible so the page catches up on lines written in the background.
   useEffect(() => {
     function onVisibilityChange() {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible") {
+        if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+        abortControllerRef.current?.abort();
+        return;
+      }
       const s = statusRef.current;
       const isTerminalStatus = s === "accepted" || s === "rejected";
       if (!isTerminalStatus) {
@@ -1938,6 +1942,7 @@ export default function ThreadView({
   // Extracted streaming logic — can be called on mount and after follow-up / restart.
   async function startStreaming() {
     // Abort any in-flight stream before opening a new one.
+    if (document.visibilityState === "hidden") return;
     if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
     reconnectTimerRef.current = null;
     abortControllerRef.current?.abort();
@@ -1960,9 +1965,11 @@ export default function ThreadView({
     };
 
     try {
+      const startCursor = offset + 1;
+      const headers = await coreApiAuthorizationHeaders();
       const response = await fetch(
-        withBasePath(`/api/thread/stream?threadId=${sessionId}&offset=${offset}`),
-        { signal: controller.signal },
+        withBasePath(`/api/core/thread/${encodeURIComponent(sessionId)}/logs?json=true&follow=true&start=${startCursor}`),
+        { signal: controller.signal, headers: { ...headers, Accept: "application/x-ndjson" } },
       );
       if (!response.ok || !response.body) {
         shouldReconnect = true;
@@ -1971,6 +1978,7 @@ export default function ThreadView({
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -1979,54 +1987,38 @@ export default function ThreadView({
           break;
         }
 
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split("\n")) {
-          if (!line.startsWith("data: ")) continue;
-          const raw = line.slice(6).trim();
-          if (!raw) continue;
-          try {
-            const parsed = JSON.parse(raw) as {
-              events?: SessionEvent[];
-              lineCount?: number;
-              status?: string;
-              previewUrl?: string | null;
-              done?: boolean;
-              updatedCredentials?: string;
-            };
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n");
+        buffer = lines.pop() ?? "";
 
-            if (parsed.events && parsed.events.length > 0) {
-              setEvents((prev) => [...prev, ...parsed.events!]);
-              if (parsed.lineCount != null) lineCountRef.current = parsed.lineCount;
-              // Reset the stuck-button timer whenever new events arrive.
-              lastNdjsonEventTimeRef.current = Date.now();
-              setShowStuckButton(false);
-            } else if (parsed.lineCount != null) {
-              lineCountRef.current = parsed.lineCount;
-            }
-            if (parsed.status != null) {
-              statusRef.current = parsed.status;
-              setStatus(parsed.status);
-            }
-            if (parsed.done) {
-              streamFinishedByEndpoint = true;
-            }
-            if ("previewUrl" in parsed) {
-              const newUrl = parsed.previewUrl ?? null;
-              setPreviewUrl((prev) => {
-                if (!prev && newUrl) trackEvent("session/preview-loaded/v1", { threadId: sessionId, previewUrl: newUrl });
-                return newUrl;
-              });
-            }
-            // If the agent refreshed the OAuth tokens while running, re-encrypt
-            // the updated credentials and save them back to the database.
-            if (parsed.updatedCredentials) {
-              updateStoredCredentials(parsed.updatedCredentials).catch(() => {
-                // Best-effort: failure leaves old credentials in DB unchanged
-              });
-            }
+        const parsedEvents: SessionEvent[] = [];
+        for (const line of lines) {
+          const raw = line.trim();
+          if (!raw) continue;
+          lineCountRef.current += 1;
+          try {
+            parsedEvents.push(JSON.parse(raw) as SessionEvent);
           } catch {
-            // Ignore malformed SSE lines
+            // Ignore malformed NDJSON lines
           }
+        }
+
+        if (parsedEvents.length > 0) {
+          const next = [...eventsRef.current, ...parsedEvents];
+          eventsRef.current = next;
+          setEvents(next);
+          const nextStatus = inferStatusFromEvents(next);
+          statusRef.current = nextStatus;
+          setStatus(nextStatus);
+          const hasPreview = nextStatus === "ready" || next.some((event) => event.type === "preview_path");
+          const newUrl = hasPreview ? `/preview/${sessionId}` : null;
+          setPreviewUrl((prevUrl) => {
+            if (!prevUrl && newUrl) trackEvent("session/preview-loaded/v1", { threadId: sessionId, previewUrl: newUrl });
+            return newUrl;
+          });
+          // Reset the stuck-button timer whenever new events arrive.
+          lastNdjsonEventTimeRef.current = Date.now();
+          setShowStuckButton(false);
         }
       }
     } catch (err) {

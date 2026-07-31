@@ -110,6 +110,18 @@ function getUpstreamCommitCount(sessionBranch: string): number {
   }
 }
 
+function countLogLines(logPath: string): number {
+  try {
+    const text = fs.readFileSync(logPath, "utf8");
+    if (!text) return 0;
+    const lines = text.split(/\r?\n/);
+    if (lines.at(-1) === "") lines.pop();
+    return lines.length;
+  } catch {
+    return 0;
+  }
+}
+
 function readLogTail(logPath: string, maxBytes = 50 * 1024): string {
   try {
     const stat = fs.statSync(logPath);
@@ -157,6 +169,7 @@ export default async function ThreadPage({
 
   const serverLogPath = getWorktreeLogPath(session.branch, process.cwd());
   const initialServerLogs = readLogTail(serverLogPath);
+  const initialServerLogLineCount = countLogLines(serverLogPath);
 
   // Load initial events from the NDJSON log.
   let initialEvents: SessionEvent[] = [];
@@ -178,8 +191,9 @@ export default async function ThreadPage({
       initialPreviewUrl={session.previewUrl}
       serverLogsNode={(
         <SseLogFile
-          streamPath={`/api/server/logs?threadId=${encodeURIComponent(session.id)}`}
+          streamPath={`/api/core/server/${encodeURIComponent(session.id)}/logs`}
           initialOutput={initialServerLogs}
+          initialStartLine={initialServerLogLineCount + 1}
         />
       )}
       branch={branch}

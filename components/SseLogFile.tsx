@@ -1,102 +1,75 @@
 "use client";
 
 // components/SseLogFile.tsx
-// Client component: follows a text log over SSE without keeping the page in a
-// pending Server Component/Suspense state.
+// Client component: follows a text log through the Primordia Core API without
+// keeping the page in a pending Server Component/Suspense state.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnsiRenderer } from "@/components/AnsiRenderer";
 import { withBasePath } from "@/lib/base-path";
+import { coreApiAuthorizationHeaders } from "@/lib/core-api-key-client";
 
 interface SseLogFileProps {
-  /** SSE endpoint that emits { text: string }, status events, and optional { done: true }. */
+  /** Core API endpoint that streams plain log text. */
   streamPath: string;
   /** Raw log text already rendered during the initial server response. */
   initialOutput?: string;
+  /** 1-based Core API --start cursor to use for the next subscription. */
+  initialStartLine?: number;
 }
 
-type ConnectionState = "connecting" | "connected" | "reconnecting" | "closed";
+type ConnectionState = "connecting" | "connected" | "reconnecting" | "paused";
 
-type LogStreamEvent =
-  | { text: string }
-  | { status: "missing" | "ready"; message?: string }
-  | { error: string }
-  | { done: true; exitCode?: number };
-
-function appendNoHistoryParam(path: string): string {
-  const separator = path.includes("?") ? "&" : "?";
-  return `${path}${separator}n=0`;
+function withStartCursor(path: string, startLine: number): string {
+  const url = new URL(path, "http://primordia.local");
+  url.searchParams.set("follow", "true");
+  url.searchParams.set("start", String(Math.max(1, startLine)));
+  return `${url.pathname}${url.search}`;
 }
 
-function parseSseEvents(buffer: string): { events: string[]; remainder: string } {
-  const normalized = buffer.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
-  const parts = normalized.split("\n\n");
-  return {
-    events: parts.slice(0, -1),
-    remainder: parts[parts.length - 1] ?? "",
-  };
+function countCompleteLines(text: string): number {
+  return (text.match(/\n/g) ?? []).length;
 }
 
-function eventData(eventText: string): string | null {
-  const dataLines = eventText
-    .split("\n")
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice(5).trimStart());
-  if (dataLines.length === 0) return null;
-  return dataLines.join("\n");
+function isPageHidden(): boolean {
+  return document.visibilityState === "hidden";
 }
 
-export function SseLogFile({ streamPath, initialOutput = "" }: SseLogFileProps) {
+export function SseLogFile({ streamPath, initialOutput = "", initialStartLine }: SseLogFileProps) {
   const [output, setOutput] = useState(initialOutput);
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [notice, setNotice] = useState<string | null>(null);
-  const [missingLog, setMissingLog] = useState(false);
+  const startLineRef = useRef(initialStartLine ?? countCompleteLines(initialOutput) + 1);
+
+  useEffect(() => {
+    startLineRef.current = initialStartLine ?? countCompleteLines(initialOutput) + 1;
+    setOutput(initialOutput);
+  }, [initialOutput, initialStartLine]);
 
   useEffect(() => {
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryDelayMs = 1000;
-    let hasReceivedInitialHistory = Boolean(initialOutput);
     let abort: AbortController | null = null;
 
-    const handleParsedEvent = (parsed: LogStreamEvent) => {
-      if ("text" in parsed) {
-        setOutput((prev) => prev + parsed.text);
-        setMissingLog(false);
-        setNotice(null);
-        hasReceivedInitialHistory = true;
-        return;
-      }
-
-      if ("status" in parsed) {
-        setConnectionState("connected");
-        setMissingLog(parsed.status === "missing");
-        if (parsed.status === "ready") setNotice(null);
-        return;
-      }
-
-      if ("error" in parsed) {
-        setNotice(parsed.error);
-        return;
-      }
-
-      if ("done" in parsed) {
-        setConnectionState("closed");
-      }
+    const stopCurrentSubscription = () => {
+      abort?.abort();
+      abort = null;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
     };
 
     const connect = async () => {
-      if (cancelled) return;
-      abort?.abort();
+      if (cancelled || isPageHidden()) return;
+      stopCurrentSubscription();
       abort = new AbortController();
       setConnectionState((current) => current === "connected" ? "connected" : retryDelayMs > 1000 ? "reconnecting" : "connecting");
 
-      const path = hasReceivedInitialHistory ? appendNoHistoryParam(streamPath) : streamPath;
-
       try {
-        const res = await fetch(withBasePath(path), {
+        const headers = await coreApiAuthorizationHeaders();
+        const res = await fetch(withBasePath(withStartCursor(streamPath, startLineRef.current)), {
           signal: abort.signal,
-          headers: { Accept: "text/event-stream" },
+          headers: { ...headers, Accept: "text/plain" },
         });
 
         if (!res.ok) {
@@ -111,63 +84,63 @@ export function SseLogFile({ streamPath, initialOutput = "" }: SseLogFileProps) 
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
-        let buffer = "";
 
-        while (!cancelled) {
+        while (!cancelled && !isPageHidden()) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          buffer += decoder.decode(value, { stream: true });
-          const parsedBuffer = parseSseEvents(buffer);
-          buffer = parsedBuffer.remainder;
-
-          for (const eventText of parsedBuffer.events) {
-            const rawData = eventData(eventText);
-            if (!rawData) continue;
-            try {
-              handleParsedEvent(JSON.parse(rawData) as LogStreamEvent);
-            } catch {
-              // Ignore malformed SSE events and continue reading the stream.
-            }
-          }
+          const chunk = decoder.decode(value, { stream: true });
+          if (!chunk) continue;
+          startLineRef.current += countCompleteLines(chunk);
+          setOutput((prev) => prev + chunk);
         }
       } catch (error) {
         if (cancelled || (error instanceof Error && error.name === "AbortError")) return;
         setNotice(error instanceof Error ? error.message : String(error));
       }
 
-      if (cancelled) return;
+      if (cancelled || isPageHidden()) return;
       setConnectionState("reconnecting");
       retryTimer = setTimeout(connect, retryDelayMs);
       retryDelayMs = Math.min(retryDelayMs * 2, 10000);
     };
 
+    const onVisibilityChange = () => {
+      if (isPageHidden()) {
+        stopCurrentSubscription();
+        setConnectionState("paused");
+        return;
+      }
+      void connect();
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
     void connect();
 
     return () => {
       cancelled = true;
-      abort?.abort();
-      if (retryTimer) clearTimeout(retryTimer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      stopCurrentSubscription();
     };
-  }, [initialOutput, streamPath]);
+  }, [streamPath]);
 
   const connected = connectionState === "connected";
   const label = connected
-    ? missingLog ? "Preview server log file does not exist yet." : "Following log"
-    : connectionState === "reconnecting" ? "Reconnecting log stream" : "Connecting log stream";
+    ? "Following log"
+    : connectionState === "paused" ? "Log stream paused while tab is hidden" : connectionState === "reconnecting" ? "Reconnecting log stream" : "Connecting log stream";
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
-        <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? missingLog ? "bg-amber-400" : "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
+        <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
         {label}
       </div>
-      {notice && !missingLog && <div className="text-[11px] text-amber-300">{notice}</div>}
+      {notice && <div className="text-[11px] text-amber-300">{notice}</div>}
       {output ? (
         <AnsiRenderer text={output} className="text-gray-400" />
-      ) : !missingLog ? (
+      ) : (
         <div className="text-gray-600">Waiting for log output…</div>
-      ) : null}
+      )}
     </div>
   );
 }
