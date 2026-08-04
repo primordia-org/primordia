@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import { createThread } from '@/lib/threads';
 import { getSessionUser, isAdmin } from '@/lib/auth';
 import { archiveSessionNdjsonLog } from '@/lib/session-archive';
-import { readLatestLeakDiagnostics, readLeakDiagnosticsSummary } from '@/lib/leak-diagnostics';
+import { readLatestLeakDiagnostics, readLeakDiagnosticsSummary, readRecentOomKills } from '@/lib/leak-diagnostics';
 
 interface WorktreeInfo {
   path: string;
@@ -149,8 +149,9 @@ export async function GET() {
   const memory = getMemoryInfo();
   const oldestNonProdWorktree = getOldestNonProdWorktree(repoRoot);
   const leakDiagnostics = readLeakDiagnosticsSummary(repoRoot);
+  const oomKills = readRecentOomKills();
 
-  return Response.json({ disk, memory, oldestNonProdWorktree, leakDiagnostics });
+  return Response.json({ disk, memory, oldestNonProdWorktree, leakDiagnostics, oomKills });
 }
 
 /**

@@ -34,17 +34,41 @@ interface LeakDiagnosticsInfo {
   reason: string | null;
 }
 
+interface OomKillEvent {
+  occurredAt: string | null;
+  pid: number | null;
+  processName: string | null;
+  taskMemcg: string | null;
+  totalVmKB: number | null;
+  anonRssKB: number | null;
+  fileRssKB: number | null;
+  raw: string;
+}
+
+interface OomKillSummary {
+  checkedAt: number;
+  source: "journalctl" | "dmesg" | "unavailable";
+  events: OomKillEvent[];
+  error: string | null;
+}
+
 interface HealthData {
   disk: DiskInfo | null;
   memory: MemoryInfo | null;
   oldestNonProdWorktree: NonProdWorktree | null;
   leakDiagnostics: LeakDiagnosticsInfo;
+  oomKills: OomKillSummary;
 }
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
   if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`;
   return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+function formatKb(kb: number | null): string {
+  if (kb === null) return "—";
+  return formatBytes(kb * 1024);
 }
 
 function UsageBar({ percent, threshold = 90 }: { percent: number; threshold?: number }) {
@@ -193,7 +217,7 @@ export default function AdminServerHealthClient() {
 
   if (!data) return null;
 
-  const { disk, memory, oldestNonProdWorktree, leakDiagnostics } = data;
+  const { disk, memory, oldestNonProdWorktree, leakDiagnostics, oomKills } = data;
 
   const saveIndicator =
     saveStatus === "saving" ? (
@@ -315,6 +339,49 @@ export default function AdminServerHealthClient() {
         ) : (
           <p className="text-sm text-gray-500">Memory info unavailable.</p>
         )}
+      </section>
+
+      {/* OOM diagnostics */}
+      <section>
+        <h2 className="text-base font-medium text-gray-200 mb-1">Recent OOM kills</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Kernel out-of-memory events explain abrupt SIGKILL exits. These entries come from recent kernel logs and identify which process the OOM killer selected.
+        </p>
+        <div className="p-4 rounded border border-gray-700 bg-gray-900">
+          {oomKills.source === "unavailable" ? (
+            <p className="text-sm text-gray-500">Kernel OOM logs unavailable: {oomKills.error ?? "unknown error"}</p>
+          ) : oomKills.events.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-xs">
+                <thead className="text-gray-500">
+                  <tr>
+                    <th className="py-2 pr-4 font-medium">Time</th>
+                    <th className="py-2 pr-4 font-medium">Process</th>
+                    <th className="py-2 pr-4 font-medium">PID</th>
+                    <th className="py-2 pr-4 font-medium">RSS</th>
+                    <th className="py-2 pr-4 font-medium">Scope</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800 text-gray-300">
+                  {oomKills.events.map((event, index) => (
+                    <tr key={`${event.pid ?? "unknown"}-${event.occurredAt ?? index}`} title={event.raw}>
+                      <td className="py-2 pr-4 whitespace-nowrap text-gray-400">{event.occurredAt ?? "unknown"}</td>
+                      <td className="py-2 pr-4 font-mono">{event.processName ?? "unknown"}</td>
+                      <td className="py-2 pr-4 tabular-nums">{event.pid ?? "—"}</td>
+                      <td className="py-2 pr-4 tabular-nums">{formatKb(event.anonRssKB)}</td>
+                      <td className="py-2 pr-4 max-w-[18rem] truncate text-gray-500">{event.taskMemcg ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-3 text-xs text-amber-300">
+                Yes: recent SIGKILL exits were OOM-killer events. Lack of swap means short memory spikes can kill Primordia processes before normal logs flush.
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">No recent OOM kills found in kernel logs via {oomKills.source}.</p>
+          )}
+        </div>
       </section>
 
       {/* Leak diagnostics */}
