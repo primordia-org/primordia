@@ -11,7 +11,8 @@ export async function GET() {
 
   const diagnostics = readLeakDiagnosticsSummary(process.cwd());
   return Response.json({
-    hasAlert: diagnostics.exists,
+    hasAlert: diagnostics.activeCategories.length > 0,
+    categories: diagnostics.activeCategories,
     diagnostics,
   });
 }
