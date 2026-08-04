@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -105,6 +105,47 @@ function resolveStartMode(args: ModeArgs | CliParsedArgs): ServerStartMode {
   return args.prod ? 'prod' : 'dev';
 }
 
+function createFollowAbortSignal(cleanup?: () => void): AbortSignal {
+  const controller = new AbortController();
+  const abort = () => {
+    cleanup?.();
+    controller.abort();
+  };
+
+  // Core API callers keep stdin connected to the HTTP request lifecycle. If the
+  // client disconnects or the dev/prod server dies, stdin closes; a --follow
+  // command must then exit instead of becoming an orphan adopted by PID 1.
+  if (!process.stdin.isTTY) {
+    process.stdin.resume();
+    process.stdin.once('end', abort);
+    process.stdin.once('close', abort);
+    process.stdin.once('error', abort);
+  }
+  process.stdout.once('error', abort);
+  process.stderr.once('error', abort);
+  process.once('SIGTERM', abort);
+  process.once('SIGINT', abort);
+  return controller.signal;
+}
+
+async function waitForChild(child: ChildProcess, signal: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const finish = () => resolve();
+    const fail = (err: Error) => reject(err);
+    const abort = () => {
+      try { child.kill('SIGTERM'); } catch { /* already gone */ }
+      setTimeout(() => {
+        if (!child.killed) {
+          try { child.kill('SIGKILL'); } catch { /* already gone */ }
+        }
+      }, 2_000).unref();
+    };
+    signal.addEventListener('abort', abort, { once: true });
+    child.once('exit', finish);
+    child.once('error', fail);
+  });
+}
+
 async function renderLogs(threadId: string, json: boolean | undefined, follow: boolean | undefined): Promise<void> {
   if (json) {
     if (follow) throw new Error('--json and --follow cannot be combined');
@@ -115,8 +156,9 @@ async function renderLogs(threadId: string, json: boolean | undefined, follow: b
   const lines = readWorktreeLogLines(threadId);
   if (lines.length > 0) console.log(lines.join('\n'));
   if (follow) {
-    for await (const chunk of followWorktreeLog(threadId)) {
-      process.stdout.write(chunk);
+    const signal = createFollowAbortSignal();
+    for await (const chunk of followWorktreeLog(threadId, process.cwd(), 500, signal)) {
+      if (!process.stdout.write(chunk)) await new Promise((resolve) => process.stdout.once('drain', resolve));
     }
   }
 }
@@ -320,8 +362,11 @@ async function renderServiceLog(service: SupervisedServiceName, args: ServiceLog
   }
   if (recent.length > 0) console.log(recent.join('\n'));
   if (follow) {
-    const child = execFileSync('tail', ['-n', '0', '-F', logFile], { stdio: ['ignore', 'inherit', 'inherit'] });
-    void child;
+    const child = spawn('tail', ['-n', '0', '-F', logFile], { stdio: ['ignore', 'inherit', 'inherit'] });
+    const signal = createFollowAbortSignal(() => {
+      try { child.kill('SIGTERM'); } catch { /* already gone */ }
+    });
+    await waitForChild(child, signal);
   }
 }
 
