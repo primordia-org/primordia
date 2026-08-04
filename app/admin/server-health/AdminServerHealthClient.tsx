@@ -52,12 +52,33 @@ interface OomKillSummary {
   error: string | null;
 }
 
+interface PrimordiaMemoryProcess {
+  pid: number;
+  ppid: number;
+  etimes: number;
+  cpuPercent: number;
+  rssKB: number;
+  oomScoreAdj: number | null;
+  category: string;
+  command: string;
+}
+
+interface PrimordiaMemorySnapshot {
+  checkedAt: number;
+  totalRssKB: number;
+  coreApiCommandRssKB: number;
+  coreApiCommandCount: number;
+  longLivedCoreApiCommandCount: number;
+  topProcesses: PrimordiaMemoryProcess[];
+}
+
 interface HealthData {
   disk: DiskInfo | null;
   memory: MemoryInfo | null;
   oldestNonProdWorktree: NonProdWorktree | null;
   leakDiagnostics: LeakDiagnosticsInfo;
   oomKills: OomKillSummary;
+  primordiaMemory: PrimordiaMemorySnapshot;
 }
 
 function formatBytes(bytes: number): string {
@@ -69,6 +90,13 @@ function formatBytes(bytes: number): string {
 function formatKb(kb: number | null): string {
   if (kb === null) return "—";
   return formatBytes(kb * 1024);
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds >= 86_400) return `${Math.floor(seconds / 86_400)}d`;
+  if (seconds >= 3_600) return `${Math.floor(seconds / 3_600)}h`;
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}m`;
+  return `${seconds}s`;
 }
 
 function UsageBar({ percent, threshold = 90 }: { percent: number; threshold?: number }) {
@@ -217,7 +245,7 @@ export default function AdminServerHealthClient() {
 
   if (!data) return null;
 
-  const { disk, memory, oldestNonProdWorktree, leakDiagnostics, oomKills } = data;
+  const { disk, memory, oldestNonProdWorktree, leakDiagnostics, oomKills, primordiaMemory } = data;
 
   const saveIndicator =
     saveStatus === "saving" ? (
@@ -339,6 +367,59 @@ export default function AdminServerHealthClient() {
         ) : (
           <p className="text-sm text-gray-500">Memory info unavailable.</p>
         )}
+      </section>
+
+      {/* Primordia memory */}
+      <section>
+        <h2 className="text-base font-medium text-gray-200 mb-1">Primordia process memory</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Snapshot of live Primordia processes, including OOM priority. Higher OOM adjustment values are killed sooner.
+        </p>
+        <div className="p-4 rounded border border-gray-700 bg-gray-900">
+          <div className="grid gap-3 sm:grid-cols-3 text-sm">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-gray-500">Total Primordia RSS</p>
+              <p className="mt-1 font-medium text-gray-200">{formatKb(primordiaMemory.totalRssKB)}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-gray-500">Core API command RSS</p>
+              <p className="mt-1 font-medium text-gray-200">{formatKb(primordiaMemory.coreApiCommandRssKB)}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-gray-500">Long-lived Core API commands</p>
+              <p className="mt-1 font-medium text-gray-200">{primordiaMemory.longLivedCoreApiCommandCount} / {primordiaMemory.coreApiCommandCount}</p>
+            </div>
+          </div>
+          {primordiaMemory.longLivedCoreApiCommandCount > 0 && (
+            <p className="mt-3 text-xs text-amber-300">
+              Long-lived `bun scripts/primordia.ts ... --follow` commands are currently consuming memory. This supports the theory that the new Core API/log-follow path can amplify OOM pressure when clients leave command followers behind.
+            </p>
+          )}
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-left text-xs">
+              <thead className="text-gray-500">
+                <tr>
+                  <th className="py-2 pr-4 font-medium">RSS</th>
+                  <th className="py-2 pr-4 font-medium">OOM adj</th>
+                  <th className="py-2 pr-4 font-medium">Age</th>
+                  <th className="py-2 pr-4 font-medium">Kind</th>
+                  <th className="py-2 pr-4 font-medium">Command</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800 text-gray-300">
+                {primordiaMemory.topProcesses.slice(0, 12).map((proc) => (
+                  <tr key={proc.pid} title={proc.command}>
+                    <td className="py-2 pr-4 tabular-nums">{formatKb(proc.rssKB)}</td>
+                    <td className="py-2 pr-4 tabular-nums">{proc.oomScoreAdj ?? "—"}</td>
+                    <td className="py-2 pr-4 tabular-nums text-gray-400">{formatDuration(proc.etimes)}</td>
+                    <td className="py-2 pr-4 whitespace-nowrap">{proc.category}</td>
+                    <td className="py-2 pr-4 max-w-[22rem] truncate font-mono text-gray-500">{proc.command}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       {/* OOM diagnostics */}

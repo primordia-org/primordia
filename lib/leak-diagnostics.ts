@@ -38,6 +38,26 @@ export interface OomKillSummary {
   error: string | null;
 }
 
+export interface PrimordiaMemoryProcess {
+  pid: number;
+  ppid: number;
+  etimes: number;
+  cpuPercent: number;
+  rssKB: number;
+  oomScoreAdj: number | null;
+  category: string;
+  command: string;
+}
+
+export interface PrimordiaMemorySnapshot {
+  checkedAt: number;
+  totalRssKB: number;
+  coreApiCommandRssKB: number;
+  coreApiCommandCount: number;
+  longLivedCoreApiCommandCount: number;
+  topProcesses: PrimordiaMemoryProcess[];
+}
+
 interface SystemSample {
   checkedAt: number;
   load1: number;
@@ -65,6 +85,58 @@ export function getLeakDiagnosticsDir(repoRoot: string): string {
 
 export function getLatestLeakDiagnosticsPath(repoRoot: string): string {
   return path.join(getLeakDiagnosticsDir(repoRoot), LATEST_FILE);
+}
+
+function readProcOomScoreAdj(pid: number): number | null {
+  try {
+    const value = Number.parseInt(fs.readFileSync(`/proc/${pid}/oom_score_adj`, "utf8").trim(), 10);
+    return Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function categorizePrimordiaProcess(command: string): string {
+  if (command.includes("service-supervisor.")) return "supervisor";
+  if (command.includes("reverse-proxy.")) return "reverse proxy";
+  if (command.includes("scheduled-jobs.")) return "scheduled jobs";
+  if (command.includes("next start") || command.includes("start-server.js")) return "production/dev server";
+  if (command.includes("claude-worker.") || command.includes("pi-worker.") || command.includes("codex-worker.")) return "agent worker";
+  if (command.includes("scripts/primordia.ts")) return "Core API command";
+  return "other Primordia process";
+}
+
+export function readPrimordiaMemorySnapshot(limit = 25): PrimordiaMemorySnapshot {
+  const ps = run("ps", ["-eo", "pid,ppid,etimes,pcpu,rss,args", "--no-headers"]);
+  const processes: PrimordiaMemoryProcess[] = [];
+  for (const line of ps.split("\n")) {
+    if (!line.includes("primordia")) continue;
+    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(\d+)\s+(.*)$/);
+    if (!match) continue;
+    const pid = Number.parseInt(match[1], 10);
+    const command = match[6];
+    processes.push({
+      pid,
+      ppid: Number.parseInt(match[2], 10),
+      etimes: Number.parseInt(match[3], 10),
+      cpuPercent: Number.parseFloat(match[4]),
+      rssKB: Number.parseInt(match[5], 10),
+      oomScoreAdj: readProcOomScoreAdj(pid),
+      category: categorizePrimordiaProcess(command),
+      command,
+    });
+  }
+
+  const totalRssKB = processes.reduce((sum, proc) => sum + proc.rssKB, 0);
+  const coreApiCommands = processes.filter((proc) => proc.category === "Core API command");
+  return {
+    checkedAt: Date.now(),
+    totalRssKB,
+    coreApiCommandRssKB: coreApiCommands.reduce((sum, proc) => sum + proc.rssKB, 0),
+    coreApiCommandCount: coreApiCommands.length,
+    longLivedCoreApiCommandCount: coreApiCommands.filter((proc) => proc.etimes > 30 * 60).length,
+    topProcesses: processes.sort((a, b) => b.rssKB - a.rssKB).slice(0, limit),
+  };
 }
 
 function parseOomNumber(raw: string, key: string): number | null {
@@ -248,6 +320,7 @@ function writeDiagnostics(repoRoot: string, sample: SystemSample): string {
     ["Uptime", run("uptime", [])],
     ["Memory (/proc/meminfo)", fs.existsSync("/proc/meminfo") ? fs.readFileSync("/proc/meminfo", "utf8").trim() : "unavailable"],
     ["Recent kernel OOM kills", readRecentOomKills(20).events.map((event) => event.raw).join("\n") || "none found in recent kernel logs"],
+    ["Primordia memory snapshot", JSON.stringify(readPrimordiaMemorySnapshot(50), null, 2)],
     ["Top processes by CPU", run("ps", ["-eo", "pid,ppid,user,stat,pcpu,pmem,rss,vsz,etime,time,args", "--sort=-pcpu"])],
     ["Top processes by memory", run("ps", ["-eo", "pid,ppid,user,stat,pcpu,pmem,rss,vsz,etime,time,args", "--sort=-rss"])],
     ["Primordia process manager status", run("bun", ["run", "primordia", "status", "--json"], repoRoot)],

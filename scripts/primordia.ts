@@ -7,6 +7,10 @@ import {
   type CliOptionDef,
   type CliParsedArgs,
 } from '@/lib/tiny-cli';
+import { applyCurrentProcessOomRole } from '@/lib/oom-priority';
+
+applyCurrentProcessOomRole('command', (message) => console.warn(`[primordia-cli] ${message}`));
+
 const COMMAND_HANDLERS_MODULE = './primordia-command-handlers';
 const PRESET_HELPERS_MODULE = './primordia-preset-helpers';
 

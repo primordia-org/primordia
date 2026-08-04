@@ -19,6 +19,7 @@ import {
 import { HARNESS_OPTIONS, DEFAULT_HARNESS, DEFAULT_MODEL } from './agent-config';
 import { MODEL_OPTIONS } from './agent-config';
 import { withSocketStatusHint } from './socket-status';
+import { applyOomScoreAdj, OOM_SCORE_ADJ } from './oom-priority';
 import { getProcessStatusReport, restartWorktreeServer, stopWorktreeServer } from './process-manager';
 import { hasThreadPermission } from './auth';
 import { progressSummary, reduceProgressEventsAcrossRuns, type ProgressStateStep } from './progress-monitor';
@@ -308,6 +309,7 @@ async function spawnAgentWorker(
   }
   const homeDir = process.env.HOME ?? '/home/exedev';
   workerEnv['CLAUDE_CONFIG_DIR'] = path.join(homeDir, '.claude-users', config.userId);
+  workerEnv['PRIMORDIA_OOM_ROLE'] = 'agent-worker';
 
   return new Promise<void>((resolve, reject) => {
     const proc = spawn('bun', ['run', workerScriptPath, configFile], {
@@ -322,6 +324,8 @@ async function spawnAgentWorker(
       reject(new Error('Failed to spawn agent worker: no PID assigned'));
       return;
     }
+
+    applyOomScoreAdj(proc.pid, OOM_SCORE_ADJ['agent-worker'], 'agent worker', (message) => console.warn(`[threads] ${message}`));
 
     // Unref so the worker keeps running even if the server exits.
     proc.unref();

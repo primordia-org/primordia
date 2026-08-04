@@ -661,6 +661,10 @@ ExecStart=${MISE_BIN} exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/${service
 Restart=always
 RestartSec=5
 KillMode=process
+# Start the supervisor maximally protected from the kernel OOM killer. Primordia
+# child daemons deliberately raise their own oom_score_adj so memory pressure
+# kills dev previews/agents before production infrastructure.
+OOMScoreAdjust=-1000
 StandardOutput=journal
 StandardError=journal
 
