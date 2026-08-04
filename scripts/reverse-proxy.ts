@@ -35,6 +35,7 @@ import {
   watchGitConfig,
 } from '@/lib/process-manager';
 import { getPrimordiaRuntimePaths } from '@/lib/git-runtime';
+import { sendWebPushToCategory, WEB_PUSH_CATEGORY_TAGS } from '@/lib/web-push';
 
 // Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
 const HOP_BY_HOP = new Set([
@@ -168,6 +169,10 @@ const REQUEST_HEADER_TIMEOUT_MS = 30_000;
 const MAX_PROXY_BODY_BYTES = 1024 * 1024;
 /** Avoid probing an already-running preview on every asset request while still detecting stale idle entries promptly. */
 const PREVIEW_RUNNING_CHECK_INTERVAL_MS = 5_000;
+/** Background health-check cadence for production. This is separate from request-time lazy starts. */
+const PRODUCTION_HEALTH_CHECK_INTERVAL_MS = 10_000;
+/** Avoid duplicate outage pushes during a restart storm. */
+const PRODUCTION_OUTAGE_NOTIFY_COOLDOWN_MS = 10 * 60 * 1000;
 
 interface StartWaiter {
   resolve: () => void;
@@ -239,6 +244,9 @@ interface ManagedServerEntry {
 /** Active preview server processes keyed by session ID. */
 const previewProcesses = new Map<string, ManagedServerEntry>();
 let prodEntry: ManagedServerEntry | null = null;
+let productionOutageStartedAt: number | null = null;
+let lastProductionOutageNotificationMs = 0;
+let lastProductionRecoveryNotificationMs = 0;
 
 function serverLabel(entry: ManagedServerEntry): string {
   return entry.kind === 'production' ? 'production' : `preview ${entry.id}`;
@@ -260,6 +268,52 @@ function getProdEntry(): ManagedServerEntry | null {
     };
   }
   return prodEntry;
+}
+
+async function notifyProductionServerHealth(title: string, body: string, tagSuffix: string): Promise<void> {
+  try {
+    const result = await sendWebPushToCategory('server-health-alerts', {
+      title,
+      body,
+      url: '/admin/server-health',
+      tag: `${WEB_PUSH_CATEGORY_TAGS['server-health-alerts']}-production-${tagSuffix}`,
+    });
+    console.log(`[proxy] server-health push '${title}' attempted=${result.attempted} delivered=${result.delivered}`);
+  } catch (err) {
+    logCrashBoundary('server-health push failed', err);
+  }
+}
+
+function maybeNotifyProductionOutage(reason: string): void {
+  const now = Date.now();
+  if (now - lastProductionOutageNotificationMs < PRODUCTION_OUTAGE_NOTIFY_COOLDOWN_MS) return;
+  lastProductionOutageNotificationMs = now;
+  const branch = currentProdBranch ?? 'unknown branch';
+  void notifyProductionServerHealth(
+    'Primordia production server is down',
+    `${branch} on port ${upstreamPort} is not answering (${reason}). The reverse proxy is attempting to restart it.`,
+    'down',
+  );
+}
+
+function markProductionOutage(reason: string): void {
+  if (productionOutageStartedAt === null) productionOutageStartedAt = Date.now();
+  maybeNotifyProductionOutage(reason);
+}
+
+function maybeNotifyProductionRecovery(): void {
+  if (productionOutageStartedAt === null) return;
+  const outageMs = Date.now() - productionOutageStartedAt;
+  productionOutageStartedAt = null;
+  const now = Date.now();
+  if (now - lastProductionRecoveryNotificationMs < PRODUCTION_OUTAGE_NOTIFY_COOLDOWN_MS) return;
+  lastProductionRecoveryNotificationMs = now;
+  const branch = currentProdBranch ?? 'unknown branch';
+  void notifyProductionServerHealth(
+    'Primordia production server recovered',
+    `${branch} on port ${upstreamPort} is answering again after ${Math.round(outageMs / 1000)}s.`,
+    'recovered',
+  );
 }
 
 async function isPortReady(port: number, timeoutMs = 2_000): Promise<boolean> {
@@ -293,6 +347,7 @@ async function waitForServerReady(entry: ManagedServerEntry): Promise<void> {
       entry.status = 'running';
       entry.lastReadyCheckMs = Date.now();
       console.log(`[proxy] ${serverLabel(entry)} server ready on :${entry.port}`);
+      if (entry.kind === 'production') maybeNotifyProductionRecovery();
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -337,6 +392,7 @@ async function startManagedServer(entry: ManagedServerEntry): Promise<void> {
       const startErr = new Error(`${serverLabel(entry)} server failed to start: ${errorMessage(err)}`);
       entry.status = 'stopped';
       console.error(`[proxy] ${startErr.message}`);
+      if (entry.kind === 'production') markProductionOutage(startErr.message);
       settleStartWaiters(entry, startErr);
       throw startErr;
     }
@@ -409,6 +465,27 @@ setInterval(() => {
   try { readAllPorts(); } catch (err) { logCrashBoundary('periodic git config reload failed', err); }
 }, 5000);
 
+// Production server safety net: the service supervisor intentionally keeps only
+// the proxy/jobs daemons alive. The proxy owns production app-server lifecycle,
+// so it must restart production even when no user request arrives to trigger the
+// normal lazy-start path.
+setInterval(() => {
+  const entry = getProdEntry();
+  if (!entry || entry.startPromise) return;
+  isPortReady(entry.port, 750).then((ready) => {
+    if (ready) {
+      entry.status = 'running';
+      entry.lastReadyCheckMs = Date.now();
+      maybeNotifyProductionRecovery();
+      return;
+    }
+    if (entry.status === 'running') console.warn(`[proxy] production health check failed on :${entry.port}; restarting`);
+    entry.status = 'stopped';
+    markProductionOutage('background health check failed');
+    startManagedServer(entry).catch((err) => logCrashBoundary('production health-check restart failed', err));
+  }).catch((err) => logCrashBoundary('production health check failed unexpectedly', err));
+}, PRODUCTION_HEALTH_CHECK_INTERVAL_MS).unref();
+
 // ─── Request forwarding ───────────────────────────────────────────────────────
 
 /**
@@ -471,6 +548,7 @@ function forwardToPort(
     if (port === upstreamPort) {
       const entry = getProdEntry();
       if (entry) entry.status = 'stopped';
+      markProductionOutage(`upstream error: ${err.message}`);
     }
     for (const entry of previewProcesses.values()) {
       if (entry.port === port && entry.status === 'running') {
@@ -537,6 +615,7 @@ async function forwardWhenReady(
     }
     console.warn(`[proxy] ${serverLabel(entry)} server was marked running but :${entry.port} is down; restarting before forwarding`);
     entry.status = 'stopped';
+    if (entry.kind === 'production') markProductionOutage('health check failed before forwarding');
   }
 
   const bodyBuffer = await readRequestBodyForQueuedStart(clientReq, clientRes, serverLabel(entry));
@@ -762,6 +841,7 @@ function handleWsUpgrade(rawSocket: net.Socket, reqBuf: Buffer): void {
     if (targetPort === upstreamPort) {
       const entry = getProdEntry();
       if (entry) entry.status = 'stopped';
+      markProductionOutage(`websocket upstream error: ${err.message}`);
     }
     if (!rawSocket.destroyed) rawSocket.destroy();
   });

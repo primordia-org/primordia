@@ -471,6 +471,20 @@ function signalPid(pid: number, signal: NodeJS.Signals): void {
   try { process.kill(pid, signal); } catch { /* process already gone */ }
 }
 
+function appendServerLifecycleLog(worktreePath: string, message: string): void {
+  try {
+    fs.appendFileSync(
+      path.join(worktreePath, '.primordia-next-server.log'),
+      `\n[process-manager] ${new Date().toISOString()} ${message}\n`,
+      'utf8',
+    );
+  } catch { /* best-effort lifecycle annotation */ }
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
 export function getBoundPorts(): Set<number> {
   return new Set(buildPortOwners().keys());
 }
@@ -665,9 +679,11 @@ export async function stopWorktreeServer(name: string, cwd = process.cwd()): Pro
     };
   }
 
+  appendServerLifecycleLog(worktree.path, `graceful stop requested for ${worktree.branch} server process(es): ${pids.join(', ')}`);
   for (const pid of pids) signalPid(pid, 'SIGTERM');
   const stopped = await waitForPidsToExit(pids, 5000);
   if (!stopped) {
+    appendServerLifecycleLog(worktree.path, `forced kill after graceful stop timeout for ${worktree.branch} server process(es): ${pids.join(', ')}`);
     for (const pid of pids) signalPid(pid, 'SIGKILL');
     await waitForPidsToExit(pids, 1000);
   }
@@ -753,7 +769,15 @@ export async function startWorktreeServer(name: string, mode: ServerStartMode = 
   const pidPath = path.join(worktree.path, '.primordia-server.pid');
   const logFd = fs.openSync(logPath, 'a');
   const args = ['exec', '-C', worktree.path, '--', 'bun', 'run', mode === 'dev' ? 'dev' : 'start'];
-  const proc = spawn('mise', args, {
+  const command = ['mise', ...args].map(shellQuote).join(' ');
+  const launcherScript = [
+    `echo "[process-manager] $(date -u +%Y-%m-%dT%H:%M:%SZ) launching ${mode} server on port ${port}: ${command.replace(/"/g, '\\"')}"`,
+    command,
+    'status=$?',
+    `echo "[process-manager] $(date -u +%Y-%m-%dT%H:%M:%SZ) ${mode} server command exited with status $status"`,
+    'exit $status',
+  ].join('; ');
+  const proc = spawn('bash', ['-lc', launcherScript], {
     cwd: worktree.path,
     env,
     detached: true,
