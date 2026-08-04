@@ -8,6 +8,7 @@ import {
   type CliOptionDef,
   type CliParsedArgs,
 } from '@/lib/tiny-cli';
+import { createDefaultCliContext, type PrimordiaCliContext } from './primordia-cli-context';
 const COMMAND_HANDLERS_MODULE = './primordia-command-handlers';
 const PRESET_HELPERS_MODULE = './primordia-preset-helpers';
 
@@ -170,10 +171,11 @@ const intervalArgument: CliArgumentDef = {
 };
 
 function lazyRun(name: keyof typeof import('./primordia-command-handlers')) {
-  return async ({ args }: { args: CliParsedArgs }) => {
+  return async ({ args, cliContext }: { args: CliParsedArgs; cliContext?: unknown }) => {
     const handlers = await importCommandHandlers();
-    const handler = handlers[name] as (args: CliParsedArgs) => unknown | Promise<unknown>;
-    return handler(args);
+    const ctx = (cliContext as PrimordiaCliContext | undefined) ?? createDefaultCliContext();
+    const handler = handlers[name] as (args: CliParsedArgs, ctx: PrimordiaCliContext) => unknown | Promise<unknown>;
+    return handler(args, ctx);
   };
 }
 
@@ -445,14 +447,15 @@ export const mainCommand: CliCommandDef = {
 };
 
 async function main(): Promise<void> {
+  const ctx = createDefaultCliContext();
   const rawArgs = process.argv.slice(2);
   try {
     await runCli(mainCommand, rawArgs);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (rawArgs.includes('--json')) console.log(JSON.stringify({ ok: false, error: message }, null, 2));
-    else console.error(message);
-    process.exit(err instanceof CliUsageError ? 64 : 1);
+    if (rawArgs.includes('--json')) ctx.stdout.write(`${JSON.stringify({ ok: false, error: message }, null, 2)}\n`);
+    else ctx.stderr.write(`${message}\n`);
+    ctx.exit(err instanceof CliUsageError ? 64 : 1);
   }
 }
 

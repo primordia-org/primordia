@@ -1,12 +1,12 @@
-import { spawn } from 'child_process';
-import { once } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Readable, Writable } from 'stream';
 import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
 import { getProcessStatusReport } from '@/lib/process-manager';
 import { getPublicOrigin } from '@/lib/public-origin';
-import { listCliApiRoutes, type CliApiRouteDef } from '@/lib/tiny-cli';
+import { CliUsageError, listCliApiRoutes, type CliApiRouteDef, type CliParsedArgs, type CliValue } from '@/lib/tiny-cli';
 import { mainCommand } from '@/scripts/primordia';
+import type { PrimordiaCliContext } from '@/scripts/primordia-cli-context';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,6 +33,12 @@ type OpenApiParameter = {
   schema: JsonSchema;
   description?: string;
 };
+
+class CommandExit extends Error {
+  constructor(public code: number) {
+    super(`Command exited with code ${code}`);
+  }
+}
 
 const encoder = new TextEncoder();
 const CORE_ROUTES = listCliApiRoutes(mainCommand);
@@ -176,13 +182,6 @@ function matchRoute(requestParts: string[]): { route: CliApiRouteDef; params: Re
   return null;
 }
 
-function optionToArg(name: string, value: string | string[] | boolean | undefined): string[] {
-  if (value === undefined || value === false) return [];
-  if (Array.isArray(value)) return value.flatMap((entry) => [`--${name}`, entry]);
-  if (value === true) return [`--${name}`];
-  return [`--${name}`, value];
-}
-
 function hasOption(route: CliApiRouteDef, name: string): boolean {
   return route.options.some((option) => option.name === name || option.alias === name);
 }
@@ -198,7 +197,14 @@ function userFacingOptions(route: CliApiRouteDef): CliApiRouteDef['options'] {
   return route.options.filter((option) => option.name !== 'json');
 }
 
-function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed: ParsedBody, request: Request): { argv: string[]; cwd?: string; streaming: boolean; ndjson: boolean } {
+function setCliOption(args: CliParsedArgs, route: CliApiRouteDef, name: string, value: CliValue): void {
+  const option = route.options.find((candidate) => candidate.name === name || candidate.alias === name);
+  if (!option || value === undefined || value === false) return;
+  args[option.name] = value;
+  if (option.alias) args[option.alias] = value;
+}
+
+function buildInvocation(route: CliApiRouteDef, params: Record<string, string>, parsed: ParsedBody, request: Request): { args: CliParsedArgs; rawArgs: string[]; cwd?: string; streaming: boolean; ndjson: boolean } {
   const options = route.httpMethod === 'GET' ? withQueryOptions(route, parsed.options, request) : { ...parsed.options };
   if (hasOption(route, 'json')) {
     const jsonValue = new URL(request.url).searchParams.get('json');
@@ -215,40 +221,42 @@ function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed
   if (hasOption(route, 'json') && streaming && !ndjson) delete options.json;
 
   for (const option of route.options) {
-    if (option.type === 'string' && options[option.name] === '') throw new Error(`--${option.name} requires a value`);
+    if (option.type === 'string' && options[option.name] === '') throw new CliUsageError(`--${option.name} requires a value`);
   }
 
-  const argv = [...route.commandPath];
-  for (const [name, value] of Object.entries(options)) argv.push(...optionToArg(name, value));
+  const args: CliParsedArgs = { _: [] };
+  for (const [name, value] of Object.entries(options)) setCliOption(args, route, name, value as CliValue);
 
-  const args: string[] = [];
   for (const arg of route.arguments) {
     if (route.cwdParam === arg.name) continue;
-    const paramValue = params[arg.name];
-    if (paramValue) {
-      args.push(paramValue);
+    const value = params[arg.name] ?? parsed.values[arg.name] ?? (route.httpMethod === 'GET' ? queryValue(request, arg.name) : undefined);
+    if (value === undefined) {
+      if (arg.required) throw new CliUsageError(`Missing required argument: ${arg.name}`);
       continue;
     }
-    const bodyValue = parsed.values[arg.name] ?? (route.httpMethod === 'GET' ? queryValue(request, arg.name) : undefined);
-    if (bodyValue !== undefined) args.push(String(bodyValue));
+    args._.push(String(value));
+    args[arg.name] = String(value);
   }
-  args.push(...parsed.args);
-  argv.push(...args);
+  args._.push(...parsed.args);
 
   const cwdParam = route.cwdParam ? params[route.cwdParam] : undefined;
-  return { argv, cwd: cwdParam ? resolveThreadCwd(cwdParam) : undefined, streaming, ndjson };
+  return { args, rawArgs: [...route.commandPath], cwd: cwdParam ? resolveThreadCwd(cwdParam) : undefined, streaming, ndjson };
 }
 
-function spawnCli(argv: string[], cwd: string | undefined, auth: AuthContext) {
-  return spawn(process.execPath, [path.join(process.cwd(), 'scripts/primordia.ts'), ...argv], {
-    cwd: cwd ?? process.cwd(),
+function makeCliContext(options: { cwd?: string; auth: AuthContext; stdin: Readable; stdout: Writable; stderr: Writable; signal?: AbortSignal }): PrimordiaCliContext {
+  return {
+    cwd: () => options.cwd ?? process.cwd(),
     env: {
       ...process.env,
-      PRIMORDIA_CORE_USER_ID: auth.userId,
-      PRIMORDIA_CORE_AES_KEY: auth.aesKeyJwkJson,
+      PRIMORDIA_CORE_USER_ID: options.auth.userId,
+      PRIMORDIA_CORE_AES_KEY: options.auth.aesKeyJwkJson,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+    stdin: Object.assign(options.stdin, { isTTY: false }),
+    stdout: options.stdout as PrimordiaCliContext['stdout'],
+    stderr: options.stderr as PrimordiaCliContext['stderr'],
+    onSignal: (_signal, listener) => options.signal?.addEventListener('abort', listener, { once: true }),
+    exit: (code) => { throw new CommandExit(code); },
+  };
 }
 
 function openApiPath(routePath: string): string {
@@ -426,45 +434,48 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
   };
 }
 
-async function bufferedResponse(argv: string[], cwd: string | undefined, auth: AuthContext): Promise<Response> {
-  const child = spawnCli(argv, cwd, auth);
+async function bufferedResponse(route: CliApiRouteDef, invocation: ReturnType<typeof buildInvocation>, auth: AuthContext): Promise<Response> {
   const stdoutChunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];
-  child.stdout?.on('data', (chunk) => stdoutChunks.push(Buffer.from(chunk)));
-  child.stderr?.on('data', (chunk) => stderrChunks.push(Buffer.from(chunk)));
-  const [code] = await once(child, 'close') as [number | null];
-  const stdout = Buffer.concat(stdoutChunks).toString('utf8');
-  const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
-
-  if (code !== 0) {
-    let message = stderr;
-    if (!message && stdout.trim()) {
-      try {
-        const parsed = JSON.parse(stdout) as { error?: unknown; msg?: unknown };
-        if (typeof parsed.msg === 'string') message = parsed.msg;
-        else if (typeof parsed.error === 'string') message = parsed.error;
-      } catch {
-        message = stdout.trim();
-      }
-    }
-    return terminalJsonResponse({ msg: message || `Command exited with code ${code ?? 'unknown'}` }, { status: code === 64 ? 400 : 500 });
-  }
+  const stdout = new Writable({ write(chunk, _encoding, callback) { stdoutChunks.push(Buffer.from(chunk)); callback(); } });
+  const stderr = new Writable({ write(chunk, _encoding, callback) { stderrChunks.push(Buffer.from(chunk)); callback(); } });
+  const stdin = Readable.from([]);
+  const ctx = makeCliContext({ cwd: invocation.cwd, auth, stdin, stdout, stderr });
 
   try {
-    return jsonResponse(JSON.parse(stdout));
+    await route.run({ args: invocation.args, rawArgs: invocation.rawArgs, commandPath: ['primordia', ...route.commandPath], cliContext: ctx });
+  } catch (error) {
+    const stdoutText = Buffer.concat(stdoutChunks).toString('utf8').trim();
+    const stderrText = Buffer.concat(stderrChunks).toString('utf8').trim();
+    const message = stderrText || (error instanceof CommandExit && stdoutText ? stdoutText : error instanceof Error ? error.message : String(error));
+    const status = error instanceof CliUsageError || (error instanceof CommandExit && error.code === 64) ? 400 : 500;
+    return terminalJsonResponse({ msg: message }, { status });
+  }
+
+  const stdoutText = Buffer.concat(stdoutChunks).toString('utf8');
+  try {
+    return jsonResponse(JSON.parse(stdoutText));
   } catch {
-    return terminalJsonResponse({ msg: 'Command succeeded but did not print valid JSON.', stdout }, { status: 500 });
+    return terminalJsonResponse({ msg: 'Command succeeded but did not print valid JSON.', stdout: stdoutText }, { status: 500 });
   }
 }
 
-function streamingResponse(argv: string[], cwd: string | undefined, auth: AuthContext, contentType = 'text/plain; charset=utf-8'): Response {
+function streamingResponse(route: CliApiRouteDef, invocation: ReturnType<typeof buildInvocation>, auth: AuthContext, signal: AbortSignal, contentType = 'text/plain; charset=utf-8'): Response {
   const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      const child = spawnCli(argv, cwd, auth);
-      child.stdout?.on('data', (chunk) => controller.enqueue(Buffer.from(chunk)));
-      child.stderr?.on('data', (chunk) => controller.enqueue(Buffer.from(chunk)));
-      child.on('error', (error) => controller.enqueue(encoder.encode(`\n[error] ${error.message}\n`)));
-      child.on('close', () => controller.close());
+    async start(controller) {
+      const stdin = new Readable({ read() { /* request abort pushes EOF */ } });
+      signal.addEventListener('abort', () => stdin.push(null), { once: true });
+      const writeChunk = (chunk: unknown) => controller.enqueue(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+      const stdout = new Writable({ write(chunk, _encoding, callback) { writeChunk(chunk); callback(); } });
+      const stderr = new Writable({ write(chunk, _encoding, callback) { writeChunk(chunk); callback(); } });
+      const ctx = makeCliContext({ cwd: invocation.cwd, auth, stdin, stdout, stderr, signal });
+      try {
+        await route.run({ args: invocation.args, rawArgs: invocation.rawArgs, commandPath: ['primordia', ...route.commandPath], cliContext: ctx });
+      } catch (error) {
+        if (!signal.aborted) controller.enqueue(encoder.encode(`\n[error] ${error instanceof Error ? error.message : String(error)}\n`));
+      } finally {
+        controller.close();
+      }
     },
   });
   return new Response(stream, {
@@ -487,12 +498,12 @@ async function coreActionResponse(request: Request, parts: string[], method: 'GE
       : undefined;
     const parsed = method === 'GET' ? { args: [], options: {}, values: {} } : await parseRequestBody(request, uploadDir);
     const auth = await authorize(request);
-    const { argv, cwd, streaming, ndjson } = buildArgv(matched.route, matched.params, parsed, request);
-    if (streaming) return streamingResponse(argv, cwd, auth, ndjson ? 'application/x-ndjson' : 'text/plain; charset=utf-8');
-    return bufferedResponse(argv, cwd, auth);
+    const invocation = buildInvocation(matched.route, matched.params, parsed, request);
+    if (invocation.streaming) return streamingResponse(matched.route, invocation, auth, request.signal, invocation.ndjson ? 'application/x-ndjson' : 'text/plain; charset=utf-8');
+    return bufferedResponse(matched.route, invocation, auth);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const status = message.toLowerCase().includes('authorization') || message.toLowerCase().includes('restricted to') ? 401 : 400;
+    const status = message.toLowerCase().includes('authorization') || message.toLowerCase().includes('restricted to') ? 401 : error instanceof CliUsageError ? 400 : 500;
     return terminalJsonResponse({ msg: message }, { status });
   }
 }

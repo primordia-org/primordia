@@ -11,7 +11,7 @@ app/api/
 ├── git/[...path]/route.ts          ← GET/POST git http-backend proxy (read-only clone/fetch); push blocked with 403
 ├── markdown-stream/route.ts        ← Streams markdown sample character-by-character via SSE for test pages
 ├── openapi/route.ts                ← Serves OpenAPI spec, generating on first request if not on disk
-├── core/[[...path]]/route.ts       ← Primordia Core route-action API generated from CLI definitions; web API-key auth; JSON/multipart POST actions; streaming text for log commands
+├── core/[[...path]]/route.ts       ← Primordia Core route-action API generated from CLI definitions; web API-key auth; JSON/multipart actions; streaming text for log commands; runs CLI handlers in-process with injected ctx instead of spawning `bun scripts/primordia.ts`
 ├── prune-branches/route.ts         ← Returns 410 Gone (superseded endpoint)
 ├── rollback/route.ts               ← Returns 410 Gone (superseded by /api/admin/rollback)
 ├── auth/                           ← Session, logout, exe.dev SSO, passkey, and cross-device QR auth endpoints

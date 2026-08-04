@@ -28,7 +28,7 @@ The core idea: **the app becomes whatever its users need it to be**, with no cod
 | AI API | Anthropic SDK (`@anthropic-ai/sdk`) | Routes through exe.dev LLM gateway by default; users may override with their own API keys, Claude Code credentials.json, or ChatGPT subscription OAuth. Secrets are stored encrypted in SQLite with the browser-held `primordia_aes_key`; web thread requests still send that AES key for compatibility, while `/settings/api-keys` issues revokable API-key wrappers for CLI and web clients. Workers receive only the resolved AES key internally and call `decryptStoredSecretForUser` for the selected user/source. |
 | Hosting | exe.dev | Production builds via `bun run build && bun run start`; app scripts set `NEXT_DEPLOYMENT_ID` from the current git commit so Next.js skew protection refreshes stale clients across deploys; the Next CLI is invoked directly with `bun --bun ./node_modules/next/dist/bin/next ...` so long-running app servers do not fall through the package-bin `node` shebang; single systemd service (`primordia`) runs a small Primordia service-supervisor, which keeps detached `reverse-proxy.js` and `scheduled-jobs.js` service processes alive without restarting them when the supervisor itself restarts; blue/green slot swap on accept |
 | Runtime versioning | mise (`mise.toml`) | Pins Bun per worktree; thread setup trusts `mise.toml`, and the reverse proxy launches worktree servers with `mise exec -C <worktree>` |
-| CLI framework | Internal tiny CLI helper (`lib/tiny-cli.ts`) | Organizes `bun run primordia` subcommands, detailed handwritten-style help, argument/option parsing, JSON automation output, generated bash completion with dynamic completion hooks, and Primordia Core route-action metadata for exposing CLI commands through POST API endpoints |
+| CLI framework | Internal tiny CLI helper (`lib/tiny-cli.ts`) | Organizes `bun run primordia` subcommands, detailed handwritten-style help, argument/option parsing, JSON automation output, generated bash completion with dynamic completion hooks, and Primordia Core route-action metadata; runtime command handlers accept an injected CLI context for cwd/env/stdin/stdout/stderr so `/api/core` runs them in-process without spawning subprocesses |
 | AI code gen | `@anthropic-ai/claude-agent-sdk`, `@earendil-works/pi-coding-agent`, and Codex CLI | Thread workers run Claude Code, Pi, or Codex in git worktrees for user requests; Primordia keeps a generated model list from the pi SDK for model/preset UIs |
 | Database | bun:sqlite | Local SQLite for passkey auth **and thread/session persistence**; same adapter on exe.dev and local dev |
 | Package install security | Bun `minimumReleaseAge` + `@socketsecurity/bun-security-scanner` | New package resolutions must be at least 24 hours old and are scanned by Socket during `bun install` |
@@ -55,12 +55,13 @@ primordia/
 ├── docs/                          ← Design notes and implementation strategy docs, including the Primordia CLI/Core extraction sketch
 ├── changelog/                     ← One .md file per change: YYYY-MM-DD-HH-MM-SS Description.md
 │   └── *.md                       ← Filename = short description; body = full what+why detail
-├── scripts/                       ← Process supervisor, reverse proxy source, install script, worker processes — see .claude/rules/filemap-scripts.md
+├── scripts/                       ← Process supervisor, reverse proxy source, install script, worker processes, and CLI handlers with injectable I/O context for in-process Core API reuse — see .claude/rules/filemap-scripts.md
 ├── lib/                           ← Shared utilities, DB adapter, auth helpers, PID/lockfile helpers, scheduled-jobs boundary + lib/jobs implementations — see .claude/rules/filemap-lib.md
 │                                    Also: lib/CLAUDE.md covers the git config key-value store pattern
 ├── components/                    ← Shared React components — see .claude/rules/filemap-app-pages.md
 └── app/                           ← Next.js App Router pages and API routes
     ├── api/thread/                ← Thread and agent-run endpoints — see app/api/thread/CLAUDE.md
+    ├── api/core/                  ← Route-action Core API wrapper around Primordia CLI command metadata; runs handlers in-process with injected CLI context
     ├── api/server/                ← Preview/process management endpoints — see .claude/rules/filemap-app-api.md
     ├── api/auth/                  ← Auth endpoints + RBAC — see app/api/auth/CLAUDE.md
     ├── api/admin/                 ← Admin-only endpoints — see .claude/rules/filemap-app-api.md

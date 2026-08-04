@@ -64,7 +64,7 @@ export interface CliCommandDef {
   complete?: CliCompletionSource;
   hidden?: boolean;
   api?: CliApiDef;
-  run?: (context: { args: CliParsedArgs; rawArgs: string[]; commandPath: string[] }) => unknown | Promise<unknown>;
+  run?: (context: { args: CliParsedArgs; rawArgs: string[]; commandPath: string[]; cliContext?: unknown }) => unknown | Promise<unknown>;
 }
 
 export interface CliApiRouteDef {
@@ -77,6 +77,7 @@ export interface CliApiRouteDef {
   cwdParam?: string;
   options: Array<Pick<CliOptionDef, 'name' | 'alias' | 'type' | 'valueHint' | 'description' | 'multiple'>>;
   arguments: Array<Pick<CliArgumentDef, 'name' | 'required' | 'valueHint' | 'description'>>;
+  run: NonNullable<CliCommandDef['run']>;
 }
 
 interface ResolvedCommand {
@@ -135,6 +136,7 @@ export function listCliApiRoutes(root: CliCommandDef): CliApiRouteDef[] {
       cwdParam: command.api?.cwdParam,
       options: (command.options ?? []).map(({ name, alias, type, valueHint, description, multiple }) => ({ name, alias, type, valueHint, description, multiple })),
       arguments: (command.arguments ?? []).map(({ name, required, valueHint, description }) => ({ name, required, valueHint, description })),
+      run: command.run!,
     }))
     .sort((a, b) => a.path.localeCompare(b.path));
 }

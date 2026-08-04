@@ -14,7 +14,8 @@ scripts/
 ├── rollback.ts                   ← Standalone emergency rollback CLI for when the app/admin UI is unavailable
 ├── install.sh                    ← Primordia setup/deploy script; idempotent; installs supervisor/proxy/systemd service and production app
 ├── primordia.ts                  ← Lightweight Primordia CLI command tree/help/completion entrypoint; lazy-loads runtime handlers for real commands
-├── primordia-command-handlers.ts ← Runtime handlers for `bun run primordia status`, `thread ...`, and `server ...`; imports heavier thread/process modules only after dispatch
+├── primordia-cli-context.ts      ← Default process-backed CLI context implementation and shared context type for injectable cwd/env/stdin/stdout/stderr
+├── primordia-command-handlers.ts ← Runtime handlers for `bun run primordia status`, `thread ...`, and `server ...`; imports heavier thread/process modules only after dispatch; handlers take an injectable CLI context so Core API callers can run them in-process
 ├── primordia-preset-helpers.ts  ← CLI preset ID/completion helpers, including short built-in IDs and per-user custom preset slugs
 ├── claude-worker.ts              ← Detached Claude Code worker process; configures gateway/API/subscription auth and streams structured progress
 ├── pi-worker.ts                  ← Detached pi coding agent worker process; configures gateway/API/subscription auth and streams structured progress
