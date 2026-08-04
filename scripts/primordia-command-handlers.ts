@@ -246,15 +246,42 @@ function serviceSignal(service: SupervisedServiceName): NodeJS.Signals {
   return service === 'reverse-proxy' ? 'SIGUSR1' : 'SIGUSR2';
 }
 
-function signalSupervisorViaSystemd(signal: NodeJS.Signals): boolean {
-  const unit = process.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
+type SystemctlVia = 'systemd' | 'sudo-systemd';
+
+function sudoSupportsNonInteractive(): boolean {
   try {
-    execFileSync('systemctl', ['is-active', '--quiet', unit], { stdio: 'ignore' });
-    execFileSync('systemctl', ['kill', '--kill-whom=main', `--signal=${signal}`, unit], { stdio: 'ignore' });
+    execFileSync('sudo', ['-n', 'true'], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
   }
+}
+
+function runSystemctl(args: string[], options: { allowSudo?: boolean; interactiveSudo?: boolean } = {}): SystemctlVia | null {
+  try {
+    execFileSync('systemctl', args, { stdio: 'ignore' });
+    return 'systemd';
+  } catch {
+    // Fall through to sudo below. Some production installs run the CLI as the
+    // unprivileged Primordia user; direct `systemctl restart primordia` fails
+    // there even though the installer has just used sudo successfully.
+  }
+
+  if (!options.allowSudo) return null;
+  const sudoArgs = options.interactiveSudo && process.stdin.isTTY ? [] : ['-n'];
+  try {
+    execFileSync('sudo', [...sudoArgs, 'systemctl', ...args], { stdio: 'ignore' });
+    return 'sudo-systemd';
+  } catch {
+    return null;
+  }
+}
+
+function signalSupervisorViaSystemd(signal: NodeJS.Signals): SystemctlVia | null {
+  const unit = process.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
+  const activeVia = runSystemctl(['is-active', '--quiet', unit]);
+  if (!activeVia) return null;
+  return runSystemctl(['kill', '--kill-whom=main', `--signal=${signal}`, unit], { allowSudo: sudoSupportsNonInteractive() });
 }
 
 function signalSupervisorViaPgrep(signal: NodeJS.Signals): number[] {
@@ -274,14 +301,16 @@ function signalSupervisorViaPgrep(signal: NodeJS.Signals): number[] {
 
 function restartServiceSupervisor(json: boolean | undefined): void {
   const unit = process.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
-  try {
-    execFileSync('systemctl', ['restart', unit], { stdio: 'ignore' });
-  } catch {
-    throw new Error(`Could not restart ${unit}; service-supervisor restart requires systemd access`);
+  const via = runSystemctl(['restart', unit], { allowSudo: true, interactiveSudo: !json });
+  if (!via) {
+    throw new Error(
+      `Could not restart ${unit}; service-supervisor restart requires systemd access. ` +
+      'Run with sudo, configure passwordless sudo for systemctl, or restart the primordia service manually.',
+    );
   }
-  const result = { ok: true, service: 'service-supervisor', action: 'restart', via: 'systemd' };
+  const result = { ok: true, service: 'service-supervisor', action: 'restart', via };
   if (json) printJson(result);
-  else console.log('Restarted service-supervisor via systemd.');
+  else console.log(`Restarted service-supervisor via ${via}.`);
 }
 
 function restartSupervisedService(service: SupervisedServiceName, json: boolean | undefined): void {
@@ -289,7 +318,7 @@ function restartSupervisedService(service: SupervisedServiceName, json: boolean 
   const viaSystemd = signalSupervisorViaSystemd(signal);
   const pids = viaSystemd ? [] : signalSupervisorViaPgrep(signal);
   if (!viaSystemd && pids.length === 0) throw new Error('Primordia service-supervisor is not running or could not be signaled');
-  const result = { ok: true, service, action: 'restart', signal, via: viaSystemd ? 'systemd' : 'process', pids };
+  const result = { ok: true, service, action: 'restart', signal, via: viaSystemd ?? 'process', pids };
   if (json) printJson(result);
   else console.log(`Signaled ${service} restart via ${result.via} (${signal}).`);
 }

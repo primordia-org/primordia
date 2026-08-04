@@ -705,6 +705,12 @@ restart_primordia_service() {
   elif [[ "$service_name" == "scheduled-jobs" ]]; then
     ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia jobs restart --json >"$restart_log" 2>&1
   else
+    # Restarting the systemd-facing supervisor requires systemd privileges. The
+    # CLI has a sudo fallback, but this installer is the best place to refresh
+    # the sudo timestamp because command output is redirected to the log file.
+    if [[ "$(id -u)" != "0" ]]; then
+      sudo -n true 2>/dev/null || sudo -v
+    fi
     ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia systemd service-supervisor restart --json >"$restart_log" 2>&1
   fi
   _INSTALL_COMMAND_OUTPUT_FILE=""

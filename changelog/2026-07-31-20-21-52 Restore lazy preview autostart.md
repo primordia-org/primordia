@@ -9,3 +9,5 @@ The Server Health admin page now shows recent kernel OOM-kill events from `journ
 Primordia now sets explicit Linux `oom_score_adj` values when installed under systemd: the supervisor starts maximally protected, the reverse proxy and scheduled jobs remain highly protected, production is protected ahead of agents, agents are protected ahead of dev servers, command helpers are expendable, and newer dev servers are easiest to kill.
 
 This prevents stale preview registry entries and dead production app servers from causing `/preview/<thread-id>` URLs or the main site to return an immediate Bad Gateway instead of spawning the server again, makes OOM-driven restarts explainable after the fact, and biases future OOM kills toward disposable work before core production infrastructure.
+
+Follow-up: service-supervisor restarts now fall back to `sudo systemctl` when the CLI is run as the unprivileged Primordia user. The installer refreshes sudo credentials before invoking the JSON restart command so deployments can restart the `primordia` systemd unit after supervisor or unit-file changes instead of failing with “requires systemd access.”
