@@ -11,6 +11,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getPrimordiaRuntimePaths } from '@/lib/git-runtime';
+import { applyCurrentProcessOomRole, applyOomScoreAdj, OOM_SCORE_ADJ } from '@/lib/oom-priority';
 
 type ServiceName = 'reverse-proxy' | 'scheduled-jobs';
 
@@ -27,6 +28,8 @@ interface ManagedService {
 const paths = getPrimordiaRuntimePaths(process.argv[1]);
 const trustedConfigPaths = process.env.MISE_TRUSTED_CONFIG_PATHS || `${paths.root}:${paths.worktreesDir}`;
 let shuttingDown = false;
+
+applyCurrentProcessOomRole('supervisor', (message) => console.warn(`[supervisor] ${message}`));
 
 const services: ManagedService[] = [
   {
@@ -114,6 +117,12 @@ function spawnService(service: ManagedService): void {
   child.once('error', closeLogFd);
 
   if (!child.pid) throw new Error(`failed to spawn ${service.name}`);
+  applyOomScoreAdj(
+    child.pid,
+    service.name === 'reverse-proxy' ? OOM_SCORE_ADJ['reverse-proxy'] : OOM_SCORE_ADJ['scheduled-jobs'],
+    service.name,
+    (message) => log(message),
+  );
   writePid(service.pidFile, child.pid);
   child.unref();
   service.crashCount = 0;

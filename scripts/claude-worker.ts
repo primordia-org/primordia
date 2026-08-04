@@ -41,8 +41,11 @@ import {
   getSessionNdjsonPath,
 } from '@/lib/session-events';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
+import { applyCurrentProcessOomRole } from '@/lib/oom-priority';
 import { decryptWorkerSecretForUser } from '@/lib/worker-secret-env';
 import { listLivePidLockFiles, removeLockFile, writePidFile, writeScopedPidLock, type PidLockHandle } from '@/lib/lockfile';
+
+applyCurrentProcessOomRole('agent-worker', (message) => console.warn(`[claude-worker] ${message}`));
 
 interface WorkerConfig {
   sessionId: string;

@@ -17,6 +17,7 @@ import {
   writeGitConfigValue,
 } from './git-runtime';
 import { isPidAlive, readLivePidFile, writePidFile } from './lockfile';
+import { applyOomScoreAdj, devServerOomScoreAdj, OOM_SCORE_ADJ, readOomScoreAdj } from './oom-priority';
 
 export type ServerEnv = 'prod' | 'dev' | 'unknown';
 export type ServerStartMode = 'dev' | 'prod';
@@ -59,6 +60,8 @@ export interface ManagedProcessStatus {
   env: ServerEnv;
   state: string;
   childPids: number[];
+  rssKB: number | null;
+  oomScoreAdj: number | null;
 }
 
 export interface ReverseProxyStatus {
@@ -66,6 +69,8 @@ export interface ReverseProxyStatus {
   state: string;
   port: number | null;
   childPids: number[];
+  rssKB: number | null;
+  oomScoreAdj: number | null;
 }
 
 export interface PrimordiaServiceStatus {
@@ -75,6 +80,8 @@ export interface PrimordiaServiceStatus {
   childPids: number[];
   pidFile: string | null;
   logFile: string | null;
+  rssKB: number | null;
+  oomScoreAdj: number | null;
 }
 
 export interface ProcessStatusReport {
@@ -92,6 +99,8 @@ export interface WorktreeProcessStatus {
   agents: Array<{
     kind: string;
     pid: number;
+    rssKB: number | null;
+    oomScoreAdj: number | null;
   }>;
 }
 
@@ -102,6 +111,8 @@ interface ProcessInfo {
   cwd: string | null;
   env: Record<string, string>;
   state: string;
+  rssKB: number | null;
+  oomScoreAdj: number | null;
 }
 
 function readProcText(file: string): string | null {
@@ -148,6 +159,8 @@ function readProcess(pid: number): ProcessInfo | null {
   } catch {
     cwd = null;
   }
+  const status = readProcText(`/proc/${pid}/status`) ?? '';
+  const rssMatch = status.match(/^VmRSS:\s+(\d+)\s+kB$/m);
   return {
     pid,
     ppid: Number.isFinite(ppid) ? ppid : null,
@@ -155,6 +168,8 @@ function readProcess(pid: number): ProcessInfo | null {
     cwd,
     env: parseProcEnv(pid),
     state: linuxProcessStateName(stateCode),
+    rssKB: rssMatch ? Number.parseInt(rssMatch[1], 10) : null,
+    oomScoreAdj: readOomScoreAdj(pid),
   };
 }
 
@@ -277,7 +292,7 @@ function readConfigWorktree(command: string): string | null {
   }
 }
 
-function getAgentsForWorktree(worktreePath: string, processes: ProcessInfo[]): Array<{ kind: string; pid: number }> {
+function getAgentsForWorktree(worktreePath: string, processes: ProcessInfo[]): WorktreeProcessStatus['agents'] {
   const agents = new Map<number, string>();
   const pidFilePid = readAgentPidFile(worktreePath);
   if (pidFilePid !== null) {
@@ -294,7 +309,10 @@ function getAgentsForWorktree(worktreePath: string, processes: ProcessInfo[]): A
   }
 
   return [...agents.entries()]
-    .map(([pid, kind]) => ({ pid, kind }))
+    .map(([pid, kind]) => {
+      const proc = processes.find((candidate) => candidate.pid === pid) ?? readProcess(pid);
+      return { pid, kind, rssKB: proc?.rssKB ?? null, oomScoreAdj: proc?.oomScoreAdj ?? readOomScoreAdj(pid) };
+    })
     .sort((a, b) => a.pid - b.pid);
 }
 
@@ -361,8 +379,8 @@ function serviceStatusFromProcess(
   pidFile: string | null,
   logFile: string | null,
 ): PrimordiaServiceStatus {
-  if (!proc) return { name, pid: null, state: 'not-running', childPids: [], pidFile, logFile };
-  return { name, pid: proc.pid, state: proc.state, childPids: getDescendantPids(proc.pid, childrenByParent), pidFile, logFile };
+  if (!proc) return { name, pid: null, state: 'not-running', childPids: [], pidFile, logFile, rssKB: null, oomScoreAdj: null };
+  return { name, pid: proc.pid, state: proc.state, childPids: getDescendantPids(proc.pid, childrenByParent), pidFile, logFile, rssKB: proc.rssKB, oomScoreAdj: proc.oomScoreAdj };
 }
 
 function getPrimordiaServiceStatuses(repoRoot: string, processes: ProcessInfo[], childrenByParent: Map<number, number[]>): PrimordiaServiceStatus[] {
@@ -391,6 +409,8 @@ function getReverseProxyStatuses(processes: ProcessInfo[], childrenByParent: Map
         state: proc.state,
         port: Number.isFinite(port) ? port : null,
         childPids,
+        rssKB: proc.rssKB,
+        oomScoreAdj: proc.oomScoreAdj,
       };
     })
     .sort((a, b) => a.pid - b.pid);
@@ -423,6 +443,8 @@ export function getProcessStatusReport(cwd = process.cwd()): ProcessStatusReport
           env: inferServerEnv(proc, worktree.branch, productionBranch),
           state: proc.state,
           childPids,
+          rssKB: proc.rssKB,
+          oomScoreAdj: proc.oomScoreAdj,
         };
       }),
       agents: getAgentsForWorktree(worktree.path, processes),
@@ -469,6 +491,20 @@ function findWorktree(report: ProcessStatusReport, name: string, cwd = process.c
 
 function signalPid(pid: number, signal: NodeJS.Signals): void {
   try { process.kill(pid, signal); } catch { /* process already gone */ }
+}
+
+function appendServerLifecycleLog(worktreePath: string, message: string): void {
+  try {
+    fs.appendFileSync(
+      path.join(worktreePath, '.primordia-next-server.log'),
+      `\n[process-manager] ${new Date().toISOString()} ${message}\n`,
+      'utf8',
+    );
+  } catch { /* best-effort lifecycle annotation */ }
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
 export function getBoundPorts(): Set<number> {
@@ -665,9 +701,11 @@ export async function stopWorktreeServer(name: string, cwd = process.cwd()): Pro
     };
   }
 
+  appendServerLifecycleLog(worktree.path, `graceful stop requested for ${worktree.branch} server process(es): ${pids.join(', ')}`);
   for (const pid of pids) signalPid(pid, 'SIGTERM');
   const stopped = await waitForPidsToExit(pids, 5000);
   if (!stopped) {
+    appendServerLifecycleLog(worktree.path, `forced kill after graceful stop timeout for ${worktree.branch} server process(es): ${pids.join(', ')}`);
     for (const pid of pids) signalPid(pid, 'SIGKILL');
     await waitForPidsToExit(pids, 1000);
   }
@@ -749,11 +787,20 @@ export async function startWorktreeServer(name: string, mode: ServerStartMode = 
     await killPortOwner(port);
   }
   const env = buildServerEnv(worktree.branch, port, mode);
+  env.PRIMORDIA_OOM_ROLE = mode === 'prod' ? 'production-server' : 'dev-server';
   const logPath = getWorktreeLogPath(name, cwd);
   const pidPath = path.join(worktree.path, '.primordia-server.pid');
   const logFd = fs.openSync(logPath, 'a');
   const args = ['exec', '-C', worktree.path, '--', 'bun', 'run', mode === 'dev' ? 'dev' : 'start'];
-  const proc = spawn('mise', args, {
+  const command = ['mise', ...args].map(shellQuote).join(' ');
+  const launcherScript = [
+    `echo "[process-manager] $(date -u +%Y-%m-%dT%H:%M:%SZ) launching ${mode} server on port ${port}: ${command.replace(/"/g, '\\"')}"`,
+    command,
+    'status=$?',
+    `echo "[process-manager] $(date -u +%Y-%m-%dT%H:%M:%SZ) ${mode} server command exited with status $status"`,
+    'exit $status',
+  ].join('; ');
+  const proc = spawn('bash', ['-lc', launcherScript], {
     cwd: worktree.path,
     env,
     detached: true,
@@ -761,6 +808,12 @@ export async function startWorktreeServer(name: string, mode: ServerStartMode = 
   });
   fs.closeSync(logFd);
   if (!proc.pid) throw new Error(`Failed to start ${worktree.branch} server`);
+  applyOomScoreAdj(
+    proc.pid,
+    mode === 'prod' ? OOM_SCORE_ADJ['production-server'] : devServerOomScoreAdj(),
+    `${worktree.branch} ${mode} server`,
+    (message) => appendServerLifecycleLog(worktree.path, message),
+  );
   writePidFile(pidPath, proc.pid);
   proc.unref();
   return {
@@ -790,7 +843,7 @@ export function formatProcessStatusReport(report: ProcessStatusReport): string {
   const serviceRows = report.services.map((service) => [
     service.name,
     service.state,
-    service.pid === null ? '—' : String(service.pid),
+    service.pid === null ? '—' : `${service.pid}${service.oomScoreAdj === null ? '' : ` (oom ${service.oomScoreAdj})`}`,
     String(service.childPids.length),
     service.pidFile ?? '—',
     service.logFile ?? '—',
@@ -802,7 +855,7 @@ export function formatProcessStatusReport(report: ProcessStatusReport): string {
     status.port === null ? '—' : String(status.port),
     status.servers.length > 0 ? status.servers.map((server) => server.state).join(',') : '—',
     status.servers.length > 0 ? status.servers.map((server) => server.env).join(',') : '—',
-    status.servers.length > 0 ? status.servers.map((server) => String(server.pid)).join(',') : '—',
+    status.servers.length > 0 ? status.servers.map((server) => `${server.pid}${server.oomScoreAdj === null ? '' : ` (oom ${server.oomScoreAdj})`}`).join(',') : '—',
     status.servers.length > 0 ? status.servers.map((server) => String(server.childPids.length)).join(',') : '—',
     status.agents.length > 0
       ? status.agents.map((agent) => `${agent.kind}:${agent.pid}`).join(', ')
