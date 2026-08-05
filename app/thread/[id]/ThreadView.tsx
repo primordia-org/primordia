@@ -16,7 +16,6 @@ import { FloatingThreadDialog, ThreadSubmitToast } from "@/components/FloatingTh
 import { HamburgerMenu, buildStandardMenuItems } from "@/components/HamburgerMenu";
 import { useSessionUser } from "@/lib/hooks";
 import { withBasePath } from "@/lib/base-path";
-import { getCredentialFieldsForAuthSource } from "@/lib/preset-credentials-client";
 import { coreApiFetch } from "@/lib/core-api-key-client";
 import { useSounds } from "@/lib/sounds";
 import { ChatGptSubscriptionAuthCard } from "@/components/ChatGptSubscriptionAuthCard";
@@ -1517,8 +1516,9 @@ function WebPreviewCard({
 
   useEffect(() => {
     if (proxyServerStatus !== 'stopped') return;
-    setServerLogsOpen(true);
+    const frame = requestAnimationFrame(() => setServerLogsOpen(true));
     scrollServerLogsToEnd();
+    return () => cancelAnimationFrame(frame);
   }, [proxyServerStatus, scrollServerLogsToEnd]);
 
   useEffect(() => {
@@ -1697,32 +1697,6 @@ function inferClientStatusFromEvents(events: SessionEvent[]): string {
 }
 
 // ─── CopyBranchName ──────────────────────────────────────────────────────────
-
-function getSessionCredentialAuthSource(events: SessionEvent[], sessionModel?: string): PresetAuthSource | null {
-  for (const event of [...events].reverse()) {
-    if ((event.type === 'followup_request' || event.type === 'initial_request') && 'authSource' in event) {
-      const authSource = typeof event.authSource === 'string' ? normalizeAuthSource(event.authSource) : null;
-      if (authSource) return authSource;
-    }
-  }
-
-  // Legacy sessions did not record the preset auth source. Fall back to the
-  // coarse auth metadata from the last agent run, then to model-shape heuristics.
-  const lastAgent = [...events].reverse().find(
-    (event): event is Extract<SessionEvent, { type: 'section_start'; sectionType: 'agent' }> =>
-      event.type === 'section_start' && event.sectionType === 'agent',
-  );
-  if (lastAgent?.auth?.source === 'claude-credentials') return 'claude-subscription';
-  if (lastAgent?.auth?.source === 'chatgpt-subscription') return 'chatgpt-subscription';
-  if (lastAgent?.auth?.source === 'llm-gateway') return 'exe-dev-gateway';
-  if (lastAgent?.auth?.source === 'api-key') {
-    const model = lastAgent.modelId ?? sessionModel ?? '';
-    if (model.includes('/')) return 'openrouter-api-key';
-    if (model.startsWith('openai') || model.startsWith('gpt-') || model.includes('gpt')) return 'openai-api-key';
-    return 'anthropic-api-key';
-  }
-  return null;
-}
 
 function CopyBranchName({ branch }: { branch: string }) {
   const [copied, setCopied] = useState(false);
@@ -2027,7 +2001,6 @@ export default function ThreadView({
     streamRunIdRef.current = runId;
     const offset = lineCountRef.current;
     let shouldReconnect = false;
-    let streamFinishedByEndpoint = false;
 
     const isTerminalStatus = (value: string) => value === "accepted" || value === "rejected";
     const scheduleReconnect = () => {
@@ -2060,7 +2033,7 @@ export default function ThreadView({
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
-          shouldReconnect = !streamFinishedByEndpoint;
+          shouldReconnect = true;
           break;
         }
 
@@ -2112,7 +2085,6 @@ export default function ThreadView({
   // Track session page view on mount.
   useEffect(() => {
     trackEvent("session/page-viewed/v1", { threadId: sessionId, status: statusRef.current });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   // Start streaming through the Core API. Even terminal sessions begin empty in
@@ -2227,23 +2199,18 @@ export default function ThreadView({
     setAcceptRejectLoading(true);
     setAcceptRejectError(null);
     try {
-      // Attach only the credential selected by the session's most recent preset
-      // so accept-time agent passes (type-fix, auto-commit) use the same billing
-      // source as the thread/follow-up run they are completing.
-      const acceptBody: Record<string, string> = { action: 'accept', threadId: sessionId };
-      if (sessionCredentialAuthSource) acceptBody.authSource = sessionCredentialAuthSource;
-      Object.assign(acceptBody, await getCredentialFieldsForAuthSource(sessionCredentialAuthSource));
-      const res = await fetch(withBasePath('/api/thread/manage'), {
+      const res = await coreApiFetch(withBasePath(`/api/core/thread/${encodeURIComponent(sessionId)}/accept`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(acceptBody),
+        body: JSON.stringify({}),
       });
-      const data = (await res.json()) as { outcome?: string; error?: string; stashWarning?: string; stuckThreadId?: string; stuckThreadBranch?: string };
+      const data = (await res.json()) as { outcome?: string; msg?: string; error?: string; stuckThreadId?: string; stuckSessionId?: string };
       if (!res.ok) {
-        if (res.status === 409 && data.stuckThreadId) {
-          setStuckBlockingSessionId(data.stuckThreadId);
+        const stuckThreadId = data.stuckThreadId ?? data.stuckSessionId;
+        if (res.status === 409 && stuckThreadId) {
+          setStuckBlockingSessionId(stuckThreadId);
         }
-        throw new Error(data.error ?? `API error: ${res.statusText}`);
+        throw new Error(data.msg ?? data.error ?? `API error: ${res.statusText}`);
       }
       setStuckBlockingSessionId(null);
       if (data.outcome === 'accepting') {
@@ -2280,13 +2247,13 @@ export default function ThreadView({
     setAcceptRejectLoading(true);
     setAcceptRejectError(null);
     try {
-      const res = await fetch(withBasePath('/api/thread/manage'), {
+      const res = await coreApiFetch(withBasePath(`/api/core/thread/${encodeURIComponent(sessionId)}/reject`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reject', threadId: sessionId }),
+        body: JSON.stringify({}),
       });
-      const data = (await res.json()) as { outcome?: string; error?: string };
-      if (!res.ok) throw new Error(data.error ?? `API error: ${res.statusText}`);
+      const data = (await res.json()) as { outcome?: string; msg?: string; error?: string };
+      if (!res.ok) throw new Error(data.msg ?? data.error ?? `API error: ${res.statusText}`);
       sounds.reject();
       setStatus('rejected');
       abortControllerRef.current?.abort();
@@ -2400,7 +2367,6 @@ export default function ThreadView({
     ?? (lastAgentSection?.model && sessionHarness
       ? modelOptionsByHarness[sessionHarness]?.find((m) => m.label === lastAgentSection.model)?.id
       : undefined);
-  const sessionCredentialAuthSource = getSessionCredentialAuthSource(events, sessionModel);
   // Human-readable agent label for UI messages like "Waiting for X to finish…"
   // Label for the *currently running* agent — derived from the active section
   // (last content section while the pipeline is running). This is correct even
