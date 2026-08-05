@@ -307,6 +307,7 @@ function createCliContext(): { context: CommandContext; cleanup: () => void } {
 }
 
 export async function runCli(root: CliCommandDef, rawArgs: string[], context?: CommandContext): Promise<void> {
+  const ownsProcessExit = !context;
   const runtime = context ? { context, cleanup: () => {} } : createCliContext();
   const runtimeContext = runtime.context;
   try {
@@ -333,6 +334,11 @@ export async function runCli(root: CliCommandDef, rawArgs: string[], context?: C
     if (!resolved.command.run) throw new CliUsageError(`Unknown command: ${resolved.remaining[0] ?? rawArgs.join(' ')}`);
     const args = parseCliArgs(resolved.command, resolved.remaining);
     await resolved.command.run({ args, rawArgs: resolved.remaining, commandPath: resolved.path, context: runtimeContext });
+  } catch (error) {
+    if (ownsProcessExit && error instanceof ProcessExit) {
+      process.exit(error.code);
+    }
+    throw error;
   } finally {
     runtime.cleanup();
   }
