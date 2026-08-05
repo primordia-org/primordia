@@ -2,6 +2,7 @@
 
 import {
   CliUsageError,
+  ProcessExit,
   runCli,
   type CliArgumentDef,
   type CliCommandDef,
@@ -174,10 +175,10 @@ const intervalArgument: CliArgumentDef = {
 };
 
 function lazyRun(name: keyof typeof import('./primordia-command-handlers')) {
-  return async ({ args }: { args: CliParsedArgs }) => {
+  return async ({ args, processCtx }: { args: CliParsedArgs; processCtx: import('@/lib/tiny-cli').ProcessCtx }) => {
     const handlers = await importCommandHandlers();
     const handler = handlers[name] as (args: CliParsedArgs) => unknown | Promise<unknown>;
-    return handler(args);
+    return handlers.runCommandWithProcessCtx(processCtx, () => handler(args));
   };
 }
 
@@ -454,6 +455,9 @@ async function main(): Promise<void> {
     await runCli(mainCommand, rawArgs);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (err instanceof ProcessExit) {
+      process.exit(err.code);
+    }
     if (rawArgs.includes('--json')) console.log(JSON.stringify({ ok: false, error: message }, null, 2));
     else console.error(message);
     process.exit(err instanceof CliUsageError ? 64 : 1);

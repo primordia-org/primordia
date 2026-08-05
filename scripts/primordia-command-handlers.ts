@@ -1,4 +1,5 @@
 import { execFileSync } from 'child_process';
+import { AsyncLocalStorage } from 'async_hooks';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -37,7 +38,7 @@ import {
 } from '@/lib/scheduled-jobs';
 import { resolveCliPresetIdForUser } from './primordia-preset-helpers';
 import type { SessionEvent } from '@/lib/session-events';
-import type { CliParsedArgs } from '@/lib/tiny-cli';
+import type { CliParsedArgs, ProcessCtx } from '@/lib/tiny-cli';
 
 type UserSelectorArgs = { user?: string };
 type JsonArgs = { json?: boolean };
@@ -60,8 +61,44 @@ const MISSING_CLI_KEY_MESSAGE =
   'PRIMORDIA_CLI_KEY is required for `primordia thread create`, `primordia thread followup`, and `primordia thread accept`. ' +
   'Open Settings → API keys in the web app (/settings/api-keys), create a CLI key, copy the one-time `PRIMORDIA_CLI_KEY=...` value, and export it in this shell before retrying.';
 
-function printJson(value: unknown): void {
-  console.log(JSON.stringify(value, null, 2));
+const processCtxStorage = new AsyncLocalStorage<ProcessCtx>();
+
+export function runCommandWithProcessCtx<T>(ctx: ProcessCtx, run: () => T): T {
+  return processCtxStorage.run(ctx, run);
+}
+
+function getProcessCtx(): ProcessCtx {
+  const ctx = processCtxStorage.getStore();
+  if (!ctx) throw new Error('ProcessCtx is not available for this command handler');
+  return ctx;
+}
+
+const processCtx: ProcessCtx = {
+  cwd: () => getProcessCtx().cwd(),
+  get env() { return getProcessCtx().env; },
+  get stdin() { return getProcessCtx().stdin; },
+  get stdout() { return getProcessCtx().stdout; },
+  get stderr() { return getProcessCtx().stderr; },
+  get pid() { return getProcessCtx().pid; },
+  get abortSignal() { return getProcessCtx().abortSignal; },
+  onSignal(signal, listener) { getProcessCtx().onSignal(signal, listener); },
+  kill(pid, signal) { getProcessCtx().kill(pid, signal); },
+  exit(code) { return getProcessCtx().exit(code); },
+};
+
+function writeLine(ctxOrText: ProcessCtx | string, maybeText?: string): void {
+  const text = maybeText ?? String(ctxOrText);
+  processCtx.stdout.write(`${text}\n`);
+}
+
+function writeErrorLine(ctxOrText: ProcessCtx | string, maybeText?: string): void {
+  const text = maybeText ?? String(ctxOrText);
+  processCtx.stderr.write(`${text}\n`);
+}
+
+function printJson(ctxOrValue: ProcessCtx | unknown, maybeValue?: unknown): void {
+  const value = maybeValue === undefined ? ctxOrValue : maybeValue;
+  writeLine(JSON.stringify(value, null, 2));
 }
 
 function cliSecretError(message: string | undefined, fallback: string): Error {
@@ -85,7 +122,7 @@ function realpathIfExists(filePath: string): string {
   }
 }
 
-function resolveCurrentThread(report: ProcessStatusReport, cwd = process.cwd()): { threadId: string; path: string } {
+function resolveCurrentThread(report: ProcessStatusReport, cwd = processCtx.cwd()): { threadId: string; path: string } {
   const resolvedCwd = realpathIfExists(cwd);
   const matches = report.worktrees
     .map((worktree) => ({ ...worktree, resolvedPath: realpathIfExists(worktree.path) }))
@@ -320,19 +357,24 @@ function createFollowAbortSignal(cleanup?: () => void): AbortSignal {
     controller.abort();
   };
 
-  // Core API callers keep stdin connected to the HTTP request lifecycle. If the
+  if (processCtx.abortSignal) {
+    if (processCtx.abortSignal.aborted) abort();
+    else processCtx.abortSignal.addEventListener('abort', abort, { once: true });
+  }
+
+  // CLI callers keep stdin connected to the terminal/client lifecycle. If the
   // client disconnects or the dev/prod server dies, stdin closes; a --follow
   // command must then exit instead of becoming an orphan adopted by PID 1.
-  if (!process.stdin.isTTY) {
-    process.stdin.resume();
-    process.stdin.once('end', abort);
-    process.stdin.once('close', abort);
-    process.stdin.once('error', abort);
+  if (!processCtx.stdin.isTTY) {
+    processCtx.stdin.resume();
+    processCtx.stdin.once('end', abort);
+    processCtx.stdin.once('close', abort);
+    processCtx.stdin.once('error', abort);
   }
-  process.stdout.once('error', abort);
-  process.stderr.once('error', abort);
-  process.once('SIGTERM', abort);
-  process.once('SIGINT', abort);
+  processCtx.stdout.once('error', abort);
+  processCtx.stderr.once('error', abort);
+  processCtx.onSignal('SIGTERM', abort);
+  processCtx.onSignal('SIGINT', abort);
   return controller.signal;
 }
 
@@ -344,9 +386,9 @@ async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { r
   const selectedLines = selectLogLines(allLines, lineCount, startLine);
 
   if (args.json) {
-    for (const line of selectedLines) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
+    for (const line of selectedLines) processCtx.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
     if (follow) {
-      for await (const line of followTextLogLines(logFile, createFollowAbortSignal())) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
+      for await (const line of followTextLogLines(logFile, createFollowAbortSignal())) processCtx.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
     }
     return;
   }
@@ -357,13 +399,13 @@ async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { r
   const writeFormatted = (formatted: HumanLogChunk | null): void => {
     if (!formatted) return;
     if (typeof formatted === 'object' && formatted.inline) {
-      process.stdout.write(formatted.text);
+      processCtx.stdout.write(formatted.text);
       inlineOpen = true;
       return;
     }
-    if (inlineOpen) process.stdout.write('\n');
+    if (inlineOpen) processCtx.stdout.write('\n');
     const text = typeof formatted === 'string' ? formatted : formatted.text;
-    console.log(text);
+    writeLine(processCtx, text);
     inlineOpen = false;
   };
 
@@ -372,7 +414,7 @@ async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { r
     for await (const line of followTextLogLines(logFile, createFollowAbortSignal())) writeFormatted(formatter(line));
   }
   if (renderer) writeFormatted(renderer.flush());
-  if (inlineOpen) process.stdout.write('\n');
+  if (inlineOpen) processCtx.stdout.write('\n');
 }
 
 async function renderServerLogs(threadId: string, args: ServiceLogArgs): Promise<void> {
@@ -391,7 +433,7 @@ async function readRequest(args: CliParsedArgs): Promise<string> {
   if (parts.length === 0) throw new Error('request text required');
   if (parts.length === 1 && parts[0] === '-') {
     const chunks: Buffer[] = [];
-    for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+    for await (const chunk of processCtx.stdin) chunks.push(Buffer.from(chunk));
     const text = Buffer.concat(chunks).toString('utf8').trim();
     if (!text) throw new Error('stdin request text is empty');
     return text;
@@ -400,8 +442,8 @@ async function readRequest(args: CliParsedArgs): Promise<string> {
 }
 
 async function resolveCliAuth(selector: string | undefined): Promise<{ user: { id: string; username: string }; primordiaAesKey: string }> {
-  const coreUserId = process.env.PRIMORDIA_CORE_USER_ID;
-  const coreAesKey = process.env.PRIMORDIA_CORE_AES_KEY ?? '';
+  const coreUserId = processCtx.env.PRIMORDIA_CORE_USER_ID;
+  const coreAesKey = processCtx.env.PRIMORDIA_CORE_AES_KEY ?? '';
   if (coreUserId) {
     if (selector && selector !== coreUserId) {
       const selected = await resolveCliUser(selector);
@@ -414,7 +456,7 @@ async function resolveCliAuth(selector: string | undefined): Promise<{ user: { i
     return { user, primordiaAesKey: coreAesKey };
   }
 
-  const rawCliKey = process.env.PRIMORDIA_CLI_KEY;
+  const rawCliKey = processCtx.env.PRIMORDIA_CLI_KEY;
   if (!rawCliKey) {
     throw new Error(MISSING_CLI_KEY_MESSAGE);
   }
@@ -461,7 +503,7 @@ function resolveJobName(args: CliParsedArgs): PrimordiaJobName {
   return value;
 }
 
-function scheduleRows(repoRoot = process.cwd()) {
+function scheduleRows(repoRoot = processCtx.cwd()) {
   return listJobSchedules(repoRoot).map((schedule) => ({
     name: schedule.name,
     intervalMs: schedule.intervalMs,
@@ -475,8 +517,8 @@ function scheduleRows(repoRoot = process.cwd()) {
 function printScheduleTable(rows: ReturnType<typeof scheduleRows>): void {
   const nameWidth = Math.max('job'.length, ...rows.map((row) => row.name.length));
   const intervalWidth = Math.max('interval'.length, ...rows.map((row) => row.interval.length));
-  console.log(`${'job'.padEnd(nameWidth)}  ${'interval'.padEnd(intervalWidth)}  git config`);
-  for (const row of rows) console.log(`${row.name.padEnd(nameWidth)}  ${row.interval.padEnd(intervalWidth)}  ${row.gitConfigKey}`);
+  writeLine(processCtx, `${'job'.padEnd(nameWidth)}  ${'interval'.padEnd(intervalWidth)}  git config`);
+  for (const row of rows) writeLine(processCtx, `${row.name.padEnd(nameWidth)}  ${row.interval.padEnd(intervalWidth)}  ${row.gitConfigKey}`);
 }
 
 function serviceSignal(service: SupervisedServiceName): NodeJS.Signals {
@@ -505,7 +547,7 @@ function runSystemctl(args: string[], options: { allowSudo?: boolean; interactiv
   }
 
   if (!options.allowSudo) return null;
-  const sudoArgs = options.interactiveSudo && process.stdin.isTTY ? [] : ['-n'];
+  const sudoArgs = options.interactiveSudo && processCtx.stdin.isTTY ? [] : ['-n'];
   try {
     execFileSync('sudo', [...sudoArgs, 'systemctl', ...args], { stdio: 'ignore' });
     return 'sudo-systemd';
@@ -515,7 +557,7 @@ function runSystemctl(args: string[], options: { allowSudo?: boolean; interactiv
 }
 
 function signalSupervisorViaSystemd(signal: NodeJS.Signals): SystemctlVia | null {
-  const unit = process.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
+  const unit = processCtx.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
   const activeVia = runSystemctl(['is-active', '--quiet', unit]);
   if (!activeVia) return null;
   return runSystemctl(['kill', '--kill-whom=main', `--signal=${signal}`, unit], { allowSudo: sudoSupportsNonInteractive() });
@@ -531,13 +573,13 @@ function signalSupervisorViaPgrep(signal: NodeJS.Signals): number[] {
   const pids = output
     .split(/\s+/)
     .map((value) => Number.parseInt(value, 10))
-    .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
-  for (const pid of pids) process.kill(pid, signal);
+    .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== processCtx.pid);
+  for (const pid of pids) processCtx.kill(pid, signal);
   return pids;
 }
 
 function restartServiceSupervisor(json: boolean | undefined): void {
-  const unit = process.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
+  const unit = processCtx.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
   const via = runSystemctl(['restart', unit], { allowSudo: true, interactiveSudo: !json });
   if (!via) {
     throw new Error(
@@ -547,7 +589,7 @@ function restartServiceSupervisor(json: boolean | undefined): void {
   }
   const result = { ok: true, service: 'service-supervisor', action: 'restart', via };
   if (json) printJson(result);
-  else console.log(`Restarted service-supervisor via ${via}.`);
+  else writeLine(processCtx, `Restarted service-supervisor via ${via}.`);
 }
 
 function restartSupervisedService(service: SupervisedServiceName, json: boolean | undefined): void {
@@ -557,7 +599,7 @@ function restartSupervisedService(service: SupervisedServiceName, json: boolean 
   if (!viaSystemd && pids.length === 0) throw new Error('Primordia service-supervisor is not running or could not be signaled');
   const result = { ok: true, service, action: 'restart', signal, via: viaSystemd ?? 'process', pids };
   if (json) printJson(result);
-  else console.log(`Signaled ${service} restart via ${result.via} (${signal}).`);
+  else writeLine(processCtx, `Signaled ${service} restart via ${result.via} (${signal}).`);
 }
 
 export async function completeUsers(): Promise<string[]> {
@@ -577,32 +619,32 @@ export function completeModelIds(): string[] {
 export function statusCommand(args: CliParsedArgs & JsonArgs): void {
   const report = getProcessStatusReport();
   if (args.json) printJson(report);
-  else console.log(formatProcessStatusReport(report));
+  else writeLine(processCtx, formatProcessStatusReport(report));
 }
 
 export async function jobsRunCommand(args: CliParsedArgs & JsonArgs): Promise<void> {
-  const listenPort = Number.parseInt(process.env.REVERSE_PROXY_PORT ?? '', 10);
+  const listenPort = Number.parseInt(processCtx.env.REVERSE_PROXY_PORT ?? '', 10);
   const started = runPrimordiaJobs({
-    repoRoot: process.cwd(),
+    repoRoot: processCtx.cwd(),
     listenPort: Number.isFinite(listenPort) ? listenPort : undefined,
-    archiveRoot: process.env.PRIMORDIA_DIR,
+    archiveRoot: processCtx.env.PRIMORDIA_DIR,
   });
   if (args.json) printJson({ ok: started, command: 'jobs run', schedules: scheduleRows() });
-  else console.log(started ? 'Primordia jobs daemon running. Press Ctrl-C to stop.' : 'Another Primordia jobs scheduler is already running.');
+  else writeLine(processCtx, started ? 'Primordia jobs daemon running. Press Ctrl-C to stop.' : 'Another Primordia jobs scheduler is already running.');
   if (!started) return;
   await new Promise(() => { /* keep daemon alive */ });
 }
 
 export async function jobsRunOneCommand(args: CliParsedArgs & JsonArgs): Promise<void> {
   const job = resolveJobName(args);
-  const result = await runPrimordiaJobOnce(job, { repoRoot: process.cwd() });
+  const result = await runPrimordiaJobOnce(job, { repoRoot: processCtx.cwd() });
   if (args.json) printJson(result);
-  else console.log(`${result.ok ? 'ok' : 'failed'}: ${result.summary}`);
-  if (!result.ok) process.exit(1);
+  else writeLine(processCtx, `${result.ok ? 'ok' : 'failed'}: ${result.summary}`);
+  if (!result.ok) processCtx.exit(1);
 }
 
 function serviceLogFile(service: SupervisedServiceName): string {
-  const root = process.env.PRIMORDIA_DIR || process.cwd();
+  const root = processCtx.env.PRIMORDIA_DIR || processCtx.cwd();
   return path.join(root, service === 'reverse-proxy' ? '.primordia-reverse-proxy.log' : '.primordia-scheduled-jobs.log');
 }
 
@@ -662,7 +704,7 @@ export function jobsScheduleGetCommand(args: CliParsedArgs & JsonArgs): void {
   const job = resolveJobName(args);
   const row = scheduleRows().find((schedule) => schedule.name === job)!;
   if (args.json) printJson(row);
-  else console.log(`${row.name}: ${row.interval} (${row.intervalMs}ms)`);
+  else writeLine(processCtx, `${row.name}: ${row.interval} (${row.intervalMs}ms)`);
 }
 
 export function jobsScheduleSetCommand(args: CliParsedArgs & JsonArgs): void {
@@ -679,7 +721,7 @@ export function jobsScheduleSetCommand(args: CliParsedArgs & JsonArgs): void {
     gitConfigKey: updated.gitConfigKey,
   };
   if (args.json) printJson(row);
-  else console.log(`${row.name}: ${row.interval} (${row.gitConfigKey})`);
+  else writeLine(processCtx, `${row.name}: ${row.interval} (${row.gitConfigKey})`);
 }
 
 function parseCliBoolean(value: string | undefined, optionName: string): boolean | undefined {
@@ -743,12 +785,12 @@ export async function preferencesGetCommand(args: CliParsedArgs & JsonArgs & Use
   };
   if (args.json) printJson(result);
   else {
-    console.log(`User: ${user.username} (${user.id})`);
-    console.log(`preferred preset: ${result.preferences.preferredPreset ?? '(not set)'}`);
-    console.log(`fallback harness: ${result.effectiveThreadFormDefaults.initialHarness}`);
-    console.log(`fallback model: ${result.effectiveThreadFormDefaults.initialModel}`);
-    console.log(`caveman mode: ${result.effectiveThreadFormDefaults.initialCavemanMode}`);
-    console.log(`caveman intensity: ${result.effectiveThreadFormDefaults.initialCavemanIntensity}`);
+    writeLine(processCtx, `User: ${user.username} (${user.id})`);
+    writeLine(processCtx, `preferred preset: ${result.preferences.preferredPreset ?? '(not set)'}`);
+    writeLine(processCtx, `fallback harness: ${result.effectiveThreadFormDefaults.initialHarness}`);
+    writeLine(processCtx, `fallback model: ${result.effectiveThreadFormDefaults.initialModel}`);
+    writeLine(processCtx, `caveman mode: ${result.effectiveThreadFormDefaults.initialCavemanMode}`);
+    writeLine(processCtx, `caveman intensity: ${result.effectiveThreadFormDefaults.initialCavemanIntensity}`);
   }
 }
 
@@ -780,8 +822,8 @@ export async function preferencesSetCommand(args: CliParsedArgs & JsonArgs & Use
   const result = { ok: true, user, updated: updates, effectiveThreadFormDefaults: effective };
   if (args.json) printJson(result);
   else {
-    console.log(`Updated preferences for ${user.username}.`);
-    for (const [key, value] of Object.entries(updates)) console.log(`${key}: ${value}`);
+    writeLine(processCtx, `Updated preferences for ${user.username}.`);
+    for (const [key, value] of Object.entries(updates)) writeLine(processCtx, `${key}: ${value}`);
   }
 }
 
@@ -804,7 +846,7 @@ export async function serverStatusCommand(args: CliParsedArgs & ServerStatusArgs
     const snapshot = getServerStatus(thread.threadId);
     const serialized = JSON.stringify(snapshot);
     if (serialized !== previous) {
-      console.log(formatServerStatus(snapshot, Boolean(args.json)));
+      writeLine(processCtx, formatServerStatus(snapshot, Boolean(args.json)));
       previous = serialized;
     }
     if (!(args.follow || args.f)) return;
@@ -816,21 +858,21 @@ export async function serverStartCommand(args: CliParsedArgs): Promise<void> {
   const thread = getCurrentThread();
   const result = await startWorktreeServer(thread.threadId, resolveStartMode(args));
   if (args.json) printJson(result);
-  else console.log(result.message);
+  else writeLine(processCtx, result.message);
 }
 
 export async function serverStopCommand(args: CliParsedArgs): Promise<void> {
   const thread = getCurrentThread();
   const result = await stopWorktreeServer(thread.threadId);
   if (args.json) printJson(result);
-  else console.log(result.message);
+  else writeLine(processCtx, result.message);
 }
 
 export async function serverRestartCommand(args: CliParsedArgs): Promise<void> {
   const thread = getCurrentThread();
   const result = await restartWorktreeServer(thread.threadId, resolveStartMode(args));
   if (args.json) printJson(result);
-  else console.log(result.message);
+  else writeLine(processCtx, result.message);
 }
 
 export async function serverLogsCommand(args: CliParsedArgs & ServiceLogArgs): Promise<void> {
@@ -850,20 +892,20 @@ export async function serverPublishCommand(args: CliParsedArgs): Promise<void> {
   const thread = getCurrentThread();
   const result = await publishProductionBranch(thread.threadId);
   if (args.json) printJson(result);
-  else console.log(result.message);
+  else writeLine(processCtx, result.message);
 }
 
 export async function serverCopyDbCommand(args: CliParsedArgs): Promise<void> {
   const thread = getCurrentThread();
-  const result = await copyProductionDbToWorktree(process.cwd(), thread.path);
+  const result = await copyProductionDbToWorktree(processCtx.cwd(), thread.path);
   if (args.json) {
     printJson(result);
   } else if (result.copied) {
-    console.log(`Copied production DB from ${result.sourcePath} to ${result.destinationPath}`);
+    writeLine(processCtx, `Copied production DB from ${result.sourcePath} to ${result.destinationPath}`);
   } else {
-    console.error(`Failed to copy production DB to ${result.destinationPath}: ${result.error ?? 'unknown error'}`);
+    writeErrorLine(processCtx, `Failed to copy production DB to ${result.destinationPath}: ${result.error ?? 'unknown error'}`);
   }
-  if (!result.copied) process.exit(1);
+  if (!result.copied) processCtx.exit(1);
 }
 
 export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & PresetArgs & CavemanArgs & UserSelectorArgs & AttachArgs): Promise<void> {
@@ -885,7 +927,7 @@ export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & Prese
   });
   if (!result.ok) throw cliSecretError(result.error, `thread creation failed (${result.status})`);
   if (args.json) printJson({ ok: true, command: 'thread create', threadId: result.sessionId, worktreePath: result.worktreePath, background: true });
-  else console.log(`New thread started in ${result.worktreePath}`);
+  else writeLine(processCtx, `New thread started in ${result.worktreePath}`);
 }
 
 export async function threadFollowupCommand(args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs & AttachArgs): Promise<void> {
@@ -903,7 +945,7 @@ export async function threadFollowupCommand(args: CliParsedArgs & JsonArgs & Pre
   });
   if (!result.ok) throw cliSecretError(result.error, 'follow-up failed');
   if (args.json) printJson({ ok: true, command: 'thread followup', thread: threadId, background: true });
-  else console.log(`Follow-up started for ${threadId}.`);
+  else writeLine(processCtx, `Follow-up started for ${threadId}.`);
 }
 
 export async function threadUpdateCommand(args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
@@ -914,8 +956,8 @@ export async function threadUpdateCommand(args: CliParsedArgs & JsonArgs & UserS
   if (!result.ok) throw new Error(result.error);
   if (args.json) printJson({ ok: true, command: 'thread update', thread: threadId, outcome: result.outcome, log: result.log });
   else {
-    console.log(`Updated ${threadId}: ${result.outcome}.`);
-    if (result.log.trim()) console.log(result.log.trim());
+    writeLine(processCtx, `Updated ${threadId}: ${result.outcome}.`);
+    if (result.log.trim()) writeLine(processCtx, result.log.trim());
   }
 }
 
@@ -933,7 +975,7 @@ async function handleDecision(args: CliParsedArgs & JsonArgs & UserSelectorArgs,
   });
   if (!result.ok) throw cliSecretError(result.error, 'thread decision failed');
   if (args.json) printJson({ ok: true, command: `thread ${action}`, thread: threadId, outcome: result.outcome });
-  else console.log(`${action === 'accept' ? 'Accept' : 'Reject'} started for ${threadId}: ${result.outcome}.`);
+  else writeLine(processCtx, `${action === 'accept' ? 'Accept' : 'Reject'} started for ${threadId}: ${result.outcome}.`);
 }
 
 export function threadAcceptCommand(args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {

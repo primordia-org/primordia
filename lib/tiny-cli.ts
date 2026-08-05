@@ -12,6 +12,41 @@ export interface CliParsedArgs {
   [key: string]: CliValue | string[];
 }
 
+export interface ProcessCtx {
+  cwd(): string;
+  env: Record<string, string | undefined>;
+  stdin: NodeJS.ReadStream;
+  stdout: NodeJS.WriteStream | NodeJS.WritableStream;
+  stderr: NodeJS.WriteStream | NodeJS.WritableStream;
+  pid: number;
+  abortSignal?: AbortSignal;
+  onSignal(signal: NodeJS.Signals, listener: () => void): void;
+  kill(pid: number, signal?: NodeJS.Signals | number): void;
+  exit(code?: number): never;
+}
+
+export class ProcessExit extends Error {
+  constructor(public readonly code: number) {
+    super(`Process exited with code ${code}`);
+    this.name = 'ProcessExit';
+  }
+}
+
+export function createProcessCtx(overrides: Partial<ProcessCtx> = {}): ProcessCtx {
+  return {
+    cwd: () => process.cwd(),
+    env: process.env,
+    stdin: process.stdin,
+    stdout: process.stdout,
+    stderr: process.stderr,
+    pid: process.pid,
+    onSignal(signal, listener) { process.once(signal, listener); },
+    kill(pid, signal) { process.kill(pid, signal); },
+    exit(code = 0): never { throw new ProcessExit(code); },
+    ...overrides,
+  };
+}
+
 export interface CliCompletionContext {
   words: string[];
   current: string;
@@ -64,7 +99,7 @@ export interface CliCommandDef {
   complete?: CliCompletionSource;
   hidden?: boolean;
   api?: CliApiDef;
-  run?: (context: { args: CliParsedArgs; rawArgs: string[]; commandPath: string[] }) => unknown | Promise<unknown>;
+  run?: (context: { args: CliParsedArgs; rawArgs: string[]; commandPath: string[]; processCtx: ProcessCtx }) => unknown | Promise<unknown>;
 }
 
 export interface CliApiRouteDef {
@@ -307,9 +342,9 @@ export function parseCliArgs(command: CliCommandDef, rawArgs: string[]): CliPars
   return args;
 }
 
-async function completeCli(root: CliCommandDef, rawWords: string[]): Promise<string[]> {
+async function completeCli(root: CliCommandDef, rawWords: string[], processCtx: ProcessCtx): Promise<string[]> {
   const words = rawWords[0] === '--' ? rawWords.slice(1) : rawWords;
-  const compCword = Number(process.env.COMP_CWORD);
+  const compCword = Number(processCtx.env.COMP_CWORD);
   const currentIndex = Number.isFinite(compCword) ? Math.max(0, compCword - 1) : Math.max(0, words.length - 1);
   const current = words[currentIndex] ?? '';
   const previous = currentIndex > 0 ? words[currentIndex - 1] : undefined;
@@ -373,20 +408,20 @@ export function renderBashCompletion(commandName: string): string {
   ].join('\n');
 }
 
-export async function runCli(root: CliCommandDef, rawArgs: string[]): Promise<void> {
+export async function runCli(root: CliCommandDef, rawArgs: string[], processCtx: ProcessCtx = createProcessCtx()): Promise<void> {
   if (rawArgs[0] === '__complete') {
-    const completions = await completeCli(root, rawArgs.slice(1));
-    console.log(completions.join('\n'));
+    const completions = await completeCli(root, rawArgs.slice(1), processCtx);
+    processCtx.stdout.write(`${completions.join('\n')}\n`);
     return;
   }
 
   if (rawArgs.length === 2 && rawArgs[0] === 'completion' && rawArgs[1] === 'bash') {
-    console.log(renderBashCompletion(root.name));
+    processCtx.stdout.write(`${renderBashCompletion(root.name)}\n`);
     return;
   }
 
   if (rawArgs.includes('--help') || rawArgs.includes('-h') || rawArgs.length === 0) {
-    console.log(renderCliHelp(root));
+    processCtx.stdout.write(`${renderCliHelp(root)}\n`);
     return;
   }
 
@@ -396,5 +431,5 @@ export async function runCli(root: CliCommandDef, rawArgs: string[]): Promise<vo
   }
   if (!resolved.command.run) throw new CliUsageError(`Unknown command: ${resolved.remaining[0] ?? rawArgs.join(' ')}`);
   const args = parseCliArgs(resolved.command, resolved.remaining);
-  await resolved.command.run({ args, rawArgs: resolved.remaining, commandPath: resolved.path });
+  await resolved.command.run({ args, rawArgs: resolved.remaining, commandPath: resolved.path, processCtx });
 }

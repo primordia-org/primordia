@@ -1,11 +1,10 @@
-import { spawn } from 'child_process';
-import { once } from 'events';
+import { Readable, Writable } from 'stream';
 import * as fs from 'fs';
 import * as path from 'path';
 import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
 import { getProcessStatusReport } from '@/lib/process-manager';
 import { getPublicOrigin } from '@/lib/public-origin';
-import { listCliApiRoutes, type CliApiRouteDef } from '@/lib/tiny-cli';
+import { CliUsageError, ProcessExit, createProcessCtx, listCliApiRoutes, runCli, type CliApiRouteDef, type ProcessCtx } from '@/lib/tiny-cli';
 import { mainCommand } from '@/scripts/primordia';
 
 export const runtime = 'nodejs';
@@ -239,16 +238,38 @@ function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed
   return { argv, cwd: cwdParam ? resolveThreadCwd(cwdParam) : undefined, streaming, ndjson };
 }
 
-function spawnCli(argv: string[], cwd: string | undefined, auth: AuthContext) {
-  return spawn(process.execPath, [path.join(process.cwd(), 'scripts/primordia.ts'), ...argv], {
-    cwd: cwd ?? process.cwd(),
+function createCoreProcessCtx(options: {
+  cwd?: string;
+  auth: AuthContext;
+  stdout: NodeJS.WritableStream;
+  stderr: NodeJS.WritableStream;
+  abortSignal?: AbortSignal;
+}): ProcessCtx {
+  const stdin = Readable.from([]) as NodeJS.ReadStream;
+  stdin.isTTY = true;
+  return createProcessCtx({
+    cwd: () => options.cwd ?? process.cwd(),
     env: {
       ...process.env,
-      PRIMORDIA_CORE_USER_ID: auth.userId,
-      PRIMORDIA_CORE_AES_KEY: auth.aesKeyJwkJson,
+      PRIMORDIA_CORE_USER_ID: options.auth.userId,
+      PRIMORDIA_CORE_AES_KEY: options.auth.aesKeyJwkJson,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdin,
+    stdout: options.stdout,
+    stderr: options.stderr,
+    abortSignal: options.abortSignal,
+    onSignal() { /* HTTP requests do not receive process signals. */ },
   });
+}
+
+async function runCliDirect(argv: string[], cwd: string | undefined, auth: AuthContext, stdout: NodeJS.WritableStream, stderr: NodeJS.WritableStream, abortSignal?: AbortSignal): Promise<number> {
+  try {
+    await runCli(mainCommand, argv, createCoreProcessCtx({ cwd, auth, stdout, stderr, abortSignal }));
+    return 0;
+  } catch (error) {
+    if (error instanceof ProcessExit) return error.code;
+    throw error;
+  }
 }
 
 function openApiPath(routePath: string): string {
@@ -427,44 +448,67 @@ function buildCoreOpenApiSpec(request: Request): Record<string, unknown> {
 }
 
 async function bufferedResponse(argv: string[], cwd: string | undefined, auth: AuthContext): Promise<Response> {
-  const child = spawnCli(argv, cwd, auth);
   const stdoutChunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];
-  child.stdout?.on('data', (chunk) => stdoutChunks.push(Buffer.from(chunk)));
-  child.stderr?.on('data', (chunk) => stderrChunks.push(Buffer.from(chunk)));
-  const [code] = await once(child, 'close') as [number | null];
-  const stdout = Buffer.concat(stdoutChunks).toString('utf8');
-  const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
-
-  if (code !== 0) {
-    let message = stderr;
-    if (!message && stdout.trim()) {
-      try {
-        const parsed = JSON.parse(stdout) as { error?: unknown; msg?: unknown };
-        if (typeof parsed.msg === 'string') message = parsed.msg;
-        else if (typeof parsed.error === 'string') message = parsed.error;
-      } catch {
-        message = stdout.trim();
-      }
-    }
-    return terminalJsonResponse({ msg: message || `Command exited with code ${code ?? 'unknown'}` }, { status: code === 64 ? 400 : 500 });
-  }
+  const stdout = new Writable({
+    write(chunk, _encoding, callback) {
+      stdoutChunks.push(Buffer.from(chunk));
+      callback();
+    },
+  });
+  const stderr = new Writable({
+    write(chunk, _encoding, callback) {
+      stderrChunks.push(Buffer.from(chunk));
+      callback();
+    },
+  });
 
   try {
-    return jsonResponse(JSON.parse(stdout));
-  } catch {
-    return terminalJsonResponse({ msg: 'Command succeeded but did not print valid JSON.', stdout }, { status: 500 });
+    const code = await runCliDirect(argv, cwd, auth, stdout, stderr);
+    const stdoutText = Buffer.concat(stdoutChunks).toString('utf8');
+    const stderrText = Buffer.concat(stderrChunks).toString('utf8').trim();
+
+    if (code !== 0) {
+      let message = stderrText;
+      if (!message && stdoutText.trim()) {
+        try {
+          const parsed = JSON.parse(stdoutText) as { error?: unknown; msg?: unknown };
+          if (typeof parsed.msg === 'string') message = parsed.msg;
+          else if (typeof parsed.error === 'string') message = parsed.error;
+        } catch {
+          message = stdoutText.trim();
+        }
+      }
+      return terminalJsonResponse({ msg: message || `Command exited with code ${code}` }, { status: code === 64 ? 400 : 500 });
+    }
+
+    try {
+      return jsonResponse(JSON.parse(stdoutText));
+    } catch {
+      return terminalJsonResponse({ msg: 'Command succeeded but did not print valid JSON.', stdout: stdoutText }, { status: 500 });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return terminalJsonResponse({ msg: message }, { status: error instanceof CliUsageError ? 400 : 500 });
   }
 }
 
 function streamingResponse(argv: string[], cwd: string | undefined, auth: AuthContext, contentType = 'text/plain; charset=utf-8'): Response {
+  const abortController = new AbortController();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const child = spawnCli(argv, cwd, auth);
-      child.stdout?.on('data', (chunk) => controller.enqueue(Buffer.from(chunk)));
-      child.stderr?.on('data', (chunk) => controller.enqueue(Buffer.from(chunk)));
-      child.on('error', (error) => controller.enqueue(encoder.encode(`\n[error] ${error.message}\n`)));
-      child.on('close', () => controller.close());
+      const sink = new Writable({
+        write(chunk, _encoding, callback) {
+          controller.enqueue(Buffer.from(chunk));
+          callback();
+        },
+      });
+      runCliDirect(argv, cwd, auth, sink, sink, abortController.signal)
+        .catch((error) => controller.enqueue(encoder.encode(`\n[error] ${error instanceof Error ? error.message : String(error)}\n`)))
+        .finally(() => controller.close());
+    },
+    cancel() {
+      abortController.abort();
     },
   });
   return new Response(stream, {
