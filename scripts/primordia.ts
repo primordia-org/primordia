@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { resolvePrimordiaApiKey } from '@/lib/api-keys';
 import { CliUsageError } from '@/lib/tiny-command/common';
 import { runCli } from '@/lib/tiny-command/cli';
 import { applyCurrentProcessOomRole } from '@/lib/oom-priority';
@@ -10,6 +11,7 @@ applyCurrentProcessOomRole('command', (message) => console.warn(`[primordia-cli]
 async function main(): Promise<void> {
   const rawArgs = process.argv.slice(2);
   try {
+    if (process.env.PRIMORDIA_API_KEY) await resolvePrimordiaApiKey(process.env.PRIMORDIA_API_KEY, 'cli');
     await runCli(mainCommand, rawArgs);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

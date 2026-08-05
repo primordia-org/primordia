@@ -2,7 +2,7 @@
 
 ## Implementation status
 
-Implemented on the `citty-cli-refactor` branch. The CLI entrypoint now stays on a lightweight command-metadata path for `--help`, `completion bash`, and `__complete`; runtime command implementations live in `scripts/primordia-command-handlers.ts` and are loaded only when a real command runs or when an explicitly dynamic completion hook (such as `--user`) needs them.
+Implemented on the `citty-cli-refactor` branch. The CLI entrypoint now stays on a lightweight command-metadata path for `--help`, `completion bash`, and `__complete`; runtime command implementations live in `scripts/primordia-command-handlers.ts` and are loaded only when a real command runs or when an explicitly dynamic completion hook (such as API-key-scoped custom preset completion) needs them.
 
 Measured after the split:
 
@@ -108,7 +108,7 @@ This module should import only tiny command types/helpers and small static data.
 Move runtime command implementations into focused modules loaded only after parsing determines that a real command should run:
 
 - `scripts/primordia-thread-commands.ts`
-  - imports `lib/threads.ts`, `lib/db`, `lib/cli-keys`, presets, etc.
+  - imports `lib/threads.ts`, `lib/db`, `lib/api-keys`, presets, etc.
 - `scripts/primordia-server-commands.ts`
   - imports `lib/process-manager.ts`, `lib/production-db-copy.ts`, etc.
 - `scripts/primordia-status-command.ts`
@@ -129,13 +129,13 @@ The tiny CLI runner should not evaluate those dynamic imports for `--help`, `com
 Completion should use command metadata only for:
 
 - subcommand names (`status`, `thread`, `server`, etc.)
-- static option names (`--json`, `--user`, `--preset`, `--prod`, etc.)
+- static option names (`--json`, `--preset`, `--prod`, etc.)
 - static argument hints
 
 Dynamic completion hooks should be opt-in and should document their cost. Expensive hooks should be avoided on hot paths. For example:
 
 - Keep `--preset` completion static for built-in presets, or move custom preset completion behind an explicit env gate later.
-- Consider dropping `--user` dynamic DB completion if it keeps startup above the target. User completion is nice-to-have; fast tab completion is required.
+- `--user` dynamic DB completion was dropped; user-scoped commands now derive identity from the presented Primordia API key (`PRIMORDIA_API_KEY` for CLI, Bearer web key for Core).
 
 ### 4. Optional: add a tiny dedicated completion entrypoint
 

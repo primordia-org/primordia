@@ -1,4 +1,5 @@
 import { getDb } from '@/lib/db';
+import { resolvePrimordiaApiKey } from '@/lib/api-keys';
 import {
   BUILT_IN_PRESETS,
   PREF_CUSTOM_PRESETS,
@@ -37,29 +38,10 @@ function customPresetCliEntries(customPresets: ThreadPreset[]): Array<{ cliId: s
   });
 }
 
-function optionValue(words: string[], optionName: string): string | undefined {
-  for (let index = 0; index < words.length; index += 1) {
-    const word = words[index];
-    if (word === `--${optionName}`) {
-      const value = words[index + 1];
-      if (value && !value.startsWith('-')) return value;
-    } else if (word.startsWith(`--${optionName}=`)) {
-      const value = word.slice(optionName.length + 3);
-      if (value) return value;
-    }
-  }
-  return undefined;
-}
-
-async function resolveCompletionUserId(selector: string | undefined): Promise<string | null> {
-  const db = await getDb();
-  if (selector) {
-    const selected = (await db.getUserById(selector)) ?? (await db.getUserByUsername(selector));
-    return selected?.id ?? null;
-  }
-
-  const users = await db.getAllUsers();
-  return users.length === 1 ? users[0].id : null;
+async function resolveCompletionUserId(): Promise<string | null> {
+  if (!process.env.PRIMORDIA_API_KEY) return null;
+  const resolved = await resolvePrimordiaApiKey(process.env.PRIMORDIA_API_KEY);
+  return resolved.user.id;
 }
 
 async function customPresetsForUser(userId: string): Promise<ThreadPreset[]> {
@@ -68,10 +50,9 @@ async function customPresetsForUser(userId: string): Promise<ThreadPreset[]> {
   return parseCustomPresets(prefs[PREF_CUSTOM_PRESETS]);
 }
 
-export async function completeCliPresetIds(context: CliCompletionContext): Promise<string[]> {
+export async function completeCliPresetIds(_context: CliCompletionContext): Promise<string[]> {
   const builtIns = builtInCliPresetIds();
-  const selector = optionValue(context.words, 'user');
-  const userId = await resolveCompletionUserId(selector);
+  const userId = await resolveCompletionUserId();
   if (!userId) return builtIns;
 
   const customPresets = await customPresetsForUser(userId);

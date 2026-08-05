@@ -1,4 +1,5 @@
-import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
+import { getSessionUser } from '@/lib/auth';
+import { resolvePrimordiaApiKey } from '@/lib/api-keys';
 import { getProcessStatusReport } from '@/lib/process-manager';
 import { getPublicOrigin } from '@/lib/public-origin';
 import { createTinyCommandRestApi } from '@/lib/tiny-command/rest';
@@ -13,11 +14,15 @@ async function authorize(request: Request) {
   const header = request.headers.get('authorization') ?? '';
   const match = header.match(/^Bearer\s+(.+)$/i);
   if (!match) throw new Error('Authorization header must be Bearer <web-api-key>.');
-  const resolved = await resolvePrimordiaCliKey(match[1], 'web');
+  const [resolved, user] = await Promise.all([
+    resolvePrimordiaApiKey(match[1], 'web'),
+    getSessionUser(),
+  ]);
+  if (!user) throw new Error('Authorization session required.');
+  if (resolved.user.id !== user.id) throw new Error('User mismatch between `Authorization Bearer` header and login session cookie.');
   return {
     env: {
-      PRIMORDIA_CORE_USER_ID: resolved.userId,
-      PRIMORDIA_CORE_AES_KEY: resolved.aesKeyJwkJson,
+      PRIMORDIA_API_KEY: match[1],
     },
   };
 }
