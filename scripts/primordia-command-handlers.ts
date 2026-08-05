@@ -61,7 +61,8 @@ const MISSING_CLI_KEY_MESSAGE =
   'Open Settings → API keys in the web app (/settings/api-keys), create a CLI key, copy the one-time `PRIMORDIA_CLI_KEY=...` value, and export it in this shell before retrying.';
 
 function printJson(context: CommandContext, value: unknown): void {
-  context.console.log(JSON.stringify(value, null, 2));
+  const { console } = context;
+  console.log(JSON.stringify(value, null, 2));
 }
 
 function cliSecretError(message: string | undefined, fallback: string): Error {
@@ -85,8 +86,9 @@ function realpathIfExists(filePath: string): string {
   }
 }
 
-function resolveCurrentThread(context: CommandContext, report: ProcessStatusReport, cwd = context.process.cwd()): { threadId: string; path: string } {
-  const resolvedCwd = realpathIfExists(cwd);
+function resolveCurrentThread(context: CommandContext, report: ProcessStatusReport, cwd?: string): { threadId: string; path: string } {
+  const { process } = context;
+  const resolvedCwd = realpathIfExists(cwd ?? process.cwd());
   const matches = report.worktrees
     .map((worktree) => ({ ...worktree, resolvedPath: realpathIfExists(worktree.path) }))
     .filter((worktree) => isPathInside(worktree.resolvedPath, resolvedCwd))
@@ -314,34 +316,36 @@ function createSessionHumanRenderer(): HumanLogRenderer {
 }
 
 function createFollowAbortSignal(context: CommandContext, cleanup?: () => void): AbortSignal {
+  const { process } = context;
   const controller = new AbortController();
   const abort = () => {
     cleanup?.();
     controller.abort();
   };
 
-  if (context.process.abortSignal) {
-    if (context.process.abortSignal.aborted) abort();
-    else context.process.abortSignal.addEventListener('abort', abort, { once: true });
+  if (process.abortSignal) {
+    if (process.abortSignal.aborted) abort();
+    else process.abortSignal.addEventListener('abort', abort, { once: true });
   }
 
   // CLI callers keep stdin connected to the terminal/client lifecycle. If the
   // client disconnects or the dev/prod server dies, stdin closes; a --follow
   // command must then exit instead of becoming an orphan adopted by PID 1.
-  if (!context.process.stdin.isTTY) {
-    context.process.stdin.resume();
-    context.process.stdin.once('end', abort);
-    context.process.stdin.once('close', abort);
-    context.process.stdin.once('error', abort);
+  if (!process.stdin.isTTY) {
+    process.stdin.resume();
+    process.stdin.once('end', abort);
+    process.stdin.once('close', abort);
+    process.stdin.once('error', abort);
   }
-  context.process.stdout.once('error', abort);
-  context.process.stderr.once('error', abort);
-  context.process.onSignal('SIGTERM', abort);
-  context.process.onSignal('SIGINT', abort);
+  process.stdout.once('error', abort);
+  process.stderr.once('error', abort);
+  process.onSignal('SIGTERM', abort);
+  process.onSignal('SIGINT', abort);
   return controller.signal;
 }
 
 async function renderLogFile(context: CommandContext, logFile: string, args: ServiceLogArgs, options: { rawNdjson?: boolean; humanFormatter?: (line: string) => HumanLogChunk | null; humanRenderer?: HumanLogRenderer } = {}): Promise<void> {
+  const { process, console } = context;
   const startLine = resolveLogStartLine(args);
   const lineCount = resolveLogLineCount(args, startLine);
   const follow = Boolean(args.follow || args.f);
@@ -349,9 +353,9 @@ async function renderLogFile(context: CommandContext, logFile: string, args: Ser
   const selectedLines = selectLogLines(allLines, lineCount, startLine);
 
   if (args.json) {
-    for (const line of selectedLines) context.process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
+    for (const line of selectedLines) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
     if (follow) {
-      for await (const line of followTextLogLines(logFile, createFollowAbortSignal(context))) context.process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
+      for await (const line of followTextLogLines(logFile, createFollowAbortSignal(context))) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
     }
     return;
   }
@@ -362,13 +366,13 @@ async function renderLogFile(context: CommandContext, logFile: string, args: Ser
   const writeFormatted = (formatted: HumanLogChunk | null): void => {
     if (!formatted) return;
     if (typeof formatted === 'object' && formatted.inline) {
-      context.process.stdout.write(formatted.text);
+      process.stdout.write(formatted.text);
       inlineOpen = true;
       return;
     }
-    if (inlineOpen) context.process.stdout.write('\n');
+    if (inlineOpen) process.stdout.write('\n');
     const text = typeof formatted === 'string' ? formatted : formatted.text;
-    context.console.log(text);
+    console.log(text);
     inlineOpen = false;
   };
 
@@ -377,7 +381,7 @@ async function renderLogFile(context: CommandContext, logFile: string, args: Ser
     for await (const line of followTextLogLines(logFile, createFollowAbortSignal(context))) writeFormatted(formatter(line));
   }
   if (renderer) writeFormatted(renderer.flush());
-  if (inlineOpen) context.process.stdout.write('\n');
+  if (inlineOpen) process.stdout.write('\n');
 }
 
 async function renderServerLogs(context: CommandContext, threadId: string, args: ServiceLogArgs): Promise<void> {
@@ -392,11 +396,12 @@ function getWorktreeServerLogPath(threadId: string): string {
 }
 
 async function readRequest(context: CommandContext, args: CliParsedArgs): Promise<string> {
+  const { process } = context;
   const parts = args._.length > 0 ? args._ : typeof args.request === 'string' ? [args.request] : [];
   if (parts.length === 0) throw new Error('request text required');
   if (parts.length === 1 && parts[0] === '-') {
     const chunks: Buffer[] = [];
-    for await (const chunk of context.process.stdin) chunks.push(Buffer.from(chunk));
+    for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
     const text = Buffer.concat(chunks).toString('utf8').trim();
     if (!text) throw new Error('stdin request text is empty');
     return text;
@@ -405,8 +410,9 @@ async function readRequest(context: CommandContext, args: CliParsedArgs): Promis
 }
 
 async function resolveCliAuth(context: CommandContext, selector: string | undefined): Promise<{ user: { id: string; username: string }; primordiaAesKey: string }> {
-  const coreUserId = context.process.env.PRIMORDIA_CORE_USER_ID;
-  const coreAesKey = context.process.env.PRIMORDIA_CORE_AES_KEY ?? '';
+  const { process } = context;
+  const coreUserId = process.env.PRIMORDIA_CORE_USER_ID;
+  const coreAesKey = process.env.PRIMORDIA_CORE_AES_KEY ?? '';
   if (coreUserId) {
     if (selector && selector !== coreUserId) {
       const selected = await resolveCliUser(selector);
@@ -419,7 +425,7 @@ async function resolveCliAuth(context: CommandContext, selector: string | undefi
     return { user, primordiaAesKey: coreAesKey };
   }
 
-  const rawCliKey = context.process.env.PRIMORDIA_CLI_KEY;
+  const rawCliKey = process.env.PRIMORDIA_CLI_KEY;
   if (!rawCliKey) {
     throw new Error(MISSING_CLI_KEY_MESSAGE);
   }
@@ -466,8 +472,9 @@ function resolveJobName(args: CliParsedArgs): PrimordiaJobName {
   return value;
 }
 
-function scheduleRows(context: CommandContext, repoRoot = context.process.cwd()) {
-  return listJobSchedules(repoRoot).map((schedule) => ({
+function scheduleRows(context: CommandContext, repoRoot?: string) {
+  const { process } = context;
+  return listJobSchedules(repoRoot ?? process.cwd()).map((schedule) => ({
     name: schedule.name,
     intervalMs: schedule.intervalMs,
     interval: formatJobInterval(schedule.intervalMs),
@@ -478,10 +485,11 @@ function scheduleRows(context: CommandContext, repoRoot = context.process.cwd())
 }
 
 function printScheduleTable(context: CommandContext, rows: ReturnType<typeof scheduleRows>): void {
+  const { console } = context;
   const nameWidth = Math.max('job'.length, ...rows.map((row) => row.name.length));
   const intervalWidth = Math.max('interval'.length, ...rows.map((row) => row.interval.length));
-  context.console.log(`${'job'.padEnd(nameWidth)}  ${'interval'.padEnd(intervalWidth)}  git config`);
-  for (const row of rows) context.console.log(`${row.name.padEnd(nameWidth)}  ${row.interval.padEnd(intervalWidth)}  ${row.gitConfigKey}`);
+  console.log(`${'job'.padEnd(nameWidth)}  ${'interval'.padEnd(intervalWidth)}  git config`);
+  for (const row of rows) console.log(`${row.name.padEnd(nameWidth)}  ${row.interval.padEnd(intervalWidth)}  ${row.gitConfigKey}`);
 }
 
 function serviceSignal(service: SupervisedServiceName): NodeJS.Signals {
@@ -500,6 +508,7 @@ function sudoSupportsNonInteractive(): boolean {
 }
 
 function runSystemctl(context: CommandContext, args: string[], options: { allowSudo?: boolean; interactiveSudo?: boolean } = {}): SystemctlVia | null {
+  const { process } = context;
   try {
     execFileSync('systemctl', args, { stdio: 'ignore' });
     return 'systemd';
@@ -510,7 +519,7 @@ function runSystemctl(context: CommandContext, args: string[], options: { allowS
   }
 
   if (!options.allowSudo) return null;
-  const sudoArgs = options.interactiveSudo && context.process.stdin.isTTY ? [] : ['-n'];
+  const sudoArgs = options.interactiveSudo && process.stdin.isTTY ? [] : ['-n'];
   try {
     execFileSync('sudo', [...sudoArgs, 'systemctl', ...args], { stdio: 'ignore' });
     return 'sudo-systemd';
@@ -520,13 +529,15 @@ function runSystemctl(context: CommandContext, args: string[], options: { allowS
 }
 
 function signalSupervisorViaSystemd(context: CommandContext, signal: NodeJS.Signals): SystemctlVia | null {
-  const unit = context.process.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
+  const { process } = context;
+  const unit = process.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
   const activeVia = runSystemctl(context, ['is-active', '--quiet', unit]);
   if (!activeVia) return null;
   return runSystemctl(context, ['kill', '--kill-whom=main', `--signal=${signal}`, unit], { allowSudo: sudoSupportsNonInteractive() });
 }
 
 function signalSupervisorViaPgrep(context: CommandContext, signal: NodeJS.Signals): number[] {
+  const { process } = context;
   let output = '';
   try {
     output = execFileSync('pgrep', ['-f', 'service-supervisor\\.(js|ts)'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
@@ -536,13 +547,14 @@ function signalSupervisorViaPgrep(context: CommandContext, signal: NodeJS.Signal
   const pids = output
     .split(/\s+/)
     .map((value) => Number.parseInt(value, 10))
-    .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== context.process.pid);
-  for (const pid of pids) context.process.kill(pid, signal);
+    .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
+  for (const pid of pids) process.kill(pid, signal);
   return pids;
 }
 
 function restartServiceSupervisor(context: CommandContext, json: boolean | undefined): void {
-  const unit = context.process.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
+  const { process, console } = context;
+  const unit = process.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
   const via = runSystemctl(context, ['restart', unit], { allowSudo: true, interactiveSudo: !json });
   if (!via) {
     throw new Error(
@@ -552,17 +564,18 @@ function restartServiceSupervisor(context: CommandContext, json: boolean | undef
   }
   const result = { ok: true, service: 'service-supervisor', action: 'restart', via };
   if (json) printJson(context, result);
-  else context.console.log(`Restarted service-supervisor via ${via}.`);
+  else console.log(`Restarted service-supervisor via ${via}.`);
 }
 
 function restartSupervisedService(context: CommandContext, service: SupervisedServiceName, json: boolean | undefined): void {
+  const { console } = context;
   const signal = serviceSignal(service);
   const viaSystemd = signalSupervisorViaSystemd(context, signal);
   const pids = viaSystemd ? [] : signalSupervisorViaPgrep(context, signal);
   if (!viaSystemd && pids.length === 0) throw new Error('Primordia service-supervisor is not running or could not be signaled');
   const result = { ok: true, service, action: 'restart', signal, via: viaSystemd ?? 'process', pids };
   if (json) printJson(context, result);
-  else context.console.log(`Signaled ${service} restart via ${result.via} (${signal}).`);
+  else console.log(`Signaled ${service} restart via ${result.via} (${signal}).`);
 }
 
 export async function completeUsers(): Promise<string[]> {
@@ -580,34 +593,38 @@ export function completeModelIds(): string[] {
 }
 
 export function statusCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): void {
+  const { console } = context;
   const report = getProcessStatusReport();
   if (args.json) printJson(context, report);
-  else context.console.log(formatProcessStatusReport(report));
+  else console.log(formatProcessStatusReport(report));
 }
 
 export async function jobsRunCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): Promise<void> {
-  const listenPort = Number.parseInt(context.process.env.REVERSE_PROXY_PORT ?? '', 10);
+  const { process, console } = context;
+  const listenPort = Number.parseInt(process.env.REVERSE_PROXY_PORT ?? '', 10);
   const started = runPrimordiaJobs({
-    repoRoot: context.process.cwd(),
+    repoRoot: process.cwd(),
     listenPort: Number.isFinite(listenPort) ? listenPort : undefined,
-    archiveRoot: context.process.env.PRIMORDIA_DIR,
+    archiveRoot: process.env.PRIMORDIA_DIR,
   });
   if (args.json) printJson(context, { ok: started, command: 'jobs run', schedules: scheduleRows(context) });
-  else context.console.log(started ? 'Primordia jobs daemon running. Press Ctrl-C to stop.' : 'Another Primordia jobs scheduler is already running.');
+  else console.log(started ? 'Primordia jobs daemon running. Press Ctrl-C to stop.' : 'Another Primordia jobs scheduler is already running.');
   if (!started) return;
   await new Promise(() => { /* keep daemon alive */ });
 }
 
 export async function jobsRunOneCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): Promise<void> {
+  const { process, console } = context;
   const job = resolveJobName(args);
-  const result = await runPrimordiaJobOnce(job, { repoRoot: context.process.cwd() });
+  const result = await runPrimordiaJobOnce(job, { repoRoot: process.cwd() });
   if (args.json) printJson(context, result);
-  else context.console.log(`${result.ok ? 'ok' : 'failed'}: ${result.summary}`);
-  if (!result.ok) context.process.exit(1);
+  else console.log(`${result.ok ? 'ok' : 'failed'}: ${result.summary}`);
+  if (!result.ok) process.exit(1);
 }
 
 function serviceLogFile(context: CommandContext, service: SupervisedServiceName): string {
-  const root = context.process.env.PRIMORDIA_DIR || context.process.cwd();
+  const { process } = context;
+  const root = process.env.PRIMORDIA_DIR || process.cwd();
   return path.join(root, service === 'reverse-proxy' ? '.primordia-reverse-proxy.log' : '.primordia-scheduled-jobs.log');
 }
 
@@ -664,13 +681,15 @@ export function jobsScheduleListCommand(context: CommandContext, args: CliParsed
 }
 
 export function jobsScheduleGetCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): void {
+  const { console } = context;
   const job = resolveJobName(args);
   const row = scheduleRows(context).find((schedule) => schedule.name === job)!;
   if (args.json) printJson(context, row);
-  else context.console.log(`${row.name}: ${row.interval} (${row.intervalMs}ms)`);
+  else console.log(`${row.name}: ${row.interval} (${row.intervalMs}ms)`);
 }
 
 export function jobsScheduleSetCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): void {
+  const { console } = context;
   const job = resolveJobName(args);
   const intervalValue = String(args._[1] ?? args.interval ?? '');
   if (!intervalValue) throw new Error('interval required');
@@ -684,7 +703,7 @@ export function jobsScheduleSetCommand(context: CommandContext, args: CliParsedA
     gitConfigKey: updated.gitConfigKey,
   };
   if (args.json) printJson(context, row);
-  else context.console.log(`${row.name}: ${row.interval} (${row.gitConfigKey})`);
+  else console.log(`${row.name}: ${row.interval} (${row.gitConfigKey})`);
 }
 
 function parseCliBoolean(value: string | undefined, optionName: string): boolean | undefined {
@@ -728,6 +747,7 @@ async function resolveAndValidatePreferencePreset(userId: string, cliPresetId: s
 }
 
 export async function preferencesGetCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
+  const { console } = context;
   rejectUnexpectedRequestText(args, 'preferences get');
   const user = await resolveCliUser(args.user);
   const db = await getDb();
@@ -748,16 +768,17 @@ export async function preferencesGetCommand(context: CommandContext, args: CliPa
   };
   if (args.json) printJson(context, result);
   else {
-    context.console.log(`User: ${user.username} (${user.id})`);
-    context.console.log(`preferred preset: ${result.preferences.preferredPreset ?? '(not set)'}`);
-    context.console.log(`fallback harness: ${result.effectiveThreadFormDefaults.initialHarness}`);
-    context.console.log(`fallback model: ${result.effectiveThreadFormDefaults.initialModel}`);
-    context.console.log(`caveman mode: ${result.effectiveThreadFormDefaults.initialCavemanMode}`);
-    context.console.log(`caveman intensity: ${result.effectiveThreadFormDefaults.initialCavemanIntensity}`);
+    console.log(`User: ${user.username} (${user.id})`);
+    console.log(`preferred preset: ${result.preferences.preferredPreset ?? '(not set)'}`);
+    console.log(`fallback harness: ${result.effectiveThreadFormDefaults.initialHarness}`);
+    console.log(`fallback model: ${result.effectiveThreadFormDefaults.initialModel}`);
+    console.log(`caveman mode: ${result.effectiveThreadFormDefaults.initialCavemanMode}`);
+    console.log(`caveman intensity: ${result.effectiveThreadFormDefaults.initialCavemanIntensity}`);
   }
 }
 
 export async function preferencesSetCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs & PreferenceSetArgs): Promise<void> {
+  const { console } = context;
   rejectUnexpectedRequestText(args, 'preferences set');
   const user = await resolveCliUser(args.user);
   const updates: Record<string, string> = {};
@@ -785,8 +806,8 @@ export async function preferencesSetCommand(context: CommandContext, args: CliPa
   const result = { ok: true, user, updated: updates, effectiveThreadFormDefaults: effective };
   if (args.json) printJson(context, result);
   else {
-    context.console.log(`Updated preferences for ${user.username}.`);
-    for (const [key, value] of Object.entries(updates)) context.console.log(`${key}: ${value}`);
+    console.log(`Updated preferences for ${user.username}.`);
+    for (const [key, value] of Object.entries(updates)) console.log(`${key}: ${value}`);
   }
 }
 
@@ -803,13 +824,14 @@ function formatServerStatus(snapshot: ReturnType<typeof getServerStatus>, json: 
 }
 
 export async function serverStatusCommand(context: CommandContext, args: CliParsedArgs & ServerStatusArgs): Promise<void> {
+  const { console } = context;
   const thread = getCurrentThread(context);
   let previous = '';
   do {
     const snapshot = getServerStatus(thread.threadId);
     const serialized = JSON.stringify(snapshot);
     if (serialized !== previous) {
-      context.console.log(formatServerStatus(snapshot, Boolean(args.json)));
+      console.log(formatServerStatus(snapshot, Boolean(args.json)));
       previous = serialized;
     }
     if (!(args.follow || args.f)) return;
@@ -818,24 +840,27 @@ export async function serverStatusCommand(context: CommandContext, args: CliPars
 }
 
 export async function serverStartCommand(context: CommandContext, args: CliParsedArgs): Promise<void> {
+  const { console } = context;
   const thread = getCurrentThread(context);
   const result = await startWorktreeServer(thread.threadId, resolveStartMode(args));
   if (args.json) printJson(context, result);
-  else context.console.log(result.message);
+  else console.log(result.message);
 }
 
 export async function serverStopCommand(context: CommandContext, args: CliParsedArgs): Promise<void> {
+  const { console } = context;
   const thread = getCurrentThread(context);
   const result = await stopWorktreeServer(thread.threadId);
   if (args.json) printJson(context, result);
-  else context.console.log(result.message);
+  else console.log(result.message);
 }
 
 export async function serverRestartCommand(context: CommandContext, args: CliParsedArgs): Promise<void> {
+  const { console } = context;
   const thread = getCurrentThread(context);
   const result = await restartWorktreeServer(thread.threadId, resolveStartMode(args));
   if (args.json) printJson(context, result);
-  else context.console.log(result.message);
+  else console.log(result.message);
 }
 
 export async function serverLogsCommand(context: CommandContext, args: CliParsedArgs & ServiceLogArgs): Promise<void> {
@@ -852,26 +877,29 @@ export async function threadLogsCommand(context: CommandContext, args: CliParsed
 }
 
 export async function serverPublishCommand(context: CommandContext, args: CliParsedArgs): Promise<void> {
+  const { console } = context;
   const thread = getCurrentThread(context);
   const result = await publishProductionBranch(thread.threadId);
   if (args.json) printJson(context, result);
-  else context.console.log(result.message);
+  else console.log(result.message);
 }
 
 export async function serverCopyDbCommand(context: CommandContext, args: CliParsedArgs): Promise<void> {
+  const { process, console } = context;
   const thread = getCurrentThread(context);
-  const result = await copyProductionDbToWorktree(context.process.cwd(), thread.path);
+  const result = await copyProductionDbToWorktree(process.cwd(), thread.path);
   if (args.json) {
     printJson(context, result);
   } else if (result.copied) {
-    context.console.log(`Copied production DB from ${result.sourcePath} to ${result.destinationPath}`);
+    console.log(`Copied production DB from ${result.sourcePath} to ${result.destinationPath}`);
   } else {
-    context.console.error(`Failed to copy production DB to ${result.destinationPath}: ${result.error ?? 'unknown error'}`);
+    console.error(`Failed to copy production DB to ${result.destinationPath}: ${result.error ?? 'unknown error'}`);
   }
-  if (!result.copied) context.process.exit(1);
+  if (!result.copied) process.exit(1);
 }
 
 export async function threadCreateCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & PresetArgs & CavemanArgs & UserSelectorArgs & AttachArgs): Promise<void> {
+  const { console } = context;
   const requestText = await readRequest(context, args);
   const { user, primordiaAesKey } = await resolveCliAuth(context, args.user);
   const cavemanEnabled = args.caveman === true || args.caveman === 'true';
@@ -890,10 +918,11 @@ export async function threadCreateCommand(context: CommandContext, args: CliPars
   });
   if (!result.ok) throw cliSecretError(result.error, `thread creation failed (${result.status})`);
   if (args.json) printJson(context, { ok: true, command: 'thread create', threadId: result.sessionId, worktreePath: result.worktreePath, background: true });
-  else context.console.log(`New thread started in ${result.worktreePath}`);
+  else console.log(`New thread started in ${result.worktreePath}`);
 }
 
 export async function threadFollowupCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs & AttachArgs): Promise<void> {
+  const { console } = context;
   const requestText = await readRequest(context, args);
   const { user, primordiaAesKey } = await resolveCliAuth(context, args.user);
   const threadId = resolveCurrentThreadId(context);
@@ -908,10 +937,11 @@ export async function threadFollowupCommand(context: CommandContext, args: CliPa
   });
   if (!result.ok) throw cliSecretError(result.error, 'follow-up failed');
   if (args.json) printJson(context, { ok: true, command: 'thread followup', thread: threadId, background: true });
-  else context.console.log(`Follow-up started for ${threadId}.`);
+  else console.log(`Follow-up started for ${threadId}.`);
 }
 
 export async function threadUpdateCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
+  const { console } = context;
   rejectUnexpectedRequestText(args, 'update');
   const user = await resolveCliUser(args.user);
   const threadId = resolveCurrentThreadId(context);
@@ -919,12 +949,13 @@ export async function threadUpdateCommand(context: CommandContext, args: CliPars
   if (!result.ok) throw new Error(result.error);
   if (args.json) printJson(context, { ok: true, command: 'thread update', thread: threadId, outcome: result.outcome, log: result.log });
   else {
-    context.console.log(`Updated ${threadId}: ${result.outcome}.`);
-    if (result.log.trim()) context.console.log(result.log.trim());
+    console.log(`Updated ${threadId}: ${result.outcome}.`);
+    if (result.log.trim()) console.log(result.log.trim());
   }
 }
 
 async function handleDecision(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs, action: 'accept' | 'reject'): Promise<void> {
+  const { console } = context;
   rejectUnexpectedRequestText(args, action);
   const auth = action === 'accept'
     ? await resolveCliAuth(context, args.user)
@@ -938,7 +969,7 @@ async function handleDecision(context: CommandContext, args: CliParsedArgs & Jso
   });
   if (!result.ok) throw cliSecretError(result.error, 'thread decision failed');
   if (args.json) printJson(context, { ok: true, command: `thread ${action}`, thread: threadId, outcome: result.outcome });
-  else context.console.log(`${action === 'accept' ? 'Accept' : 'Reject'} started for ${threadId}: ${result.outcome}.`);
+  else console.log(`${action === 'accept' ? 'Accept' : 'Reject'} started for ${threadId}: ${result.outcome}.`);
 }
 
 export function threadAcceptCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
