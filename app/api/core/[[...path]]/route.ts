@@ -4,7 +4,7 @@ import * as path from 'path';
 import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
 import { getProcessStatusReport } from '@/lib/process-manager';
 import { getPublicOrigin } from '@/lib/public-origin';
-import { CliUsageError, ProcessExit, createProcessCtx, listCliApiRoutes, runCli, type CliApiRouteDef, type ProcessCtx } from '@/lib/tiny-cli';
+import { CliUsageError, ProcessExit, createProcessConsole, createProcessCtx, listCliApiRoutes, runCli, type CliApiRouteDef, type ProcessCtx } from '@/lib/tiny-cli';
 import { mainCommand } from '@/scripts/primordia';
 
 export const runtime = 'nodejs';
@@ -257,6 +257,7 @@ function createCoreProcessCtx(options: {
     stdin,
     stdout: options.stdout,
     stderr: options.stderr,
+    console: createProcessConsole(options.stdout, options.stderr),
     abortSignal: options.abortSignal,
     onSignal() { /* HTTP requests do not receive process signals. */ },
   });

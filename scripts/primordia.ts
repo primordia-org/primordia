@@ -175,10 +175,10 @@ const intervalArgument: CliArgumentDef = {
 };
 
 function lazyRun(name: keyof typeof import('./primordia-command-handlers')) {
-  return async ({ args, processCtx }: { args: CliParsedArgs; processCtx: import('@/lib/tiny-cli').ProcessCtx }) => {
+  return async ({ args, processCtx: process }: { args: CliParsedArgs; processCtx: import('@/lib/tiny-cli').ProcessCtx }) => {
     const handlers = await importCommandHandlers();
     const handler = handlers[name] as (args: CliParsedArgs) => unknown | Promise<unknown>;
-    return handlers.runCommandWithProcessCtx(processCtx, () => handler(args));
+    return handlers.runCommandWithProcessCtx(process, () => handler(args));
   };
 }
 

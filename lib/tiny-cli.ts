@@ -12,12 +12,19 @@ export interface CliParsedArgs {
   [key: string]: CliValue | string[];
 }
 
+export interface ProcessConsole {
+  log(...values: unknown[]): void;
+  error(...values: unknown[]): void;
+  warn(...values: unknown[]): void;
+}
+
 export interface ProcessCtx {
   cwd(): string;
   env: Record<string, string | undefined>;
   stdin: NodeJS.ReadStream;
   stdout: NodeJS.WriteStream | NodeJS.WritableStream;
   stderr: NodeJS.WriteStream | NodeJS.WritableStream;
+  console: ProcessConsole;
   pid: number;
   abortSignal?: AbortSignal;
   onSignal(signal: NodeJS.Signals, listener: () => void): void;
@@ -32,13 +39,32 @@ export class ProcessExit extends Error {
   }
 }
 
+function formatConsoleValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value) ?? String(value);
+}
+
+export function createProcessConsole(stdout: NodeJS.WritableStream, stderr: NodeJS.WritableStream = stdout): ProcessConsole {
+  const writeLine = (stream: NodeJS.WritableStream, values: unknown[]) => {
+    stream.write(`${values.map(formatConsoleValue).join(' ')}\n`);
+  };
+  return {
+    log: (...values) => writeLine(stdout, values),
+    error: (...values) => writeLine(stderr, values),
+    warn: (...values) => writeLine(stderr, values),
+  };
+}
+
 export function createProcessCtx(overrides: Partial<ProcessCtx> = {}): ProcessCtx {
+  const stdout = overrides.stdout ?? process.stdout;
+  const stderr = overrides.stderr ?? process.stderr;
   return {
     cwd: () => process.cwd(),
     env: process.env,
     stdin: process.stdin,
-    stdout: process.stdout,
-    stderr: process.stderr,
+    stdout,
+    stderr,
+    console: overrides.console ?? createProcessConsole(stdout, stderr),
     pid: process.pid,
     onSignal(signal, listener) { process.once(signal, listener); },
     kill(pid, signal) { process.kill(pid, signal); },
@@ -411,17 +437,17 @@ export function renderBashCompletion(commandName: string): string {
 export async function runCli(root: CliCommandDef, rawArgs: string[], processCtx: ProcessCtx = createProcessCtx()): Promise<void> {
   if (rawArgs[0] === '__complete') {
     const completions = await completeCli(root, rawArgs.slice(1), processCtx);
-    processCtx.stdout.write(`${completions.join('\n')}\n`);
+    processCtx.console.log(completions.join('\n'));
     return;
   }
 
   if (rawArgs.length === 2 && rawArgs[0] === 'completion' && rawArgs[1] === 'bash') {
-    processCtx.stdout.write(`${renderBashCompletion(root.name)}\n`);
+    processCtx.console.log(renderBashCompletion(root.name));
     return;
   }
 
   if (rawArgs.includes('--help') || rawArgs.includes('-h') || rawArgs.length === 0) {
-    processCtx.stdout.write(`${renderCliHelp(root)}\n`);
+    processCtx.console.log(renderCliHelp(root));
     return;
   }
 
