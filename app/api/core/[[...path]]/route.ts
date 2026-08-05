@@ -1,8 +1,7 @@
 import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
 import { getProcessStatusReport } from '@/lib/process-manager';
 import { getPublicOrigin } from '@/lib/public-origin';
-import { ProcessExit, createProcessConsole, type CommandContext } from '@/lib/tiny-command/common';
-import { createTinyCommandRestApi, type TinyRestCreateContextOptions } from '@/lib/tiny-command/rest';
+import { createTinyCommandRestApi } from '@/lib/tiny-command/rest';
 import { mainCommand } from '@/scripts/primordia-command-handlers';
 
 export const runtime = 'nodejs';
@@ -23,26 +22,6 @@ async function authorize(request: Request) {
   };
 }
 
-function createContext(options: TinyRestCreateContextOptions): CommandContext {
-  return {
-    process: {
-      cwd: () => options.cwd ?? process.cwd(),
-      env: {
-        ...process.env,
-        ...options.auth.env,
-      },
-      stdin: options.stdin,
-      stdout: options.stdout,
-      stderr: options.stderr,
-      pid: process.pid,
-      abortSignal: options.abortSignal,
-      kill(pid, signal) { process.kill(pid, signal); },
-      exit(code = 0): never { throw new ProcessExit(code); },
-    },
-    console: createProcessConsole(options.stdout, options.stderr),
-  };
-}
-
 function resolveThreadCwd(threadId: string): string {
   const report = getProcessStatusReport();
   const worktree = report.worktrees.find((entry) => entry.branch === threadId);
@@ -60,7 +39,6 @@ const coreApi = createTinyCommandRestApi({
   bearerFormat: 'Primordia web API key',
   bearerDescription: 'Create a revokable web API key in Settings → API Keys and pass it as a Bearer token.',
   authorize,
-  createContext,
   resolveCwd: resolveThreadCwd,
   serverUrl(request) {
     return `${getPublicOrigin(request)}${process.env.NEXT_BASE_PATH ?? ''}`;

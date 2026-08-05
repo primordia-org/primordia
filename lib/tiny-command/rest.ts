@@ -1,7 +1,7 @@
 import { Readable, Writable } from 'stream';
 import * as fs from 'fs';
 import * as path from 'path';
-import { CliUsageError, ProcessExit, listCliApiRoutes, type CliApiRouteDef, type CliCommandDef, type CommandContext } from './common';
+import { CliUsageError, ProcessExit, createProcessConsole, listCliApiRoutes, type CliApiRouteDef, type CliCommandDef, type CommandContext } from './common';
 import { runCli } from './cli';
 
 export interface TinyRestApiOptions {
@@ -14,7 +14,6 @@ export interface TinyRestApiOptions {
   bearerFormat: string;
   bearerDescription: string;
   authorize(request: Request): Promise<TinyRestAuthContext>;
-  createContext(options: TinyRestCreateContextOptions): CommandContext;
   resolveCwd(paramValue: string): string;
   serverUrl(request: Request): string;
 }
@@ -30,15 +29,6 @@ interface ParsedBody {
 
 export interface TinyRestAuthContext {
   env: Record<string, string | undefined>;
-}
-
-export interface TinyRestCreateContextOptions {
-  cwd?: string;
-  auth: TinyRestAuthContext;
-  stdout: NodeJS.WritableStream;
-  stderr: NodeJS.WritableStream;
-  stdin: NodeJS.ReadStream;
-  abortSignal?: AbortSignal;
 }
 
 type JsonSchema = Record<string, unknown>;
@@ -239,11 +229,28 @@ function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed
   return { argv, cwd: cwdParam ? resolveCwd(cwdParam) : undefined, streaming, ndjson };
 }
 
-async function runCliDirect(options: TinyRestApiOptions, argv: string[], cwd: string | undefined, auth: TinyRestAuthContext, stdout: NodeJS.WritableStream, stderr: NodeJS.WritableStream, abortSignal?: AbortSignal): Promise<number> {
+function createRestCommandContext(cwd: string | undefined, auth: TinyRestAuthContext, stdout: NodeJS.WritableStream, stderr: NodeJS.WritableStream, abortSignal?: AbortSignal): CommandContext {
   const stdin = Readable.from([]) as NodeJS.ReadStream;
   stdin.isTTY = true;
+  return {
+    process: {
+      cwd: () => cwd ?? process.cwd(),
+      env: { ...process.env, ...auth.env },
+      stdin,
+      stdout,
+      stderr,
+      pid: process.pid,
+      abortSignal,
+      kill(pid, signal) { process.kill(pid, signal); },
+      exit(code = 0): never { throw new ProcessExit(code); },
+    },
+    console: createProcessConsole(stdout, stderr),
+  };
+}
+
+async function runCliDirect(options: TinyRestApiOptions, argv: string[], cwd: string | undefined, auth: TinyRestAuthContext, stdout: NodeJS.WritableStream, stderr: NodeJS.WritableStream, abortSignal?: AbortSignal): Promise<number> {
   try {
-    await runCli(options.command, argv, options.createContext({ cwd, auth, stdout, stderr, stdin, abortSignal }));
+    await runCli(options.command, argv, createRestCommandContext(cwd, auth, stdout, stderr, abortSignal));
     return 0;
   } catch (error) {
     if (error instanceof ProcessExit) return error.code;

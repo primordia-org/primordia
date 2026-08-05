@@ -1,5 +1,7 @@
 import {
   CliUsageError,
+  ProcessExit,
+  createProcessConsole,
   type CliCommandDef,
   type CliCompletionContext,
   type CliOptionDef,
@@ -276,9 +278,7 @@ export function renderBashCompletion(commandName: string): string {
   ].join('\n');
 }
 
-function withCliAbortSignal(context: CommandContext): { context: CommandContext; cleanup: () => void } {
-  if (context.process.abortSignal) return { context, cleanup: () => {} };
-
+function createCliContext(): { context: CommandContext; cleanup: () => void } {
   const controller = new AbortController();
   const abort = () => controller.abort();
   process.once('SIGTERM', abort);
@@ -286,11 +286,18 @@ function withCliAbortSignal(context: CommandContext): { context: CommandContext;
 
   return {
     context: {
-      ...context,
       process: {
-        ...context.process,
+        cwd: () => process.cwd(),
+        env: process.env,
+        stdin: process.stdin,
+        stdout: process.stdout,
+        stderr: process.stderr,
+        pid: process.pid,
         abortSignal: controller.signal,
+        kill(pid, signal) { process.kill(pid, signal); },
+        exit(code = 0): never { throw new ProcessExit(code); },
       },
+      console: createProcessConsole(process.stdout, process.stderr),
     },
     cleanup: () => {
       process.removeListener('SIGTERM', abort);
@@ -299,8 +306,8 @@ function withCliAbortSignal(context: CommandContext): { context: CommandContext;
   };
 }
 
-export async function runCli(root: CliCommandDef, rawArgs: string[], context: CommandContext): Promise<void> {
-  const runtime = withCliAbortSignal(context);
+export async function runCli(root: CliCommandDef, rawArgs: string[], context?: CommandContext): Promise<void> {
+  const runtime = context ? { context, cleanup: () => {} } : createCliContext();
   const runtimeContext = runtime.context;
   try {
     if (rawArgs[0] === '__complete') {
