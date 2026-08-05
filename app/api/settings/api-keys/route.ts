@@ -1,6 +1,6 @@
 import { getSessionUser } from '@/lib/auth';
 import { getDb } from '@/lib/db';
-import { publicRevokableAesKey } from '@/lib/cli-keys';
+import { publicRevokableAesKey } from '@/lib/api-keys';
 
 const SHORT_ID_ALPHABET = 'abcdefghijkmnopqrstuvwxyz23456789';
 const MAX_EXPIRES_IN_MS = 366 * 24 * 60 * 60 * 1000;

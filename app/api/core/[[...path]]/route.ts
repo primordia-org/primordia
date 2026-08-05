@@ -1,5 +1,5 @@
 import { getSessionUser } from '@/lib/auth';
-import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
+import { resolvePrimordiaApiKey } from '@/lib/api-keys';
 import { getProcessStatusReport } from '@/lib/process-manager';
 import { getPublicOrigin } from '@/lib/public-origin';
 import { createTinyCommandRestApi } from '@/lib/tiny-command/rest';
@@ -15,7 +15,7 @@ async function authorize(request: Request) {
   const match = header.match(/^Bearer\s+(.+)$/i);
   if (!match) throw new Error('Authorization header must be Bearer <web-api-key>.');
   const [resolved, user] = await Promise.all([
-    resolvePrimordiaCliKey(match[1], 'web'),
+    resolvePrimordiaApiKey(match[1], 'web'),
     getSessionUser(),
   ]);
   if (!user) throw new Error('Authorization session required.');

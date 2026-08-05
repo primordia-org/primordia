@@ -15,7 +15,7 @@ import { createThread, followupThread, manageThread, updateThread } from '@/lib/
 import { getDb } from '@/lib/db';
 import { keepProcessAlive } from '@/lib/keep-process-alive';
 import { copyProductionDbToWorktree } from '@/lib/production-db-copy';
-import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
+import { resolvePrimordiaApiKey } from '@/lib/api-keys';
 import {
   CAVEMAN_INTENSITIES,
   PREF_CAVEMAN,
@@ -380,18 +380,10 @@ async function readRequest(context: CommandContext, args: CliParsedArgs): Promis
   return parts.join(' ').trim();
 }
 
-async function resolveCliAuth(context: CommandContext): Promise<{ user: { id: string; username: string }; primordiaAesKey: string }> {
-  const { process } = context;
-  const rawApiKey = process.env.PRIMORDIA_API_KEY;
-  if (!rawApiKey) {
-    throw new Error(MISSING_API_KEY_MESSAGE);
-  }
-
-  const resolved = await resolvePrimordiaCliKey(rawApiKey);
-  const db = await getDb();
-  const user = await db.getUserById(resolved.userId);
-  if (!user) throw new Error('Primordia API key refers to a user that no longer exists.');
-  return { user, primordiaAesKey: resolved.aesKeyJwkJson };
+function requirePrimordiaApiKey(context: CommandContext): string {
+  const rawApiKey = context.process.env.PRIMORDIA_API_KEY;
+  if (!rawApiKey) throw new Error(MISSING_API_KEY_MESSAGE);
+  return rawApiKey;
 }
 
 function rejectUnexpectedRequestText(args: CliParsedArgs, command: string): void {
@@ -679,7 +671,7 @@ async function resolveAndValidatePreferencePreset(userId: string, cliPresetId: s
 export async function preferencesGetCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): Promise<void> {
   const { console } = context;
   rejectUnexpectedRequestText(args, 'preferences get');
-  const { user } = await resolveCliAuth(context);
+  const { user } = await resolvePrimordiaApiKey(requirePrimordiaApiKey(context));
   const db = await getDb();
   const [raw, effective] = await Promise.all([
     db.getUserPreferences(user.id, [PREF_PRESET, PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY]),
@@ -710,7 +702,7 @@ export async function preferencesGetCommand(context: CommandContext, args: CliPa
 export async function preferencesSetCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & PreferenceSetArgs): Promise<void> {
   const { console } = context;
   rejectUnexpectedRequestText(args, 'preferences set');
-  const { user } = await resolveCliAuth(context);
+  const { user } = await resolvePrimordiaApiKey(requirePrimordiaApiKey(context));
   const updates: Record<string, string> = {};
 
   if (args.preset !== undefined) {
@@ -831,7 +823,7 @@ export async function serverCopyDbCommand(context: CommandContext, args: CliPars
 export async function threadCreateCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & PresetArgs & CavemanArgs & AttachArgs): Promise<void> {
   const { console } = context;
   const requestText = await readRequest(context, args);
-  const { user, primordiaAesKey } = await resolveCliAuth(context);
+  const { user, primordiaAesKey } = await resolvePrimordiaApiKey(requirePrimordiaApiKey(context));
   const cavemanEnabled = args.caveman === true || args.caveman === 'true';
   const cavemanIntensity = typeof args['caveman-intensity'] === 'string' && (CAVEMAN_INTENSITIES as readonly string[]).includes(args['caveman-intensity'])
     ? args['caveman-intensity'] as (typeof CAVEMAN_INTENSITIES)[number]
@@ -854,7 +846,7 @@ export async function threadCreateCommand(context: CommandContext, args: CliPars
 export async function threadFollowupCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & PresetArgs & AttachArgs): Promise<void> {
   const { console } = context;
   const requestText = await readRequest(context, args);
-  const { user, primordiaAesKey } = await resolveCliAuth(context);
+  const { user, primordiaAesKey } = await resolvePrimordiaApiKey(requirePrimordiaApiKey(context));
   const threadId = resolveCurrentThreadId(context);
   const result = await followupThread({
     userId: user.id,
@@ -873,7 +865,7 @@ export async function threadFollowupCommand(context: CommandContext, args: CliPa
 export async function threadUpdateCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): Promise<void> {
   const { console } = context;
   rejectUnexpectedRequestText(args, 'update');
-  const { user } = await resolveCliAuth(context);
+  const { user } = await resolvePrimordiaApiKey(requirePrimordiaApiKey(context));
   const threadId = resolveCurrentThreadId(context);
   const result = await updateThread({ userId: user.id, threadId });
   if (!result.ok) throw new Error(result.error);
@@ -887,7 +879,7 @@ export async function threadUpdateCommand(context: CommandContext, args: CliPars
 async function handleDecision(context: CommandContext, args: CliParsedArgs & JsonArgs, action: 'accept' | 'reject'): Promise<void> {
   const { console } = context;
   rejectUnexpectedRequestText(args, action);
-  const auth = await resolveCliAuth(context);
+  const auth = await resolvePrimordiaApiKey(requirePrimordiaApiKey(context));
   const threadId = resolveCurrentThreadId(context);
   const result = await manageThread({
     userId: auth.user.id,

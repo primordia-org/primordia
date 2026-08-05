@@ -1,25 +1,27 @@
-// lib/cli-keys.ts
-// Revokable AES wrapper keys used by terminal Primordia CLI commands.
+// lib/api-keys.ts
+// Revokable AES wrapper API keys used by Primordia CLI and Core clients.
 
 import { getDb } from './db';
 import type { RevokableAesKey } from './db/types';
 
 export const API_KEY_PREFIX = 'v1';
 
-export interface ParsedCliKey {
+export interface ParsedApiKey {
   version: string;
   shortId: string;
   alg: string;
   k: string;
 }
 
-export interface ResolvedCliKey {
+export interface ResolvedPrimordiaApiKey {
   userId: string;
+  user: { id: string; username: string };
   aesKeyJwkJson: string;
+  primordiaAesKey: string;
   record: RevokableAesKey;
 }
 
-export function parsePrimordiaCliKey(value: string): ParsedCliKey {
+export function parsePrimordiaApiKey(value: string): ParsedApiKey {
   const parts = value.trim().split('.');
   if (parts.length !== 4 || parts[0] !== API_KEY_PREFIX || !parts[1] || !parts[2] || !parts[3]) {
     throw new Error('Invalid PRIMORDIA_API_KEY format. Expected v1.<short-id>.<alg>.<k>.');
@@ -41,8 +43,8 @@ export async function decryptWrappedAesKey(encryptedAesKey: string, wrapperJwk: 
   return new TextDecoder().decode(plaintext);
 }
 
-export async function resolvePrimordiaCliKey(value: string, expectedClient?: 'cli' | 'web'): Promise<ResolvedCliKey> {
-  const parsed = parsePrimordiaCliKey(value);
+export async function resolvePrimordiaApiKey(value: string, expectedClient?: 'cli' | 'web'): Promise<ResolvedPrimordiaApiKey> {
+  const parsed = parsePrimordiaApiKey(value);
   const db = await getDb();
   const record = await db.getRevokableAesKey(parsed.shortId);
   if (!record) throw new Error('PRIMORDIA_API_KEY was not found. Create a new API key in Settings → API keys.');
@@ -58,8 +60,12 @@ export async function resolvePrimordiaCliKey(value: string, expectedClient?: 'cl
     ext: true,
     key_ops: ['decrypt'],
   };
-  const aesKeyJwkJson = await decryptWrappedAesKey(record.encryptedAesKey, wrapperJwk);
-  return { userId: record.userId, aesKeyJwkJson, record };
+  const [aesKeyJwkJson, user] = await Promise.all([
+    decryptWrappedAesKey(record.encryptedAesKey, wrapperJwk),
+    db.getUserById(record.userId),
+  ]);
+  if (!user) throw new Error('Primordia API key refers to a user that no longer exists.');
+  return { userId: record.userId, user, aesKeyJwkJson, primordiaAesKey: aesKeyJwkJson, record };
 }
 
 export function publicRevokableAesKey(record: RevokableAesKey) {

@@ -1,5 +1,5 @@
 import { getDb } from '@/lib/db';
-import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
+import { resolvePrimordiaApiKey } from '@/lib/api-keys';
 import {
   BUILT_IN_PRESETS,
   PREF_CUSTOM_PRESETS,
@@ -40,7 +40,7 @@ function customPresetCliEntries(customPresets: ThreadPreset[]): Array<{ cliId: s
 
 async function resolveCompletionUserId(): Promise<string | null> {
   if (!process.env.PRIMORDIA_API_KEY) return null;
-  const resolved = await resolvePrimordiaCliKey(process.env.PRIMORDIA_API_KEY);
+  const resolved = await resolvePrimordiaApiKey(process.env.PRIMORDIA_API_KEY);
   return resolved.userId;
 }
 

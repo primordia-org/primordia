@@ -108,7 +108,7 @@ This module should import only tiny command types/helpers and small static data.
 Move runtime command implementations into focused modules loaded only after parsing determines that a real command should run:
 
 - `scripts/primordia-thread-commands.ts`
-  - imports `lib/threads.ts`, `lib/db`, `lib/cli-keys`, presets, etc.
+  - imports `lib/threads.ts`, `lib/db`, `lib/api-keys`, presets, etc.
 - `scripts/primordia-server-commands.ts`
   - imports `lib/process-manager.ts`, `lib/production-db-copy.ts`, etc.
 - `scripts/primordia-status-command.ts`
