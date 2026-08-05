@@ -168,7 +168,7 @@ async function isStaleStoredCoreKeyResponse(response: Response): Promise<boolean
   const clone = response.clone();
   const data = (await clone.json().catch(() => null)) as { msg?: unknown; error?: unknown } | null;
   const message = typeof data?.msg === "string" ? data.msg : typeof data?.error === "string" ? data.error : "";
-  return message.includes("PRIMORDIA_CLI_KEY") || message.toLowerCase().includes("web api key");
+  return message.includes("PRIMORDIA_API_KEY") || message.toLowerCase().includes("web api key");
 }
 
 /**

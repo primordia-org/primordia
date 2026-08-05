@@ -21,7 +21,7 @@ interface ApiKeyRecord {
 }
 
 const CLIENT_OPTIONS: { id: ApiKeyClient; title: string; description: string }[] = [
-  { id: "cli", title: "Primordia CLI", description: "Use in a terminal with PRIMORDIA_CLI_KEY." },
+  { id: "cli", title: "Primordia CLI", description: "Use in a terminal with PRIMORDIA_API_KEY." },
   { id: "web", title: "Web client", description: "Use from a web client that resolves Primordia API keys." },
 ];
 
@@ -138,7 +138,7 @@ function CreateApiKeyCard({ client, aesKey, onCreated }: { client: ApiKeyClient;
 }
 
 function CreatedApiKeyDetails({ client, secret }: { client: ApiKeyClient; secret: string }) {
-  const assignment = client === "cli" ? `PRIMORDIA_CLI_KEY=${shellSingleQuote(secret)}` : "";
+  const assignment = client === "cli" ? `PRIMORDIA_API_KEY=${shellSingleQuote(secret)}` : "";
 
   return (
     <>

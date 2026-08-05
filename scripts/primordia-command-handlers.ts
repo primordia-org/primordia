@@ -56,9 +56,9 @@ type SupervisedServiceName = Exclude<PrimordiaServiceName, 'service-supervisor'>
 type ServiceLogArgs = JsonArgs & { lines?: string; n?: string; start?: string; s?: string; follow?: boolean; f?: boolean };
 type ServerStatusArgs = JsonArgs & { follow?: boolean; f?: boolean };
 
-const MISSING_CLI_KEY_MESSAGE =
-  'PRIMORDIA_CLI_KEY is required for user-scoped Primordia CLI commands. ' +
-  'Open Settings → API keys in the web app (/settings/api-keys), create a CLI key, copy the one-time `PRIMORDIA_CLI_KEY=...` value, and export it in this shell before retrying.';
+const MISSING_API_KEY_MESSAGE =
+  'PRIMORDIA_API_KEY is required for user-scoped Primordia CLI commands. ' +
+  'Open Settings → API keys in the web app (/settings/api-keys), create a CLI key, copy the one-time `PRIMORDIA_API_KEY=...` value, and export it in this shell before retrying.';
 
 function printJson(context: CommandContext, value: unknown): void {
   const { console } = context;
@@ -68,9 +68,9 @@ function printJson(context: CommandContext, value: unknown): void {
 function cliSecretError(message: string | undefined, fallback: string): Error {
   const text = message ?? fallback;
   return new Error(text
-    .replaceAll('PRIMORDIA_AES_KEY', 'PRIMORDIA_CLI_KEY')
-    .replaceAll('Primordia AES key', 'Primordia CLI key')
-    .replaceAll('this device’s Primordia AES key', 'a Primordia CLI key'));
+    .replaceAll('PRIMORDIA_AES_KEY', 'PRIMORDIA_API_KEY')
+    .replaceAll('Primordia AES key', 'Primordia API key')
+    .replaceAll('this device’s Primordia AES key', 'a Primordia API key'));
 }
 
 function isPathInside(parentPath: string, childPath: string): boolean {
@@ -380,19 +380,14 @@ async function readRequest(context: CommandContext, args: CliParsedArgs): Promis
   return parts.join(' ').trim();
 }
 
-function expectedApiKeyClient(context: CommandContext): 'cli' | 'web' {
-  return context.process.env.PRIMORDIA_CLI_KEY_CLIENT === 'web' ? 'web' : 'cli';
-}
-
 async function resolveCliAuth(context: CommandContext): Promise<{ user: { id: string; username: string }; primordiaAesKey: string }> {
   const { process } = context;
-  const rawCliKey = process.env.PRIMORDIA_CLI_KEY;
-  if (!rawCliKey) {
-    throw new Error(MISSING_CLI_KEY_MESSAGE);
+  const rawApiKey = process.env.PRIMORDIA_API_KEY;
+  if (!rawApiKey) {
+    throw new Error(MISSING_API_KEY_MESSAGE);
   }
 
-  const expectedClient = expectedApiKeyClient(context);
-  const resolved = await resolvePrimordiaCliKey(rawCliKey, expectedClient);
+  const resolved = await resolvePrimordiaCliKey(rawApiKey);
   const db = await getDb();
   const user = await db.getUserById(resolved.userId);
   if (!user) throw new Error('Primordia API key refers to a user that no longer exists.');

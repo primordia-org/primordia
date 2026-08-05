@@ -135,7 +135,7 @@ Completion should use command metadata only for:
 Dynamic completion hooks should be opt-in and should document their cost. Expensive hooks should be avoided on hot paths. For example:
 
 - Keep `--preset` completion static for built-in presets, or move custom preset completion behind an explicit env gate later.
-- `--user` dynamic DB completion was dropped; user-scoped commands now derive identity from `PRIMORDIA_CLI_KEY` or the Core web API key.
+- `--user` dynamic DB completion was dropped; user-scoped commands now derive identity from the presented Primordia API key (`PRIMORDIA_API_KEY` for CLI, Bearer web key for Core).
 
 ### 4. Optional: add a tiny dedicated completion entrypoint
 

@@ -1,3 +1,4 @@
+import { getSessionUser } from '@/lib/auth';
 import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
 import { getProcessStatusReport } from '@/lib/process-manager';
 import { getPublicOrigin } from '@/lib/public-origin';
@@ -13,11 +14,15 @@ async function authorize(request: Request) {
   const header = request.headers.get('authorization') ?? '';
   const match = header.match(/^Bearer\s+(.+)$/i);
   if (!match) throw new Error('Authorization header must be Bearer <web-api-key>.');
-  await resolvePrimordiaCliKey(match[1], 'web');
+  const [resolved, user] = await Promise.all([
+    resolvePrimordiaCliKey(match[1], 'web'),
+    getSessionUser(),
+  ]);
+  if (!user) throw new Error('Authorization session required.');
+  if (resolved.userId !== user.id) throw new Error('Web API key belongs to a different logged-in user.');
   return {
     env: {
-      PRIMORDIA_CLI_KEY: match[1],
-      PRIMORDIA_CLI_KEY_CLIENT: 'web',
+      PRIMORDIA_API_KEY: match[1],
     },
   };
 }

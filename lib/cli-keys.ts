@@ -4,8 +4,7 @@
 import { getDb } from './db';
 import type { RevokableAesKey } from './db/types';
 
-export const CLI_KEY_PREFIX = 'v1';
-export const CLI_KEY_CLIENT = 'cli' as const;
+export const API_KEY_PREFIX = 'v1';
 
 export interface ParsedCliKey {
   version: string;
@@ -22,8 +21,8 @@ export interface ResolvedCliKey {
 
 export function parsePrimordiaCliKey(value: string): ParsedCliKey {
   const parts = value.trim().split('.');
-  if (parts.length !== 4 || parts[0] !== CLI_KEY_PREFIX || !parts[1] || !parts[2] || !parts[3]) {
-    throw new Error('Invalid PRIMORDIA_CLI_KEY format. Expected v1.<short-id>.<alg>.<k>.');
+  if (parts.length !== 4 || parts[0] !== API_KEY_PREFIX || !parts[1] || !parts[2] || !parts[3]) {
+    throw new Error('Invalid PRIMORDIA_API_KEY format. Expected v1.<short-id>.<alg>.<k>.');
   }
   return { version: parts[0], shortId: parts[1], alg: parts[2], k: parts[3] };
 }
@@ -31,7 +30,7 @@ export function parsePrimordiaCliKey(value: string): ParsedCliKey {
 export async function decryptWrappedAesKey(encryptedAesKey: string, wrapperJwk: JsonWebKey): Promise<string> {
   const payload = JSON.parse(encryptedAesKey) as { iv?: string; ciphertext?: string };
   if (typeof payload.iv !== 'string' || typeof payload.ciphertext !== 'string') {
-    throw new Error('Stored CLI key payload is invalid.');
+    throw new Error('Stored API key payload is invalid.');
   }
   const key = await crypto.subtle.importKey('jwk', wrapperJwk, { name: 'AES-GCM' }, false, ['decrypt']);
   const plaintext = await crypto.subtle.decrypt(
@@ -42,15 +41,15 @@ export async function decryptWrappedAesKey(encryptedAesKey: string, wrapperJwk: 
   return new TextDecoder().decode(plaintext);
 }
 
-export async function resolvePrimordiaCliKey(value: string, expectedClient: 'cli' | 'web' = CLI_KEY_CLIENT): Promise<ResolvedCliKey> {
+export async function resolvePrimordiaCliKey(value: string, expectedClient?: 'cli' | 'web'): Promise<ResolvedCliKey> {
   const parsed = parsePrimordiaCliKey(value);
   const db = await getDb();
   const record = await db.getRevokableAesKey(parsed.shortId);
-  if (!record) throw new Error('PRIMORDIA_CLI_KEY was not found. Create a new CLI key in Settings → API keys.');
-  if (record.revokedAt !== null) throw new Error('PRIMORDIA_CLI_KEY has been revoked. Create a new CLI key in Settings → API keys and update this shell.');
-  if (record.version !== parsed.version) throw new Error('PRIMORDIA_CLI_KEY version does not match the stored key.');
-  if (record.client !== expectedClient) throw new Error(`Primordia API key is restricted to ${record.client} clients.`);
-  if (record.expiresAt <= Date.now()) throw new Error('PRIMORDIA_CLI_KEY has expired. Extend it or create a new key in Settings → API keys.');
+  if (!record) throw new Error('PRIMORDIA_API_KEY was not found. Create a new API key in Settings → API keys.');
+  if (record.revokedAt !== null) throw new Error('PRIMORDIA_API_KEY has been revoked. Create a new API key in Settings → API keys and update this shell.');
+  if (record.version !== parsed.version) throw new Error('PRIMORDIA_API_KEY version does not match the stored key.');
+  if (expectedClient && record.client !== expectedClient) throw new Error(`Primordia API key is restricted to ${record.client} clients.`);
+  if (record.expiresAt <= Date.now()) throw new Error('PRIMORDIA_API_KEY has expired. Extend it or create a new key in Settings → API keys.');
 
   const wrapperJwk: JsonWebKey = {
     kty: 'oct',

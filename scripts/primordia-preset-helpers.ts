@@ -38,13 +38,9 @@ function customPresetCliEntries(customPresets: ThreadPreset[]): Array<{ cliId: s
   });
 }
 
-function expectedApiKeyClient(): 'cli' | 'web' {
-  return process.env.PRIMORDIA_CLI_KEY_CLIENT === 'web' ? 'web' : 'cli';
-}
-
 async function resolveCompletionUserId(): Promise<string | null> {
-  if (!process.env.PRIMORDIA_CLI_KEY) return null;
-  const resolved = await resolvePrimordiaCliKey(process.env.PRIMORDIA_CLI_KEY, expectedApiKeyClient());
+  if (!process.env.PRIMORDIA_API_KEY) return null;
+  const resolved = await resolvePrimordiaCliKey(process.env.PRIMORDIA_API_KEY);
   return resolved.userId;
 }
 
