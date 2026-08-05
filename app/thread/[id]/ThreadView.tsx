@@ -1517,11 +1517,8 @@ function WebPreviewCard({
 
   useEffect(() => {
     if (proxyServerStatus !== 'stopped') return;
-    const timer = setTimeout(() => {
-      setServerLogsOpen(true);
-      scrollServerLogsToEnd();
-    }, 0);
-    return () => clearTimeout(timer);
+    setServerLogsOpen(true);
+    scrollServerLogsToEnd();
   }, [proxyServerStatus, scrollServerLogsToEnd]);
 
   useEffect(() => {
@@ -2030,7 +2027,7 @@ export default function ThreadView({
     streamRunIdRef.current = runId;
     const offset = lineCountRef.current;
     let shouldReconnect = false;
-    const streamFinishedByEndpoint = false;
+    let streamFinishedByEndpoint = false;
 
     const isTerminalStatus = (value: string) => value === "accepted" || value === "rejected";
     const scheduleReconnect = () => {
@@ -2115,6 +2112,7 @@ export default function ThreadView({
   // Track session page view on mount.
   useEffect(() => {
     trackEvent("session/page-viewed/v1", { threadId: sessionId, status: statusRef.current });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   // Start streaming through the Core API. Even terminal sessions begin empty in
