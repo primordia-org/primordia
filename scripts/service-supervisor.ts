@@ -206,6 +206,8 @@ process.on('unhandledRejection', (err) => logError('unhandled rejection', err));
 
 log(`root: ${paths.root}`);
 for (const service of services) ensureService(service);
+// This health-check timer is unref'd because it should not be the process's
+// keepalive mechanism; keepProcessAlive() below is the intentional ref'd handle.
 setInterval(() => {
   for (const service of services) ensureService(service);
 }, 5_000).unref();
