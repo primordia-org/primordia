@@ -4,17 +4,15 @@ This directory contains thread and agent-run endpoints. Process-management endpo
 
 ## Endpoint map
 
-- `route.ts` — `POST /api/thread` starts a new thread and returns `{ threadId }`; `GET /api/thread?threadId=...` returns current thread status.
-- `followup/route.ts` — continues an existing ready thread with another user request.
-- `manage/route.ts` — accepts or rejects a ready thread.
 - `abort/route.ts` — stops the active agent run and moves the thread back to ready.
 - `upstream-sync/route.ts` — merges parent/prod updates into a thread worktree and coordinates preview DB hotswap through `/api/server/hotswap-db`.
 - `reset-stuck/route.ts` — force-resets threads stuck in accepting/fixing-types.
 - `from-branch/route.ts` — attaches thread tracking and preview machinery to an existing local branch.
-- `stream/route.ts` — streams `.primordia-session.ndjson` updates over SSE.
 - `diff/route.ts` and `diff-summary/route.ts` — expose thread-vs-parent diffs.
 - `attachment/[threadId]/route.ts` — serves files from a thread worktree's `attachments/` directory.
 - `models/route.ts`, `presets/route.ts`, `sessions/route.ts` — support thread creation UI data and history lists.
+
+Thread creation, follow-up requests, accept/reject, session log streaming, and preview server lifecycle/log operations are exposed through `/api/core` route-action endpoints instead of legacy `/api/thread` or `/api/server` compatibility routes.
 
 ## Thread state
 

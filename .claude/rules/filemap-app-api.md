@@ -26,10 +26,6 @@ app/api/
 │   ├── cancel/route.ts             ← POST cancel helper process and clean up temp config dir
 │   └── logs/route.ts               ← GET SSE stream of helper stdout/stderr/system log lines
 ├── thread/                         ← Thread and agent-run endpoints
-│   ├── route.ts                    ← POST start thread (requires can_evolve permission), GET thread status
-│   ├── stream/route.ts             ← GET SSE stream of live thread progress
-│   ├── manage/route.ts             ← POST accept/reject a ready thread
-│   ├── followup/route.ts           ← POST submit a follow-up request on an existing ready thread
 │   ├── abort/route.ts              ← POST abort the running agent instance; transitions thread to ready
 │   ├── upstream-sync/route.ts      ← POST merge parent branch into thread worktree, run bun install, and hot-swap preview DB snapshot
 │   ├── from-branch/route.ts        ← POST start a thread on an existing local branch
@@ -41,8 +37,6 @@ app/api/
 │   ├── reset-stuck/route.ts        ← POST force-reset threads stuck in 'accepting'/'fixing-types' back to 'ready'
 │   └── attachment/[threadId]/route.ts ← GET serve user-uploaded attachment files from a thread worktree
 ├── server/                         ← Preview/process management endpoints
-│   ├── kill-restart/route.ts       ← POST kill dev server process + restart it in the worktree
-│   ├── logs/route.ts               ← GET SSE stream of a thread preview server log
 │   └── hotswap-db/route.ts         ← Internal loopback-only endpoint used by Apply Updates to close/reopen preview SQLite DB
 ├── secrets/route.ts                ← Bulk GET/POST/DELETE for encrypted user secrets keyed by auth source
 ├── secrets/[source]/route.ts       ← Per-source GET/POST/DELETE for encrypted credentials/API keys

@@ -14,7 +14,7 @@ At that point `scripts/install.sh` executes:
 sudo systemctl restart --quiet primordia
 ```
 
-The `primordia` systemd service is the reverse proxy service. Restarting it drops the HTTP connection that is currently carrying `/api/thread/stream` Server-Sent Events from the thread page to the browser. The endpoint does not intentionally close because the thread is complete; the socket is severed by the proxy service restart. The next line:
+The `primordia` systemd service supervises the reverse proxy and app processes. Restarting it can drop the HTTP connection that is currently carrying `/api/core/thread/[threadId]/logs?follow=true&json=true` from the thread page to the browser. The endpoint does not intentionally close because the thread is complete; the socket is severed by the service restart. The next line:
 
 ```text
 ✓ Restarted primordia systemd service
@@ -28,7 +28,7 @@ Yes. The thread viewer now reconnects for this disconnect path.
 
 `app/thread/[id]/ThreadView.tsx` uses `fetch()` plus `ReadableStream.getReader()` for the SSE stream, not the browser's `EventSource` API. `startStreaming()` is called on page mount, after explicit thread actions, and when the tab becomes visible again if the status is not terminal. It also schedules a short retry when the reader ends without an endpoint `done` event or throws a non-abort network error.
 
-The reconnect uses the last received NDJSON line offset (`lineCountRef.current`) in `/api/thread/stream?offset=...`, so output already delivered is not duplicated and output written while the proxy was restarting is replayed when the service comes back. Retries stop once the session reaches a terminal `accepted` or `rejected` status, or when a newer stream run replaces the old one.
+The reconnect uses the last received NDJSON line offset (`lineCountRef.current`) as the Core API `start` cursor (`/api/core/thread/[threadId]/logs?json=true&follow=true&start=...`), so output already delivered is not duplicated and output written while the proxy was restarting is replayed when the service comes back. Retries stop once the session reaches a terminal `accepted` or `rejected` status, or when a newer stream run replaces the old one.
 
 Reloading the thread page still opens a fresh connection through the restarted proxy and replays the already-persisted session events, but it should no longer be required for this install-stream gap.
 
@@ -40,7 +40,7 @@ The live thread/install log is stored in the thread worktree as:
 {worktreePath}/.primordia-session.ndjson
 ```
 
-Each install output chunk is persisted as a `log_line` event in that NDJSON file. The stream endpoint reads that file and sends events newer than the browser's current line offset.
+Each install output chunk is persisted as a `log_line` event in that NDJSON file. The Core log endpoint reads that file and sends events newer than the browser's current line offset.
 
 If a thread worktree is later removed through cleanup/reject paths, Primordia archives the NDJSON file as a gzipped copy under:
 

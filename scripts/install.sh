@@ -767,7 +767,7 @@ fi
 # mirror remote if one is configured. Non-fatal: a push failure never blocks
 # the install — it just prints a warning.
 #
-# Mirrors the logic in moveMainAndPush() in app/api/thread/manage/route.ts:
+# Mirrors the logic in moveMainAndPush() in lib/threads.ts:
 #   - If main is checked out in a worktree, use `git reset --hard` there so
 #     the working tree stays consistent with the updated ref.
 #   - If main is not checked out anywhere, use `git update-ref` directly
