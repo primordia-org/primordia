@@ -35,9 +35,9 @@ import {
   setJobScheduleInterval,
   type PrimordiaJobName,
 } from '@/lib/scheduled-jobs';
-import { resolveCliPresetIdForUser } from './primordia-preset-helpers';
+import { completeCliPresetIds, resolveCliPresetIdForUser } from './primordia-preset-helpers';
 import type { SessionEvent } from '@/lib/session-events';
-import type { CliParsedArgs } from '@/lib/tiny-cli';
+import type { CliArgumentDef, CliCommandDef, CliOptionDef, CliParsedArgs, CommandContext } from '@/lib/tiny-command/common';
 
 type UserSelectorArgs = { user?: string };
 type JsonArgs = { json?: boolean };
@@ -60,7 +60,8 @@ const MISSING_CLI_KEY_MESSAGE =
   'PRIMORDIA_CLI_KEY is required for `primordia thread create`, `primordia thread followup`, and `primordia thread accept`. ' +
   'Open Settings → API keys in the web app (/settings/api-keys), create a CLI key, copy the one-time `PRIMORDIA_CLI_KEY=...` value, and export it in this shell before retrying.';
 
-function printJson(value: unknown): void {
+function printJson(context: CommandContext, value: unknown): void {
+  const { console } = context;
   console.log(JSON.stringify(value, null, 2));
 }
 
@@ -85,8 +86,9 @@ function realpathIfExists(filePath: string): string {
   }
 }
 
-function resolveCurrentThread(report: ProcessStatusReport, cwd = process.cwd()): { threadId: string; path: string } {
-  const resolvedCwd = realpathIfExists(cwd);
+function resolveCurrentThread(context: CommandContext, report: ProcessStatusReport, cwd?: string): { threadId: string; path: string } {
+  const { process } = context;
+  const resolvedCwd = realpathIfExists(cwd ?? process.cwd());
   const matches = report.worktrees
     .map((worktree) => ({ ...worktree, resolvedPath: realpathIfExists(worktree.path) }))
     .filter((worktree) => isPathInside(worktree.resolvedPath, resolvedCwd))
@@ -98,8 +100,8 @@ function resolveCurrentThread(report: ProcessStatusReport, cwd = process.cwd()):
   return { threadId: match.branch, path: match.path };
 }
 
-function resolveCurrentThreadId(): string {
-  return resolveCurrentThread(getProcessStatusReport()).threadId;
+function resolveCurrentThreadId(context: CommandContext): string {
+  return resolveCurrentThread(context, getProcessStatusReport()).threadId;
 }
 
 function resolveStartMode(args: ModeArgs | CliParsedArgs): ServerStartMode {
@@ -313,30 +315,8 @@ function createSessionHumanRenderer(): HumanLogRenderer {
   };
 }
 
-function createFollowAbortSignal(cleanup?: () => void): AbortSignal {
-  const controller = new AbortController();
-  const abort = () => {
-    cleanup?.();
-    controller.abort();
-  };
-
-  // Core API callers keep stdin connected to the HTTP request lifecycle. If the
-  // client disconnects or the dev/prod server dies, stdin closes; a --follow
-  // command must then exit instead of becoming an orphan adopted by PID 1.
-  if (!process.stdin.isTTY) {
-    process.stdin.resume();
-    process.stdin.once('end', abort);
-    process.stdin.once('close', abort);
-    process.stdin.once('error', abort);
-  }
-  process.stdout.once('error', abort);
-  process.stderr.once('error', abort);
-  process.once('SIGTERM', abort);
-  process.once('SIGINT', abort);
-  return controller.signal;
-}
-
-async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { rawNdjson?: boolean; humanFormatter?: (line: string) => HumanLogChunk | null; humanRenderer?: HumanLogRenderer } = {}): Promise<void> {
+async function renderLogFile(context: CommandContext, logFile: string, args: ServiceLogArgs, options: { rawNdjson?: boolean; humanFormatter?: (line: string) => HumanLogChunk | null; humanRenderer?: HumanLogRenderer } = {}): Promise<void> {
+  const { process, console } = context;
   const startLine = resolveLogStartLine(args);
   const lineCount = resolveLogLineCount(args, startLine);
   const follow = Boolean(args.follow || args.f);
@@ -346,7 +326,7 @@ async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { r
   if (args.json) {
     for (const line of selectedLines) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
     if (follow) {
-      for await (const line of followTextLogLines(logFile, createFollowAbortSignal())) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
+      for await (const line of followTextLogLines(logFile, process.abortSignal)) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
     }
     return;
   }
@@ -369,14 +349,14 @@ async function renderLogFile(logFile: string, args: ServiceLogArgs, options: { r
 
   for (const line of selectedLines) writeFormatted(formatter(line));
   if (follow) {
-    for await (const line of followTextLogLines(logFile, createFollowAbortSignal())) writeFormatted(formatter(line));
+    for await (const line of followTextLogLines(logFile, process.abortSignal)) writeFormatted(formatter(line));
   }
   if (renderer) writeFormatted(renderer.flush());
   if (inlineOpen) process.stdout.write('\n');
 }
 
-async function renderServerLogs(threadId: string, args: ServiceLogArgs): Promise<void> {
-  await renderLogFile(getWorktreeServerLogPath(threadId), args);
+async function renderServerLogs(context: CommandContext, threadId: string, args: ServiceLogArgs): Promise<void> {
+  await renderLogFile(context, getWorktreeServerLogPath(threadId), args);
 }
 
 function getWorktreeServerLogPath(threadId: string): string {
@@ -386,7 +366,8 @@ function getWorktreeServerLogPath(threadId: string): string {
   return path.join(worktree.path, '.primordia-next-server.log');
 }
 
-async function readRequest(args: CliParsedArgs): Promise<string> {
+async function readRequest(context: CommandContext, args: CliParsedArgs): Promise<string> {
+  const { process } = context;
   const parts = args._.length > 0 ? args._ : typeof args.request === 'string' ? [args.request] : [];
   if (parts.length === 0) throw new Error('request text required');
   if (parts.length === 1 && parts[0] === '-') {
@@ -399,7 +380,8 @@ async function readRequest(args: CliParsedArgs): Promise<string> {
   return parts.join(' ').trim();
 }
 
-async function resolveCliAuth(selector: string | undefined): Promise<{ user: { id: string; username: string }; primordiaAesKey: string }> {
+async function resolveCliAuth(context: CommandContext, selector: string | undefined): Promise<{ user: { id: string; username: string }; primordiaAesKey: string }> {
+  const { process } = context;
   const coreUserId = process.env.PRIMORDIA_CORE_USER_ID;
   const coreAesKey = process.env.PRIMORDIA_CORE_AES_KEY ?? '';
   if (coreUserId) {
@@ -451,8 +433,8 @@ function rejectUnexpectedRequestText(args: CliParsedArgs, command: string): void
   if (args._.length > 0) throw new Error(`${command} does not accept request text`);
 }
 
-function getCurrentThread(): { threadId: string; path: string } {
-  return resolveCurrentThread(getProcessStatusReport());
+function getCurrentThread(context: CommandContext): { threadId: string; path: string } {
+  return resolveCurrentThread(context, getProcessStatusReport());
 }
 
 function resolveJobName(args: CliParsedArgs): PrimordiaJobName {
@@ -461,8 +443,9 @@ function resolveJobName(args: CliParsedArgs): PrimordiaJobName {
   return value;
 }
 
-function scheduleRows(repoRoot = process.cwd()) {
-  return listJobSchedules(repoRoot).map((schedule) => ({
+function scheduleRows(context: CommandContext, repoRoot?: string) {
+  const { process } = context;
+  return listJobSchedules(repoRoot ?? process.cwd()).map((schedule) => ({
     name: schedule.name,
     intervalMs: schedule.intervalMs,
     interval: formatJobInterval(schedule.intervalMs),
@@ -472,7 +455,8 @@ function scheduleRows(repoRoot = process.cwd()) {
   }));
 }
 
-function printScheduleTable(rows: ReturnType<typeof scheduleRows>): void {
+function printScheduleTable(context: CommandContext, rows: ReturnType<typeof scheduleRows>): void {
+  const { console } = context;
   const nameWidth = Math.max('job'.length, ...rows.map((row) => row.name.length));
   const intervalWidth = Math.max('interval'.length, ...rows.map((row) => row.interval.length));
   console.log(`${'job'.padEnd(nameWidth)}  ${'interval'.padEnd(intervalWidth)}  git config`);
@@ -494,7 +478,8 @@ function sudoSupportsNonInteractive(): boolean {
   }
 }
 
-function runSystemctl(args: string[], options: { allowSudo?: boolean; interactiveSudo?: boolean } = {}): SystemctlVia | null {
+function runSystemctl(context: CommandContext, args: string[], options: { allowSudo?: boolean; interactiveSudo?: boolean } = {}): SystemctlVia | null {
+  const { process } = context;
   try {
     execFileSync('systemctl', args, { stdio: 'ignore' });
     return 'systemd';
@@ -514,14 +499,16 @@ function runSystemctl(args: string[], options: { allowSudo?: boolean; interactiv
   }
 }
 
-function signalSupervisorViaSystemd(signal: NodeJS.Signals): SystemctlVia | null {
+function signalSupervisorViaSystemd(context: CommandContext, signal: NodeJS.Signals): SystemctlVia | null {
+  const { process } = context;
   const unit = process.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
-  const activeVia = runSystemctl(['is-active', '--quiet', unit]);
+  const activeVia = runSystemctl(context, ['is-active', '--quiet', unit]);
   if (!activeVia) return null;
-  return runSystemctl(['kill', '--kill-whom=main', `--signal=${signal}`, unit], { allowSudo: sudoSupportsNonInteractive() });
+  return runSystemctl(context, ['kill', '--kill-whom=main', `--signal=${signal}`, unit], { allowSudo: sudoSupportsNonInteractive() });
 }
 
-function signalSupervisorViaPgrep(signal: NodeJS.Signals): number[] {
+function signalSupervisorViaPgrep(context: CommandContext, signal: NodeJS.Signals): number[] {
+  const { process } = context;
   let output = '';
   try {
     output = execFileSync('pgrep', ['-f', 'service-supervisor\\.(js|ts)'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
@@ -536,9 +523,10 @@ function signalSupervisorViaPgrep(signal: NodeJS.Signals): number[] {
   return pids;
 }
 
-function restartServiceSupervisor(json: boolean | undefined): void {
+function restartServiceSupervisor(context: CommandContext, json: boolean | undefined): void {
+  const { process, console } = context;
   const unit = process.env.PRIMORDIA_SERVICE_UNIT || 'primordia';
-  const via = runSystemctl(['restart', unit], { allowSudo: true, interactiveSudo: !json });
+  const via = runSystemctl(context, ['restart', unit], { allowSudo: true, interactiveSudo: !json });
   if (!via) {
     throw new Error(
       `Could not restart ${unit}; service-supervisor restart requires systemd access. ` +
@@ -546,17 +534,18 @@ function restartServiceSupervisor(json: boolean | undefined): void {
     );
   }
   const result = { ok: true, service: 'service-supervisor', action: 'restart', via };
-  if (json) printJson(result);
+  if (json) printJson(context, result);
   else console.log(`Restarted service-supervisor via ${via}.`);
 }
 
-function restartSupervisedService(service: SupervisedServiceName, json: boolean | undefined): void {
+function restartSupervisedService(context: CommandContext, service: SupervisedServiceName, json: boolean | undefined): void {
+  const { console } = context;
   const signal = serviceSignal(service);
-  const viaSystemd = signalSupervisorViaSystemd(signal);
-  const pids = viaSystemd ? [] : signalSupervisorViaPgrep(signal);
+  const viaSystemd = signalSupervisorViaSystemd(context, signal);
+  const pids = viaSystemd ? [] : signalSupervisorViaPgrep(context, signal);
   if (!viaSystemd && pids.length === 0) throw new Error('Primordia service-supervisor is not running or could not be signaled');
   const result = { ok: true, service, action: 'restart', signal, via: viaSystemd ?? 'process', pids };
-  if (json) printJson(result);
+  if (json) printJson(context, result);
   else console.log(`Signaled ${service} restart via ${result.via} (${signal}).`);
 }
 
@@ -574,34 +563,38 @@ export function completeModelIds(): string[] {
   return [...new Set(Object.values(MODEL_OPTIONS).flatMap((models) => models.map((model) => model.id)))];
 }
 
-export function statusCommand(args: CliParsedArgs & JsonArgs): void {
+export function statusCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): void {
+  const { console } = context;
   const report = getProcessStatusReport();
-  if (args.json) printJson(report);
+  if (args.json) printJson(context, report);
   else console.log(formatProcessStatusReport(report));
 }
 
-export async function jobsRunCommand(args: CliParsedArgs & JsonArgs): Promise<void> {
+export async function jobsRunCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): Promise<void> {
+  const { process, console } = context;
   const listenPort = Number.parseInt(process.env.REVERSE_PROXY_PORT ?? '', 10);
   const started = runPrimordiaJobs({
     repoRoot: process.cwd(),
     listenPort: Number.isFinite(listenPort) ? listenPort : undefined,
     archiveRoot: process.env.PRIMORDIA_DIR,
   });
-  if (args.json) printJson({ ok: started, command: 'jobs run', schedules: scheduleRows() });
+  if (args.json) printJson(context, { ok: started, command: 'jobs run', schedules: scheduleRows(context) });
   else console.log(started ? 'Primordia jobs daemon running. Press Ctrl-C to stop.' : 'Another Primordia jobs scheduler is already running.');
   if (!started) return;
   await new Promise(() => { /* keep daemon alive */ });
 }
 
-export async function jobsRunOneCommand(args: CliParsedArgs & JsonArgs): Promise<void> {
+export async function jobsRunOneCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): Promise<void> {
+  const { process, console } = context;
   const job = resolveJobName(args);
   const result = await runPrimordiaJobOnce(job, { repoRoot: process.cwd() });
-  if (args.json) printJson(result);
+  if (args.json) printJson(context, result);
   else console.log(`${result.ok ? 'ok' : 'failed'}: ${result.summary}`);
   if (!result.ok) process.exit(1);
 }
 
-function serviceLogFile(service: SupervisedServiceName): string {
+function serviceLogFile(context: CommandContext, service: SupervisedServiceName): string {
+  const { process } = context;
   const root = process.env.PRIMORDIA_DIR || process.cwd();
   return path.join(root, service === 'reverse-proxy' ? '.primordia-reverse-proxy.log' : '.primordia-scheduled-jobs.log');
 }
@@ -628,44 +621,46 @@ function selectLogLines(lines: string[], lineCount: number, startLine: number | 
   return lines.slice(startLine - 1, startLine - 1 + lineCount);
 }
 
-async function renderServiceLog(service: SupervisedServiceName, args: ServiceLogArgs): Promise<void> {
-  await renderLogFile(serviceLogFile(service), args);
+async function renderServiceLog(context: CommandContext, service: SupervisedServiceName, args: ServiceLogArgs): Promise<void> {
+  await renderLogFile(context, serviceLogFile(context, service), args);
 }
 
-export function systemdServiceSupervisorRestartCommand(args: CliParsedArgs & JsonArgs): void {
-  restartServiceSupervisor(args.json);
+export function systemdServiceSupervisorRestartCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): void {
+  restartServiceSupervisor(context, args.json);
 }
 
-export function reverseProxyRestartCommand(args: CliParsedArgs & JsonArgs): void {
-  restartSupervisedService('reverse-proxy', args.json);
+export function reverseProxyRestartCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): void {
+  restartSupervisedService(context, 'reverse-proxy', args.json);
 }
 
-export async function reverseProxyLogsCommand(args: CliParsedArgs & ServiceLogArgs): Promise<void> {
-  await renderServiceLog('reverse-proxy', args);
+export async function reverseProxyLogsCommand(context: CommandContext, args: CliParsedArgs & ServiceLogArgs): Promise<void> {
+  await renderServiceLog(context, 'reverse-proxy', args);
 }
 
-export function jobsRestartCommand(args: CliParsedArgs & JsonArgs): void {
-  restartSupervisedService('scheduled-jobs', args.json);
+export function jobsRestartCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): void {
+  restartSupervisedService(context, 'scheduled-jobs', args.json);
 }
 
-export async function jobsLogsCommand(args: CliParsedArgs & ServiceLogArgs): Promise<void> {
-  await renderServiceLog('scheduled-jobs', args);
+export async function jobsLogsCommand(context: CommandContext, args: CliParsedArgs & ServiceLogArgs): Promise<void> {
+  await renderServiceLog(context, 'scheduled-jobs', args);
 }
 
-export function jobsScheduleListCommand(args: CliParsedArgs & JsonArgs): void {
-  const rows = scheduleRows();
-  if (args.json) printJson({ schedules: rows });
-  else printScheduleTable(rows);
+export function jobsScheduleListCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): void {
+  const rows = scheduleRows(context);
+  if (args.json) printJson(context, { schedules: rows });
+  else printScheduleTable(context, rows);
 }
 
-export function jobsScheduleGetCommand(args: CliParsedArgs & JsonArgs): void {
+export function jobsScheduleGetCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): void {
+  const { console } = context;
   const job = resolveJobName(args);
-  const row = scheduleRows().find((schedule) => schedule.name === job)!;
-  if (args.json) printJson(row);
+  const row = scheduleRows(context).find((schedule) => schedule.name === job)!;
+  if (args.json) printJson(context, row);
   else console.log(`${row.name}: ${row.interval} (${row.intervalMs}ms)`);
 }
 
-export function jobsScheduleSetCommand(args: CliParsedArgs & JsonArgs): void {
+export function jobsScheduleSetCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): void {
+  const { console } = context;
   const job = resolveJobName(args);
   const intervalValue = String(args._[1] ?? args.interval ?? '');
   if (!intervalValue) throw new Error('interval required');
@@ -678,7 +673,7 @@ export function jobsScheduleSetCommand(args: CliParsedArgs & JsonArgs): void {
     defaultInterval: formatJobInterval(updated.defaultIntervalMs),
     gitConfigKey: updated.gitConfigKey,
   };
-  if (args.json) printJson(row);
+  if (args.json) printJson(context, row);
   else console.log(`${row.name}: ${row.interval} (${row.gitConfigKey})`);
 }
 
@@ -722,7 +717,8 @@ async function resolveAndValidatePreferencePreset(userId: string, cliPresetId: s
   return resolvedPreset;
 }
 
-export async function preferencesGetCommand(args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
+export async function preferencesGetCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
+  const { console } = context;
   rejectUnexpectedRequestText(args, 'preferences get');
   const user = await resolveCliUser(args.user);
   const db = await getDb();
@@ -741,7 +737,7 @@ export async function preferencesGetCommand(args: CliParsedArgs & JsonArgs & Use
     },
     effectiveThreadFormDefaults: effective,
   };
-  if (args.json) printJson(result);
+  if (args.json) printJson(context, result);
   else {
     console.log(`User: ${user.username} (${user.id})`);
     console.log(`preferred preset: ${result.preferences.preferredPreset ?? '(not set)'}`);
@@ -752,7 +748,8 @@ export async function preferencesGetCommand(args: CliParsedArgs & JsonArgs & Use
   }
 }
 
-export async function preferencesSetCommand(args: CliParsedArgs & JsonArgs & UserSelectorArgs & PreferenceSetArgs): Promise<void> {
+export async function preferencesSetCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs & PreferenceSetArgs): Promise<void> {
+  const { console } = context;
   rejectUnexpectedRequestText(args, 'preferences set');
   const user = await resolveCliUser(args.user);
   const updates: Record<string, string> = {};
@@ -778,7 +775,7 @@ export async function preferencesSetCommand(args: CliParsedArgs & JsonArgs & Use
   await db.setUserPreferences(user.id, updates);
   const effective = await getThreadPrefs(user.id);
   const result = { ok: true, user, updated: updates, effectiveThreadFormDefaults: effective };
-  if (args.json) printJson(result);
+  if (args.json) printJson(context, result);
   else {
     console.log(`Updated preferences for ${user.username}.`);
     for (const [key, value] of Object.entries(updates)) console.log(`${key}: ${value}`);
@@ -797,8 +794,9 @@ function formatServerStatus(snapshot: ReturnType<typeof getServerStatus>, json: 
   return json ? JSON.stringify(snapshot) : `${snapshot.threadId}: ${snapshot.status}`;
 }
 
-export async function serverStatusCommand(args: CliParsedArgs & ServerStatusArgs): Promise<void> {
-  const thread = getCurrentThread();
+export async function serverStatusCommand(context: CommandContext, args: CliParsedArgs & ServerStatusArgs): Promise<void> {
+  const { console } = context;
+  const thread = getCurrentThread(context);
   let previous = '';
   do {
     const snapshot = getServerStatus(thread.threadId);
@@ -812,52 +810,57 @@ export async function serverStatusCommand(args: CliParsedArgs & ServerStatusArgs
   } while (true);
 }
 
-export async function serverStartCommand(args: CliParsedArgs): Promise<void> {
-  const thread = getCurrentThread();
+export async function serverStartCommand(context: CommandContext, args: CliParsedArgs): Promise<void> {
+  const { console } = context;
+  const thread = getCurrentThread(context);
   const result = await startWorktreeServer(thread.threadId, resolveStartMode(args));
-  if (args.json) printJson(result);
+  if (args.json) printJson(context, result);
   else console.log(result.message);
 }
 
-export async function serverStopCommand(args: CliParsedArgs): Promise<void> {
-  const thread = getCurrentThread();
+export async function serverStopCommand(context: CommandContext, args: CliParsedArgs): Promise<void> {
+  const { console } = context;
+  const thread = getCurrentThread(context);
   const result = await stopWorktreeServer(thread.threadId);
-  if (args.json) printJson(result);
+  if (args.json) printJson(context, result);
   else console.log(result.message);
 }
 
-export async function serverRestartCommand(args: CliParsedArgs): Promise<void> {
-  const thread = getCurrentThread();
+export async function serverRestartCommand(context: CommandContext, args: CliParsedArgs): Promise<void> {
+  const { console } = context;
+  const thread = getCurrentThread(context);
   const result = await restartWorktreeServer(thread.threadId, resolveStartMode(args));
-  if (args.json) printJson(result);
+  if (args.json) printJson(context, result);
   else console.log(result.message);
 }
 
-export async function serverLogsCommand(args: CliParsedArgs & ServiceLogArgs): Promise<void> {
-  const thread = getCurrentThread();
-  await renderServerLogs(thread.threadId, args);
+export async function serverLogsCommand(context: CommandContext, args: CliParsedArgs & ServiceLogArgs): Promise<void> {
+  const thread = getCurrentThread(context);
+  await renderServerLogs(context, thread.threadId, args);
 }
 
-export async function threadLogsCommand(args: CliParsedArgs & ServiceLogArgs): Promise<void> {
-  const thread = getCurrentThread();
-  await renderLogFile(path.join(thread.path, '.primordia-session.ndjson'), args, {
+export async function threadLogsCommand(context: CommandContext, args: CliParsedArgs & ServiceLogArgs): Promise<void> {
+  const thread = getCurrentThread(context);
+  await renderLogFile(context, path.join(thread.path, '.primordia-session.ndjson'), args, {
     rawNdjson: true,
     humanRenderer: createSessionHumanRenderer(),
   });
 }
 
-export async function serverPublishCommand(args: CliParsedArgs): Promise<void> {
-  const thread = getCurrentThread();
+export async function serverPublishCommand(context: CommandContext, args: CliParsedArgs): Promise<void> {
+  const { console } = context;
+  const thread = getCurrentThread(context);
   const result = await publishProductionBranch(thread.threadId);
-  if (args.json) printJson(result);
+  if (args.json) printJson(context, result);
   else console.log(result.message);
 }
 
-export async function serverCopyDbCommand(args: CliParsedArgs): Promise<void> {
-  const thread = getCurrentThread();
+export async function serverCopyDbCommand(context: CommandContext, args: CliParsedArgs): Promise<void> {
+  const { process, console } = context;
+  const thread = getCurrentThread(context);
   const result = await copyProductionDbToWorktree(process.cwd(), thread.path);
   if (args.json) {
-    printJson(result);
+    printJson(context, result);
   } else if (result.copied) {
     console.log(`Copied production DB from ${result.sourcePath} to ${result.destinationPath}`);
   } else {
@@ -866,9 +869,10 @@ export async function serverCopyDbCommand(args: CliParsedArgs): Promise<void> {
   if (!result.copied) process.exit(1);
 }
 
-export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & PresetArgs & CavemanArgs & UserSelectorArgs & AttachArgs): Promise<void> {
-  const requestText = await readRequest(args);
-  const { user, primordiaAesKey } = await resolveCliAuth(args.user);
+export async function threadCreateCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & PresetArgs & CavemanArgs & UserSelectorArgs & AttachArgs): Promise<void> {
+  const { console } = context;
+  const requestText = await readRequest(context, args);
+  const { user, primordiaAesKey } = await resolveCliAuth(context, args.user);
   const cavemanEnabled = args.caveman === true || args.caveman === 'true';
   const cavemanIntensity = typeof args['caveman-intensity'] === 'string' && (CAVEMAN_INTENSITIES as readonly string[]).includes(args['caveman-intensity'])
     ? args['caveman-intensity'] as (typeof CAVEMAN_INTENSITIES)[number]
@@ -884,14 +888,15 @@ export async function threadCreateCommand(args: CliParsedArgs & JsonArgs & Prese
     runInBackground: false,
   });
   if (!result.ok) throw cliSecretError(result.error, `thread creation failed (${result.status})`);
-  if (args.json) printJson({ ok: true, command: 'thread create', threadId: result.sessionId, worktreePath: result.worktreePath, background: true });
+  if (args.json) printJson(context, { ok: true, command: 'thread create', threadId: result.sessionId, worktreePath: result.worktreePath, background: true });
   else console.log(`New thread started in ${result.worktreePath}`);
 }
 
-export async function threadFollowupCommand(args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs & AttachArgs): Promise<void> {
-  const requestText = await readRequest(args);
-  const { user, primordiaAesKey } = await resolveCliAuth(args.user);
-  const threadId = resolveCurrentThreadId();
+export async function threadFollowupCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs & AttachArgs): Promise<void> {
+  const { console } = context;
+  const requestText = await readRequest(context, args);
+  const { user, primordiaAesKey } = await resolveCliAuth(context, args.user);
+  const threadId = resolveCurrentThreadId(context);
   const result = await followupThread({
     userId: user.id,
     threadId,
@@ -902,29 +907,31 @@ export async function threadFollowupCommand(args: CliParsedArgs & JsonArgs & Pre
     runInBackground: false,
   });
   if (!result.ok) throw cliSecretError(result.error, 'follow-up failed');
-  if (args.json) printJson({ ok: true, command: 'thread followup', thread: threadId, background: true });
+  if (args.json) printJson(context, { ok: true, command: 'thread followup', thread: threadId, background: true });
   else console.log(`Follow-up started for ${threadId}.`);
 }
 
-export async function threadUpdateCommand(args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
+export async function threadUpdateCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
+  const { console } = context;
   rejectUnexpectedRequestText(args, 'update');
   const user = await resolveCliUser(args.user);
-  const threadId = resolveCurrentThreadId();
+  const threadId = resolveCurrentThreadId(context);
   const result = await updateThread({ userId: user.id, threadId });
   if (!result.ok) throw new Error(result.error);
-  if (args.json) printJson({ ok: true, command: 'thread update', thread: threadId, outcome: result.outcome, log: result.log });
+  if (args.json) printJson(context, { ok: true, command: 'thread update', thread: threadId, outcome: result.outcome, log: result.log });
   else {
     console.log(`Updated ${threadId}: ${result.outcome}.`);
     if (result.log.trim()) console.log(result.log.trim());
   }
 }
 
-async function handleDecision(args: CliParsedArgs & JsonArgs & UserSelectorArgs, action: 'accept' | 'reject'): Promise<void> {
+async function handleDecision(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs, action: 'accept' | 'reject'): Promise<void> {
+  const { console } = context;
   rejectUnexpectedRequestText(args, action);
   const auth = action === 'accept'
-    ? await resolveCliAuth(args.user)
+    ? await resolveCliAuth(context, args.user)
     : { user: await resolveCliUser(args.user), primordiaAesKey: null };
-  const threadId = resolveCurrentThreadId();
+  const threadId = resolveCurrentThreadId(context);
   const result = await manageThread({
     userId: auth.user.id,
     threadId,
@@ -932,14 +939,442 @@ async function handleDecision(args: CliParsedArgs & JsonArgs & UserSelectorArgs,
     primordiaAesKey: auth.primordiaAesKey,
   });
   if (!result.ok) throw cliSecretError(result.error, 'thread decision failed');
-  if (args.json) printJson({ ok: true, command: `thread ${action}`, thread: threadId, outcome: result.outcome });
+  if (args.json) printJson(context, { ok: true, command: `thread ${action}`, thread: threadId, outcome: result.outcome });
   else console.log(`${action === 'accept' ? 'Accept' : 'Reject'} started for ${threadId}: ${result.outcome}.`);
 }
 
-export function threadAcceptCommand(args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
-  return handleDecision(args, 'accept');
+export function threadAcceptCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
+  return handleDecision(context, args, 'accept');
 }
 
-export function threadRejectCommand(args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
-  return handleDecision(args, 'reject');
+export function threadRejectCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
+  return handleDecision(context, args, 'reject');
 }
+
+
+const commandHandlers = {
+  statusCommand, jobsRunCommand, jobsRunOneCommand, systemdServiceSupervisorRestartCommand, reverseProxyRestartCommand, reverseProxyLogsCommand, jobsRestartCommand, jobsLogsCommand, jobsScheduleListCommand, jobsScheduleGetCommand, jobsScheduleSetCommand, preferencesGetCommand, preferencesSetCommand, serverStatusCommand, serverStartCommand, serverStopCommand, serverRestartCommand, serverLogsCommand, threadLogsCommand, serverPublishCommand, serverCopyDbCommand, threadCreateCommand, threadFollowupCommand, threadUpdateCommand, threadAcceptCommand, threadRejectCommand,
+};
+
+const jsonOption: CliOptionDef = {
+  name: 'json',
+  type: 'boolean',
+  description: 'Print machine-formatted output instead of human-readable output. Log commands use NDJSON.',
+};
+
+const devOption: CliOptionDef = {
+  name: 'dev',
+  type: 'boolean',
+  description: 'Start with bun run dev. This is the default.',
+};
+
+const prodOption: CliOptionDef = {
+  name: 'prod',
+  type: 'boolean',
+  description: 'Start with bun run start.',
+};
+
+const userOption: CliOptionDef = {
+  name: 'user',
+  type: 'string',
+  valueHint: 'id-or-username',
+  description: 'Primordia user id or username for thread commands.',
+  complete() {
+    return completeUsers();
+  },
+};
+
+const BUILT_IN_CLI_PRESET_IDS = [
+  'claude-code-gateway',
+  'claude-code-subscription',
+  'claude-code-api-key',
+  'codex-gateway',
+  'codex-chatgpt',
+  'codex-openai-api-key',
+  'pi-chatgpt-codex-mini',
+  'pi-openrouter-sonnet',
+  'pi-openrouter-gemini-flash',
+  'pi-gemini-flash',
+  'free-option',
+];
+
+const presetOption: CliOptionDef = {
+  name: 'preset',
+  type: 'string',
+  valueHint: 'preset',
+  description: "Preset id. Built-in presets omit the 'builtin:' prefix. Defaults to the user's saved preset when available.",
+  complete(context) {
+    return completeCliPresetIds(context).catch(() => BUILT_IN_CLI_PRESET_IDS);
+  },
+};
+
+const harnessOption: CliOptionDef = {
+  name: 'harness',
+  type: 'string',
+  valueHint: 'harness',
+  description: 'Preferred fallback harness for the thread form: claude-code, pi, or codex.',
+  complete() {
+    return ['claude-code', 'pi', 'codex'];
+  },
+};
+
+const modelOption: CliOptionDef = {
+  name: 'model',
+  type: 'string',
+  valueHint: 'model',
+  description: 'Preferred fallback model id for the selected harness.',
+  complete() {
+    return completeModelIds();
+  },
+};
+
+const cavemanOption: CliOptionDef = {
+  name: 'caveman',
+  type: 'string',
+  valueHint: 'true|false',
+  description: 'Whether caveman mode should be enabled by default in thread forms.',
+  complete() {
+    return ['true', 'false'];
+  },
+};
+
+const cavemanIntensityOption: CliOptionDef = {
+  name: 'caveman-intensity',
+  type: 'string',
+  valueHint: 'intensity',
+  description: 'Default caveman intensity: lite, full, ultra, wenyan-lite, wenyan-full, or wenyan-ultra.',
+  complete() {
+    return ['lite', 'full', 'ultra', 'wenyan-lite', 'wenyan-full', 'wenyan-ultra'];
+  },
+};
+
+const followOption: CliOptionDef = {
+  name: 'follow',
+  alias: 'f',
+  type: 'boolean',
+  description: 'Keep streaming appended log lines.',
+};
+
+const linesOption: CliOptionDef = {
+  name: 'lines',
+  alias: 'n',
+  type: 'string',
+  valueHint: 'count',
+  description: 'Number of recent log lines to print. With --start, this limits how many lines to print from the cursor.',
+};
+
+const startLineOption: CliOptionDef = {
+  name: 'start',
+  alias: 's',
+  type: 'string',
+  valueHint: 'line',
+  description: 'Print log lines starting at 1-based line number N instead of tailing recent lines.',
+};
+
+const attachOption: CliOptionDef = {
+  name: 'attach',
+  alias: 'a',
+  type: 'string',
+  valueHint: 'file',
+  description: 'Attach a file to the thread request. May be provided multiple times.',
+  multiple: true,
+};
+
+const requestArgument: CliArgumentDef = {
+  name: 'request',
+  required: false,
+  valueHint: 'request',
+  description: "Change request text. Pass '-' to read it from stdin.",
+};
+
+const jobNameArgument: CliArgumentDef = {
+  name: 'job',
+  required: true,
+  valueHint: 'job',
+  description: 'Job name: update-sources, dependency-audit, leak-diagnostics, or disk-cleanup.',
+  complete() {
+    return completeJobNames();
+  },
+};
+
+const intervalArgument: CliArgumentDef = {
+  name: 'interval',
+  required: true,
+  valueHint: 'interval',
+  description: 'Interval such as 60000, 60s, 5m, 1h, or 1d.',
+};
+
+function lazyRun(name: keyof typeof commandHandlers) {
+  return async ({ args, context }: { args: CliParsedArgs; context: CommandContext }) => {
+    const handler = commandHandlers[name] as (context: CommandContext, args: CliParsedArgs) => unknown | Promise<unknown>;
+    return handler(context, args);
+  };
+}
+
+const statusCommandDef: CliCommandDef = {
+  name: 'status',
+  description: 'List reverse proxy, threads, Next.js servers, and active agents.',
+  options: [jsonOption],
+  api: { path: '/status', method: 'GET' },
+  run: lazyRun('statusCommand'),
+};
+
+const serverStatusCommandDef: CliCommandDef = {
+  name: 'status',
+  description: "Show the current thread's server status. With --follow --json, emit an NDJSON update whenever it changes.",
+  options: [jsonOption, followOption],
+  api: { path: '/server/[threadId]/status', method: 'GET', streaming: true, cwdParam: 'threadId' },
+  run: lazyRun('serverStatusCommand'),
+};
+
+const startCommandDef: CliCommandDef = {
+  name: 'start',
+  description: "Start the thread's Next.js server.",
+  options: [jsonOption, devOption, prodOption],
+  api: { path: '/server/[threadId]/start', cwdParam: 'threadId' },
+  run: lazyRun('serverStartCommand'),
+};
+
+const stopCommandDef: CliCommandDef = {
+  name: 'stop',
+  description: "Stop the thread's active server process(es).",
+  options: [jsonOption],
+  api: { path: '/server/[threadId]/stop', cwdParam: 'threadId' },
+  run: lazyRun('serverStopCommand'),
+};
+
+const restartCommandDef: CliCommandDef = {
+  name: 'restart',
+  description: "Stop, then start, the thread's server.",
+  options: [jsonOption, devOption, prodOption],
+  api: { path: '/server/[threadId]/restart', cwdParam: 'threadId' },
+  run: lazyRun('serverRestartCommand'),
+};
+
+const logsCommandDef: CliCommandDef = {
+  name: 'logs',
+  description: "Print the thread's server log file. With --json, emits NDJSON records wrapping each log line.",
+  options: [jsonOption, linesOption, startLineOption, followOption],
+  api: { path: '/server/[threadId]/logs', method: 'GET', streaming: true, cwdParam: 'threadId' },
+  run: lazyRun('serverLogsCommand'),
+};
+
+const publishCommandDef: CliCommandDef = {
+  name: 'publish',
+  description: "Health-check the thread's server, then promote it to production.",
+  options: [jsonOption],
+  api: { path: '/server/[threadId]/publish', cwdParam: 'threadId' },
+  run: lazyRun('serverPublishCommand'),
+};
+
+const copyDbCommandDef: CliCommandDef = {
+  name: 'copydb',
+  description: 'Safely copy the production SQLite DB into the thread.',
+  options: [jsonOption],
+  api: { path: '/server/[threadId]/copydb', cwdParam: 'threadId' },
+  run: lazyRun('serverCopyDbCommand'),
+};
+
+const createCommandDef: CliCommandDef = {
+  name: 'create',
+  description: 'Create a thread and run its initial agent turn.',
+  options: [jsonOption, userOption, presetOption, cavemanOption, cavemanIntensityOption, attachOption],
+  arguments: [requestArgument],
+  api: { path: '/thread', multipart: true },
+  run: lazyRun('threadCreateCommand'),
+};
+
+const followupCommandDef: CliCommandDef = {
+  name: 'followup',
+  description: 'Run a follow-up request on the current thread.',
+  options: [jsonOption, userOption, presetOption, attachOption],
+  arguments: [requestArgument],
+  api: { path: '/thread/[threadId]/followup', multipart: true, cwdParam: 'threadId' },
+  run: lazyRun('threadFollowupCommand'),
+};
+
+const threadLogsCommandDef: CliCommandDef = {
+  name: 'logs',
+  description: "Print the thread's session log in a human-readable form. With --json, emits raw NDJSON events.",
+  options: [jsonOption, linesOption, startLineOption, followOption],
+  api: { path: '/thread/[threadId]/logs', method: 'GET', streaming: true, cwdParam: 'threadId' },
+  run: lazyRun('threadLogsCommand'),
+};
+
+const updateCommandDef: CliCommandDef = {
+  name: 'update',
+  description: 'Apply parent/prod updates to the current thread.',
+  options: [jsonOption, userOption],
+  api: { path: '/thread/[threadId]/update', cwdParam: 'threadId' },
+  run: lazyRun('threadUpdateCommand'),
+};
+
+const acceptCommandDef: CliCommandDef = {
+  name: 'accept',
+  description: 'Accept (deploy/merge) the current thread.',
+  options: [jsonOption, userOption],
+  api: { path: '/thread/[threadId]/accept', cwdParam: 'threadId' },
+  run: lazyRun('threadAcceptCommand'),
+};
+
+const rejectCommandDef: CliCommandDef = {
+  name: 'reject',
+  description: 'Reject (discard) the current thread.',
+  options: [jsonOption, userOption],
+  api: { path: '/thread/[threadId]/reject', cwdParam: 'threadId' },
+  run: lazyRun('threadRejectCommand'),
+};
+
+const jobsRunCommandDef: CliCommandDef = {
+  name: 'run',
+  description: 'Run the Primordia scheduled jobs daemon in this process.',
+  options: [jsonOption],
+  api: { path: '/jobs/run', streaming: true },
+  run: lazyRun('jobsRunCommand'),
+};
+
+const jobsRunOneCommandDef: CliCommandDef = {
+  name: 'run-one',
+  description: 'Run one Primordia scheduled job immediately.',
+  options: [jsonOption],
+  arguments: [jobNameArgument],
+  api: { path: '/jobs/run-one' },
+  run: lazyRun('jobsRunOneCommand'),
+};
+
+const jobsScheduleListCommandDef: CliCommandDef = {
+  name: 'list',
+  description: 'List scheduled job intervals.',
+  options: [jsonOption],
+  api: { path: '/jobs/schedule', method: 'GET' },
+  run: lazyRun('jobsScheduleListCommand'),
+};
+
+const jobsScheduleGetCommandDef: CliCommandDef = {
+  name: 'get',
+  description: 'Read one scheduled job interval.',
+  options: [jsonOption],
+  arguments: [jobNameArgument],
+  api: { path: '/jobs/schedule/[job]', method: 'GET' },
+  run: lazyRun('jobsScheduleGetCommand'),
+};
+
+const jobsScheduleSetCommandDef: CliCommandDef = {
+  name: 'set',
+  description: 'Set one scheduled job interval.',
+  options: [jsonOption],
+  arguments: [jobNameArgument, intervalArgument],
+  api: { path: '/jobs/schedule/[job]/set' },
+  run: lazyRun('jobsScheduleSetCommand'),
+};
+
+const jobsScheduleCommandDef: CliCommandDef = {
+  name: 'schedule',
+  description: 'Read or change scheduled job intervals.',
+  subcommands: [jobsScheduleListCommandDef, jobsScheduleGetCommandDef, jobsScheduleSetCommandDef],
+};
+
+const jobsRestartCommandDef: CliCommandDef = {
+  name: 'restart',
+  description: 'Restart the supervised scheduled jobs daemon.',
+  options: [jsonOption],
+  api: { path: '/jobs/restart' },
+  run: lazyRun('jobsRestartCommand'),
+};
+
+const jobsLogsCommandDef: CliCommandDef = {
+  name: 'logs',
+  description: 'Print the supervised scheduled jobs daemon log.',
+  options: [jsonOption, linesOption, startLineOption, followOption],
+  api: { path: '/jobs/logs', method: 'GET', streaming: true },
+  run: lazyRun('jobsLogsCommand'),
+};
+
+const jobsCommandDef: CliCommandDef = {
+  name: 'jobs',
+  description: 'Run and configure Primordia Core scheduled jobs.',
+  subcommands: [jobsRunCommandDef, jobsRunOneCommandDef, jobsRestartCommandDef, jobsLogsCommandDef, jobsScheduleCommandDef],
+};
+
+const reverseProxyRestartCommandDef: CliCommandDef = {
+  name: 'restart',
+  description: 'Restart the supervised reverse proxy service.',
+  options: [jsonOption],
+  api: { path: '/reverse-proxy/restart' },
+  run: lazyRun('reverseProxyRestartCommand'),
+};
+
+const reverseProxyLogsCommandDef: CliCommandDef = {
+  name: 'logs',
+  description: 'Print the supervised reverse proxy service log.',
+  options: [jsonOption, linesOption, startLineOption, followOption],
+  api: { path: '/reverse-proxy/logs', method: 'GET', streaming: true },
+  run: lazyRun('reverseProxyLogsCommand'),
+};
+
+const reverseProxyCommandDef: CliCommandDef = {
+  name: 'reverse-proxy',
+  description: 'Manage the supervised reverse proxy service.',
+  subcommands: [reverseProxyRestartCommandDef, reverseProxyLogsCommandDef],
+};
+
+const serviceSupervisorRestartCommandDef: CliCommandDef = {
+  name: 'restart',
+  description: 'Restart only the Primordia service-supervisor systemd service.',
+  options: [jsonOption],
+  api: { path: '/systemd/service-supervisor/restart' },
+  run: lazyRun('systemdServiceSupervisorRestartCommand'),
+};
+
+const serviceSupervisorCommandDef: CliCommandDef = {
+  name: 'service-supervisor',
+  description: 'Manage the systemd-supervised Primordia service supervisor.',
+  subcommands: [serviceSupervisorRestartCommandDef],
+};
+
+const systemdCommandDef: CliCommandDef = {
+  name: 'systemd',
+  description: 'Manage Primordia systemd-backed processes.',
+  subcommands: [serviceSupervisorCommandDef],
+};
+
+const preferencesGetCommandDef: CliCommandDef = {
+  name: 'get',
+  description: 'Show saved user preferences used by thread creation.',
+  options: [jsonOption, userOption],
+  api: { path: '/preferences', method: 'GET' },
+  run: lazyRun('preferencesGetCommand'),
+};
+
+const preferencesSetCommandDef: CliCommandDef = {
+  name: 'set',
+  description: 'Set saved user preferences used by thread creation.',
+  options: [jsonOption, userOption, presetOption, harnessOption, modelOption, cavemanOption, cavemanIntensityOption],
+  api: { path: '/preferences/set' },
+  run: lazyRun('preferencesSetCommand'),
+};
+
+const preferencesCommandDef: CliCommandDef = {
+  name: 'preferences',
+  description: 'Read and set per-user thread preferences.',
+  subcommands: [preferencesGetCommandDef, preferencesSetCommandDef],
+};
+
+const threadCommandDef: CliCommandDef = {
+  name: 'thread',
+  description: 'Manage Primordia agentic coding threads.',
+  subcommands: [createCommandDef, followupCommandDef, threadLogsCommandDef, updateCommandDef, acceptCommandDef, rejectCommandDef],
+};
+
+const serverCommandDef: CliCommandDef = {
+  name: 'server',
+  description: 'Manage the current thread server process.',
+  subcommands: [serverStatusCommandDef, startCommandDef, stopCommandDef, restartCommandDef, logsCommandDef, publishCommandDef, copyDbCommandDef],
+};
+
+
+export const mainCommand: CliCommandDef = {
+  name: 'primordia',
+  description: 'Manage Primordia thread and server lifecycle tasks.',
+  subcommands: [statusCommandDef, threadCommandDef, preferencesCommandDef, serverCommandDef, jobsCommandDef, reverseProxyCommandDef, systemdCommandDef],
+};
