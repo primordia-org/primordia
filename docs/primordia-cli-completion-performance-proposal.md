@@ -2,7 +2,7 @@
 
 ## Implementation status
 
-Implemented on the `citty-cli-refactor` branch. The CLI entrypoint now stays on a lightweight command-metadata path for `--help`, `completion bash`, and `__complete`; runtime command implementations live in `scripts/primordia-command-handlers.ts` and are loaded only when a real command runs or when an explicitly dynamic completion hook (such as `--user`) needs them.
+Implemented on the `citty-cli-refactor` branch. The CLI entrypoint now stays on a lightweight command-metadata path for `--help`, `completion bash`, and `__complete`; runtime command implementations live in `scripts/primordia-command-handlers.ts` and are loaded only when a real command runs or when an explicitly dynamic completion hook (such as API-key-scoped custom preset completion) needs them.
 
 Measured after the split:
 
@@ -129,13 +129,13 @@ The tiny CLI runner should not evaluate those dynamic imports for `--help`, `com
 Completion should use command metadata only for:
 
 - subcommand names (`status`, `thread`, `server`, etc.)
-- static option names (`--json`, `--user`, `--preset`, `--prod`, etc.)
+- static option names (`--json`, `--preset`, `--prod`, etc.)
 - static argument hints
 
 Dynamic completion hooks should be opt-in and should document their cost. Expensive hooks should be avoided on hot paths. For example:
 
 - Keep `--preset` completion static for built-in presets, or move custom preset completion behind an explicit env gate later.
-- Consider dropping `--user` dynamic DB completion if it keeps startup above the target. User completion is nice-to-have; fast tab completion is required.
+- `--user` dynamic DB completion was dropped; user-scoped commands now derive identity from `PRIMORDIA_CLI_KEY` or the Core web API key.
 
 ### 4. Optional: add a tiny dedicated completion entrypoint
 

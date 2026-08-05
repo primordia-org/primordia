@@ -40,7 +40,6 @@ import { completeCliPresetIds, resolveCliPresetIdForUser } from './primordia-pre
 import type { SessionEvent } from '@/lib/session-events';
 import type { CliArgumentDef, CliCommandDef, CliOptionDef, CliParsedArgs, CommandContext } from '@/lib/tiny-command/common';
 
-type UserSelectorArgs = { user?: string };
 type JsonArgs = { json?: boolean };
 type ModeArgs = { dev?: boolean; prod?: boolean };
 type PresetArgs = { preset?: string };
@@ -58,7 +57,7 @@ type ServiceLogArgs = JsonArgs & { lines?: string; n?: string; start?: string; s
 type ServerStatusArgs = JsonArgs & { follow?: boolean; f?: boolean };
 
 const MISSING_CLI_KEY_MESSAGE =
-  'PRIMORDIA_CLI_KEY is required for `primordia thread create`, `primordia thread followup`, and `primordia thread accept`. ' +
+  'PRIMORDIA_CLI_KEY is required for user-scoped Primordia CLI commands. ' +
   'Open Settings → API keys in the web app (/settings/api-keys), create a CLI key, copy the one-time `PRIMORDIA_CLI_KEY=...` value, and export it in this shell before retrying.';
 
 function printJson(context: CommandContext, value: unknown): void {
@@ -381,16 +380,11 @@ async function readRequest(context: CommandContext, args: CliParsedArgs): Promis
   return parts.join(' ').trim();
 }
 
-async function resolveCliAuth(context: CommandContext, selector: string | undefined): Promise<{ user: { id: string; username: string }; primordiaAesKey: string }> {
+async function resolveCliAuth(context: CommandContext): Promise<{ user: { id: string; username: string }; primordiaAesKey: string }> {
   const { process } = context;
   const coreUserId = process.env.PRIMORDIA_CORE_USER_ID;
   const coreAesKey = process.env.PRIMORDIA_CORE_AES_KEY ?? '';
   if (coreUserId) {
-    if (selector && selector !== coreUserId) {
-      const selected = await resolveCliUser(selector);
-      if (selected.id !== coreUserId) throw new Error('The authenticated Primordia Core web key belongs to a different user than --user.');
-      return { user: selected, primordiaAesKey: coreAesKey };
-    }
     const db = await getDb();
     const user = await db.getUserById(coreUserId);
     if (!user) throw new Error('The authenticated Primordia Core web key refers to a user that no longer exists.');
@@ -403,31 +397,10 @@ async function resolveCliAuth(context: CommandContext, selector: string | undefi
   }
 
   const resolved = await resolvePrimordiaCliKey(rawCliKey, 'cli');
-  if (selector && selector !== resolved.userId) {
-    const selected = await resolveCliUser(selector);
-    if (selected.id !== resolved.userId) {
-      throw new Error('PRIMORDIA_CLI_KEY belongs to a different Primordia user than --user. Create a CLI key for that user or omit --user.');
-    }
-    return { user: selected, primordiaAesKey: resolved.aesKeyJwkJson };
-  }
   const db = await getDb();
   const user = await db.getUserById(resolved.userId);
   if (!user) throw new Error('PRIMORDIA_CLI_KEY refers to a user that no longer exists.');
   return { user, primordiaAesKey: resolved.aesKeyJwkJson };
-}
-
-async function resolveCliUser(selector: string | undefined): Promise<{ id: string; username: string }> {
-  const db = await getDb();
-  const user = selector
-    ? ((await db.getUserById(selector)) ?? (await db.getUserByUsername(selector)))
-    : null;
-  if (user) return user;
-  if (selector) throw new Error(`Primordia user not found: ${selector}`);
-
-  const users = await db.getAllUsers();
-  if (users.length === 1) return users[0];
-  if (users.length === 0) throw new Error('No Primordia users exist yet. Sign in through the web app first.');
-  throw new Error('Multiple Primordia users exist; pass --user <id-or-username>.');
 }
 
 function rejectUnexpectedRequestText(args: CliParsedArgs, command: string): void {
@@ -548,12 +521,6 @@ function restartSupervisedService(context: CommandContext, service: SupervisedSe
   const result = { ok: true, service, action: 'restart', signal, via: viaSystemd ?? 'process', pids };
   if (json) printJson(context, result);
   else console.log(`Signaled ${service} restart via ${result.via} (${signal}).`);
-}
-
-export async function completeUsers(): Promise<string[]> {
-  const db = await getDb();
-  const users = await db.getAllUsers();
-  return users.flatMap((user) => [user.username, user.id]);
 }
 
 export function completeJobNames(): string[] {
@@ -718,10 +685,10 @@ async function resolveAndValidatePreferencePreset(userId: string, cliPresetId: s
   return resolvedPreset;
 }
 
-export async function preferencesGetCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
+export async function preferencesGetCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): Promise<void> {
   const { console } = context;
   rejectUnexpectedRequestText(args, 'preferences get');
-  const user = await resolveCliUser(args.user);
+  const { user } = await resolveCliAuth(context);
   const db = await getDb();
   const [raw, effective] = await Promise.all([
     db.getUserPreferences(user.id, [PREF_PRESET, PREF_HARNESS, PREF_MODEL, PREF_CAVEMAN, PREF_CAVEMAN_INTENSITY]),
@@ -749,10 +716,10 @@ export async function preferencesGetCommand(context: CommandContext, args: CliPa
   }
 }
 
-export async function preferencesSetCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs & PreferenceSetArgs): Promise<void> {
+export async function preferencesSetCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & PreferenceSetArgs): Promise<void> {
   const { console } = context;
   rejectUnexpectedRequestText(args, 'preferences set');
-  const user = await resolveCliUser(args.user);
+  const { user } = await resolveCliAuth(context);
   const updates: Record<string, string> = {};
 
   if (args.preset !== undefined) {
@@ -870,10 +837,10 @@ export async function serverCopyDbCommand(context: CommandContext, args: CliPars
   if (!result.copied) process.exit(1);
 }
 
-export async function threadCreateCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & PresetArgs & CavemanArgs & UserSelectorArgs & AttachArgs): Promise<void> {
+export async function threadCreateCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & PresetArgs & CavemanArgs & AttachArgs): Promise<void> {
   const { console } = context;
   const requestText = await readRequest(context, args);
-  const { user, primordiaAesKey } = await resolveCliAuth(context, args.user);
+  const { user, primordiaAesKey } = await resolveCliAuth(context);
   const cavemanEnabled = args.caveman === true || args.caveman === 'true';
   const cavemanIntensity = typeof args['caveman-intensity'] === 'string' && (CAVEMAN_INTENSITIES as readonly string[]).includes(args['caveman-intensity'])
     ? args['caveman-intensity'] as (typeof CAVEMAN_INTENSITIES)[number]
@@ -893,10 +860,10 @@ export async function threadCreateCommand(context: CommandContext, args: CliPars
   else console.log(`New thread started in ${result.worktreePath}`);
 }
 
-export async function threadFollowupCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & PresetArgs & UserSelectorArgs & AttachArgs): Promise<void> {
+export async function threadFollowupCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & PresetArgs & AttachArgs): Promise<void> {
   const { console } = context;
   const requestText = await readRequest(context, args);
-  const { user, primordiaAesKey } = await resolveCliAuth(context, args.user);
+  const { user, primordiaAesKey } = await resolveCliAuth(context);
   const threadId = resolveCurrentThreadId(context);
   const result = await followupThread({
     userId: user.id,
@@ -912,10 +879,10 @@ export async function threadFollowupCommand(context: CommandContext, args: CliPa
   else console.log(`Follow-up started for ${threadId}.`);
 }
 
-export async function threadUpdateCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
+export async function threadUpdateCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): Promise<void> {
   const { console } = context;
   rejectUnexpectedRequestText(args, 'update');
-  const user = await resolveCliUser(args.user);
+  const { user } = await resolveCliAuth(context);
   const threadId = resolveCurrentThreadId(context);
   const result = await updateThread({ userId: user.id, threadId });
   if (!result.ok) throw new Error(result.error);
@@ -926,12 +893,10 @@ export async function threadUpdateCommand(context: CommandContext, args: CliPars
   }
 }
 
-async function handleDecision(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs, action: 'accept' | 'reject'): Promise<void> {
+async function handleDecision(context: CommandContext, args: CliParsedArgs & JsonArgs, action: 'accept' | 'reject'): Promise<void> {
   const { console } = context;
   rejectUnexpectedRequestText(args, action);
-  const auth = action === 'accept'
-    ? await resolveCliAuth(context, args.user)
-    : { user: await resolveCliUser(args.user), primordiaAesKey: null };
+  const auth = await resolveCliAuth(context);
   const threadId = resolveCurrentThreadId(context);
   const result = await manageThread({
     userId: auth.user.id,
@@ -944,11 +909,11 @@ async function handleDecision(context: CommandContext, args: CliParsedArgs & Jso
   else console.log(`${action === 'accept' ? 'Accept' : 'Reject'} started for ${threadId}: ${result.outcome}.`);
 }
 
-export function threadAcceptCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
+export function threadAcceptCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): Promise<void> {
   return handleDecision(context, args, 'accept');
 }
 
-export function threadRejectCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & UserSelectorArgs): Promise<void> {
+export function threadRejectCommand(context: CommandContext, args: CliParsedArgs & JsonArgs): Promise<void> {
   return handleDecision(context, args, 'reject');
 }
 
@@ -973,16 +938,6 @@ const prodOption: CliOptionDef = {
   name: 'prod',
   type: 'boolean',
   description: 'Start with bun run start.',
-};
-
-const userOption: CliOptionDef = {
-  name: 'user',
-  type: 'string',
-  valueHint: 'id-or-username',
-  description: 'Primordia user id or username for thread commands.',
-  complete() {
-    return completeUsers();
-  },
 };
 
 const BUILT_IN_CLI_PRESET_IDS = [
@@ -1179,7 +1134,7 @@ const copyDbCommandDef: CliCommandDef = {
 const createCommandDef: CliCommandDef = {
   name: 'create',
   description: 'Create a thread and run its initial agent turn.',
-  options: [jsonOption, userOption, presetOption, cavemanOption, cavemanIntensityOption, attachOption],
+  options: [jsonOption, presetOption, cavemanOption, cavemanIntensityOption, attachOption],
   arguments: [requestArgument],
   api: { path: '/thread', multipart: true },
   run: lazyRun('threadCreateCommand'),
@@ -1188,7 +1143,7 @@ const createCommandDef: CliCommandDef = {
 const followupCommandDef: CliCommandDef = {
   name: 'followup',
   description: 'Run a follow-up request on the current thread.',
-  options: [jsonOption, userOption, presetOption, attachOption],
+  options: [jsonOption, presetOption, attachOption],
   arguments: [requestArgument],
   api: { path: '/thread/[threadId]/followup', multipart: true, cwdParam: 'threadId' },
   run: lazyRun('threadFollowupCommand'),
@@ -1205,7 +1160,7 @@ const threadLogsCommandDef: CliCommandDef = {
 const updateCommandDef: CliCommandDef = {
   name: 'update',
   description: 'Apply parent/prod updates to the current thread.',
-  options: [jsonOption, userOption],
+  options: [jsonOption],
   api: { path: '/thread/[threadId]/update', cwdParam: 'threadId' },
   run: lazyRun('threadUpdateCommand'),
 };
@@ -1213,7 +1168,7 @@ const updateCommandDef: CliCommandDef = {
 const acceptCommandDef: CliCommandDef = {
   name: 'accept',
   description: 'Accept (deploy/merge) the current thread.',
-  options: [jsonOption, userOption],
+  options: [jsonOption],
   api: { path: '/thread/[threadId]/accept', cwdParam: 'threadId' },
   run: lazyRun('threadAcceptCommand'),
 };
@@ -1221,7 +1176,7 @@ const acceptCommandDef: CliCommandDef = {
 const rejectCommandDef: CliCommandDef = {
   name: 'reject',
   description: 'Reject (discard) the current thread.',
-  options: [jsonOption, userOption],
+  options: [jsonOption],
   api: { path: '/thread/[threadId]/reject', cwdParam: 'threadId' },
   run: lazyRun('threadRejectCommand'),
 };
@@ -1342,7 +1297,7 @@ const systemdCommandDef: CliCommandDef = {
 const preferencesGetCommandDef: CliCommandDef = {
   name: 'get',
   description: 'Show saved user preferences used by thread creation.',
-  options: [jsonOption, userOption],
+  options: [jsonOption],
   api: { path: '/preferences', method: 'GET' },
   run: lazyRun('preferencesGetCommand'),
 };
@@ -1350,7 +1305,7 @@ const preferencesGetCommandDef: CliCommandDef = {
 const preferencesSetCommandDef: CliCommandDef = {
   name: 'set',
   description: 'Set saved user preferences used by thread creation.',
-  options: [jsonOption, userOption, presetOption, harnessOption, modelOption, cavemanOption, cavemanIntensityOption],
+  options: [jsonOption, presetOption, harnessOption, modelOption, cavemanOption, cavemanIntensityOption],
   api: { path: '/preferences/set' },
   run: lazyRun('preferencesSetCommand'),
 };
