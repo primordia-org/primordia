@@ -13,11 +13,11 @@ async function authorize(request: Request) {
   const header = request.headers.get('authorization') ?? '';
   const match = header.match(/^Bearer\s+(.+)$/i);
   if (!match) throw new Error('Authorization header must be Bearer <web-api-key>.');
-  const resolved = await resolvePrimordiaCliKey(match[1], 'web');
+  await resolvePrimordiaCliKey(match[1], 'web');
   return {
     env: {
-      PRIMORDIA_CORE_USER_ID: resolved.userId,
-      PRIMORDIA_CORE_AES_KEY: resolved.aesKeyJwkJson,
+      PRIMORDIA_CLI_KEY: match[1],
+      PRIMORDIA_CLI_KEY_CLIENT: 'web',
     },
   };
 }

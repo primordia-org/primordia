@@ -380,26 +380,22 @@ async function readRequest(context: CommandContext, args: CliParsedArgs): Promis
   return parts.join(' ').trim();
 }
 
+function expectedApiKeyClient(context: CommandContext): 'cli' | 'web' {
+  return context.process.env.PRIMORDIA_CLI_KEY_CLIENT === 'web' ? 'web' : 'cli';
+}
+
 async function resolveCliAuth(context: CommandContext): Promise<{ user: { id: string; username: string }; primordiaAesKey: string }> {
   const { process } = context;
-  const coreUserId = process.env.PRIMORDIA_CORE_USER_ID;
-  const coreAesKey = process.env.PRIMORDIA_CORE_AES_KEY ?? '';
-  if (coreUserId) {
-    const db = await getDb();
-    const user = await db.getUserById(coreUserId);
-    if (!user) throw new Error('The authenticated Primordia Core web key refers to a user that no longer exists.');
-    return { user, primordiaAesKey: coreAesKey };
-  }
-
   const rawCliKey = process.env.PRIMORDIA_CLI_KEY;
   if (!rawCliKey) {
     throw new Error(MISSING_CLI_KEY_MESSAGE);
   }
 
-  const resolved = await resolvePrimordiaCliKey(rawCliKey, 'cli');
+  const expectedClient = expectedApiKeyClient(context);
+  const resolved = await resolvePrimordiaCliKey(rawCliKey, expectedClient);
   const db = await getDb();
   const user = await db.getUserById(resolved.userId);
-  if (!user) throw new Error('PRIMORDIA_CLI_KEY refers to a user that no longer exists.');
+  if (!user) throw new Error('Primordia API key refers to a user that no longer exists.');
   return { user, primordiaAesKey: resolved.aesKeyJwkJson };
 }
 
