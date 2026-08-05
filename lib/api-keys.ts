@@ -14,10 +14,8 @@ export interface ParsedApiKey {
 }
 
 export interface ResolvedPrimordiaApiKey {
-  userId: string;
   user: { id: string; username: string };
   aesKeyJwkJson: string;
-  primordiaAesKey: string;
   record: RevokableAesKey;
 }
 
@@ -65,7 +63,7 @@ export async function resolvePrimordiaApiKey(value: string, expectedClient?: 'cl
     db.getUserById(record.userId),
   ]);
   if (!user) throw new Error('Primordia API key refers to a user that no longer exists.');
-  return { userId: record.userId, user, aesKeyJwkJson, primordiaAesKey: aesKeyJwkJson, record };
+  return { user, aesKeyJwkJson, record };
 }
 
 export function publicRevokableAesKey(record: RevokableAesKey) {

@@ -823,7 +823,7 @@ export async function serverCopyDbCommand(context: CommandContext, args: CliPars
 export async function threadCreateCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & PresetArgs & CavemanArgs & AttachArgs): Promise<void> {
   const { console } = context;
   const requestText = await readRequest(context, args);
-  const { user, primordiaAesKey } = await resolvePrimordiaApiKey(requirePrimordiaApiKey(context));
+  const { user, aesKeyJwkJson: primordiaAesKey } = await resolvePrimordiaApiKey(requirePrimordiaApiKey(context));
   const cavemanEnabled = args.caveman === true || args.caveman === 'true';
   const cavemanIntensity = typeof args['caveman-intensity'] === 'string' && (CAVEMAN_INTENSITIES as readonly string[]).includes(args['caveman-intensity'])
     ? args['caveman-intensity'] as (typeof CAVEMAN_INTENSITIES)[number]
@@ -846,7 +846,7 @@ export async function threadCreateCommand(context: CommandContext, args: CliPars
 export async function threadFollowupCommand(context: CommandContext, args: CliParsedArgs & JsonArgs & PresetArgs & AttachArgs): Promise<void> {
   const { console } = context;
   const requestText = await readRequest(context, args);
-  const { user, primordiaAesKey } = await resolvePrimordiaApiKey(requirePrimordiaApiKey(context));
+  const { user, aesKeyJwkJson: primordiaAesKey } = await resolvePrimordiaApiKey(requirePrimordiaApiKey(context));
   const threadId = resolveCurrentThreadId(context);
   const result = await followupThread({
     userId: user.id,
@@ -885,7 +885,7 @@ async function handleDecision(context: CommandContext, args: CliParsedArgs & Jso
     userId: auth.user.id,
     threadId,
     action,
-    primordiaAesKey: auth.primordiaAesKey,
+    primordiaAesKey: auth.aesKeyJwkJson,
   });
   if (!result.ok) throw cliSecretError(result.error, 'thread decision failed');
   if (args.json) printJson(context, { ok: true, command: `thread ${action}`, thread: threadId, outcome: result.outcome });

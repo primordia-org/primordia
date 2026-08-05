@@ -41,7 +41,7 @@ function customPresetCliEntries(customPresets: ThreadPreset[]): Array<{ cliId: s
 async function resolveCompletionUserId(): Promise<string | null> {
   if (!process.env.PRIMORDIA_API_KEY) return null;
   const resolved = await resolvePrimordiaApiKey(process.env.PRIMORDIA_API_KEY);
-  return resolved.userId;
+  return resolved.user.id;
 }
 
 async function customPresetsForUser(userId: string): Promise<ThreadPreset[]> {
