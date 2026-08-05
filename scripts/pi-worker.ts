@@ -35,6 +35,7 @@ import {
 import { InMemoryPiCredentialStore } from '@/lib/pi-auth-storage';
 import { ensurePrimordiaPiModelsJson } from '@/lib/pi-custom-models';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
+import { applyCurrentProcessOomRole } from '@/lib/oom-priority';
 import { decryptWorkerSecretForUser } from '@/lib/worker-secret-env';
 import { storeEncryptedSecretForUser } from '@/lib/server-secrets';
 import {
@@ -47,6 +48,8 @@ import { removeLockFile, writePidFile } from '@/lib/lockfile';
 // ---------------------------------------------------------------------------
 // LLM backend configuration
 // ---------------------------------------------------------------------------
+
+applyCurrentProcessOomRole('agent-worker', (message) => console.warn(`[pi-worker] ${message}`));
 
 const ANTHROPIC_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/anthropic';
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai';

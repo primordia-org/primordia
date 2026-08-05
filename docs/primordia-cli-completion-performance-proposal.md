@@ -26,7 +26,7 @@ $ for i in 1 2 3 4 5; do /usr/bin/time -f '%e' bun /tmp/primordia.js __complete 
 0.01
 ```
 
-The bundled completion artifact now includes only `scripts/primordia.ts` and `lib/tiny-cli.ts`. One important implementation detail: handler and dynamic completion imports use opaque module specifier constants. Bun bundles literal dynamic imports, so `import('./primordia-command-handlers')` still included the heavy handler graph in the bundle; `import(COMMAND_HANDLERS_MODULE)` keeps it out of the help/completion bundle.
+The bundled completion artifact originally included only `scripts/primordia.ts` and the tiny command CLI runtime. One important implementation detail: handler and dynamic completion imports use opaque module specifier constants. Bun bundles literal dynamic imports, so `import('./primordia-command-handlers')` still included the heavy handler graph in the bundle; `import(COMMAND_HANDLERS_MODULE)` keeps it out of the help/completion bundle.
 
 ## Problem
 
@@ -101,7 +101,7 @@ Create a small module, for example `scripts/primordia-cli-definition.ts`, that e
 - static completion definitions
 - handler module names or handler keys, but not handler imports
 
-This module should import only `lib/tiny-cli.ts` types/helpers and small static data. It must not import `lib/threads.ts`, `lib/process-manager.ts`, `lib/db`, model registries, or worker harness packages.
+This module should import only tiny command types/helpers and small static data. It must not import `lib/threads.ts`, `lib/process-manager.ts`, `lib/db`, model registries, or worker harness packages.
 
 ### 2. Use lazy imports inside command handlers
 

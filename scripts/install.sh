@@ -661,6 +661,10 @@ ExecStart=${MISE_BIN} exec -C ${PRIMORDIA_DIR} -- bun ${PRIMORDIA_DIR}/${service
 Restart=always
 RestartSec=5
 KillMode=process
+# Start the supervisor maximally protected from the kernel OOM killer. Primordia
+# child daemons deliberately raise their own oom_score_adj so memory pressure
+# kills dev previews/agents before production infrastructure.
+OOMScoreAdjust=-1000
 StandardOutput=journal
 StandardError=journal
 
@@ -701,6 +705,12 @@ restart_primordia_service() {
   elif [[ "$service_name" == "scheduled-jobs" ]]; then
     ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia jobs restart --json >"$restart_log" 2>&1
   else
+    # Restarting the systemd-facing supervisor requires systemd privileges. The
+    # CLI has a sudo fallback, but this installer is the best place to refresh
+    # the sudo timestamp because command output is redirected to the log file.
+    if [[ "$(id -u)" != "0" ]]; then
+      sudo -n true 2>/dev/null || sudo -v
+    fi
     ${MISE_BIN} exec -C "${INSTALL_DIR}" -- bun run primordia systemd service-supervisor restart --json >"$restart_log" 2>&1
   fi
   _INSTALL_COMMAND_OUTPUT_FILE=""

@@ -1,83 +1,13 @@
-export type CliValue = string | string[] | boolean | undefined;
-
-export class CliUsageError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'CliUsageError';
-  }
-}
-
-export interface CliParsedArgs {
-  _: string[];
-  [key: string]: CliValue | string[];
-}
-
-export interface CliCompletionContext {
-  words: string[];
-  current: string;
-  previous: string | undefined;
-  commandPath: string[];
-}
-
-export type CliCompletionSource = (context: CliCompletionContext) => string[] | Promise<string[]>;
-
-export interface CliOptionDef {
-  name: string;
-  alias?: string;
-  type: 'boolean' | 'string';
-  valueHint?: string;
-  description: string;
-  complete?: CliCompletionSource;
-  /** Allow the option to be provided more than once. Repeated values are exposed as string[]. */
-  multiple?: boolean;
-}
-
-export interface CliArgumentDef {
-  name: string;
-  required?: boolean;
-  valueHint?: string;
-  description: string;
-  complete?: CliCompletionSource;
-}
-
-export interface CliApiDef {
-  /** Expose this runnable command through the generated Core API. Defaults to false until a route is assigned. */
-  expose?: boolean;
-  /** Route path relative to the Core API root, e.g. /status or /thread/[threadId]/followup. */
-  path?: string;
-  /** HTTP method for this action. Use GET for read-only query commands and POST for mutations. */
-  method?: 'GET' | 'POST';
-  /** Whether callers should expect the response body to stream by default. */
-  streaming?: boolean;
-  /** Whether this action accepts multipart/form-data request bodies. */
-  multipart?: boolean;
-  /** Path parameter whose value should resolve the command cwd to that thread worktree. */
-  cwdParam?: string;
-}
-
-export interface CliCommandDef {
-  name: string;
-  description: string;
-  options?: CliOptionDef[];
-  arguments?: CliArgumentDef[];
-  subcommands?: CliCommandDef[];
-  complete?: CliCompletionSource;
-  hidden?: boolean;
-  api?: CliApiDef;
-  run?: (context: { args: CliParsedArgs; rawArgs: string[]; commandPath: string[] }) => unknown | Promise<unknown>;
-}
-
-export interface CliApiRouteDef {
-  path: string;
-  httpMethod: 'GET' | 'POST';
-  commandPath: string[];
-  description: string;
-  streaming: boolean;
-  multipart: boolean;
-  cwdParam?: string;
-  options: Array<Pick<CliOptionDef, 'name' | 'alias' | 'type' | 'valueHint' | 'description' | 'multiple'>>;
-  arguments: Array<Pick<CliArgumentDef, 'name' | 'required' | 'valueHint' | 'description'>>;
-}
+import {
+  CliUsageError,
+  ProcessExit,
+  createProcessConsole,
+  type CliCommandDef,
+  type CliCompletionContext,
+  type CliOptionDef,
+  type CliParsedArgs,
+  type CommandContext,
+} from './common';
 
 interface ResolvedCommand {
   command: CliCommandDef;
@@ -112,31 +42,6 @@ function flattenCommands(command: CliCommandDef, prefix = command.name): Array<{
     rows.push(...flattenCommands(subcommand, path));
   }
   return rows;
-}
-
-function flattenCommandEntries(command: CliCommandDef, path: string[] = [command.name]): Array<{ path: string[]; command: CliCommandDef }> {
-  const rows: Array<{ path: string[]; command: CliCommandDef }> = [{ path, command }];
-  for (const subcommand of command.subcommands ?? []) {
-    rows.push(...flattenCommandEntries(subcommand, [...path, subcommand.name]));
-  }
-  return rows;
-}
-
-export function listCliApiRoutes(root: CliCommandDef): CliApiRouteDef[] {
-  return flattenCommandEntries(root)
-    .filter(({ command }) => Boolean(command.run) && Boolean(command.api?.path) && command.api?.expose !== false && !command.hidden)
-    .map(({ path, command }) => ({
-      path: command.api?.path ?? `/${path.slice(1).join('/')}`,
-      httpMethod: command.api?.method ?? 'POST',
-      commandPath: path.slice(1),
-      description: command.description,
-      streaming: command.api?.streaming ?? false,
-      multipart: command.api?.multipart ?? false,
-      cwdParam: command.api?.cwdParam,
-      options: (command.options ?? []).map(({ name, alias, type, valueHint, description, multiple }) => ({ name, alias, type, valueHint, description, multiple })),
-      arguments: (command.arguments ?? []).map(({ name, required, valueHint, description }) => ({ name, required, valueHint, description })),
-    }))
-    .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 function padRight(value: string, width: number): string {
@@ -307,9 +212,9 @@ export function parseCliArgs(command: CliCommandDef, rawArgs: string[]): CliPars
   return args;
 }
 
-async function completeCli(root: CliCommandDef, rawWords: string[]): Promise<string[]> {
+async function completeCli(root: CliCommandDef, rawWords: string[], commandContext: CommandContext): Promise<string[]> {
   const words = rawWords[0] === '--' ? rawWords.slice(1) : rawWords;
-  const compCword = Number(process.env.COMP_CWORD);
+  const compCword = Number(commandContext.process.env.COMP_CWORD);
   const currentIndex = Number.isFinite(compCword) ? Math.max(0, compCword - 1) : Math.max(0, words.length - 1);
   const current = words[currentIndex] ?? '';
   const previous = currentIndex > 0 ? words[currentIndex - 1] : undefined;
@@ -317,7 +222,7 @@ async function completeCli(root: CliCommandDef, rawWords: string[]): Promise<str
   const resolved = resolveCommand(root, wordsBeforeCurrent);
   const command = resolved.command;
   const commandPath = resolved.path;
-  const context: CliCompletionContext = { words, current, previous, commandPath };
+  const completionContext: CliCompletionContext = { words, current, previous, commandPath };
 
   const previousOption = previous?.startsWith('--')
     ? command.options?.find((option) => option.name === previous.slice(2))
@@ -325,7 +230,7 @@ async function completeCli(root: CliCommandDef, rawWords: string[]): Promise<str
       ? command.options?.find((option) => option.alias === previous.slice(1))
       : undefined;
   if (previousOption?.type === 'string') {
-    return previousOption.complete ? filterCompletions(await previousOption.complete(context), current) : [];
+    return previousOption.complete ? filterCompletions(await previousOption.complete(completionContext), current) : [];
   }
 
   if (current.startsWith('-')) {
@@ -342,10 +247,10 @@ async function completeCli(root: CliCommandDef, rawWords: string[]): Promise<str
 
   const subcommandCompletions = visibleSubcommands(command).map((subcommand) => subcommand.name);
   if (command === root) subcommandCompletions.push('completion');
-  const commandCompletions = command.complete ? await command.complete(context) : [];
+  const commandCompletions = command.complete ? await command.complete(completionContext) : [];
   const argumentIndex = resolved.remaining.filter((word) => !word.startsWith('-')).length;
   const argument = command.arguments?.[argumentIndex];
-  const argumentCompletions = argument?.complete ? await argument.complete(context) : [];
+  const argumentCompletions = argument?.complete ? await argument.complete(completionContext) : [];
   return filterCompletions([...subcommandCompletions, ...commandCompletions, ...argumentCompletions], current);
 }
 
@@ -373,28 +278,68 @@ export function renderBashCompletion(commandName: string): string {
   ].join('\n');
 }
 
-export async function runCli(root: CliCommandDef, rawArgs: string[]): Promise<void> {
-  if (rawArgs[0] === '__complete') {
-    const completions = await completeCli(root, rawArgs.slice(1));
-    console.log(completions.join('\n'));
-    return;
-  }
+function createCliContext(): { context: CommandContext; cleanup: () => void } {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  process.once('SIGTERM', abort);
+  process.once('SIGINT', abort);
 
-  if (rawArgs.length === 2 && rawArgs[0] === 'completion' && rawArgs[1] === 'bash') {
-    console.log(renderBashCompletion(root.name));
-    return;
-  }
+  return {
+    context: {
+      process: {
+        cwd: () => process.cwd(),
+        env: process.env,
+        stdin: process.stdin,
+        stdout: process.stdout,
+        stderr: process.stderr,
+        pid: process.pid,
+        abortSignal: controller.signal,
+        kill(pid, signal) { process.kill(pid, signal); },
+        exit(code = 0): never { throw new ProcessExit(code); },
+      },
+      console: createProcessConsole(process.stdout, process.stderr),
+    },
+    cleanup: () => {
+      process.removeListener('SIGTERM', abort);
+      process.removeListener('SIGINT', abort);
+    },
+  };
+}
 
-  if (rawArgs.includes('--help') || rawArgs.includes('-h') || rawArgs.length === 0) {
-    console.log(renderCliHelp(root));
-    return;
-  }
+export async function runCli(root: CliCommandDef, rawArgs: string[], context?: CommandContext): Promise<void> {
+  const ownsProcessExit = !context;
+  const runtime = context ? { context, cleanup: () => {} } : createCliContext();
+  const runtimeContext = runtime.context;
+  try {
+    if (rawArgs[0] === '__complete') {
+      const completions = await completeCli(root, rawArgs.slice(1), runtimeContext);
+      runtimeContext.console.log(completions.join('\n'));
+      return;
+    }
 
-  const resolved = resolveCommand(root, rawArgs);
-  if (visibleSubcommands(resolved.command).length > 0 && !resolved.command.run) {
-    throw new CliUsageError(`No command specified for ${resolved.path.join(' ')}`);
+    if (rawArgs.length === 2 && rawArgs[0] === 'completion' && rawArgs[1] === 'bash') {
+      runtimeContext.console.log(renderBashCompletion(root.name));
+      return;
+    }
+
+    if (rawArgs.includes('--help') || rawArgs.includes('-h') || rawArgs.length === 0) {
+      runtimeContext.console.log(renderCliHelp(root));
+      return;
+    }
+
+    const resolved = resolveCommand(root, rawArgs);
+    if (visibleSubcommands(resolved.command).length > 0 && !resolved.command.run) {
+      throw new CliUsageError(`No command specified for ${resolved.path.join(' ')}`);
+    }
+    if (!resolved.command.run) throw new CliUsageError(`Unknown command: ${resolved.remaining[0] ?? rawArgs.join(' ')}`);
+    const args = parseCliArgs(resolved.command, resolved.remaining);
+    await resolved.command.run({ args, rawArgs: resolved.remaining, commandPath: resolved.path, context: runtimeContext });
+  } catch (error) {
+    if (ownsProcessExit && error instanceof ProcessExit) {
+      process.exit(error.code);
+    }
+    throw error;
+  } finally {
+    runtime.cleanup();
   }
-  if (!resolved.command.run) throw new CliUsageError(`Unknown command: ${resolved.remaining[0] ?? rawArgs.join(' ')}`);
-  const args = parseCliArgs(resolved.command, resolved.remaining);
-  await resolved.command.run({ args, rawArgs: resolved.remaining, commandPath: resolved.path });
 }

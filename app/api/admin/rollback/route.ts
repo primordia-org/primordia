@@ -13,6 +13,7 @@ import * as net from 'net';
 import * as path from 'path';
 import { Database } from 'bun:sqlite';
 import { getSessionUser, isAdmin } from '@/lib/auth';
+import { applyOomScoreAdj, OOM_SCORE_ADJ } from '@/lib/oom-priority';
 
 const DB_NAME = '.primordia-auth.db';
 
@@ -217,6 +218,7 @@ export async function POST(req: Request) {
       stdio: 'ignore',
       detached: true,
     });
+    if (newServer.pid) applyOomScoreAdj(newServer.pid, OOM_SCORE_ADJ['production-server'], 'rollback production server');
     newServer.unref();
 
     const deadline = Date.now() + 30_000;

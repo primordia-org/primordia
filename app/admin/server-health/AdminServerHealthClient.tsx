@@ -26,12 +26,55 @@ interface NonProdWorktree {
   ctimeMs: number;
 }
 
+type LeakDiagnosticsCategory = "cpu_usage" | "memory_leak";
+
 interface LeakDiagnosticsInfo {
   exists: boolean;
   path: string;
   capturedAt: number | null;
   sizeBytes: number | null;
   reason: string | null;
+  categories: LeakDiagnosticsCategory[];
+  dismissedCategories: LeakDiagnosticsCategory[];
+  activeCategories: LeakDiagnosticsCategory[];
+}
+
+interface OomKillEvent {
+  occurredAt: string | null;
+  pid: number | null;
+  processName: string | null;
+  taskMemcg: string | null;
+  totalVmKB: number | null;
+  anonRssKB: number | null;
+  fileRssKB: number | null;
+  raw: string;
+}
+
+interface OomKillSummary {
+  checkedAt: number;
+  source: "journalctl" | "dmesg" | "unavailable";
+  events: OomKillEvent[];
+  error: string | null;
+}
+
+interface PrimordiaMemoryProcess {
+  pid: number;
+  ppid: number;
+  etimes: number;
+  cpuPercent: number;
+  rssKB: number;
+  oomScoreAdj: number | null;
+  category: string;
+  command: string;
+}
+
+interface PrimordiaMemorySnapshot {
+  checkedAt: number;
+  totalRssKB: number;
+  coreApiCommandRssKB: number;
+  coreApiCommandCount: number;
+  longLivedCoreApiCommandCount: number;
+  topProcesses: PrimordiaMemoryProcess[];
 }
 
 interface HealthData {
@@ -39,12 +82,26 @@ interface HealthData {
   memory: MemoryInfo | null;
   oldestNonProdWorktree: NonProdWorktree | null;
   leakDiagnostics: LeakDiagnosticsInfo;
+  oomKills: OomKillSummary;
+  primordiaMemory: PrimordiaMemorySnapshot;
 }
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
   if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`;
   return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+function formatKb(kb: number | null): string {
+  if (kb === null) return "—";
+  return formatBytes(kb * 1024);
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds >= 86_400) return `${Math.floor(seconds / 86_400)}d`;
+  if (seconds >= 3_600) return `${Math.floor(seconds / 3_600)}h`;
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}m`;
+  return `${seconds}s`;
 }
 
 function UsageBar({ percent, threshold = 90 }: { percent: number; threshold?: number }) {
@@ -69,7 +126,8 @@ export default function AdminServerHealthClient() {
   const [deleting, setDeleting] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [creatingLeakSession, setCreatingLeakSession] = useState(false);
+  const [creatingLeakSession, setCreatingLeakSession] = useState<LeakDiagnosticsCategory | null>(null);
+  const [dismissingLeakIssue, setDismissingLeakIssue] = useState<LeakDiagnosticsCategory | null>(null);
   const [leakSessionError, setLeakSessionError] = useState<string | null>(null);
 
   // Configurable proxy settings
@@ -134,22 +192,58 @@ export default function AdminServerHealthClient() {
     }, 500);
   }
 
-  async function handleCreateLeakSession() {
-    trackEvent("admin/leak-diagnostics-session-created/v1", { path: data?.leakDiagnostics.path });
-    setCreatingLeakSession(true);
+  async function handleCreateLeakSession(category: LeakDiagnosticsCategory) {
+    trackEvent("admin/leak-diagnostics-session-created/v1", { path: data?.leakDiagnostics.path, category });
+    setCreatingLeakSession(category);
     setLeakSessionError(null);
     try {
       const res = await fetch(withBasePath("/api/admin/server-health"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create-leak-diagnostics-session" }),
+        body: JSON.stringify({ action: "create-leak-diagnostics-session", category }),
       });
       const body = await res.json().catch(() => ({})) as { threadId?: string; error?: string };
       if (!res.ok || !body.threadId) throw new Error(body.error ?? `HTTP ${res.status}`);
       window.location.href = withBasePath(`/thread/${body.threadId}`);
     } catch (e) {
       setLeakSessionError(String(e));
-      setCreatingLeakSession(false);
+      setCreatingLeakSession(null);
+    }
+  }
+
+  async function handleDismissLeakIssue(category: LeakDiagnosticsCategory) {
+    trackEvent("admin/leak-diagnostics-dismissed/v1", { path: data?.leakDiagnostics.path, category });
+    setDismissingLeakIssue(category);
+    setLeakSessionError(null);
+    try {
+      const res = await fetch(withBasePath("/api/admin/server-health"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dismiss-leak-diagnostics-issue", category }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+      }
+      setData((current) => current
+        ? {
+            ...current,
+            leakDiagnostics: {
+              exists: false,
+              path: current.leakDiagnostics.path,
+              capturedAt: null,
+              sizeBytes: null,
+              reason: null,
+              categories: [],
+              dismissedCategories: [],
+              activeCategories: [],
+            },
+          }
+        : current);
+    } catch (e) {
+      setLeakSessionError(String(e));
+    } finally {
+      setDismissingLeakIssue(null);
     }
   }
 
@@ -193,7 +287,10 @@ export default function AdminServerHealthClient() {
 
   if (!data) return null;
 
-  const { disk, memory, oldestNonProdWorktree, leakDiagnostics } = data;
+  const { disk, memory, oldestNonProdWorktree, leakDiagnostics, oomKills, primordiaMemory } = data;
+  const activeLeakCategories = leakDiagnostics.activeCategories.length > 0
+    ? leakDiagnostics.activeCategories
+    : leakDiagnostics.categories.filter((category) => !leakDiagnostics.dismissedCategories.includes(category));
 
   const saveIndicator =
     saveStatus === "saving" ? (
@@ -317,38 +414,164 @@ export default function AdminServerHealthClient() {
         )}
       </section>
 
-      {/* Leak diagnostics */}
+      {/* Primordia memory */}
       <section>
-        <h2 className="text-base font-medium text-gray-200 mb-1">Diagnose CPU usage / memory leaks</h2>
+        <h2 className="text-base font-medium text-gray-200 mb-1">Primordia process memory</h2>
         <p className="text-sm text-gray-500 mb-4">
-          Primordia checks for sustained high load or memory pressure while the app should be idle. When detected, it writes a diagnostics bundle to disk and notifies subscribed admins.
+          Snapshot of live Primordia processes, including OOM priority. Higher OOM adjustment values are killed sooner.
         </p>
         <div className="p-4 rounded border border-gray-700 bg-gray-900">
-          {leakDiagnostics.exists ? (
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-amber-200">Diagnostics captured</p>
-                {leakDiagnostics.reason && (
-                  <p className="mt-1 text-sm text-gray-400">{leakDiagnostics.reason}</p>
-                )}
-                <p className="mt-2 truncate font-mono text-xs text-gray-500" title={leakDiagnostics.path}>{leakDiagnostics.path}</p>
-                {leakDiagnostics.capturedAt && (
-                  <p className="mt-1 text-xs text-gray-600">Captured {new Date(leakDiagnostics.capturedAt).toLocaleString()}</p>
-                )}
-              </div>
-              <button
-                data-id="admin-health/create-leak-diagnostics-session"
-                onClick={handleCreateLeakSession}
-                disabled={creatingLeakSession}
-                className="shrink-0 rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {creatingLeakSession ? "Creating thread…" : "Investigate and fix"}
-              </button>
+          <div className="grid gap-3 sm:grid-cols-3 text-sm">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-gray-500">Total Primordia RSS</p>
+              <p className="mt-1 font-medium text-gray-200">{formatKb(primordiaMemory.totalRssKB)}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-gray-500">Core API command RSS</p>
+              <p className="mt-1 font-medium text-gray-200">{formatKb(primordiaMemory.coreApiCommandRssKB)}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-gray-500">Long-lived Core API commands</p>
+              <p className="mt-1 font-medium text-gray-200">{primordiaMemory.longLivedCoreApiCommandCount} / {primordiaMemory.coreApiCommandCount}</p>
+            </div>
+          </div>
+          {primordiaMemory.longLivedCoreApiCommandCount > 0 && (
+            <p className="mt-3 text-xs text-amber-300">
+              Long-lived `bun scripts/primordia.ts ... --follow` commands are currently consuming memory. This supports the theory that the new Core API/log-follow path can amplify OOM pressure when clients leave command followers behind.
+            </p>
+          )}
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-left text-xs">
+              <thead className="text-gray-500">
+                <tr>
+                  <th className="py-2 pr-4 font-medium">RSS</th>
+                  <th className="py-2 pr-4 font-medium">OOM adj</th>
+                  <th className="py-2 pr-4 font-medium">Age</th>
+                  <th className="py-2 pr-4 font-medium">Kind</th>
+                  <th className="py-2 pr-4 font-medium">Command</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800 text-gray-300">
+                {primordiaMemory.topProcesses.slice(0, 12).map((proc) => (
+                  <tr key={proc.pid} title={proc.command}>
+                    <td className="py-2 pr-4 tabular-nums">{formatKb(proc.rssKB)}</td>
+                    <td className="py-2 pr-4 tabular-nums">{proc.oomScoreAdj ?? "—"}</td>
+                    <td className="py-2 pr-4 tabular-nums text-gray-400">{formatDuration(proc.etimes)}</td>
+                    <td className="py-2 pr-4 whitespace-nowrap">{proc.category}</td>
+                    <td className="py-2 pr-4 max-w-[22rem] truncate font-mono text-gray-500">{proc.command}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      {/* OOM diagnostics */}
+      <section>
+        <h2 className="text-base font-medium text-gray-200 mb-1">Recent OOM kills</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Kernel out-of-memory events explain abrupt SIGKILL exits. These entries come from recent kernel logs and identify which process the OOM killer selected.
+        </p>
+        <div className="p-4 rounded border border-gray-700 bg-gray-900">
+          {oomKills.source === "unavailable" ? (
+            <p className="text-sm text-gray-500">Kernel OOM logs unavailable: {oomKills.error ?? "unknown error"}</p>
+          ) : oomKills.events.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-xs">
+                <thead className="text-gray-500">
+                  <tr>
+                    <th className="py-2 pr-4 font-medium">Time</th>
+                    <th className="py-2 pr-4 font-medium">Process</th>
+                    <th className="py-2 pr-4 font-medium">PID</th>
+                    <th className="py-2 pr-4 font-medium">RSS</th>
+                    <th className="py-2 pr-4 font-medium">Scope</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800 text-gray-300">
+                  {oomKills.events.map((event, index) => (
+                    <tr key={`${event.pid ?? "unknown"}-${event.occurredAt ?? index}`} title={event.raw}>
+                      <td className="py-2 pr-4 whitespace-nowrap text-gray-400">{event.occurredAt ?? "unknown"}</td>
+                      <td className="py-2 pr-4 font-mono">{event.processName ?? "unknown"}</td>
+                      <td className="py-2 pr-4 tabular-nums">{event.pid ?? "—"}</td>
+                      <td className="py-2 pr-4 tabular-nums">{formatKb(event.anonRssKB)}</td>
+                      <td className="py-2 pr-4 max-w-[18rem] truncate text-gray-500">{event.taskMemcg ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-3 text-xs text-amber-300">
+                Yes: recent SIGKILL exits were OOM-killer events. Lack of swap means short memory spikes can kill Primordia processes before normal logs flush.
+              </p>
             </div>
           ) : (
-            <p className="text-sm text-gray-500">No CPU or memory leak diagnostics have been captured.</p>
+            <p className="text-sm text-gray-500">No recent OOM kills found in kernel logs via {oomKills.source}.</p>
           )}
-          {leakSessionError && <p className="mt-3 text-sm text-red-400">{leakSessionError}</p>}
+        </div>
+      </section>
+
+      {/* Leak diagnostics */}
+      <section>
+        <h2 className="text-base font-medium text-gray-200 mb-1">Diagnostics issues</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Primordia separates sustained CPU usage from memory pressure so admins can investigate or dismiss each issue independently.
+        </p>
+        <div className="space-y-3">
+          {leakDiagnostics.exists && activeLeakCategories.length > 0 ? (
+            activeLeakCategories.map((category) => {
+              const isCpu = category === "cpu_usage";
+              const title = isCpu ? "CPU usage diagnostics" : "Memory leak diagnostics";
+              const description = isCpu
+                ? "Sustained load or high Primordia CPU usage was detected while the app should have been idle."
+                : "High memory pressure or possible memory retention was detected while the app should have been idle.";
+              return (
+                <div key={category} className="p-4 rounded border border-gray-700 bg-gray-900">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-amber-200">{title}</p>
+                      <p className="mt-1 text-sm text-gray-400">{description}</p>
+                      {leakDiagnostics.reason && (
+                        <p className="mt-2 text-sm text-gray-400">{leakDiagnostics.reason}</p>
+                      )}
+                      <p className="mt-2 truncate font-mono text-xs text-gray-500" title={leakDiagnostics.path}>{leakDiagnostics.path}</p>
+                      {leakDiagnostics.capturedAt && (
+                        <p className="mt-1 text-xs text-gray-600">Captured {new Date(leakDiagnostics.capturedAt).toLocaleString()}</p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                      <button
+                        type="button"
+                        data-id={`admin-health/create-leak-diagnostics-session/${category}`}
+                        onClick={() => handleCreateLeakSession(category)}
+                        disabled={creatingLeakSession !== null || dismissingLeakIssue !== null}
+                        className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {creatingLeakSession === category ? "Creating thread…" : "Investigate and fix"}
+                      </button>
+                      <button
+                        type="button"
+                        data-id={`admin-health/dismiss-leak-diagnostics/${category}`}
+                        onClick={() => handleDismissLeakIssue(category)}
+                        disabled={creatingLeakSession !== null || dismissingLeakIssue !== null}
+                        className="rounded border border-gray-700 px-3 py-1.5 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {dismissingLeakIssue === category ? "Dismissing…" : "Dismiss issue"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          ) : leakDiagnostics.exists && leakDiagnostics.dismissedCategories.length > 0 ? (
+            <div className="p-4 rounded border border-gray-700 bg-gray-900">
+              <p className="text-sm text-gray-500">All captured CPU and memory diagnostics issues have been dismissed.</p>
+            </div>
+          ) : (
+            <div className="p-4 rounded border border-gray-700 bg-gray-900">
+              <p className="text-sm text-gray-500">No CPU usage or memory leak diagnostics have been captured.</p>
+            </div>
+          )}
+          {leakSessionError && <p className="text-sm text-red-400">{leakSessionError}</p>}
         </div>
       </section>
 

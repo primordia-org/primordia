@@ -3,6 +3,8 @@
 
 import * as path from 'path';
 import { getPrimordiaRuntimePaths, listGitWorktrees, runGit } from '@/lib/git-runtime';
+import { keepProcessAlive } from '@/lib/keep-process-alive';
+import { applyCurrentProcessOomRole } from '@/lib/oom-priority';
 import { runPrimordiaJobs } from '@/lib/scheduled-jobs';
 
 function productionBranch(mainRepo: string): string | null {
@@ -24,6 +26,8 @@ function logError(label: string, err: unknown): void {
   console.error(`[scheduled-jobs] ${label}:`, err instanceof Error ? err.message : String(err));
 }
 
+applyCurrentProcessOomRole('scheduled-jobs', (message) => console.warn(`[scheduled-jobs] ${message}`));
+
 const paths = getPrimordiaRuntimePaths(process.argv[1]);
 const listenPort = Number.parseInt(process.env.REVERSE_PROXY_PORT ?? '', 10);
 const started = runPrimordiaJobs({
@@ -39,4 +43,4 @@ if (!started) {
 }
 
 console.log('[scheduled-jobs] daemon running');
-await new Promise(() => { /* keep daemon alive */ });
+keepProcessAlive();

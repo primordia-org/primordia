@@ -5,7 +5,7 @@ import {
   parseCustomPresets,
   type ThreadPreset,
 } from '@/lib/presets';
-import type { CliCompletionContext } from '@/lib/tiny-cli';
+import type { CliCompletionContext } from '@/lib/tiny-command/common';
 
 export function shortBuiltInPresetId(presetId: string): string {
   return presetId.startsWith('builtin:') ? presetId.slice('builtin:'.length) : presetId;

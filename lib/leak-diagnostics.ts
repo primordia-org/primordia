@@ -10,7 +10,10 @@ const DIAGNOSTICS_DIR = "leak-diagnostics";
 const LATEST_FILE = "latest.md";
 const CPU_RATIO_THRESHOLD = 0.8;
 const MEMORY_USED_THRESHOLD = 90;
-const CONSECUTIVE_SAMPLES_REQUIRED = 2;
+const MEMORY_CONSECUTIVE_SAMPLES_REQUIRED = 2;
+const CPU_SUSTAINED_DURATION_MS = 60 * 60 * 1000;
+
+export type LeakDiagnosticsCategory = "cpu_usage" | "memory_leak";
 
 export interface LeakDiagnosticsSummary {
   exists: boolean;
@@ -18,6 +21,47 @@ export interface LeakDiagnosticsSummary {
   capturedAt: number | null;
   sizeBytes: number | null;
   reason: string | null;
+  categories: LeakDiagnosticsCategory[];
+  dismissedCategories: LeakDiagnosticsCategory[];
+  activeCategories: LeakDiagnosticsCategory[];
+}
+
+export interface OomKillEvent {
+  occurredAt: string | null;
+  pid: number | null;
+  processName: string | null;
+  taskMemcg: string | null;
+  totalVmKB: number | null;
+  anonRssKB: number | null;
+  fileRssKB: number | null;
+  raw: string;
+}
+
+export interface OomKillSummary {
+  checkedAt: number;
+  source: "journalctl" | "dmesg" | "unavailable";
+  events: OomKillEvent[];
+  error: string | null;
+}
+
+export interface PrimordiaMemoryProcess {
+  pid: number;
+  ppid: number;
+  etimes: number;
+  cpuPercent: number;
+  rssKB: number;
+  oomScoreAdj: number | null;
+  category: string;
+  command: string;
+}
+
+export interface PrimordiaMemorySnapshot {
+  checkedAt: number;
+  totalRssKB: number;
+  coreApiCommandRssKB: number;
+  coreApiCommandCount: number;
+  longLivedCoreApiCommandCount: number;
+  topProcesses: PrimordiaMemoryProcess[];
 }
 
 interface SystemSample {
@@ -32,9 +76,11 @@ interface SystemSample {
   primordiaCpuPercent: number;
   topPrimordiaProcess: string | null;
   reasons: string[];
+  categories: LeakDiagnosticsCategory[];
 }
 
-let consecutiveLeakSamples = 0;
+let consecutiveMemoryLeakSamples = 0;
+let cpuPressureStartedAt = 0;
 let lastCaptureAt = 0;
 
 function primordiaRoot(repoRoot: string): string {
@@ -47,6 +93,121 @@ export function getLeakDiagnosticsDir(repoRoot: string): string {
 
 export function getLatestLeakDiagnosticsPath(repoRoot: string): string {
   return path.join(getLeakDiagnosticsDir(repoRoot), LATEST_FILE);
+}
+
+function readProcOomScoreAdj(pid: number): number | null {
+  try {
+    const value = Number.parseInt(fs.readFileSync(`/proc/${pid}/oom_score_adj`, "utf8").trim(), 10);
+    return Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function categorizePrimordiaProcess(command: string): string {
+  if (command.includes("service-supervisor.")) return "supervisor";
+  if (command.includes("reverse-proxy.")) return "reverse proxy";
+  if (command.includes("scheduled-jobs.")) return "scheduled jobs";
+  if (command.includes("next start") || command.includes("start-server.js")) return "production/dev server";
+  if (command.includes("claude-worker.") || command.includes("pi-worker.") || command.includes("codex-worker.")) return "agent worker";
+  if (command.includes("scripts/primordia.ts")) return "Core API command";
+  return "other Primordia process";
+}
+
+export function readPrimordiaMemorySnapshot(limit = 25): PrimordiaMemorySnapshot {
+  const ps = run("ps", ["-eo", "pid,ppid,etimes,pcpu,rss,args", "--no-headers"]);
+  const processes: PrimordiaMemoryProcess[] = [];
+  for (const line of ps.split("\n")) {
+    if (!line.includes("primordia")) continue;
+    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(\d+)\s+(.*)$/);
+    if (!match) continue;
+    const pid = Number.parseInt(match[1], 10);
+    const command = match[6];
+    processes.push({
+      pid,
+      ppid: Number.parseInt(match[2], 10),
+      etimes: Number.parseInt(match[3], 10),
+      cpuPercent: Number.parseFloat(match[4]),
+      rssKB: Number.parseInt(match[5], 10),
+      oomScoreAdj: readProcOomScoreAdj(pid),
+      category: categorizePrimordiaProcess(command),
+      command,
+    });
+  }
+
+  const totalRssKB = processes.reduce((sum, proc) => sum + proc.rssKB, 0);
+  const coreApiCommands = processes.filter((proc) => proc.category === "Core API command");
+  return {
+    checkedAt: Date.now(),
+    totalRssKB,
+    coreApiCommandRssKB: coreApiCommands.reduce((sum, proc) => sum + proc.rssKB, 0),
+    coreApiCommandCount: coreApiCommands.length,
+    longLivedCoreApiCommandCount: coreApiCommands.filter((proc) => proc.etimes > 30 * 60).length,
+    topProcesses: processes.sort((a, b) => b.rssKB - a.rssKB).slice(0, limit),
+  };
+}
+
+function parseOomNumber(raw: string, key: string): number | null {
+  const match = raw.match(new RegExp(`${key}:(\\d+)kB`));
+  if (!match) return null;
+  const value = Number.parseInt(match[1], 10);
+  return Number.isFinite(value) ? value : null;
+}
+
+function parseOomKillLines(lines: string[]): OomKillEvent[] {
+  const events: OomKillEvent[] = [];
+  let lastContext: { occurredAt: string | null; taskMemcg: string | null } = { occurredAt: null, taskMemcg: null };
+
+  for (const line of lines) {
+    const isoMatch = line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s]*)/);
+    const dmesgMatch = line.match(/^\[([^\]]+)\]/);
+    const occurredAt = isoMatch?.[1] ?? dmesgMatch?.[1] ?? lastContext.occurredAt;
+
+    if (line.includes("oom-kill:")) {
+      const taskMemcg = line.match(/task_memcg=([^,\s]+)/)?.[1] ?? null;
+      lastContext = { occurredAt, taskMemcg };
+      continue;
+    }
+
+    if (!line.includes("Out of memory: Killed process")) continue;
+    const killed = line.match(/Killed process (\d+) \(([^)]+)\)/);
+    events.push({
+      occurredAt,
+      pid: killed ? Number.parseInt(killed[1], 10) : null,
+      processName: killed?.[2] ?? null,
+      taskMemcg: lastContext.taskMemcg,
+      totalVmKB: parseOomNumber(line, "total-vm"),
+      anonRssKB: parseOomNumber(line, "anon-rss"),
+      fileRssKB: parseOomNumber(line, "file-rss"),
+      raw: line,
+    });
+  }
+
+  return events.slice(-20).reverse();
+}
+
+export function readRecentOomKills(limit = 12): OomKillSummary {
+  const checkedAt = Date.now();
+  const journal = spawnSync("journalctl", ["-k", "--since", "7 days ago", "-o", "short-iso", "--no-pager"], {
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024 * 8,
+  });
+  if (journal.status === 0 && journal.stdout.trim()) {
+    const events = parseOomKillLines(journal.stdout.split("\n"));
+    return { checkedAt, source: "journalctl", events: events.slice(0, limit), error: null };
+  }
+
+  const dmesg = spawnSync("dmesg", ["-T"], {
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024 * 8,
+  });
+  if (dmesg.status === 0 && dmesg.stdout.trim()) {
+    const events = parseOomKillLines(dmesg.stdout.split("\n"));
+    return { checkedAt, source: "dmesg", events: events.slice(0, limit), error: null };
+  }
+
+  const error = journal.stderr?.trim() || dmesg.stderr?.trim() || "kernel logs are unavailable";
+  return { checkedAt, source: "unavailable", events: [], error };
 }
 
 function run(command: string, args: string[], cwd?: string): string {
@@ -99,14 +260,18 @@ function sampleSystem(): SystemSample | null {
     }
 
     const reasons: string[] = [];
+    const categories = new Set<LeakDiagnosticsCategory>();
     if (memory.usedPercent >= MEMORY_USED_THRESHOLD) {
       reasons.push(`memory ${memory.usedPercent}% used (threshold ${MEMORY_USED_THRESHOLD}%)`);
+      categories.add("memory_leak");
     }
     if (load1 >= cpuCount * CPU_RATIO_THRESHOLD) {
       reasons.push(`load average ${load1.toFixed(2)} on ${cpuCount} CPU(s) (threshold ${(cpuCount * CPU_RATIO_THRESHOLD).toFixed(2)})`);
+      categories.add("cpu_usage");
     }
     if (primordiaCpuPercent >= cpuCount * 75) {
       reasons.push(`Primordia processes using ${primordiaCpuPercent.toFixed(1)}% CPU across ${cpuCount} CPU(s)`);
+      categories.add("cpu_usage");
     }
 
     return {
@@ -121,11 +286,42 @@ function sampleSystem(): SystemSample | null {
       primordiaCpuPercent,
       topPrimordiaProcess,
       reasons,
+      categories: Array.from(categories),
     };
   } catch (err) {
     console.error("[leak-diagnostics] sample failed", err);
     return null;
   }
+}
+
+function parseLeakCategories(text: string, reason: string | null): LeakDiagnosticsCategory[] {
+  const categoriesMatch = text.match(/^Categories: (.+)$/m);
+  if (categoriesMatch) {
+    const categories = categoriesMatch[1]
+      .split(",")
+      .map((category) => category.trim())
+      .filter((category): category is LeakDiagnosticsCategory => category === "cpu_usage" || category === "memory_leak");
+    if (categories.length > 0) return Array.from(new Set(categories));
+  }
+
+  const inferred = new Set<LeakDiagnosticsCategory>();
+  const haystack = reason ?? text;
+  if (/\b(cpu|load average)\b/i.test(haystack)) inferred.add("cpu_usage");
+  if (/\b(memory|oom)\b/i.test(haystack)) inferred.add("memory_leak");
+  return Array.from(inferred);
+}
+
+function readDismissedLeakDiagnosticsCategories(repoRoot: string, capturedAt: number | null): LeakDiagnosticsCategory[] {
+  if (!capturedAt) return [];
+  const dismissed: LeakDiagnosticsCategory[] = [];
+  for (const category of ["cpu_usage", "memory_leak"] satisfies LeakDiagnosticsCategory[]) {
+    const result = spawnSync("git", ["config", "--get", `primordia.leakDiagnosticsDismissed.${category}`], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    });
+    if (Number(result.stdout.trim()) === Math.round(capturedAt)) dismissed.push(category);
+  }
+  return dismissed;
 }
 
 export function readLeakDiagnosticsSummary(repoRoot: string): LeakDiagnosticsSummary {
@@ -134,15 +330,22 @@ export function readLeakDiagnosticsSummary(repoRoot: string): LeakDiagnosticsSum
     const stat = fs.statSync(latestPath);
     const text = fs.readFileSync(latestPath, "utf8");
     const reasonMatch = text.match(/^Reason: (.+)$/m);
+    const reason = reasonMatch?.[1] ?? null;
+    const categories = parseLeakCategories(text, reason);
+    const dismissedCategories = readDismissedLeakDiagnosticsCategories(repoRoot, stat.mtimeMs);
+    const activeCategories = categories.filter((category) => !dismissedCategories.includes(category));
     return {
       exists: true,
       path: latestPath,
       capturedAt: stat.mtimeMs,
       sizeBytes: stat.size,
-      reason: reasonMatch?.[1] ?? null,
+      reason,
+      categories,
+      dismissedCategories,
+      activeCategories,
     };
   } catch {
-    return { exists: false, path: latestPath, capturedAt: null, sizeBytes: null, reason: null };
+    return { exists: false, path: latestPath, capturedAt: null, sizeBytes: null, reason: null, categories: [], dismissedCategories: [], activeCategories: [] };
   }
 }
 
@@ -166,6 +369,8 @@ function writeDiagnostics(repoRoot: string, sample: SystemSample): string {
     ["System", run("uname", ["-a"])],
     ["Uptime", run("uptime", [])],
     ["Memory (/proc/meminfo)", fs.existsSync("/proc/meminfo") ? fs.readFileSync("/proc/meminfo", "utf8").trim() : "unavailable"],
+    ["Recent kernel OOM kills", readRecentOomKills(20).events.map((event) => event.raw).join("\n") || "none found in recent kernel logs"],
+    ["Primordia memory snapshot", JSON.stringify(readPrimordiaMemorySnapshot(50), null, 2)],
     ["Top processes by CPU", run("ps", ["-eo", "pid,ppid,user,stat,pcpu,pmem,rss,vsz,etime,time,args", "--sort=-pcpu"])],
     ["Top processes by memory", run("ps", ["-eo", "pid,ppid,user,stat,pcpu,pmem,rss,vsz,etime,time,args", "--sort=-rss"])],
     ["Primordia process manager status", run("bun", ["run", "primordia", "status", "--json"], repoRoot)],
@@ -175,6 +380,7 @@ function writeDiagnostics(repoRoot: string, sample: SystemSample): string {
   const body = `# Primordia CPU / memory leak diagnostics\n\n` +
     `Captured at: ${iso}\n\n` +
     `Reason: ${reason}\n\n` +
+    `Categories: ${sample.categories.join(", ")}\n\n` +
     `Summary:\n` +
     `- Load average: ${sample.load1.toFixed(2)} ${sample.load5.toFixed(2)} ${sample.load15.toFixed(2)} on ${sample.cpuCount} CPU(s)\n` +
     `- Memory: ${sample.memoryUsedPercent}% used, ${sample.memoryAvailableMB.toLocaleString()} MB available of ${sample.memoryTotalMB.toLocaleString()} MB\n` +
@@ -191,37 +397,104 @@ function writeDiagnostics(repoRoot: string, sample: SystemSample): string {
 export function checkAndCaptureLeakDiagnostics(repoRoot: string): { captured: boolean; path?: string; reason?: string } {
   const sample = sampleSystem();
   if (!sample || sample.reasons.length === 0) {
-    consecutiveLeakSamples = 0;
+    consecutiveMemoryLeakSamples = 0;
+    cpuPressureStartedAt = 0;
     return { captured: false };
   }
 
-  consecutiveLeakSamples += 1;
-  if (consecutiveLeakSamples < CONSECUTIVE_SAMPLES_REQUIRED) {
-    return { captured: false, reason: sample.reasons.join("; ") };
+  const hasMemoryPressure = sample.categories.includes("memory_leak");
+  const hasCpuPressure = sample.categories.includes("cpu_usage");
+  consecutiveMemoryLeakSamples = hasMemoryPressure ? consecutiveMemoryLeakSamples + 1 : 0;
+  cpuPressureStartedAt = hasCpuPressure ? (cpuPressureStartedAt || sample.checkedAt) : 0;
+
+  const eligibleCategories = new Set<LeakDiagnosticsCategory>();
+  if (hasMemoryPressure && consecutiveMemoryLeakSamples >= MEMORY_CONSECUTIVE_SAMPLES_REQUIRED) {
+    eligibleCategories.add("memory_leak");
   }
+  if (hasCpuPressure && sample.checkedAt - cpuPressureStartedAt >= CPU_SUSTAINED_DURATION_MS) {
+    eligibleCategories.add("cpu_usage");
+  }
+
+  if (eligibleCategories.size === 0) {
+    const cpuWait = hasCpuPressure
+      ? `CPU pressure has lasted ${Math.round((sample.checkedAt - cpuPressureStartedAt) / 60000)} minute(s); waiting for 60 minutes before capturing diagnostics`
+      : null;
+    return { captured: false, reason: [sample.reasons.join("; "), cpuWait].filter(Boolean).join("; ") };
+  }
+
+  const filteredSample: SystemSample = {
+    ...sample,
+    categories: sample.categories.filter((category) => eligibleCategories.has(category)),
+    reasons: sample.reasons.filter((reason) => {
+      if (/\b(memory|oom)\b/i.test(reason)) return eligibleCategories.has("memory_leak");
+      if (/\b(cpu|load average)\b/i.test(reason)) return eligibleCategories.has("cpu_usage");
+      return true;
+    }),
+  };
+  const reason = filteredSample.reasons.join("; ");
 
   // Avoid overwriting diagnostics continuously during a sustained incident.
   if (Date.now() - lastCaptureAt < 30 * 60 * 1000 && fs.existsSync(getLatestLeakDiagnosticsPath(repoRoot))) {
-    return { captured: false, reason: sample.reasons.join("; ") };
+    return { captured: false, reason };
   }
 
-  const diagnosticsPath = writeDiagnostics(repoRoot, sample);
+  const diagnosticsPath = writeDiagnostics(repoRoot, filteredSample);
   lastCaptureAt = Date.now();
-  console.warn(`[leak-diagnostics] Captured diagnostics at ${diagnosticsPath}: ${sample.reasons.join("; ")}`);
-  return { captured: true, path: diagnosticsPath, reason: sample.reasons.join("; ") };
+  console.warn(`[leak-diagnostics] Captured diagnostics at ${diagnosticsPath}: ${reason}`);
+  return { captured: true, path: diagnosticsPath, reason };
 }
 
-export function readLeakDiagnosticsNotificationState(repoRoot: string): number {
-  const result = spawnSync("git", ["config", "--get", "primordia.leakDiagnosticsLastNotifiedMtime"], {
+export function readLeakDiagnosticsNotificationState(repoRoot: string, category: LeakDiagnosticsCategory): number {
+  const result = spawnSync("git", ["config", "--get", `primordia.leakDiagnosticsLastNotifiedMtime.${category}`], {
     cwd: repoRoot,
     encoding: "utf8",
   });
   return Number(result.stdout.trim()) || 0;
 }
 
-export function writeLeakDiagnosticsNotificationState(repoRoot: string, mtimeMs: number): void {
-  spawnSync("git", ["config", "primordia.leakDiagnosticsLastNotifiedMtime", String(Math.round(mtimeMs))], {
+export function writeLeakDiagnosticsNotificationState(repoRoot: string, category: LeakDiagnosticsCategory, mtimeMs: number): void {
+  spawnSync("git", ["config", `primordia.leakDiagnosticsLastNotifiedMtime.${category}`, String(Math.round(mtimeMs))], {
     cwd: repoRoot,
     encoding: "utf8",
   });
+}
+
+function deleteTimestampedDiagnosticsCopy(repoRoot: string, diagnosticsText: string): void {
+  const capturedAtMatch = diagnosticsText.match(/^Captured at: (.+)$/m);
+  if (!capturedAtMatch) return;
+  const capturedAt = new Date(capturedAtMatch[1]);
+  if (Number.isNaN(capturedAt.getTime())) return;
+  const safeStamp = capturedAt.toISOString().replace(/[:.]/g, "-");
+  const timestampPath = path.join(getLeakDiagnosticsDir(repoRoot), `${safeStamp}.md`);
+  try {
+    fs.unlinkSync(timestampPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+}
+
+export function dismissLeakDiagnosticsIssue(repoRoot: string, category: LeakDiagnosticsCategory): boolean {
+  const summary = readLeakDiagnosticsSummary(repoRoot);
+  if (!summary.exists || !summary.categories.includes(category)) return false;
+
+  const latestPath = getLatestLeakDiagnosticsPath(repoRoot);
+  const diagnosticsText = readLatestLeakDiagnostics(repoRoot) ?? "";
+  try {
+    fs.unlinkSync(latestPath);
+    if (diagnosticsText) deleteTimestampedDiagnosticsCopy(repoRoot, diagnosticsText);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+
+  for (const dismissCategory of ["cpu_usage", "memory_leak"] satisfies LeakDiagnosticsCategory[]) {
+    spawnSync("git", ["config", "--unset", `primordia.leakDiagnosticsDismissed.${dismissCategory}`], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    });
+    spawnSync("git", ["config", "--unset", `primordia.leakDiagnosticsLastNotifiedMtime.${dismissCategory}`], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    });
+  }
+  return true;
 }

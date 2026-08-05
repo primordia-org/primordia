@@ -7,10 +7,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { appendSessionEvent, getSessionNdjsonPath, type SessionEvent } from '@/lib/session-events';
 import { PROGRESS_MONITOR_PROMPT } from '@/lib/progress-prompt';
+import { applyCurrentProcessOomRole, applyOomScoreAdj, OOM_SCORE_ADJ } from '@/lib/oom-priority';
 import { decryptWorkerSecretForUser } from '@/lib/worker-secret-env';
 import { storeEncryptedSecretForUser } from '@/lib/server-secrets';
 import { codexAuthJsonToStoredChatGptCredentials } from '@/lib/chatgpt-subscription';
 import { removeLockFile, writePidFile } from '@/lib/lockfile';
+
+applyCurrentProcessOomRole('agent-worker', (message) => console.warn(`[codex-worker] ${message}`));
 
 const OPENAI_GATEWAY_BASE_URL = 'http://169.254.169.254/gateway/llm/openai/v1';
 
@@ -378,9 +381,10 @@ async function main(): Promise<void> {
       const codexCommand = fs.existsSync(localCodexBin) ? localCodexBin : 'codex';
       child = spawn(codexCommand, args, {
         cwd: worktreePath,
-        env: { ...process.env, CODEX_HOME: codexHome },
+        env: { ...process.env, CODEX_HOME: codexHome, PRIMORDIA_OOM_ROLE: 'agent-worker' },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+      if (child.pid) applyOomScoreAdj(child.pid, OOM_SCORE_ADJ['agent-worker'], 'codex cli', (message) => console.warn(`[codex-worker] ${message}`));
 
       child.stdin?.end(`${PROGRESS_MONITOR_PROMPT}\n\n${prompt}`);
       let stdoutBuf = '';

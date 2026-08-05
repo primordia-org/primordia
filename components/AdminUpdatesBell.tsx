@@ -38,11 +38,14 @@ interface BellSession {
   request: string;
 }
 
+type LeakDiagnosticsCategory = "cpu_usage" | "memory_leak";
+
 interface BellData {
   hasUpdates: boolean;
   hasDependencyAlert: boolean;
   dependencySevereCount: number;
   hasLeakDiagnostics: boolean;
+  leakDiagnosticsCategories: LeakDiagnosticsCategory[];
   sessions: BellSession[];
 }
 
@@ -86,9 +89,10 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
       const dependencySevereCount: number = dependencyData?.severeCount ?? 0;
       const leakData = leakRes?.ok ? await leakRes.json() : null;
       const hasLeakDiagnostics: boolean = leakData?.hasAlert ?? false;
-      setData({ hasUpdates, hasDependencyAlert, dependencySevereCount, hasLeakDiagnostics, sessions });
+      const leakDiagnosticsCategories: LeakDiagnosticsCategory[] = Array.isArray(leakData?.categories) ? leakData.categories : [];
+      setData({ hasUpdates, hasDependencyAlert, dependencySevereCount, hasLeakDiagnostics, leakDiagnosticsCategories, sessions });
     } catch {
-      setData({ hasUpdates: false, hasDependencyAlert: false, dependencySevereCount: 0, hasLeakDiagnostics: false, sessions: [] });
+      setData({ hasUpdates: false, hasDependencyAlert: false, dependencySevereCount: 0, hasLeakDiagnostics: false, leakDiagnosticsCategories: [], sessions: [] });
     } finally {
       setLoading(false);
     }
@@ -185,7 +189,11 @@ export function AdminUpdatesBell({ sessionUser }: AdminUpdatesBellProps) {
                   className="flex items-center gap-3 px-4 py-3 text-sm text-amber-400 hover:text-amber-300 hover:bg-gray-800 transition-colors border-b border-gray-800"
                 >
                   <Activity size={16} strokeWidth={2} aria-hidden="true" />
-                  <span className="flex-1">CPU / memory diagnostics</span>
+                  <span className="flex-1">
+                    {data.leakDiagnosticsCategories.length === 1
+                      ? data.leakDiagnosticsCategories[0] === "cpu_usage" ? "CPU usage diagnostics" : "Memory leak diagnostics"
+                      : "CPU / memory diagnostics"}
+                  </span>
                 </Link>
               )}
 
