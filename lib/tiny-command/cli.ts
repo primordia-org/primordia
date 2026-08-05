@@ -276,28 +276,77 @@ export function renderBashCompletion(commandName: string): string {
   ].join('\n');
 }
 
+function withRuntimeAbortSignal(context: CommandContext): { context: CommandContext; cleanup: () => void } {
+  const controller = new AbortController();
+  const cleanupCallbacks: Array<() => void> = [];
+  const abort = () => controller.abort();
+
+  if (context.process.abortSignal) {
+    if (context.process.abortSignal.aborted) abort();
+    else {
+      context.process.abortSignal.addEventListener('abort', abort, { once: true });
+      cleanupCallbacks.push(() => context.process.abortSignal?.removeEventListener('abort', abort));
+    }
+  }
+
+  if (!context.process.stdin.isTTY) {
+    context.process.stdin.resume();
+    for (const eventName of ['end', 'close', 'error'] as const) {
+      context.process.stdin.once(eventName, abort);
+      cleanupCallbacks.push(() => context.process.stdin.removeListener(eventName, abort));
+    }
+  }
+  context.process.stdout.once('error', abort);
+  cleanupCallbacks.push(() => context.process.stdout.removeListener('error', abort));
+  context.process.stderr.once('error', abort);
+  cleanupCallbacks.push(() => context.process.stderr.removeListener('error', abort));
+  process.once('SIGTERM', abort);
+  cleanupCallbacks.push(() => process.removeListener('SIGTERM', abort));
+  process.once('SIGINT', abort);
+  cleanupCallbacks.push(() => process.removeListener('SIGINT', abort));
+
+  return {
+    context: {
+      ...context,
+      process: {
+        ...context.process,
+        abortSignal: controller.signal,
+      },
+    },
+    cleanup: () => {
+      for (const cleanup of cleanupCallbacks.splice(0)) cleanup();
+    },
+  };
+}
+
 export async function runCli(root: CliCommandDef, rawArgs: string[], context: CommandContext): Promise<void> {
-  if (rawArgs[0] === '__complete') {
-    const completions = await completeCli(root, rawArgs.slice(1), context);
-    context.console.log(completions.join('\n'));
-    return;
-  }
+  const runtime = withRuntimeAbortSignal(context);
+  const runtimeContext = runtime.context;
+  try {
+    if (rawArgs[0] === '__complete') {
+      const completions = await completeCli(root, rawArgs.slice(1), runtimeContext);
+      runtimeContext.console.log(completions.join('\n'));
+      return;
+    }
 
-  if (rawArgs.length === 2 && rawArgs[0] === 'completion' && rawArgs[1] === 'bash') {
-    context.console.log(renderBashCompletion(root.name));
-    return;
-  }
+    if (rawArgs.length === 2 && rawArgs[0] === 'completion' && rawArgs[1] === 'bash') {
+      runtimeContext.console.log(renderBashCompletion(root.name));
+      return;
+    }
 
-  if (rawArgs.includes('--help') || rawArgs.includes('-h') || rawArgs.length === 0) {
-    context.console.log(renderCliHelp(root));
-    return;
-  }
+    if (rawArgs.includes('--help') || rawArgs.includes('-h') || rawArgs.length === 0) {
+      runtimeContext.console.log(renderCliHelp(root));
+      return;
+    }
 
-  const resolved = resolveCommand(root, rawArgs);
-  if (visibleSubcommands(resolved.command).length > 0 && !resolved.command.run) {
-    throw new CliUsageError(`No command specified for ${resolved.path.join(' ')}`);
+    const resolved = resolveCommand(root, rawArgs);
+    if (visibleSubcommands(resolved.command).length > 0 && !resolved.command.run) {
+      throw new CliUsageError(`No command specified for ${resolved.path.join(' ')}`);
+    }
+    if (!resolved.command.run) throw new CliUsageError(`Unknown command: ${resolved.remaining[0] ?? rawArgs.join(' ')}`);
+    const args = parseCliArgs(resolved.command, resolved.remaining);
+    await resolved.command.run({ args, rawArgs: resolved.remaining, commandPath: resolved.path, context: runtimeContext });
+  } finally {
+    runtime.cleanup();
   }
-  if (!resolved.command.run) throw new CliUsageError(`Unknown command: ${resolved.remaining[0] ?? rawArgs.join(' ')}`);
-  const args = parseCliArgs(resolved.command, resolved.remaining);
-  await resolved.command.run({ args, rawArgs: resolved.remaining, commandPath: resolved.path, context });
 }

@@ -327,20 +327,6 @@ function createFollowAbortSignal(context: CommandContext, cleanup?: () => void):
     if (process.abortSignal.aborted) abort();
     else process.abortSignal.addEventListener('abort', abort, { once: true });
   }
-
-  // CLI callers keep stdin connected to the terminal/client lifecycle. If the
-  // client disconnects or the dev/prod server dies, stdin closes; a --follow
-  // command must then exit instead of becoming an orphan adopted by PID 1.
-  if (!process.stdin.isTTY) {
-    process.stdin.resume();
-    process.stdin.once('end', abort);
-    process.stdin.once('close', abort);
-    process.stdin.once('error', abort);
-  }
-  process.stdout.once('error', abort);
-  process.stderr.once('error', abort);
-  process.onSignal('SIGTERM', abort);
-  process.onSignal('SIGINT', abort);
   return controller.signal;
 }
 

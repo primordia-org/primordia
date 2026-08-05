@@ -36,7 +36,6 @@ function createContext(options: TinyRestCreateContextOptions): CommandContext {
       stderr: options.stderr,
       pid: process.pid,
       abortSignal: options.abortSignal,
-      onSignal() { /* HTTP requests do not receive process signals. */ },
       kill(pid, signal) { process.kill(pid, signal); },
       exit(code = 0): never { throw new ProcessExit(code); },
     },

@@ -2,12 +2,12 @@
 
 Core API route-actions now execute the shared Primordia command tree directly with an injected command context instead of spawning a new CLI subprocess per request.
 
-This keeps CLI and API behavior aligned while avoiding the per-request memory overhead of launching a separate Bun process. CLI command handlers now read cwd, env, stdin/stdout/stderr, signals, process id, process kill, exits, and console output through the injected context rather than reaching directly into process globals.
+This keeps CLI and API behavior aligned while avoiding the per-request memory overhead of launching a separate Bun process. CLI command handlers now read cwd, env, stdin/stdout/stderr, process id, process kill, exits, cancellation, and console output through the injected context rather than reaching directly into process globals.
 
 The tiny command framework is now split by responsibility:
 
 - `lib/tiny-command/common.ts` defines shared command metadata, argument, API, and `CommandContext` types plus console helpers.
-- `lib/tiny-command/cli.ts` instantiates command definitions as a terminal CLI.
+- `lib/tiny-command/cli.ts` instantiates command definitions as a terminal CLI and centralizes terminal disconnect/signal handling into the context `abortSignal`.
 - `lib/tiny-command/rest.ts` instantiates the same command definitions as an HTTP REST/route-action API.
 
 `scripts/primordia-command-handlers.ts` now owns both the Primordia command definitions and their handlers. `scripts/primordia.ts` creates the CLI context and passes the definitions to the CLI runtime, while `app/api/core/[[...path]]/route.ts` creates REST request contexts and supplies Primordia-specific auth/cwd/OpenAPI configuration to the REST runtime.

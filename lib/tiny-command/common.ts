@@ -26,7 +26,6 @@ export interface ProcessApi {
   stderr: NodeJS.WriteStream | NodeJS.WritableStream;
   pid: number;
   abortSignal?: AbortSignal;
-  onSignal(signal: NodeJS.Signals, listener: () => void): void;
   kill(pid: number, signal?: NodeJS.Signals | number): void;
   exit(code?: number): never;
 }

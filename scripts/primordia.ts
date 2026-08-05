@@ -16,7 +16,6 @@ function createContext(): CommandContext {
       stdout: process.stdout,
       stderr: process.stderr,
       pid: process.pid,
-      onSignal(signal, listener) { process.once(signal, listener); },
       kill(pid, signal) { process.kill(pid, signal); },
       exit(code = 0): never { throw new ProcessExit(code); },
     },
