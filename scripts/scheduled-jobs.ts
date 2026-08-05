@@ -3,6 +3,7 @@
 
 import * as path from 'path';
 import { getPrimordiaRuntimePaths, listGitWorktrees, runGit } from '@/lib/git-runtime';
+import { keepProcessAlive } from '@/lib/keep-process-alive';
 import { applyCurrentProcessOomRole } from '@/lib/oom-priority';
 import { runPrimordiaJobs } from '@/lib/scheduled-jobs';
 
@@ -42,4 +43,4 @@ if (!started) {
 }
 
 console.log('[scheduled-jobs] daemon running');
-await new Promise(() => { /* keep daemon alive */ });
+keepProcessAlive();

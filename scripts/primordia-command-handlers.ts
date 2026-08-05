@@ -15,6 +15,7 @@ import {
 } from '@/lib/process-manager';
 import { createThread, followupThread, manageThread, updateThread } from '@/lib/threads';
 import { getDb } from '@/lib/db';
+import { keepProcessAlive } from '@/lib/keep-process-alive';
 import { copyProductionDbToWorktree } from '@/lib/production-db-copy';
 import { resolvePrimordiaCliKey } from '@/lib/cli-keys';
 import {
@@ -353,7 +354,7 @@ export async function jobsRunCommand(args: CliParsedArgs & JsonArgs): Promise<vo
   if (args.json) printJson({ ok: started, command: 'jobs run', schedules: scheduleRows() });
   else console.log(started ? 'Primordia jobs daemon running. Press Ctrl-C to stop.' : 'Another Primordia jobs scheduler is already running.');
   if (!started) return;
-  await new Promise(() => { /* keep daemon alive */ });
+  keepProcessAlive();
 }
 
 export async function jobsRunOneCommand(args: CliParsedArgs & JsonArgs): Promise<void> {
