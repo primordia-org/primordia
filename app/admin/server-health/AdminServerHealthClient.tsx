@@ -225,7 +225,21 @@ export default function AdminServerHealthClient() {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
       }
-      await loadData();
+      setData((current) => current
+        ? {
+            ...current,
+            leakDiagnostics: {
+              exists: false,
+              path: current.leakDiagnostics.path,
+              capturedAt: null,
+              sizeBytes: null,
+              reason: null,
+              categories: [],
+              dismissedCategories: [],
+              activeCategories: [],
+            },
+          }
+        : current);
     } catch (e) {
       setLeakSessionError(String(e));
     } finally {
@@ -526,6 +540,7 @@ export default function AdminServerHealthClient() {
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
                       <button
+                        type="button"
                         data-id={`admin-health/create-leak-diagnostics-session/${category}`}
                         onClick={() => handleCreateLeakSession(category)}
                         disabled={creatingLeakSession !== null || dismissingLeakIssue !== null}
@@ -534,6 +549,7 @@ export default function AdminServerHealthClient() {
                         {creatingLeakSession === category ? "Creating thread…" : "Investigate and fix"}
                       </button>
                       <button
+                        type="button"
                         data-id={`admin-health/dismiss-leak-diagnostics/${category}`}
                         onClick={() => handleDismissLeakIssue(category)}
                         disabled={creatingLeakSession !== null || dismissingLeakIssue !== null}
