@@ -7,8 +7,8 @@ This keeps CLI and API behavior aligned while avoiding the per-request memory ov
 The tiny command framework is now split by responsibility:
 
 - `lib/tiny-command/common.ts` defines shared command metadata, argument, API, and `CommandContext` types plus console helpers.
-- `lib/tiny-command/cli.ts` instantiates command definitions as a terminal CLI and centralizes terminal disconnect/signal handling into the context `abortSignal`.
-- `lib/tiny-command/rest.ts` instantiates the same command definitions as an HTTP REST/route-action API.
+- `lib/tiny-command/cli.ts` instantiates command definitions as a terminal CLI and provides an `abortSignal` driven only by process SIGINT/SIGTERM when the caller did not already provide one.
+- `lib/tiny-command/rest.ts` instantiates the same command definitions as an HTTP REST/route-action API and passes the incoming request's `AbortSignal` through directly.
 
 `scripts/primordia-command-handlers.ts` now owns both the Primordia command definitions and their handlers. `scripts/primordia.ts` creates the CLI context and passes the definitions to the CLI runtime, while `app/api/core/[[...path]]/route.ts` creates REST request contexts and supplies Primordia-specific auth/cwd/OpenAPI configuration to the REST runtime.
 

@@ -315,21 +315,6 @@ function createSessionHumanRenderer(): HumanLogRenderer {
   };
 }
 
-function createFollowAbortSignal(context: CommandContext, cleanup?: () => void): AbortSignal {
-  const { process } = context;
-  const controller = new AbortController();
-  const abort = () => {
-    cleanup?.();
-    controller.abort();
-  };
-
-  if (process.abortSignal) {
-    if (process.abortSignal.aborted) abort();
-    else process.abortSignal.addEventListener('abort', abort, { once: true });
-  }
-  return controller.signal;
-}
-
 async function renderLogFile(context: CommandContext, logFile: string, args: ServiceLogArgs, options: { rawNdjson?: boolean; humanFormatter?: (line: string) => HumanLogChunk | null; humanRenderer?: HumanLogRenderer } = {}): Promise<void> {
   const { process, console } = context;
   const startLine = resolveLogStartLine(args);
@@ -341,7 +326,7 @@ async function renderLogFile(context: CommandContext, logFile: string, args: Ser
   if (args.json) {
     for (const line of selectedLines) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
     if (follow) {
-      for await (const line of followTextLogLines(logFile, createFollowAbortSignal(context))) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
+      for await (const line of followTextLogLines(logFile, process.abortSignal)) process.stdout.write(formatNdjsonLine(line, Boolean(options.rawNdjson)));
     }
     return;
   }
@@ -364,7 +349,7 @@ async function renderLogFile(context: CommandContext, logFile: string, args: Ser
 
   for (const line of selectedLines) writeFormatted(formatter(line));
   if (follow) {
-    for await (const line of followTextLogLines(logFile, createFollowAbortSignal(context))) writeFormatted(formatter(line));
+    for await (const line of followTextLogLines(logFile, process.abortSignal)) writeFormatted(formatter(line));
   }
   if (renderer) writeFormatted(renderer.flush());
   if (inlineOpen) process.stdout.write('\n');

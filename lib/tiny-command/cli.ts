@@ -276,34 +276,13 @@ export function renderBashCompletion(commandName: string): string {
   ].join('\n');
 }
 
-function withRuntimeAbortSignal(context: CommandContext): { context: CommandContext; cleanup: () => void } {
+function withCliAbortSignal(context: CommandContext): { context: CommandContext; cleanup: () => void } {
+  if (context.process.abortSignal) return { context, cleanup: () => {} };
+
   const controller = new AbortController();
-  const cleanupCallbacks: Array<() => void> = [];
   const abort = () => controller.abort();
-
-  if (context.process.abortSignal) {
-    if (context.process.abortSignal.aborted) abort();
-    else {
-      context.process.abortSignal.addEventListener('abort', abort, { once: true });
-      cleanupCallbacks.push(() => context.process.abortSignal?.removeEventListener('abort', abort));
-    }
-  }
-
-  if (!context.process.stdin.isTTY) {
-    context.process.stdin.resume();
-    for (const eventName of ['end', 'close', 'error'] as const) {
-      context.process.stdin.once(eventName, abort);
-      cleanupCallbacks.push(() => context.process.stdin.removeListener(eventName, abort));
-    }
-  }
-  context.process.stdout.once('error', abort);
-  cleanupCallbacks.push(() => context.process.stdout.removeListener('error', abort));
-  context.process.stderr.once('error', abort);
-  cleanupCallbacks.push(() => context.process.stderr.removeListener('error', abort));
   process.once('SIGTERM', abort);
-  cleanupCallbacks.push(() => process.removeListener('SIGTERM', abort));
   process.once('SIGINT', abort);
-  cleanupCallbacks.push(() => process.removeListener('SIGINT', abort));
 
   return {
     context: {
@@ -314,13 +293,14 @@ function withRuntimeAbortSignal(context: CommandContext): { context: CommandCont
       },
     },
     cleanup: () => {
-      for (const cleanup of cleanupCallbacks.splice(0)) cleanup();
+      process.removeListener('SIGTERM', abort);
+      process.removeListener('SIGINT', abort);
     },
   };
 }
 
 export async function runCli(root: CliCommandDef, rawArgs: string[], context: CommandContext): Promise<void> {
-  const runtime = withRuntimeAbortSignal(context);
+  const runtime = withCliAbortSignal(context);
   const runtimeContext = runtime.context;
   try {
     if (rawArgs[0] === '__complete') {

@@ -425,7 +425,7 @@ function buildCoreOpenApiSpec(request: Request, routes: CliApiRouteDef[], option
   };
 }
 
-async function bufferedResponse(options: TinyRestApiOptions, argv: string[], cwd: string | undefined, auth: TinyRestAuthContext): Promise<Response> {
+async function bufferedResponse(options: TinyRestApiOptions, argv: string[], cwd: string | undefined, auth: TinyRestAuthContext, abortSignal?: AbortSignal): Promise<Response> {
   const stdoutChunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];
   const stdout = new Writable({
@@ -442,7 +442,7 @@ async function bufferedResponse(options: TinyRestApiOptions, argv: string[], cwd
   });
 
   try {
-    const code = await runCliDirect(options, argv, cwd, auth, stdout, stderr);
+    const code = await runCliDirect(options, argv, cwd, auth, stdout, stderr, abortSignal);
     const stdoutText = Buffer.concat(stdoutChunks).toString('utf8');
     const stderrText = Buffer.concat(stderrChunks).toString('utf8').trim();
 
@@ -471,8 +471,7 @@ async function bufferedResponse(options: TinyRestApiOptions, argv: string[], cwd
   }
 }
 
-function streamingResponse(options: TinyRestApiOptions, argv: string[], cwd: string | undefined, auth: TinyRestAuthContext, contentType = 'text/plain; charset=utf-8'): Response {
-  const abortController = new AbortController();
+function streamingResponse(options: TinyRestApiOptions, argv: string[], cwd: string | undefined, auth: TinyRestAuthContext, abortSignal?: AbortSignal, contentType = 'text/plain; charset=utf-8'): Response {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const sink = new Writable({
@@ -481,12 +480,9 @@ function streamingResponse(options: TinyRestApiOptions, argv: string[], cwd: str
           callback();
         },
       });
-      runCliDirect(options, argv, cwd, auth, sink, sink, abortController.signal)
+      runCliDirect(options, argv, cwd, auth, sink, sink, abortSignal)
         .catch((error) => controller.enqueue(encoder.encode(`\n[error] ${error instanceof Error ? error.message : String(error)}\n`)))
         .finally(() => controller.close());
-    },
-    cancel() {
-      abortController.abort();
     },
   });
   return new Response(stream, {
@@ -510,8 +506,8 @@ async function coreActionResponse(request: Request, parts: string[], method: 'GE
     const parsed = method === 'GET' ? { args: [], options: {}, values: {} } : await parseRequestBody(request, uploadDir);
     const auth = await options.authorize(request);
     const { argv, cwd, streaming, ndjson } = buildArgv(matched.route, matched.params, parsed, request, options.resolveCwd);
-    if (streaming) return streamingResponse(options, argv, cwd, auth, ndjson ? 'application/x-ndjson' : 'text/plain; charset=utf-8');
-    return bufferedResponse(options, argv, cwd, auth);
+    if (streaming) return streamingResponse(options, argv, cwd, auth, request.signal, ndjson ? 'application/x-ndjson' : 'text/plain; charset=utf-8');
+    return bufferedResponse(options, argv, cwd, auth, request.signal);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const status = message.toLowerCase().includes('authorization') || message.toLowerCase().includes('restricted to') ? 401 : 400;
