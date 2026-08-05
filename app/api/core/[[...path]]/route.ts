@@ -19,7 +19,7 @@ async function authorize(request: Request) {
     getSessionUser(),
   ]);
   if (!user) throw new Error('Authorization session required.');
-  if (resolved.userId !== user.id) throw new Error('Web API key belongs to a different logged-in user.');
+  if (resolved.userId !== user.id) throw new Error('User mismatch between `Authorization Bearer` header and login session cookie.');
   return {
     env: {
       PRIMORDIA_API_KEY: match[1],
