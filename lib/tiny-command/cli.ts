@@ -1,11 +1,10 @@
 import {
   CliUsageError,
-  createProcessCtx,
   type CliCommandDef,
   type CliCompletionContext,
   type CliOptionDef,
   type CliParsedArgs,
-  type ProcessCtx,
+  type CommandContext,
 } from './common';
 
 interface ResolvedCommand {
@@ -211,9 +210,9 @@ export function parseCliArgs(command: CliCommandDef, rawArgs: string[]): CliPars
   return args;
 }
 
-async function completeCli(root: CliCommandDef, rawWords: string[], processCtx: ProcessCtx): Promise<string[]> {
+async function completeCli(root: CliCommandDef, rawWords: string[], commandContext: CommandContext): Promise<string[]> {
   const words = rawWords[0] === '--' ? rawWords.slice(1) : rawWords;
-  const compCword = Number(processCtx.env.COMP_CWORD);
+  const compCword = Number(commandContext.process.env.COMP_CWORD);
   const currentIndex = Number.isFinite(compCword) ? Math.max(0, compCword - 1) : Math.max(0, words.length - 1);
   const current = words[currentIndex] ?? '';
   const previous = currentIndex > 0 ? words[currentIndex - 1] : undefined;
@@ -221,7 +220,7 @@ async function completeCli(root: CliCommandDef, rawWords: string[], processCtx: 
   const resolved = resolveCommand(root, wordsBeforeCurrent);
   const command = resolved.command;
   const commandPath = resolved.path;
-  const context: CliCompletionContext = { words, current, previous, commandPath };
+  const completionContext: CliCompletionContext = { words, current, previous, commandPath };
 
   const previousOption = previous?.startsWith('--')
     ? command.options?.find((option) => option.name === previous.slice(2))
@@ -229,7 +228,7 @@ async function completeCli(root: CliCommandDef, rawWords: string[], processCtx: 
       ? command.options?.find((option) => option.alias === previous.slice(1))
       : undefined;
   if (previousOption?.type === 'string') {
-    return previousOption.complete ? filterCompletions(await previousOption.complete(context), current) : [];
+    return previousOption.complete ? filterCompletions(await previousOption.complete(completionContext), current) : [];
   }
 
   if (current.startsWith('-')) {
@@ -246,10 +245,10 @@ async function completeCli(root: CliCommandDef, rawWords: string[], processCtx: 
 
   const subcommandCompletions = visibleSubcommands(command).map((subcommand) => subcommand.name);
   if (command === root) subcommandCompletions.push('completion');
-  const commandCompletions = command.complete ? await command.complete(context) : [];
+  const commandCompletions = command.complete ? await command.complete(completionContext) : [];
   const argumentIndex = resolved.remaining.filter((word) => !word.startsWith('-')).length;
   const argument = command.arguments?.[argumentIndex];
-  const argumentCompletions = argument?.complete ? await argument.complete(context) : [];
+  const argumentCompletions = argument?.complete ? await argument.complete(completionContext) : [];
   return filterCompletions([...subcommandCompletions, ...commandCompletions, ...argumentCompletions], current);
 }
 
@@ -277,20 +276,20 @@ export function renderBashCompletion(commandName: string): string {
   ].join('\n');
 }
 
-export async function runCli(root: CliCommandDef, rawArgs: string[], processCtx: ProcessCtx = createProcessCtx()): Promise<void> {
+export async function runCli(root: CliCommandDef, rawArgs: string[], context: CommandContext): Promise<void> {
   if (rawArgs[0] === '__complete') {
-    const completions = await completeCli(root, rawArgs.slice(1), processCtx);
-    processCtx.console.log(completions.join('\n'));
+    const completions = await completeCli(root, rawArgs.slice(1), context);
+    context.console.log(completions.join('\n'));
     return;
   }
 
   if (rawArgs.length === 2 && rawArgs[0] === 'completion' && rawArgs[1] === 'bash') {
-    processCtx.console.log(renderBashCompletion(root.name));
+    context.console.log(renderBashCompletion(root.name));
     return;
   }
 
   if (rawArgs.includes('--help') || rawArgs.includes('-h') || rawArgs.length === 0) {
-    processCtx.console.log(renderCliHelp(root));
+    context.console.log(renderCliHelp(root));
     return;
   }
 
@@ -300,5 +299,5 @@ export async function runCli(root: CliCommandDef, rawArgs: string[], processCtx:
   }
   if (!resolved.command.run) throw new CliUsageError(`Unknown command: ${resolved.remaining[0] ?? rawArgs.join(' ')}`);
   const args = parseCliArgs(resolved.command, resolved.remaining);
-  await resolved.command.run({ args, rawArgs: resolved.remaining, commandPath: resolved.path, processCtx });
+  await resolved.command.run({ args, rawArgs: resolved.remaining, commandPath: resolved.path, context });
 }

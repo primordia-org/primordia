@@ -18,18 +18,22 @@ export interface ProcessConsole {
   warn(...values: unknown[]): void;
 }
 
-export interface ProcessCtx {
+export interface ProcessApi {
   cwd(): string;
   env: Record<string, string | undefined>;
   stdin: NodeJS.ReadStream;
   stdout: NodeJS.WriteStream | NodeJS.WritableStream;
   stderr: NodeJS.WriteStream | NodeJS.WritableStream;
-  console: ProcessConsole;
   pid: number;
   abortSignal?: AbortSignal;
   onSignal(signal: NodeJS.Signals, listener: () => void): void;
   kill(pid: number, signal?: NodeJS.Signals | number): void;
   exit(code?: number): never;
+}
+
+export interface CommandContext {
+  process: ProcessApi;
+  console: ProcessConsole;
 }
 
 export class ProcessExit extends Error {
@@ -55,23 +59,6 @@ export function createProcessConsole(stdout: NodeJS.WritableStream, stderr: Node
   };
 }
 
-export function createProcessCtx(overrides: Partial<ProcessCtx> = {}): ProcessCtx {
-  const stdout = overrides.stdout ?? process.stdout;
-  const stderr = overrides.stderr ?? process.stderr;
-  return {
-    cwd: () => process.cwd(),
-    env: process.env,
-    stdin: process.stdin,
-    stdout,
-    stderr,
-    console: overrides.console ?? createProcessConsole(stdout, stderr),
-    pid: process.pid,
-    onSignal(signal, listener) { process.once(signal, listener); },
-    kill(pid, signal) { process.kill(pid, signal); },
-    exit(code = 0): never { throw new ProcessExit(code); },
-    ...overrides,
-  };
-}
 
 export interface CliCompletionContext {
   words: string[];
@@ -125,7 +112,7 @@ export interface CliCommandDef {
   complete?: CliCompletionSource;
   hidden?: boolean;
   api?: CliApiDef;
-  run?: (context: { args: CliParsedArgs; rawArgs: string[]; commandPath: string[]; processCtx: ProcessCtx }) => unknown | Promise<unknown>;
+  run?: (context: { args: CliParsedArgs; rawArgs: string[]; commandPath: string[]; context: CommandContext }) => unknown | Promise<unknown>;
 }
 
 export interface CliApiRouteDef {

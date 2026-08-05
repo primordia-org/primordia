@@ -1,7 +1,7 @@
 import { Readable, Writable } from 'stream';
 import * as fs from 'fs';
 import * as path from 'path';
-import { CliUsageError, ProcessExit, createProcessConsole, createProcessCtx, listCliApiRoutes, type CliApiRouteDef, type CliCommandDef, type ProcessCtx } from './common';
+import { CliUsageError, ProcessExit, listCliApiRoutes, type CliApiRouteDef, type CliCommandDef, type CommandContext } from './common';
 import { runCli } from './cli';
 
 export interface TinyRestApiOptions {
@@ -14,6 +14,7 @@ export interface TinyRestApiOptions {
   bearerFormat: string;
   bearerDescription: string;
   authorize(request: Request): Promise<TinyRestAuthContext>;
+  createContext(options: TinyRestCreateContextOptions): CommandContext;
   resolveCwd(paramValue: string): string;
   serverUrl(request: Request): string;
 }
@@ -29,6 +30,15 @@ interface ParsedBody {
 
 export interface TinyRestAuthContext {
   env: Record<string, string | undefined>;
+}
+
+export interface TinyRestCreateContextOptions {
+  cwd?: string;
+  auth: TinyRestAuthContext;
+  stdout: NodeJS.WritableStream;
+  stderr: NodeJS.WritableStream;
+  stdin: NodeJS.ReadStream;
+  abortSignal?: AbortSignal;
 }
 
 type JsonSchema = Record<string, unknown>;
@@ -229,33 +239,11 @@ function buildArgv(route: CliApiRouteDef, params: Record<string, string>, parsed
   return { argv, cwd: cwdParam ? resolveCwd(cwdParam) : undefined, streaming, ndjson };
 }
 
-function createCoreProcessCtx(options: {
-  cwd?: string;
-  auth: TinyRestAuthContext;
-  stdout: NodeJS.WritableStream;
-  stderr: NodeJS.WritableStream;
-  abortSignal?: AbortSignal;
-}): ProcessCtx {
+async function runCliDirect(options: TinyRestApiOptions, argv: string[], cwd: string | undefined, auth: TinyRestAuthContext, stdout: NodeJS.WritableStream, stderr: NodeJS.WritableStream, abortSignal?: AbortSignal): Promise<number> {
   const stdin = Readable.from([]) as NodeJS.ReadStream;
   stdin.isTTY = true;
-  return createProcessCtx({
-    cwd: () => options.cwd ?? process.cwd(),
-    env: {
-      ...process.env,
-      ...options.auth.env,
-    },
-    stdin,
-    stdout: options.stdout,
-    stderr: options.stderr,
-    console: createProcessConsole(options.stdout, options.stderr),
-    abortSignal: options.abortSignal,
-    onSignal() { /* HTTP requests do not receive process signals. */ },
-  });
-}
-
-async function runCliDirect(command: CliCommandDef, argv: string[], cwd: string | undefined, auth: TinyRestAuthContext, stdout: NodeJS.WritableStream, stderr: NodeJS.WritableStream, abortSignal?: AbortSignal): Promise<number> {
   try {
-    await runCli(command, argv, createCoreProcessCtx({ cwd, auth, stdout, stderr, abortSignal }));
+    await runCli(options.command, argv, options.createContext({ cwd, auth, stdout, stderr, stdin, abortSignal }));
     return 0;
   } catch (error) {
     if (error instanceof ProcessExit) return error.code;
@@ -437,7 +425,7 @@ function buildCoreOpenApiSpec(request: Request, routes: CliApiRouteDef[], option
   };
 }
 
-async function bufferedResponse(command: CliCommandDef, argv: string[], cwd: string | undefined, auth: TinyRestAuthContext): Promise<Response> {
+async function bufferedResponse(options: TinyRestApiOptions, argv: string[], cwd: string | undefined, auth: TinyRestAuthContext): Promise<Response> {
   const stdoutChunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];
   const stdout = new Writable({
@@ -454,7 +442,7 @@ async function bufferedResponse(command: CliCommandDef, argv: string[], cwd: str
   });
 
   try {
-    const code = await runCliDirect(command, argv, cwd, auth, stdout, stderr);
+    const code = await runCliDirect(options, argv, cwd, auth, stdout, stderr);
     const stdoutText = Buffer.concat(stdoutChunks).toString('utf8');
     const stderrText = Buffer.concat(stderrChunks).toString('utf8').trim();
 
@@ -483,7 +471,7 @@ async function bufferedResponse(command: CliCommandDef, argv: string[], cwd: str
   }
 }
 
-function streamingResponse(command: CliCommandDef, argv: string[], cwd: string | undefined, auth: TinyRestAuthContext, contentType = 'text/plain; charset=utf-8'): Response {
+function streamingResponse(options: TinyRestApiOptions, argv: string[], cwd: string | undefined, auth: TinyRestAuthContext, contentType = 'text/plain; charset=utf-8'): Response {
   const abortController = new AbortController();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -493,7 +481,7 @@ function streamingResponse(command: CliCommandDef, argv: string[], cwd: string |
           callback();
         },
       });
-      runCliDirect(command, argv, cwd, auth, sink, sink, abortController.signal)
+      runCliDirect(options, argv, cwd, auth, sink, sink, abortController.signal)
         .catch((error) => controller.enqueue(encoder.encode(`\n[error] ${error instanceof Error ? error.message : String(error)}\n`)))
         .finally(() => controller.close());
     },
@@ -522,8 +510,8 @@ async function coreActionResponse(request: Request, parts: string[], method: 'GE
     const parsed = method === 'GET' ? { args: [], options: {}, values: {} } : await parseRequestBody(request, uploadDir);
     const auth = await options.authorize(request);
     const { argv, cwd, streaming, ndjson } = buildArgv(matched.route, matched.params, parsed, request, options.resolveCwd);
-    if (streaming) return streamingResponse(options.command, argv, cwd, auth, ndjson ? 'application/x-ndjson' : 'text/plain; charset=utf-8');
-    return bufferedResponse(options.command, argv, cwd, auth);
+    if (streaming) return streamingResponse(options, argv, cwd, auth, ndjson ? 'application/x-ndjson' : 'text/plain; charset=utf-8');
+    return bufferedResponse(options, argv, cwd, auth);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const status = message.toLowerCase().includes('authorization') || message.toLowerCase().includes('restricted to') ? 401 : 400;
