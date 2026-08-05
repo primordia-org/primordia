@@ -81,7 +81,8 @@ export function CoreLogFile({ streamPath, active = true, paused = false, scrollC
 
   useEffect(() => {
     startLineRef.current = initialStartLine ?? countCompleteLines(initialOutput) + 1;
-    setOutput(initialOutput);
+    const timer = setTimeout(() => setOutput(initialOutput), 0);
+    return () => clearTimeout(timer);
   }, [initialOutput, initialStartLine]);
 
   useEffect(() => {
@@ -163,10 +164,12 @@ export function CoreLogFile({ streamPath, active = true, paused = false, scrollC
     };
 
     document.addEventListener("visibilitychange", onVisibilityChange);
+    let stateTimer: ReturnType<typeof setTimeout> | null = null;
     if (active) void connect();
-    else setConnectionState(paused ? "paused" : "idle");
+    else stateTimer = setTimeout(() => setConnectionState(paused ? "paused" : "idle"), 0);
 
     return () => {
+      if (stateTimer) clearTimeout(stateTimer);
       cancelled = true;
       document.removeEventListener("visibilitychange", onVisibilityChange);
       stopCurrentSubscription();
