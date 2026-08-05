@@ -8,7 +8,7 @@
     "build": "NEXT_DEPLOYMENT_ID=$(git rev-parse HEAD 2>/dev/null || echo local-development) bun --bun ./node_modules/next/dist/bin/next build",
     "start": "NEXT_DEPLOYMENT_ID=$(git rev-parse HEAD 2>/dev/null || echo local-development) bun --bun ./node_modules/next/dist/bin/next start",
     "lint": "eslint .",
-    "typecheck": "bun --bun ./node_modules/next/dist/bin/next typegen && tsc --noEmit",
+    "typecheck": "bun scripts/typecheck.ts",
     "rollback": "bun scripts/rollback.ts",
     "proxy": "bun scripts/reverse-proxy.ts",
     "supervisor": "bun scripts/service-supervisor.ts",

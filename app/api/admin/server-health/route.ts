@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import { createThread } from '@/lib/threads';
 import { getSessionUser, isAdmin } from '@/lib/auth';
 import { archiveSessionNdjsonLog } from '@/lib/session-archive';
-import { readLatestLeakDiagnostics, readLeakDiagnosticsSummary, readPrimordiaMemorySnapshot, readRecentOomKills } from '@/lib/leak-diagnostics';
+import { dismissLeakDiagnosticsIssue, readLatestLeakDiagnostics, readLeakDiagnosticsSummary, readPrimordiaMemorySnapshot, readRecentOomKills, type LeakDiagnosticsCategory } from '@/lib/leak-diagnostics';
 
 interface WorktreeInfo {
   path: string;
@@ -166,9 +166,11 @@ export async function POST(request: Request) {
   if (!(await isAdmin(user.id))) return Response.json({ error: 'Admin required' }, { status: 403 });
 
   let action = 'delete-oldest-worktree';
+  let category: LeakDiagnosticsCategory | null = null;
   try {
-    const body = await request.json() as { action?: unknown };
+    const body = await request.json() as { action?: unknown; category?: unknown };
     if (typeof body.action === 'string') action = body.action;
+    if (body.category === 'cpu_usage' || body.category === 'memory_leak') category = body.category;
   } catch {
     // Preserve the historical empty-body POST behavior: delete the oldest non-prod worktree.
   }
@@ -180,14 +182,22 @@ export async function POST(request: Request) {
     if (!summary.exists || !diagnostics) {
       return Response.json({ error: 'No CPU/memory diagnostics file exists yet.' }, { status: 404 });
     }
+    if (!category || !summary.categories.includes(category)) {
+      return Response.json({ error: 'A valid diagnostics category is required.' }, { status: 400 });
+    }
 
+    const issueLabel = category === 'cpu_usage' ? 'CPU usage issue' : 'memory leak';
+    const focusGoal = category === 'cpu_usage'
+      ? 'why Primordia was consuming CPU or creating sustained load while it should have been idle'
+      : 'why Primordia was retaining memory or causing memory pressure while it should have been idle';
     const requestText =
-      `Investigate and fix the suspected Primordia CPU usage or memory leak captured by automatic diagnostics.\n\n` +
+      `Investigate and fix the suspected Primordia ${issueLabel} captured by automatic diagnostics.\n\n` +
       `Goals:\n` +
-      `1. Read the diagnostics below and identify why Primordia was consuming CPU or memory while it should have been idle.\n` +
+      `1. Read the diagnostics below and identify ${focusGoal}.\n` +
       `2. Fix the leak or runaway background work with the smallest safe code change.\n` +
-      `3. Add or update safeguards so this class of leak is less likely to recur.\n` +
+      `3. Add or update safeguards so this class of issue is less likely to recur.\n` +
       `4. Run \`bun run typecheck\` and any targeted validation that fits the fix.\n\n` +
+      `Diagnostics category: ${category}\n` +
       `Diagnostics file path on the production instance: ${summary.path}\n\n` +
       `Captured diagnostics:\n\n${diagnostics}`;
 
@@ -196,6 +206,14 @@ export async function POST(request: Request) {
       return Response.json({ error: threadResult.error ?? 'Failed to create thread' }, { status: threadResult.status });
     }
     return Response.json({ threadId: threadResult.sessionId });
+  }
+
+  if (action === 'dismiss-leak-diagnostics-issue') {
+    if (!category) return Response.json({ error: 'A valid diagnostics category is required.' }, { status: 400 });
+    if (!dismissLeakDiagnosticsIssue(process.cwd(), category)) {
+      return Response.json({ error: 'No matching diagnostics issue exists.' }, { status: 404 });
+    }
+    return Response.json({ dismissed: { category } });
   }
 
   if (action !== 'delete-oldest-worktree') {

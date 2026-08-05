@@ -6,6 +6,7 @@ import {
   readLeakDiagnosticsNotificationState,
   readLeakDiagnosticsSummary,
   writeLeakDiagnosticsNotificationState,
+  type LeakDiagnosticsCategory,
 } from "@/lib/leak-diagnostics";
 import { sendWebPushToCategory } from "@/lib/web-push";
 
@@ -60,23 +61,30 @@ function runCaptureTick(repoRoot: string): void {
   }
 }
 
+function categoryLabel(category: LeakDiagnosticsCategory): string {
+  return category === "cpu_usage" ? "CPU usage" : "memory leak";
+}
+
 function runNotificationTick(repoRoot: string): void {
   try {
     const summary = readLeakDiagnosticsSummary(repoRoot);
     if (!summary.exists || !summary.capturedAt) return;
 
     const roundedMtime = Math.round(summary.capturedAt);
-    if (readLeakDiagnosticsNotificationState(repoRoot) === roundedMtime) return;
+    for (const category of summary.activeCategories) {
+      if (readLeakDiagnosticsNotificationState(repoRoot, category) === roundedMtime) continue;
 
-    writeLeakDiagnosticsNotificationState(repoRoot, roundedMtime);
-    void sendWebPushToCategory("server-health-alerts", {
-      title: "CPU / memory diagnostics captured",
-      body: summary.reason
-        ? `Primordia detected possible CPU or memory leakage: ${summary.reason}. Open Server Health to start an investigation session.`
-        : "Primordia detected possible CPU or memory leakage. Open Server Health to start an investigation session.",
-      url: "/admin/server-health",
-      tag: "primordia-server-health-leak-diagnostics",
-    }).catch((pushErr) => console.error(`[leak-diagnostics-scheduler] Push notification failed: ${pushErr}`));
+      writeLeakDiagnosticsNotificationState(repoRoot, category, roundedMtime);
+      const label = categoryLabel(category);
+      void sendWebPushToCategory("server-health-alerts", {
+        title: `${label} diagnostics captured`,
+        body: summary.reason
+          ? `Primordia detected possible ${label.toLowerCase()} trouble: ${summary.reason}. Open Server Health to start an investigation session.`
+          : `Primordia detected possible ${label.toLowerCase()} trouble. Open Server Health to start an investigation session.`,
+        url: "/admin/server-health",
+        tag: `primordia-server-health-leak-diagnostics-${category}`,
+      }).catch((pushErr) => console.error(`[leak-diagnostics-scheduler] Push notification failed: ${pushErr}`));
+    }
   } catch (err) {
     console.error(`[leak-diagnostics-scheduler] Notification check failed: ${err}`);
   }
