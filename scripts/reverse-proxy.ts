@@ -27,7 +27,7 @@
 // which is updated atomically during blue/green accepts.
 
 import * as http from 'http';
-import * as net from 'net';
+import { Duplex } from 'stream';
 import {
   getProxyRoutingState,
   startWorktreeServer,
@@ -153,8 +153,7 @@ const MAIN_REPO = PRIMORDIA_PATHS.mainRepo;
 let upstreamPort = 3001;
 /** The branch name currently set as primordia.productionBranch. */
 let currentProdBranch: string | null = null;
-/** Cache of branch name → port for fast preview lookups. */
-let sessionPortCache: Record<string, number> = {};
+
 /** Cache of branch name → { worktreePath, port } for preview server spawning. */
 let sessionWorktreeCache: Record<string, { worktreePath: string; port: number }> = {};
 /** Path to the git config file being watched. */
@@ -164,10 +163,7 @@ let watchedConfigPath: string | null = null;
 let previewInactivityMin = 30;
 /** How long to wait for a server to become ready before giving up (2 min). */
 const PREVIEW_START_TIMEOUT_MS = 2 * 60 * 1000;
-/** Maximum request header bytes buffered by the raw TCP classifier before HTTP parsing. */
-const MAX_REQUEST_HEADER_BYTES = 64 * 1024;
-/** Timeout for clients to finish sending request headers to the raw TCP classifier. */
-const REQUEST_HEADER_TIMEOUT_MS = 30_000;
+
 /** Maximum JSON/body bytes read by proxy management endpoints before forwarding. */
 const MAX_PROXY_BODY_BYTES = 1024 * 1024;
 /** Avoid probing an already-running preview on every asset request while still detecting stale idle entries promptly. */
@@ -193,9 +189,6 @@ function readAllPorts(): void {
     });
   }
 
-  sessionPortCache = Object.fromEntries(
-    [...state.branchPorts].filter(([branch]) => !branch.includes('/')),
-  );
   sessionWorktreeCache = state.previewTargets;
 
   if (state.productionBranch && state.upstreamPort) {
@@ -748,204 +741,211 @@ async function handleRequest(
   }
 }
 
-// Internal HTTP handler. Listens on a random localhost port; the external
-// net.Server forwards non-WebSocket connections to it via loopback.
-const httpHandler = http.createServer((clientReq, clientRes) => {
+function writeSocketHttpError(socket: Duplex, statusCode: number, message: string): void {
+  if (socket.destroyed) return;
+  socket.write(
+    `HTTP/1.1 ${statusCode} ${message}\r\n` +
+    `Content-Type: text/plain\r\n` +
+    `Connection: close\r\n` +
+    `\r\n` +
+    `${message}\n`,
+    () => socket.destroy(),
+  );
+}
+
+function writeUpgradeResponse(
+  clientSocket: Duplex,
+  upstreamRes: http.IncomingMessage,
+  upstreamHead: Buffer,
+): void {
+  clientSocket.write(`HTTP/1.1 ${upstreamRes.statusCode} ${upstreamRes.statusMessage}\r\n`);
+  for (const [name, value] of Object.entries(upstreamRes.headers)) {
+    if (Array.isArray(value)) {
+      for (const item of value) clientSocket.write(`${name}: ${item}\r\n`);
+    } else if (value != null) {
+      clientSocket.write(`${name}: ${value}\r\n`);
+    }
+  }
+  clientSocket.write('\r\n');
+  if (upstreamHead.length > 0) clientSocket.write(upstreamHead);
+}
+
+async function ensureReadyForUpgrade(entry: ManagedServerEntry): Promise<void> {
+  entry.lastActivityMs = Date.now();
+  if (entry.status === 'running') {
+    const shouldCheckPreview = entry.kind === 'preview'
+      && Date.now() - entry.lastReadyCheckMs >= PREVIEW_RUNNING_CHECK_INTERVAL_MS;
+    if (!shouldCheckPreview) return;
+    if (await isPortReady(entry.port, 750)) {
+      entry.lastReadyCheckMs = Date.now();
+      return;
+    }
+    console.warn(`[proxy] ${serverLabel(entry)} server was marked running but :${entry.port} is down; restarting before websocket upgrade`);
+    entry.status = 'stopped';
+    if (entry.kind === 'production') markProductionOutage('health check failed before websocket upgrade');
+  }
+
+  if (!entry.startPromise) {
+    startManagedServer(entry).catch((err) => logCrashBoundary(`${serverLabel(entry)} websocket lazy start failed`, err));
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(`${serverLabel(entry)} server is still starting`));
+    }, PREVIEW_START_TIMEOUT_MS);
+
+    entry.startWaiters.push({
+      resolve: () => {
+        clearTimeout(timeoutId);
+        entry.lastActivityMs = Date.now();
+        resolve();
+      },
+      reject: (err) => {
+        clearTimeout(timeoutId);
+        reject(err);
+      },
+    });
+  });
+}
+
+async function getUpgradeTarget(url: string): Promise<ManagedServerEntry | null> {
+  const previewMatch = url.match(/^\/preview\/([^/?#]+)/);
+  if (previewMatch) {
+    const sessionId = previewMatch[1];
+    let entry = previewProcesses.get(sessionId);
+    if (entry) {
+      await ensureReadyForUpgrade(entry);
+      return entry;
+    }
+
+    let info = sessionWorktreeCache[sessionId];
+    if (!info) {
+      readAllPorts();
+      info = sessionWorktreeCache[sessionId];
+    }
+    if (!info) return null;
+    if (isProductionTarget(sessionId, info.port)) {
+      throw new Error(`This session's branch is now the production server and cannot be previewed as a dev server.`);
+    }
+
+    entry = {
+      id: sessionId,
+      kind: 'preview',
+      mode: 'dev',
+      port: info.port,
+      worktreePath: info.worktreePath,
+      lastActivityMs: Date.now(),
+      status: 'stopped',
+      startWaiters: [],
+      startPromise: null,
+      lastReadyCheckMs: 0,
+    };
+    previewProcesses.set(sessionId, entry);
+    await ensureReadyForUpgrade(entry);
+    return entry;
+  }
+
+  const entry = getProdEntry();
+  if (!entry) return null;
+  await ensureReadyForUpgrade(entry);
+  return entry;
+}
+
+async function handleWsUpgrade(
+  clientReq: http.IncomingMessage,
+  clientSocket: Duplex,
+  clientHead: Buffer,
+): Promise<void> {
+  clientSocket.on('error', (err) => {
+    console.error('[proxy] client socket error during WS upgrade:', err.message);
+  });
+
+  const url = clientReq.url ?? '/';
+  let target: ManagedServerEntry | null;
+  try {
+    target = await getUpgradeTarget(url);
+  } catch (err) {
+    const message = errorMessage(err);
+    console.error(`[proxy] websocket target error for ${url}:`, message);
+    writeSocketHttpError(clientSocket, 409, message);
+    return;
+  }
+
+  if (!target) {
+    writeSocketHttpError(clientSocket, 503, 'WebSocket upstream is not configured');
+    return;
+  }
+
+  const upstreamReq = http.request({
+    hostname: '127.0.0.1',
+    port: target.port,
+    path: clientReq.url,
+    method: clientReq.method,
+    headers: {
+      ...forwardHeaders(clientReq, {
+        'x-forwarded-for': clientReq.socket.remoteAddress ?? '',
+        'x-forwarded-proto': (typeof clientReq.headers['x-forwarded-proto'] === 'string'
+          ? clientReq.headers['x-forwarded-proto']
+          : 'http'),
+        'x-forwarded-port': derivePublicPort(clientReq),
+      }),
+      connection: 'Upgrade',
+      upgrade: String(clientReq.headers.upgrade ?? 'websocket'),
+    },
+  });
+
+  upstreamReq.on('upgrade', (_upstreamReq, upstreamSocket, upstreamHead) => {
+    writeUpgradeResponse(clientSocket, _upstreamReq, upstreamHead);
+    if (clientHead.length > 0) upstreamSocket.write(clientHead);
+    upstreamSocket.pipe(clientSocket);
+    clientSocket.pipe(upstreamSocket);
+    clientSocket.on('error', () => upstreamSocket.destroy());
+    upstreamSocket.on('error', () => clientSocket.destroy());
+  });
+
+  upstreamReq.on('response', (upstreamRes) => {
+    console.error(`[proxy] WS upstream on port ${target.port} returned ${upstreamRes.statusCode ?? 'unknown'} instead of 101`);
+    upstreamReq.destroy();
+    writeSocketHttpError(clientSocket, 502, 'WebSocket upstream did not upgrade');
+  });
+
+  upstreamReq.on('error', (err) => {
+    console.error(`[proxy] WS upstream error on port ${target.port}:`, err.message);
+    if (target.kind === 'production') {
+      target.status = 'stopped';
+      markProductionOutage(`websocket upstream error: ${err.message}`);
+    } else if (target.status === 'running') {
+      console.warn(`[proxy] marking ${serverLabel(target)} server stopped after websocket upstream error on :${target.port}`);
+      target.status = 'stopped';
+    }
+    if (!clientSocket.destroyed) clientSocket.destroy();
+  });
+
+  upstreamReq.end();
+}
+
+const server = http.createServer((clientReq, clientRes) => {
   handleRequest(clientReq, clientRes).catch((err) => {
     logCrashBoundary('request handler rejected', err);
     sendPlainError(clientRes, 500, 'Internal proxy error');
   });
 });
 
-// Inject x-forwarded-for / x-forwarded-proto into a raw HTTP upgrade request
-// buffer and return the modified buffer.  Works at the byte level so we don't
-// need an HTTP parser just for these two headers.
-function buildWsUpgradeRequest(reqBuf: Buffer, remoteAddress: string): Buffer {
-  const headerEnd = reqBuf.indexOf('\r\n\r\n');
-  if (headerEnd === -1) return reqBuf; // shouldn't happen
-  let headers = reqBuf.slice(0, headerEnd).toString('binary');
-  // Extract upstream x-forwarded-proto before stripping (exe.dev sets this to 'https').
-  const protoMatch = headers.match(/\r\nx-forwarded-proto:\s*([^\r\n]+)/i);
-  const proto = protoMatch ? protoMatch[1].trim() : 'http';
-  // Remove any existing forwarded headers to avoid duplicates.
-  headers = headers.replace(/\r\nx-forwarded-for:[^\r\n]*/gi, '');
-  headers = headers.replace(/\r\nx-forwarded-proto:[^\r\n]*/gi, '');
-  headers += `\r\nX-Forwarded-For: ${remoteAddress}`;
-  headers += `\r\nX-Forwarded-Proto: ${proto}`;
-  return Buffer.concat([Buffer.from(headers, 'binary'), Buffer.from('\r\n\r\n')]);
-}
-
-// Handle a WebSocket upgrade at the raw TCP level. This was introduced for
-// Bun 1.3 HTTP upgrade bugs: http.ClientRequest could emit 'response' instead
-// of 'upgrade' for upstream 101 responses, and writes to http.Server upgrade
-// sockets could be reported as successful while never reaching the browser.
-// scripts/test-hmr-proxy.ts now verifies both historical failures are fixed in
-// Bun 1.4.0 with a minimal http.Server + http.request proxy. Keep this robust
-// tunnel until a focused refactor swaps the external net.Server classifier back
-// to a normal http.Server upgrade handler and validates real Next.js HMR.
-function handleWsUpgrade(rawSocket: net.Socket, reqBuf: Buffer): void {
-  rawSocket.on('error', (err) => {
-    console.error('[proxy] client socket error during WS upgrade:', err.message);
+server.on('upgrade', (clientReq, clientSocket, clientHead) => {
+  handleWsUpgrade(clientReq, clientSocket, clientHead).catch((err) => {
+    logCrashBoundary('websocket upgrade handler rejected', err);
+    writeSocketHttpError(clientSocket, 500, 'Internal proxy error');
   });
-
-  const reqStr = reqBuf.toString('binary');
-  const url = reqStr.match(/^[A-Z]+ (\S+)/)?.[1] ?? '/';
-
-  // Update activity for preview WebSocket connections (HMR).
-  const previewMatch = url.match(/^\/preview\/([^/?#]+)/);
-  if (previewMatch) {
-    const entry = previewProcesses.get(previewMatch[1]);
-    if (entry) entry.lastActivityMs = Date.now();
-  }
-
-  // Determine target port.
-  let targetPort = upstreamPort;
-  if (previewMatch) {
-    const cached = sessionPortCache[previewMatch[1]];
-    if (cached) targetPort = cached;
-  } else {
-    const entry = getProdEntry();
-    if (entry?.status !== 'running') {
-      startProdServerIfNeeded().catch((err) => logCrashBoundary('production lazy start for websocket failed', err));
-    }
-  }
-
-  const upstreamSocket = net.createConnection(targetPort, '127.0.0.1');
-  upstreamSocket.on('connect', () => {
-    // Forward the upgrade request (with x-forwarded headers injected).
-    upstreamSocket.write(buildWsUpgradeRequest(reqBuf, rawSocket.remoteAddress ?? ''));
-
-    // Inspect the first response chunk from the upstream to verify it is a 101.
-    // If not (e.g. the dev server returned 400), return a 502 to the browser.
-    // Once confirmed as 101, push the chunk back and start the bidirectional pipe.
-    upstreamSocket.once('data', (firstChunk: Buffer) => {
-      const firstLine = firstChunk.slice(0, 20).toString('binary');
-      if (!firstLine.startsWith('HTTP/1.1 101') && !firstLine.startsWith('HTTP/1.0 101')) {
-        console.error(`[proxy] WS upstream on port ${targetPort} did not return 101`);
-        upstreamSocket.destroy();
-        if (!rawSocket.destroyed) {
-          rawSocket.write(
-            `HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n` +
-            `WebSocket upstream did not upgrade\n`,
-          );
-          rawSocket.destroy();
-        }
-        return;
-      }
-      // Put the first chunk back so it flows through the pipe.
-      upstreamSocket.unshift(firstChunk);
-      // Bidirectional pipe — after this the proxy is a transparent tunnel.
-      rawSocket.pipe(upstreamSocket);
-      upstreamSocket.pipe(rawSocket);
-      rawSocket.on('error', () => upstreamSocket.destroy());
-      upstreamSocket.on('error', () => rawSocket.destroy());
-      rawSocket.resume();
-    });
-  });
-  upstreamSocket.on('error', (err) => {
-    console.error(`[proxy] WS upstream error on port ${targetPort}:`, err.message);
-    if (targetPort === upstreamPort) {
-      const entry = getProdEntry();
-      if (entry) entry.status = 'stopped';
-      markProductionOutage(`websocket upstream error: ${err.message}`);
-    }
-    if (!rawSocket.destroyed) rawSocket.destroy();
-  });
-}
-
-// External listener.  Each connection is inspected: WebSocket upgrades are
-// handled via raw-TCP tunnelling (see handleWsUpgrade); all other requests
-// are forwarded to the internal httpHandler via a loopback connection.
-let httpHandlerPort = 0;
-const server = net.createServer((rawSocket) => {
-  rawSocket.pause();
-  let buf = Buffer.alloc(0);
-  const headerTimer = setTimeout(() => {
-    if (!rawSocket.destroyed) {
-      rawSocket.write('HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n');
-      rawSocket.destroy();
-    }
-  }, REQUEST_HEADER_TIMEOUT_MS);
-  headerTimer.unref();
-
-  rawSocket.on('error', (err) => {
-    logCrashBoundary('raw client socket error', err);
-  });
-  rawSocket.on('close', () => clearTimeout(headerTimer));
-
-  const onData = (chunk: Buffer): void => {
-    try {
-      buf = Buffer.concat([buf, chunk]);
-      const headerEnd = buf.indexOf('\r\n\r\n');
-      if (headerEnd === -1) {
-        if (buf.length > MAX_REQUEST_HEADER_BYTES) {
-          clearTimeout(headerTimer);
-          rawSocket.removeListener('data', onData);
-          if (!rawSocket.destroyed) {
-            rawSocket.write('HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n');
-            rawSocket.destroy();
-          }
-          return;
-        }
-        // Headers not yet complete — keep accumulating.
-        rawSocket.resume();
-        return;
-      }
-      if (headerEnd > MAX_REQUEST_HEADER_BYTES) {
-        clearTimeout(headerTimer);
-        rawSocket.removeListener('data', onData);
-        if (!rawSocket.destroyed) {
-          rawSocket.write('HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n');
-          rawSocket.destroy();
-        }
-        return;
-      }
-
-      clearTimeout(headerTimer);
-      rawSocket.removeListener('data', onData);
-
-      const isWsUpgrade = /upgrade:\s*websocket/i.test(buf.slice(0, headerEnd).toString('binary'));
-      if (isWsUpgrade) {
-        handleWsUpgrade(rawSocket, buf);
-      } else {
-        // Forward to internal HTTP handler via loopback.
-        const internal = net.createConnection(httpHandlerPort, '127.0.0.1');
-        internal.on('connect', () => {
-          internal.write(buf);
-          rawSocket.pipe(internal);
-          internal.pipe(rawSocket);
-          rawSocket.on('error', () => internal.destroy());
-          internal.on('error', () => rawSocket.destroy());
-          rawSocket.resume();
-        });
-        internal.on('error', (err) => {
-          console.error('[proxy] internal handler connection error:', err.message);
-          if (!rawSocket.destroyed) rawSocket.destroy();
-        });
-      }
-    } catch (err) {
-      clearTimeout(headerTimer);
-      rawSocket.removeListener('data', onData);
-      logCrashBoundary('raw request classification failed', err);
-      if (!rawSocket.destroyed) rawSocket.destroy();
-    }
-  };
-
-  rawSocket.on('data', onData);
-  rawSocket.resume();
 });
 
 // ─── Server startup ───────────────────────────────────────────────────────────
 
-httpHandler.listen(0, '127.0.0.1', () => {
-  httpHandlerPort = (httpHandler.address() as net.AddressInfo).port;
-  server.listen(LISTEN_PORT, '0.0.0.0', () => {
-    console.log(
-      `[proxy] listening on :${LISTEN_PORT} → upstream :${upstreamPort} (git config)`,
-    );
-    console.log(`[proxy] main repo: ${MAIN_REPO}`);
-    console.log(`[proxy] worktrees: ${WORKTREES_DIR}`);
-  });
+server.listen(LISTEN_PORT, '0.0.0.0', () => {
+  console.log(
+    `[proxy] listening on :${LISTEN_PORT} → upstream :${upstreamPort} (git config)`,
+  );
+  console.log(`[proxy] main repo: ${MAIN_REPO}`);
+  console.log(`[proxy] worktrees: ${WORKTREES_DIR}`);
 });
 
 process.on('unhandledRejection', (reason) => {
@@ -961,8 +961,7 @@ process.on('SIGTERM', () => {
   for (const sessionId of previewProcesses.keys()) {
     stopPreviewServer(sessionId);
   }
-  // Close the external listener then the internal handler.
   // Belt-and-suspenders: force exit after 5 s if connections don't drain.
-  server.close(() => httpHandler.close(() => process.exit(0)));
+  server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 5_000).unref();
 });

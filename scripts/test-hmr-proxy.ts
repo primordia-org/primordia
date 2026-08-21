@@ -176,73 +176,63 @@ function extractWsKey(reqBuf: Buffer): string {
 
 // ─── Proxy server (mirrors the WebSocket upgrade logic from reverse-proxy.ts) ──
 //
-// Uses a raw net.Server with the same raw-TCP-tunnel approach as the production
-// proxy. Historical Bun 1.3 bugs made the simpler http.Server upgrade proxy
-// unreliable: http.ClientRequest emitted 'response' instead of 'upgrade' for
-// upstream 101 responses, and writes to the http.Server upgrade socket could be
-// reported as successful while never reaching the browser. The Bun 1.4 probes
-// below now cover those old failures directly; keep these production-tunnel
-// tests focused on the still-deployed implementation.
+// Uses the same Bun 1.4-safe shape as the production proxy: a normal
+// http.Server 'upgrade' event and an upstream http.request() that should emit
+// 'upgrade' for 101 Switching Protocols. The probes below cover the historical
+// Bun 1.3 failures directly; these tests cover the deployed proxy behavior.
 //
 // Any divergence from the real proxy's handleWsUpgrade() is a test gap.
 
 function createProxyServer(
   targetPort: number,
-): Promise<{ server: net.Server; port: number }> {
-  const server = net.createServer((rawSocket) => {
-    trackSocket(server as TrackedServer, rawSocket);
-    rawSocket.pause();
-    let buf = Buffer.alloc(0);
+): Promise<{ server: http.Server; port: number }> {
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end('proxy');
+  });
+  server.on('connection', (socket) => trackSocket(server as TrackedServer, socket));
+  server.on('upgrade', (clientReq, clientSocket, clientHead) => {
+    const upstreamReq = http.request({
+      host: '127.0.0.1',
+      port: targetPort,
+      path: clientReq.url,
+      headers: clientReq.headers,
+    });
 
-    const onData = (chunk: Buffer): void => {
-      buf = Buffer.concat([buf, chunk]);
-      const headerEnd = buf.indexOf('\r\n\r\n');
-      if (headerEnd === -1) { rawSocket.resume(); return; }
-
-      rawSocket.removeListener('data', onData);
-
-      const isWsUpgrade = /upgrade:\s*websocket/i.test(buf.slice(0, headerEnd).toString('binary'));
-      if (!isWsUpgrade) {
-        // Tests only send WS upgrade requests; respond with a plain 200 for
-        // any accidental non-upgrade connections so they don't hang.
-        rawSocket.write('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nproxy');
-        rawSocket.destroy();
-        return;
+    upstreamReq.on('upgrade', (upstreamRes, upstreamSocket, upstreamHead) => {
+      clientSocket.write(`HTTP/1.1 ${upstreamRes.statusCode} ${upstreamRes.statusMessage}\r\n`);
+      for (const [name, value] of Object.entries(upstreamRes.headers)) {
+        if (Array.isArray(value)) {
+          for (const item of value) clientSocket.write(`${name}: ${item}\r\n`);
+        } else if (value != null) {
+          clientSocket.write(`${name}: ${value}\r\n`);
+        }
       }
+      clientSocket.write('\r\n');
+      if (upstreamHead.length > 0) clientSocket.write(upstreamHead);
+      if (clientHead.length > 0) upstreamSocket.write(clientHead);
+      upstreamSocket.pipe(clientSocket);
+      clientSocket.pipe(upstreamSocket);
+      clientSocket.on('error', () => upstreamSocket.destroy());
+      upstreamSocket.on('error', () => clientSocket.destroy());
+    });
 
-      rawSocket.on('error', () => upstreamSocket.destroy());
+    upstreamReq.on('response', () => {
+      upstreamReq.destroy();
+      if (!clientSocket.destroyed) {
+        clientSocket.write(
+          `HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n` +
+          `WebSocket upstream did not upgrade\n`,
+          () => clientSocket.destroy(),
+        );
+      }
+    });
 
-      const upstreamSocket = net.createConnection(targetPort, '127.0.0.1');
-      upstreamSocket.on('connect', () => {
-        upstreamSocket.write(buf); // forward the upgrade request as-is
-        upstreamSocket.once('data', (firstChunk: Buffer) => {
-          const firstLine = firstChunk.slice(0, 20).toString('binary');
-          if (!firstLine.startsWith('HTTP/1.1 101') && !firstLine.startsWith('HTTP/1.0 101')) {
-            upstreamSocket.destroy();
-            if (!rawSocket.destroyed) {
-              rawSocket.write(
-                `HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n` +
-                `WebSocket upstream did not upgrade\n`,
-              );
-              rawSocket.destroy();
-            }
-            return;
-          }
-          upstreamSocket.unshift(firstChunk);
-          rawSocket.pipe(upstreamSocket);
-          upstreamSocket.pipe(rawSocket);
-          upstreamSocket.on('error', () => rawSocket.destroy());
-          rawSocket.resume();
-        });
-      });
-      upstreamSocket.on('error', (err) => {
-        console.error(`[test-proxy] upstream error:`, err.message);
-        if (!rawSocket.destroyed) rawSocket.destroy();
-      });
-    };
-
-    rawSocket.on('data', onData);
-    rawSocket.resume();
+    upstreamReq.on('error', (err) => {
+      console.error(`[test-proxy] upstream error:`, err.message);
+      if (!clientSocket.destroyed) clientSocket.destroy();
+    });
+    upstreamReq.end();
   });
 
   return new Promise((resolve, reject) => {
@@ -460,7 +450,7 @@ async function t1_basicBidirectionalFlow(): Promise<void> {
   try {
     const { socket, headers } = await timeout(3000, 'connect', wsConnect(proxyPort));
     assert(headers.startsWith('HTTP/1.1 101'), '101 Switching Protocols received from proxy');
-    assert(headers.includes('Sec-WebSocket-Accept'), 'Sec-WebSocket-Accept forwarded to client');
+    assert(headers.toLowerCase().includes('sec-websocket-accept'), 'Sec-WebSocket-Accept forwarded to client');
 
     // Browser → upstream → browser echo.
     const msg = 'hmr-hello';

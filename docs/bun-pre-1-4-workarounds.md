@@ -6,13 +6,13 @@ This page tracks code that was added as a workaround for Bun 1.2/1.3-era runtime
 
 ## Workarounds to investigate
 
-### 1. Reverse proxy raw-TCP WebSocket tunnel
+### 1. Former reverse proxy raw-TCP WebSocket tunnel
 
-- **Current code:** `scripts/reverse-proxy.ts` (`handleWsUpgrade` and the external `net.createServer` listener) plus `scripts/test-hmr-proxy.ts`.
+- **Current code:** `scripts/reverse-proxy.ts` (`handleWsUpgrade` on the normal `http.Server` `upgrade` event) plus `scripts/test-hmr-proxy.ts`.
 - **Original bug:** Bun 1.3.11 mishandled WebSocket proxying in two ways: `http.ClientRequest` emitted `response` instead of `upgrade` for `101 Switching Protocols`, and `http.Server` upgrade sockets reported successful `write()` calls whose bytes never reached the browser.
 - **Changelog references:** `changelog/2026-04-09-21-00-00 Fix WebSocket proxy 101 error in Bun.md`, `changelog/2026-04-09-03-54-55 Fix HMR WebSocket proxy - swap backwards unshift calls.md`.
 - **Bun 1.4 status:** Investigated on Bun 1.4.0. `scripts/test-hmr-proxy.ts` now includes two minimal probes for the historical failures: an upstream `101 Switching Protocols` response reaches `http.ClientRequest` via the `upgrade` event rather than `response`, and a tiny `http.Server` upgrade proxy using upstream `http.request()` successfully writes the `101` plus an HMR/WebSocket frame back to the client. Both original Bun HTTP upgrade bugs appear fixed in Bun 1.4.0.
-- **Recommendation:** The raw TCP tunnel is no longer justified solely as a Bun `<1.4` compatibility workaround. A safe simplification would replace the external `net.createServer` request classifier with the normal `http.Server` request and `upgrade` events, proxy WebSocket upgrades with `http.request()`, preserve the existing preview/prod routing, forwarded headers, non-101 handling, and activity tracking, then validate with `bun scripts/test-hmr-proxy.ts` plus a real Next.js preview HMR smoke test. Keep the raw tunnel until that focused refactor lands, because it is robust and changing the reverse proxy request boundary is higher risk than updating comments/tests.
+- **Result:** The raw TCP tunnel has been removed. The reverse proxy now uses one normal `http.Server` for HTTP requests and WebSocket `upgrade` events, proxies WebSocket upgrades with upstream `http.request()`, and preserves preview/prod routing, lazy start, forwarded headers, non-101 handling, and activity tracking. Validate with `bun scripts/test-hmr-proxy.ts`; a fresh Primordia instance should still be used to smoke-test real Next.js HMR.
 
 ### 2. Daemon keepalive ref'd timer
 
