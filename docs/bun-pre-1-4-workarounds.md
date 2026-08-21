@@ -38,4 +38,11 @@ Primordia now pins Bun 1.4.0 in `mise.toml` and `package.json`. This page tracks
 
 ## Follow-up threads
 
-Create one child thread from this branch for each item above. Each thread should focus on reproducing the original bug on Bun 1.4, not on removing code immediately. If a workaround is no longer needed, that thread can propose and validate the simplification in isolation.
+One child thread was created from this branch for each item above. Each thread should focus on reproducing the original bug on Bun 1.4, not on removing code immediately. If a workaround is no longer needed, that thread can propose and validate the simplification in isolation.
+
+| Workaround | Investigation thread |
+|---|---|
+| Reverse proxy raw-TCP WebSocket tunnel | `investigate-whether-the-bun` |
+| Daemon keepalive ref'd timer | `investigate-whether-the-bun-2` |
+| Direct Next CLI execution through Bun | `investigate-whether-packagejson-still` |
+| Generated Pi model registry boundary | `investigate-whether-the-generated` |
