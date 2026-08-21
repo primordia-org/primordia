@@ -26,6 +26,7 @@ function logError(label: string, err: unknown): void {
   console.error(`[scheduled-jobs] ${label}:`, err instanceof Error ? err.message : String(err));
 }
 
+console.log(`[scheduled-jobs] runtime Bun ${Bun.version}`);
 applyCurrentProcessOomRole('scheduled-jobs', (message) => console.warn(`[scheduled-jobs] ${message}`));
 
 const paths = getPrimordiaRuntimePaths(process.argv[1]);

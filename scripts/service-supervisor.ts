@@ -30,6 +30,7 @@ const paths = getPrimordiaRuntimePaths(process.argv[1]);
 const trustedConfigPaths = process.env.MISE_TRUSTED_CONFIG_PATHS || `${paths.root}:${paths.worktreesDir}`;
 let shuttingDown = false;
 
+console.log(`[supervisor] runtime Bun ${Bun.version}`);
 applyCurrentProcessOomRole('supervisor', (message) => console.warn(`[supervisor] ${message}`));
 
 const services: ManagedService[] = [

@@ -38,6 +38,7 @@ import { getPrimordiaRuntimePaths } from '@/lib/git-runtime';
 import { applyCurrentProcessOomRole } from '@/lib/oom-priority';
 import { sendWebPushToCategory, WEB_PUSH_CATEGORY_TAGS } from '@/lib/web-push';
 
+console.log(`[proxy] runtime Bun ${Bun.version}`);
 applyCurrentProcessOomRole('reverse-proxy', (message) => console.warn(`[proxy] ${message}`));
 
 // Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).

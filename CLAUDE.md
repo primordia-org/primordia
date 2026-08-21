@@ -55,7 +55,7 @@ primordia/
 ├── docs/                          ← Design notes and implementation strategy docs, including the Primordia CLI/Core extraction sketch
 ├── changelog/                     ← One .md file per change: YYYY-MM-DD-HH-MM-SS Description.md
 │   └── *.md                       ← Filename = short description; body = full what+why detail
-├── scripts/                       ← Process supervisor, reverse proxy source, install script, worker processes — see .claude/rules/filemap-scripts.md
+├── scripts/                       ← Process supervisor, reverse proxy source, install script, worker processes, and service-runtime smoke tests — see .claude/rules/filemap-scripts.md
 ├── lib/                           ← Shared utilities, DB adapter, auth helpers, PID/lockfile helpers, scheduled-jobs boundary + lib/jobs implementations — see .claude/rules/filemap-lib.md
 │                                    Also: lib/CLAUDE.md covers the git config key-value store pattern
 ├── components/                    ← Shared React components — see .claude/rules/filemap-app-pages.md
