@@ -46,7 +46,7 @@ primordia/
 ├── .gitignore
 ├── instrumentation.ts             ← Next.js instrumentation hook; reconnects/recover thread workers on server boot; scheduled jobs run through the supervised Primordia Core jobs daemon instead
 ├── bunfig.toml                    ← Bun package install hardening: 24h minimum release age + Socket scanner
-├── mise.toml                      ← Runtime version pin; currently Bun 1.3.13; install.sh copies it to $PRIMORDIA_DIR for the copied reverse proxy
+├── mise.toml                      ← Runtime version pin; currently Bun 1.4.0; install.sh copies it to $PRIMORDIA_DIR for the copied reverse proxy
 ├── next.config.ts                 ← Minimal Next.js config
 ├── tailwind.config.ts
 ├── tsconfig.json / package.json / bun.d.ts / eslint.config.mjs / postcss.config.mjs

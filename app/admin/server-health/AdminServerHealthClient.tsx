@@ -204,7 +204,7 @@ export default function AdminServerHealthClient() {
       });
       const body = await res.json().catch(() => ({})) as { threadId?: string; error?: string };
       if (!res.ok || !body.threadId) throw new Error(body.error ?? `HTTP ${res.status}`);
-      window.location.href = withBasePath(`/thread/${body.threadId}`);
+      window.location.assign(withBasePath(`/thread/${body.threadId}`));
     } catch (e) {
       setLeakSessionError(String(e));
       setCreatingLeakSession(null);

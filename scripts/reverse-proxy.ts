@@ -146,7 +146,6 @@ function derivePublicPort(incoming: http.IncomingMessage): string {
 const LISTEN_PORT = parseInt(process.env.REVERSE_PROXY_PORT ?? '3000', 10);
 
 const PRIMORDIA_PATHS = getPrimordiaRuntimePaths();
-const PRIMORDIA_ROOT = PRIMORDIA_PATHS.root;
 const WORKTREES_DIR = PRIMORDIA_PATHS.worktreesDir;
 const MAIN_REPO = PRIMORDIA_PATHS.mainRepo;
 
