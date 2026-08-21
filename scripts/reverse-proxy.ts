@@ -753,23 +753,6 @@ function writeSocketHttpError(socket: Duplex, statusCode: number, message: strin
   );
 }
 
-function writeUpgradeResponse(
-  clientSocket: Duplex,
-  upstreamRes: http.IncomingMessage,
-  upstreamHead: Buffer,
-): void {
-  clientSocket.write(`HTTP/1.1 ${upstreamRes.statusCode} ${upstreamRes.statusMessage}\r\n`);
-  for (const [name, value] of Object.entries(upstreamRes.headers)) {
-    if (Array.isArray(value)) {
-      for (const item of value) clientSocket.write(`${name}: ${item}\r\n`);
-    } else if (value != null) {
-      clientSocket.write(`${name}: ${value}\r\n`);
-    }
-  }
-  clientSocket.write('\r\n');
-  if (upstreamHead.length > 0) clientSocket.write(upstreamHead);
-}
-
 async function ensureReadyForUpgrade(entry: ManagedServerEntry): Promise<void> {
   entry.lastActivityMs = Date.now();
   if (entry.status === 'running') {
@@ -894,8 +877,13 @@ async function handleWsUpgrade(
     },
   });
 
-  upstreamReq.on('upgrade', (_upstreamReq, upstreamSocket, upstreamHead) => {
-    writeUpgradeResponse(clientSocket, _upstreamReq, upstreamHead);
+  upstreamReq.on('upgrade', (upstreamRes, upstreamSocket, upstreamHead) => {
+    const headerLines = Object.entries(upstreamRes.headers).flatMap(([name, value]) => {
+      if (Array.isArray(value)) return value.map((item) => `${name}: ${item}`);
+      return value == null ? [] : [`${name}: ${value}`];
+    });
+    clientSocket.write(`HTTP/1.1 ${upstreamRes.statusCode} ${upstreamRes.statusMessage}\r\n${headerLines.join('\r\n')}\r\n\r\n`);
+    if (upstreamHead.length > 0) clientSocket.write(upstreamHead);
     if (clientHead.length > 0) upstreamSocket.write(clientHead);
     upstreamSocket.pipe(clientSocket);
     clientSocket.pipe(upstreamSocket);
