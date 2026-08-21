@@ -1,6 +1,8 @@
 # Bun < 1.4 bug workarounds audit
 
-Primordia now pins Bun 1.4.0 in `mise.toml` and `package.json`. This page tracks code that was added as a workaround for Bun 1.2/1.3-era runtime or Bun/Next.js interop bugs, so each item can be re-tested and simplified if Bun 1.4 no longer needs it.
+Primordia now pins Bun 1.4.0 in `mise.toml` and `package.json`. The installed-service launch path is covered by `bun run test:service-runtime`, which verifies that the supervisor, reverse proxy, and scheduled-jobs daemon all start through `mise exec -C <primordia-root>` under the pinned Bun runtime.
+
+This page tracks code that was added as a workaround for Bun 1.2/1.3-era runtime or Bun/Next.js interop bugs, so each item can be re-tested and simplified if Bun 1.4 no longer needs it.
 
 ## Workarounds to investigate
 
