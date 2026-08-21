@@ -775,11 +775,14 @@ function buildWsUpgradeRequest(reqBuf: Buffer, remoteAddress: string): Buffer {
   return Buffer.concat([Buffer.from(headers, 'binary'), Buffer.from('\r\n\r\n')]);
 }
 
-// Handle a WebSocket upgrade at the raw TCP level.  This bypasses Bun's
-// http.Server upgrade socket, which does not correctly forward writes back
-// to the client (Bun bug: the socket's write() call succeeds but the bytes
-// are silently dropped).  Using raw net.Socket connections on both sides
-// avoids the issue entirely.
+// Handle a WebSocket upgrade at the raw TCP level. This was introduced for
+// Bun 1.3 HTTP upgrade bugs: http.ClientRequest could emit 'response' instead
+// of 'upgrade' for upstream 101 responses, and writes to http.Server upgrade
+// sockets could be reported as successful while never reaching the browser.
+// scripts/test-hmr-proxy.ts now verifies both historical failures are fixed in
+// Bun 1.4.0 with a minimal http.Server + http.request proxy. Keep this robust
+// tunnel until a focused refactor swaps the external net.Server classifier back
+// to a normal http.Server upgrade handler and validates real Next.js HMR.
 function handleWsUpgrade(rawSocket: net.Socket, reqBuf: Buffer): void {
   rawSocket.on('error', (err) => {
     console.error('[proxy] client socket error during WS upgrade:', err.message);

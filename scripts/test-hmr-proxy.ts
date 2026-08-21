@@ -12,6 +12,7 @@
 //
 // Exit code: 0 = all passed, 1 = any failure.
 
+import * as http from 'node:http';
 import * as net from 'node:net';
 import { createHash } from 'node:crypto';
 
@@ -44,6 +45,25 @@ function timeout<T>(ms: number, label: string, p: Promise<T>): Promise<T> {
       setTimeout(() => rej(new Error(`Timeout (${ms} ms): ${label}`)), ms)
     ),
   ]);
+}
+
+type TrackedServer = (net.Server | http.Server) & { __testSockets?: Set<net.Socket> };
+
+function trackSocket(server: TrackedServer, socket: net.Socket): void {
+  server.__testSockets ??= new Set();
+  server.__testSockets.add(socket);
+  socket.on('close', () => server.__testSockets?.delete(socket));
+}
+
+async function closeTestServer(server: TrackedServer): Promise<void> {
+  for (const socket of server.__testSockets ?? []) socket.destroy();
+  await new Promise<void>((resolve) => {
+    const fallback = setTimeout(resolve, 250);
+    server.close(() => {
+      clearTimeout(fallback);
+      resolve();
+    });
+  });
 }
 
 // ─── WebSocket helpers ────────────────────────────────────────────────────────
@@ -115,6 +135,7 @@ function mockUpstreamServer(
 ): Promise<{ server: net.Server; port: number }> {
   return new Promise((resolve, reject) => {
     const server = net.createServer((socket) => {
+      trackSocket(server as TrackedServer, socket);
       socket.on('error', () => {}); // silence individual socket errors in tests
       let acc = Buffer.alloc(0);
       const onData = (chunk: Buffer) => {
@@ -156,9 +177,12 @@ function extractWsKey(reqBuf: Buffer): string {
 // ─── Proxy server (mirrors the WebSocket upgrade logic from reverse-proxy.ts) ──
 //
 // Uses a raw net.Server with the same raw-TCP-tunnel approach as the production
-// proxy.  The previous implementation used http.Server + the 'upgrade' event,
-// which silently drops writes to clientSocket in Bun (see changelog
-// "Fix HMR WebSocket proxy via raw-TCP tunnel").
+// proxy. Historical Bun 1.3 bugs made the simpler http.Server upgrade proxy
+// unreliable: http.ClientRequest emitted 'response' instead of 'upgrade' for
+// upstream 101 responses, and writes to the http.Server upgrade socket could be
+// reported as successful while never reaching the browser. The Bun 1.4 probes
+// below now cover those old failures directly; keep these production-tunnel
+// tests focused on the still-deployed implementation.
 //
 // Any divergence from the real proxy's handleWsUpgrade() is a test gap.
 
@@ -166,6 +190,7 @@ function createProxyServer(
   targetPort: number,
 ): Promise<{ server: net.Server; port: number }> {
   const server = net.createServer((rawSocket) => {
+    trackSocket(server as TrackedServer, rawSocket);
     rawSocket.pause();
     let buf = Buffer.alloc(0);
 
@@ -218,6 +243,58 @@ function createProxyServer(
 
     rawSocket.on('data', onData);
     rawSocket.resume();
+  });
+
+  return new Promise((resolve, reject) => {
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address() as net.AddressInfo;
+      if (addr) resolve({ server, port: addr.port }); else reject(new Error('no address'));
+    });
+  });
+}
+
+/**
+ * Minimal http.Server upgrade proxy used only to probe Bun's historical 1.3
+ * upgrade bugs. This is intentionally much smaller than the production proxy:
+ * it forwards one WebSocket upgrade to one upstream via http.request().
+ */
+function createHttpUpgradeProxyServer(
+  targetPort: number,
+): Promise<{ server: http.Server; port: number }> {
+  const server = http.createServer();
+  server.on('connection', (socket) => trackSocket(server as TrackedServer, socket));
+  server.on('upgrade', (clientReq, clientSocket) => {
+    const upstreamReq = http.request({
+      host: '127.0.0.1',
+      port: targetPort,
+      path: clientReq.url,
+      headers: clientReq.headers,
+    });
+
+    upstreamReq.on('response', (res) => {
+      fail('http.request must not emit response for upstream 101', `status=${res.statusCode}`);
+      clientSocket.destroy();
+    });
+
+    upstreamReq.on('upgrade', (upstreamRes, upstreamSocket, upstreamHead) => {
+      clientSocket.write(`HTTP/1.1 ${upstreamRes.statusCode} ${upstreamRes.statusMessage}\r\n`);
+      for (const [name, value] of Object.entries(upstreamRes.headers)) {
+        if (Array.isArray(value)) {
+          for (const item of value) clientSocket.write(`${name}: ${item}\r\n`);
+        } else if (value != null) {
+          clientSocket.write(`${name}: ${value}\r\n`);
+        }
+      }
+      clientSocket.write('\r\n');
+      if (upstreamHead.length > 0) clientSocket.write(upstreamHead);
+      upstreamSocket.pipe(clientSocket);
+      clientSocket.pipe(upstreamSocket);
+      clientSocket.on('error', () => upstreamSocket.destroy());
+      upstreamSocket.on('error', () => clientSocket.destroy());
+    });
+
+    upstreamReq.on('error', () => clientSocket.destroy());
+    upstreamReq.end();
   });
 
   return new Promise((resolve, reject) => {
@@ -297,6 +374,80 @@ function waitClose(socket: net.Socket, ms = 2000): Promise<void> {
 
 // ─── Individual tests ─────────────────────────────────────────────────────────
 
+async function t0_bunHttpRequestEmitsUpgradeFor101(): Promise<void> {
+  console.log('\n▶ T0: Bun HTTP client emits upgrade, not response, for upstream 101');
+  const sentinel = 'bun14-client-upgrade-head';
+  const upstream = http.createServer();
+  upstream.on('connection', (socket) => trackSocket(upstream as TrackedServer, socket));
+  upstream.on('upgrade', (req, socket) => {
+    const key = String(req.headers['sec-websocket-key'] ?? '');
+    socket.write(upgradeResponse(key));
+    socket.write(wsFrame(sentinel));
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', () => resolve()));
+  const upstreamPort = (upstream.address() as net.AddressInfo).port;
+
+  try {
+    const result = await timeout(3000, 'http.request upgrade event', new Promise<{
+      sawUpgrade: boolean;
+      sawResponse: boolean;
+      headText: string | null;
+    }>((resolve, reject) => {
+      let sawResponse = false;
+      const req = http.request({
+        host: '127.0.0.1',
+        port: upstreamPort,
+        path: '/_next/webpack-hmr',
+        headers: {
+          Upgrade: 'websocket',
+          Connection: 'Upgrade',
+          'Sec-WebSocket-Key': 'dGVzdGtleQ==',
+          'Sec-WebSocket-Version': '13',
+        },
+      });
+      req.on('response', () => {
+        sawResponse = true;
+        resolve({ sawUpgrade: false, sawResponse, headText: null });
+      });
+      req.on('upgrade', (_res, socket, head) => {
+        const headText = wsParseText(head);
+        socket.destroy();
+        resolve({ sawUpgrade: true, sawResponse, headText });
+      });
+      req.on('error', reject);
+      req.end();
+    }));
+
+    assert(result.sawUpgrade, 'http.request emitted upgrade for 101 Switching Protocols');
+    assert(!result.sawResponse, 'http.request did not emit response for 101 Switching Protocols');
+    assert(result.headText === sentinel, `upstream head preserved on upgrade event: "${result.headText}"`);
+  } finally {
+    await closeTestServer(upstream);
+  }
+}
+
+async function t0_bunHttpServerUpgradeSocketWritesReachClient(): Promise<void> {
+  console.log('\n▶ T0b: Bun http.Server upgrade socket writes reach client through minimal proxy');
+  const sentinel = 'bun14-http-upgrade-proxy-push';
+  const { server: upSrv, port: upPort } = await mockUpstreamServer((sock, req) => {
+    const key = extractWsKey(req);
+    sock.write(upgradeResponse(key));
+    sock.write(wsFrame(sentinel));
+    sock.on('data', () => {});
+  });
+  const { server: proxySrv, port: proxyPort } = await createHttpUpgradeProxyServer(upPort);
+  try {
+    const { socket, headers, rest } = await timeout(3000, 'connect through minimal http proxy', wsConnect(proxyPort));
+    assert(headers.startsWith('HTTP/1.1 101'), 'minimal http proxy delivered 101 to browser');
+    const frameData = rest.length >= 2 ? rest : await timeout(2000, 'minimal http proxy HMR push', nextChunk(socket));
+    assert(wsParseText(frameData) === sentinel, `http.Server upgrade socket write reached browser: "${wsParseText(frameData)}"`);
+    socket.destroy();
+  } finally {
+    await closeTestServer(upSrv);
+    await closeTestServer(proxySrv);
+  }
+}
+
 async function t1_basicBidirectionalFlow(): Promise<void> {
   console.log('\n▶ T1: Basic WebSocket upgrade + bidirectional data flow');
   const { server: upSrv, port: upPort } = await mockUpstreamServer((sock, req) => {
@@ -325,8 +476,8 @@ async function t1_basicBidirectionalFlow(): Promise<void> {
 
     socket.destroy();
   } finally {
-    await new Promise<void>((r) => upSrv.close(() => r()));
-    await new Promise<void>((r) => proxySrv.close(() => r()));
+    await closeTestServer(upSrv);
+    await closeTestServer(proxySrv);
   }
 }
 
@@ -356,8 +507,8 @@ async function t2_upstreamInitiatedPush(): Promise<void> {
     );
     socket.destroy();
   } finally {
-    await new Promise<void>((r) => upSrv.close(() => r()));
-    await new Promise<void>((r) => proxySrv.close(() => r()));
+    await closeTestServer(upSrv);
+    await closeTestServer(proxySrv);
   }
 }
 
@@ -395,8 +546,8 @@ async function t3_upstreamHeadBundledWith101(): Promise<void> {
     );
     socket.destroy();
   } finally {
-    await new Promise<void>((r) => upSrv.close(() => r()));
-    await new Promise<void>((r) => proxySrv.close(() => r()));
+    await closeTestServer(upSrv);
+    await closeTestServer(proxySrv);
   }
 }
 
@@ -422,8 +573,8 @@ async function t4_browserToUpstreamDirection(): Promise<void> {
     assert(upstreamReceived === browserMsg, `browser frame received by upstream: "${upstreamReceived}"`);
     socket.destroy();
   } finally {
-    await new Promise<void>((r) => upSrv.close(() => r()));
-    await new Promise<void>((r) => proxySrv.close(() => r()));
+    await closeTestServer(upSrv);
+    await closeTestServer(proxySrv);
   }
 }
 
@@ -441,8 +592,8 @@ async function t5_upstreamClosePropagatesToBrowser(): Promise<void> {
     await timeout(2000, 'browser socket closes after upstream close', waitClose(socket));
     pass('browser socket closed when upstream closed');
   } finally {
-    await new Promise<void>((r) => upSrv.close(() => r()));
-    await new Promise<void>((r) => proxySrv.close(() => r()));
+    await closeTestServer(upSrv);
+    await closeTestServer(proxySrv);
   }
 }
 
@@ -463,8 +614,8 @@ async function t6_browserClosePropagatesToUpstream(): Promise<void> {
     await new Promise<void>((r) => setTimeout(r, 300));
     assert(upstreamClosed, 'upstream socket closed when browser disconnected');
   } finally {
-    await new Promise<void>((r) => upSrv.close(() => r()));
-    await new Promise<void>((r) => proxySrv.close(() => r()));
+    await closeTestServer(upSrv);
+    await closeTestServer(proxySrv);
   }
 }
 
@@ -486,7 +637,7 @@ async function t7_upstreamConnectionRefused(): Promise<void> {
     await timeout(3000, 'socket closed after upstream refused', waitClose(socket));
     pass('socket closed promptly when upstream refused connection');
   } finally {
-    await new Promise<void>((r) => proxySrv.close(() => r()));
+    await closeTestServer(proxySrv);
   }
 }
 
@@ -519,8 +670,8 @@ async function t8_non101UpstreamResponse(): Promise<void> {
       `proxy returned 502 or closed cleanly on non-101 upstream (got502=${sent502}, empty=${closedWithoutData})`,
     );
   } finally {
-    await new Promise<void>((r) => upSrv.close(() => r()));
-    await new Promise<void>((r) => proxySrv.close(() => r()));
+    await closeTestServer(upSrv);
+    await closeTestServer(proxySrv);
   }
 }
 
@@ -551,8 +702,8 @@ async function t9_concurrentConnections(): Promise<void> {
     }));
     assert(ok === N, `all ${N} concurrent connections echoed correctly (${ok}/${N})`);
   } finally {
-    await new Promise<void>((r) => upSrv.close(() => r()));
-    await new Promise<void>((r) => proxySrv.close(() => r()));
+    await closeTestServer(upSrv);
+    await closeTestServer(proxySrv);
   }
 }
 
@@ -580,8 +731,8 @@ async function t10_previewPathRouting(): Promise<void> {
     );
     socket.destroy();
   } finally {
-    await new Promise<void>((r) => upSrv.close(() => r()));
-    await new Promise<void>((r) => proxySrv.close(() => r()));
+    await closeTestServer(upSrv);
+    await closeTestServer(proxySrv);
   }
 }
 
@@ -616,8 +767,8 @@ async function t11_multiFrameSession(): Promise<void> {
     );
     socket.destroy();
   } finally {
-    await new Promise<void>((r) => upSrv.close(() => r()));
-    await new Promise<void>((r) => proxySrv.close(() => r()));
+    await closeTestServer(upSrv);
+    await closeTestServer(proxySrv);
   }
 }
 
@@ -636,6 +787,8 @@ async function main(): Promise<void> {
   console.log('═══════════════════════════════════════════════════════');
 
   const tests = [
+    t0_bunHttpRequestEmitsUpgradeFor101,
+    t0_bunHttpServerUpgradeSocketWritesReachClient,
     t1_basicBidirectionalFlow,
     t2_upstreamInitiatedPush,
     t3_upstreamHeadBundledWith101,
