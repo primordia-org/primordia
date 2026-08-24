@@ -44,10 +44,18 @@ if (process.platform === 'linux' && SUPPORTED_LINUX_ARCHES.has(process.arch)) {
   const anthropicScopeDir = join(process.cwd(), 'node_modules', '@anthropic-ai');
   const nextScopeDir = join(process.cwd(), 'node_modules', '@next');
 
-  // Bun 1.4 filters optional native packages by os/cpu, but currently ignores
-  // libc-specific package metadata/naming. Some packages publish both glibc and
-  // musl Linux binaries as optional dependencies; each binary can exceed 100 MB.
-  // Keep the package that matches this runtime and remove the incompatible fallback.
+  // Workaround: Bun 1.4 filters optional native packages by os/cpu, but currently
+  // ignores libc-specific package metadata/naming. Some packages publish both glibc
+  // and musl Linux binaries as optional dependencies; each binary can exceed 100 MB.
+  //
+  // Ideal scenario: the package manager would install exactly one libc variant
+  // during dependency resolution, either by honoring package metadata such as a
+  // libc field or by recognizing the established -gnu/-musl package split. Once
+  // Bun does that, this postinstall prune should be removed so installs are fully
+  // handled by normal dependency resolution instead of a cleanup step.
+  //
+  // Until then, keep the package that matches this runtime and remove the
+  // incompatible fallback.
   pruneLinuxLibcPackagePairs([
     {
       scopeDir: anthropicScopeDir,
