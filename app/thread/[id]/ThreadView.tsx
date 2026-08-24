@@ -1340,11 +1340,9 @@ function StructuredSection({
       <>
         {requestEvent && (
           <div className="px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-x-auto">
-            <div className="mb-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <div className="mb-1 flex items-baseline justify-between gap-3">
               <p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Follow-up request</p>
-              <span className="text-xs text-gray-500 normal-case tracking-normal">
-                Last worked {formatThreadDate(requestEvent.ts)}
-              </span>
+              <p className="shrink-0 text-xs text-gray-500">{formatRequestDate(requestEvent.ts)}</p>
             </div>
             <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{requestEvent.request}</p>
             {requestEvent.attachments && requestEvent.attachments.length > 0 && (
@@ -1631,10 +1629,6 @@ interface ThreadViewProps {
   initialLineCount: number;
   initialStatus: string;
   initialPreviewUrl: string | null;
-  /** Timestamp when this thread was created. */
-  createdAt: number;
-  /** Timestamp of the most recent recorded work on this thread. */
-  lastWorkedAt: number;
   /** Streaming worktree server log output rendered by a server component. */
   serverLogsNode: ReactNode;
   /** The currently checked-out branch in this instance. Used in confirmation copy and NavHeader. */
@@ -1693,19 +1687,12 @@ function getSessionCredentialAuthSource(events: SessionEvent[], sessionModel?: s
   return null;
 }
 
-function formatThreadDate(timestamp: number): string {
+function formatRequestDate(timestamp: number): string {
   return new Intl.DateTimeFormat(undefined, {
     year: "numeric",
     month: "short",
     day: "numeric",
   }).format(new Date(timestamp));
-}
-
-function latestEventTimestamp(events: SessionEvent[]): number | null {
-  return events.reduce<number | null>((latest, event) => {
-    if (!("ts" in event)) return latest;
-    return latest === null || event.ts > latest ? event.ts : latest;
-  }, null);
 }
 
 function CopyBranchName({ branch }: { branch: string }) {
@@ -1743,8 +1730,6 @@ export default function ThreadView({
   initialLineCount,
   initialStatus,
   initialPreviewUrl,
-  createdAt,
-  lastWorkedAt,
   serverLogsNode,
   branch,
   parentBranch,
@@ -1771,7 +1756,6 @@ export default function ThreadView({
   const [events, setEvents] = useState<SessionEvent[]>(initialEvents);
   const [status, setStatus] = useState(initialStatus);
   const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl);
-  const displayedLastWorkedAt = latestEventTimestamp(events) ?? lastWorkedAt;
   /** Status of the preview server as reported by the process manager. */
   const [proxyServerStatus, setProxyServerStatus] = useState<'starting' | 'running' | 'stopped' | 'unknown'>('unknown');
   const sounds = useSounds();
@@ -2407,17 +2391,12 @@ export default function ThreadView({
       {initialRequest && (() => {
         const initialReqEvent = events.find((e): e is Extract<SessionEvent, { type: 'initial_request' }> => e.type === 'initial_request');
         const attachments = initialReqEvent?.attachments ?? [];
-        const createdDate = initialReqEvent?.ts ?? createdAt;
+        const requestDate = initialReqEvent ? formatRequestDate(initialReqEvent.ts) : null;
         return (
           <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-x-auto">
-            <div className="mb-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <div className="mb-1 flex items-baseline justify-between gap-3">
               <p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Your request</p>
-              <span className="text-xs text-gray-500 normal-case tracking-normal">
-                Created {formatThreadDate(createdDate)}
-              </span>
-              <span className="text-xs text-gray-500 normal-case tracking-normal">
-                Last worked {formatThreadDate(displayedLastWorkedAt)}
-              </span>
+              {requestDate && <p className="shrink-0 text-xs text-gray-500">{requestDate}</p>}
             </div>
             <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{initialRequest}</p>
             {attachments.length > 0 && (
