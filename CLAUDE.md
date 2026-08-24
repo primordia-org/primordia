@@ -119,7 +119,7 @@ When implementing changes, follow these principles:
 
 | Feature | Status | Notes |
 |---|---|---|
-| Thread mode | ✅ Live | "Propose a change" in the hamburger opens a draggable/dockable floating dialog; `/thread` is the standalone thread creation page; before any thread worktree is deleted, its `.primordia-session.ndjson` log is saved as a gzip archive under `PRIMORDIA_DIR/past-sessions` when present |
+| Thread mode | ✅ Live | "Propose a change" in the hamburger opens a draggable/dockable floating dialog; `/thread` is the standalone thread creation page; thread detail request cards show created and last-worked calendar dates; before any thread worktree is deleted, its `.primordia-session.ndjson` log is saved as a gzip archive under `PRIMORDIA_DIR/past-sessions` when present |
 | Local thread pipeline | ✅ Live | git worktree → Claude Agent SDK → local preview → accept/reject |
 | Thread follow-up requests | ✅ Live | Chain multiple Claude passes on the same branch; form appears when the thread is ready; draft text persists across refreshes per thread |
 | Explicit preview target selection | ✅ Live | Agents set the thread preview panel route by running `bun run set-preview-url /route` after app file edits and before validation/changelog work; the thread page renders the preview as soon as that structured `preview_path` event appears instead of waiting for the agent run to finish or relying on ambiguous final-message path parsing |

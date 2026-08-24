@@ -1340,7 +1340,12 @@ function StructuredSection({
       <>
         {requestEvent && (
           <div className="px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-x-auto">
-            <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Follow-up request</p>
+            <div className="mb-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Follow-up request</p>
+              <span className="text-xs text-gray-500 normal-case tracking-normal">
+                Last worked {formatThreadDate(requestEvent.ts)}
+              </span>
+            </div>
             <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{requestEvent.request}</p>
             {requestEvent.attachments && requestEvent.attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
@@ -1626,6 +1631,10 @@ interface ThreadViewProps {
   initialLineCount: number;
   initialStatus: string;
   initialPreviewUrl: string | null;
+  /** Timestamp when this thread was created. */
+  createdAt: number;
+  /** Timestamp of the most recent recorded work on this thread. */
+  lastWorkedAt: number;
   /** Streaming worktree server log output rendered by a server component. */
   serverLogsNode: ReactNode;
   /** The currently checked-out branch in this instance. Used in confirmation copy and NavHeader. */
@@ -1684,6 +1693,21 @@ function getSessionCredentialAuthSource(events: SessionEvent[], sessionModel?: s
   return null;
 }
 
+function formatThreadDate(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(timestamp));
+}
+
+function latestEventTimestamp(events: SessionEvent[]): number | null {
+  return events.reduce<number | null>((latest, event) => {
+    if (!("ts" in event)) return latest;
+    return latest === null || event.ts > latest ? event.ts : latest;
+  }, null);
+}
+
 function CopyBranchName({ branch }: { branch: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -1719,6 +1743,8 @@ export default function ThreadView({
   initialLineCount,
   initialStatus,
   initialPreviewUrl,
+  createdAt,
+  lastWorkedAt,
   serverLogsNode,
   branch,
   parentBranch,
@@ -1745,6 +1771,7 @@ export default function ThreadView({
   const [events, setEvents] = useState<SessionEvent[]>(initialEvents);
   const [status, setStatus] = useState(initialStatus);
   const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl);
+  const displayedLastWorkedAt = latestEventTimestamp(events) ?? lastWorkedAt;
   /** Status of the preview server as reported by the process manager. */
   const [proxyServerStatus, setProxyServerStatus] = useState<'starting' | 'running' | 'stopped' | 'unknown'>('unknown');
   const sounds = useSounds();
@@ -2380,9 +2407,18 @@ export default function ThreadView({
       {initialRequest && (() => {
         const initialReqEvent = events.find((e): e is Extract<SessionEvent, { type: 'initial_request' }> => e.type === 'initial_request');
         const attachments = initialReqEvent?.attachments ?? [];
+        const createdDate = initialReqEvent?.ts ?? createdAt;
         return (
           <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-x-auto">
-            <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Your request</p>
+            <div className="mb-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Your request</p>
+              <span className="text-xs text-gray-500 normal-case tracking-normal">
+                Created {formatThreadDate(createdDate)}
+              </span>
+              <span className="text-xs text-gray-500 normal-case tracking-normal">
+                Last worked {formatThreadDate(displayedLastWorkedAt)}
+              </span>
+            </div>
             <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{initialRequest}</p>
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">

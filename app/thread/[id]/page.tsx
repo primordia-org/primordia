@@ -176,6 +176,8 @@ export default async function ThreadPage({
       initialLineCount={initialLineCount}
       initialStatus={session.status}
       initialPreviewUrl={session.previewUrl}
+      createdAt={session.createdAt}
+      lastWorkedAt={session.lastWorkedAt}
       serverLogsNode={(
         <SseLogFile
           streamPath={`/api/server/logs?threadId=${encodeURIComponent(session.id)}`}
