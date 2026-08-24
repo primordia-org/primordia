@@ -1340,7 +1340,10 @@ function StructuredSection({
       <>
         {requestEvent && (
           <div className="px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-x-auto">
-            <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Follow-up request</p>
+            <div className="mb-1 flex items-baseline justify-between gap-3">
+              <p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Follow-up request</p>
+              <p className="shrink-0 text-xs text-gray-500">{formatRequestDate(requestEvent.ts)}</p>
+            </div>
             <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{requestEvent.request}</p>
             {requestEvent.attachments && requestEvent.attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
@@ -1682,6 +1685,14 @@ function getSessionCredentialAuthSource(events: SessionEvent[], sessionModel?: s
     return 'anthropic-api-key';
   }
   return null;
+}
+
+function formatRequestDate(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(timestamp));
 }
 
 function CopyBranchName({ branch }: { branch: string }) {
@@ -2380,9 +2391,13 @@ export default function ThreadView({
       {initialRequest && (() => {
         const initialReqEvent = events.find((e): e is Extract<SessionEvent, { type: 'initial_request' }> => e.type === 'initial_request');
         const attachments = initialReqEvent?.attachments ?? [];
+        const requestDate = initialReqEvent ? formatRequestDate(initialReqEvent.ts) : null;
         return (
           <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-x-auto">
-            <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Your request</p>
+            <div className="mb-1 flex items-baseline justify-between gap-3">
+              <p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Your request</p>
+              {requestDate && <p className="shrink-0 text-xs text-gray-500">{requestDate}</p>}
+            </div>
             <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{initialRequest}</p>
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">

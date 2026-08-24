@@ -1,5 +1,5 @@
 # Revert thread view dates
 
-Removed the premature thread-view-dates UI changes so thread request cards no longer show created or last-worked calendar dates. The thread session model no longer exposes last-worked timestamps, and the earlier changelog entry for the unready feature was removed.
+Removed the premature thread-view-dates data/model changes while preserving a lightweight request-card date display. Thread request cards now show the existing request event timestamp in the top-right corner, without adding last-worked fields or changing structured log/database data.
 
-This reverts the accidental merge while keeping the codebase aligned with the intended current thread UI.
+This keeps the useful request date cue while reverting the accidental broader merge.
