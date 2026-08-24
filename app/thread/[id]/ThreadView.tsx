@@ -1340,7 +1340,12 @@ function StructuredSection({
       <>
         {requestEvent && (
           <div className="px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-x-auto">
-            <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Follow-up request</p>
+            <div className="mb-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Follow-up request</p>
+              <span className="text-xs text-gray-500 normal-case tracking-normal">
+                Last worked {formatThreadDate(requestEvent.ts)}
+              </span>
+            </div>
             <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{requestEvent.request}</p>
             {requestEvent.attachments && requestEvent.attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
@@ -2402,9 +2407,18 @@ export default function ThreadView({
       {initialRequest && (() => {
         const initialReqEvent = events.find((e): e is Extract<SessionEvent, { type: 'initial_request' }> => e.type === 'initial_request');
         const attachments = initialReqEvent?.attachments ?? [];
+        const createdDate = initialReqEvent?.ts ?? createdAt;
         return (
           <div className="mb-6 px-4 py-3 rounded-lg bg-gray-900 border border-gray-700 text-sm overflow-x-auto">
-            <p className="text-gray-400 text-xs mb-1 font-medium uppercase tracking-wide">Your request</p>
+            <div className="mb-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <p className="text-gray-400 text-xs font-medium uppercase tracking-wide">Your request</p>
+              <span className="text-xs text-gray-500 normal-case tracking-normal">
+                Created {formatThreadDate(createdDate)}
+              </span>
+              <span className="text-xs text-gray-500 normal-case tracking-normal">
+                Last worked {formatThreadDate(displayedLastWorkedAt)}
+              </span>
+            </div>
             <p className="text-gray-100 leading-relaxed whitespace-pre-wrap">{initialRequest}</p>
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
@@ -2433,16 +2447,6 @@ export default function ThreadView({
           )}
         </p>
         <CopyBranchName branch={sessionBranch} />
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-amber-100/70">
-          <span className="inline-flex items-center gap-1">
-            <Clock size={12} aria-hidden="true" />
-            Created {formatThreadDate(createdAt)}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Clock size={12} aria-hidden="true" />
-            Last worked {formatThreadDate(displayedLastWorkedAt)}
-          </span>
-        </div>
 
         {/* Setup steps */}
         {!isSetupActive && setupSection && setupStepCount > 0 && (
