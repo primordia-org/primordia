@@ -162,18 +162,13 @@ function buildSessionFromWorktreePath(
 
   let request = '';
   let createdAt = 0;
-  let lastWorkedAt = 0;
   let durationMs: number | null = null;
   let inputTokens: number | null = null;
   let outputTokens: number | null = null;
   let costUsd: number | null = null;
 
   for (const event of events) {
-    if ('ts' in event) {
-      const ts = (event as { ts: number }).ts;
-      if (!createdAt) createdAt = ts;
-      if (ts > lastWorkedAt) lastWorkedAt = ts;
-    }
+    if (!createdAt && 'ts' in event) createdAt = (event as { ts: number }).ts;
     if (event.type === 'initial_request') {
       request = event.request;
     } else if (event.type === 'metrics') {
@@ -206,7 +201,6 @@ function buildSessionFromWorktreePath(
     previewUrl,
     request,
     createdAt: createdAt || Date.now(),
-    lastWorkedAt: lastWorkedAt || createdAt || Date.now(),
     durationMs,
     inputTokens,
     outputTokens,
