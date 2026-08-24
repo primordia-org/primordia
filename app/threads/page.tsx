@@ -50,6 +50,10 @@ interface BranchData {
   sessionStatus: string | null;
   /** True if an thread exists for this branch. */
   hasSession: boolean;
+  /** Thread creation timestamp when this branch has a thread. */
+  createdAt: number | null;
+  /** Most recent recorded thread work timestamp when this branch has a thread. */
+  lastWorkedAt: number | null;
   /** Full commit hash at this branch tip, for merge-edge detection. */
   tipSha: string | null;
   /** Branch marker commit hash, for merge-edge scan ranges. */
@@ -165,6 +169,8 @@ async function getBranchData(): Promise<{
         previewUrl: session?.previewUrl ?? null,
         sessionStatus: session?.status ?? null,
         hasSession: session !== undefined,
+        createdAt: session?.createdAt ?? null,
+        lastWorkedAt: session?.lastWorkedAt ?? null,
         tipSha: tipSha.code === 0 && tipSha.stdout ? tipSha.stdout : null,
         markerSha: markerInfo.code === 0 && markerSha ? markerSha : null,
         markerTimestamp: Number.isNaN(markerTimestamp) ? null : markerTimestamp,
@@ -223,6 +229,14 @@ const STATUS_LABEL: Record<string, string> = {
   accepted: "accepted",
   rejected: "rejected",
 };
+
+function formatThreadDate(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(timestamp));
+}
 
 // ─── Unicode graph rendering ───────────────────────────────────────────────────
 
@@ -323,6 +337,16 @@ function BranchRef({
       )}
       {statusLabel && !branch.isProduction && (
         <span className={`text-xs shrink-0 ${statusColor}`}>[{statusLabel}]</span>
+      )}
+      {branch.createdAt && (
+        <span className="text-xs text-gray-600 shrink-0">
+          created {formatThreadDate(branch.createdAt)}
+        </span>
+      )}
+      {branch.lastWorkedAt && branch.lastWorkedAt !== branch.createdAt && (
+        <span className="text-xs text-gray-600 shrink-0">
+          last worked {formatThreadDate(branch.lastWorkedAt)}
+        </span>
       )}
       {canCreateSession &&
         !branch.hasSession &&
@@ -557,6 +581,8 @@ export default async function ThreadsPage() {
                       <th className="text-left pr-4 font-normal">thread id</th>
                       <th className="text-left pr-4 font-normal">git branch</th>
                       <th className="text-left pr-4 font-normal">status</th>
+                      <th className="text-left pr-4 font-normal">created</th>
+                      <th className="text-left pr-4 font-normal">last worked</th>
                       <th className="text-left font-normal">port</th>
                     </tr>
                   </thead>
@@ -577,6 +603,8 @@ export default async function ThreadsPage() {
                         >
                           {s.status}
                         </td>
+                        <td className="pr-4">{formatThreadDate(s.createdAt)}</td>
+                        <td className="pr-4">{formatThreadDate(s.lastWorkedAt)}</td>
                         <td>
                           {s.port ?? (
                             <span className="text-gray-700">—</span>

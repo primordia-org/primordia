@@ -74,6 +74,8 @@ export interface ThreadSession {
   /** The original change request submitted by the user. */
   request: string;
   createdAt: number;
+  /** Timestamp of the most recent recorded work on this thread. */
+  lastWorkedAt: number;
   /** Wall-clock duration of the Claude run in milliseconds (null until complete). */
   durationMs: number | null;
   /** Number of input tokens consumed by the Claude run (null until complete). */

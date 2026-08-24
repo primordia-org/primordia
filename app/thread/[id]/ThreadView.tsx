@@ -1626,6 +1626,10 @@ interface ThreadViewProps {
   initialLineCount: number;
   initialStatus: string;
   initialPreviewUrl: string | null;
+  /** Timestamp when this thread was created. */
+  createdAt: number;
+  /** Timestamp of the most recent recorded work on this thread. */
+  lastWorkedAt: number;
   /** Streaming worktree server log output rendered by a server component. */
   serverLogsNode: ReactNode;
   /** The currently checked-out branch in this instance. Used in confirmation copy and NavHeader. */
@@ -1684,6 +1688,21 @@ function getSessionCredentialAuthSource(events: SessionEvent[], sessionModel?: s
   return null;
 }
 
+function formatThreadDate(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(timestamp));
+}
+
+function latestEventTimestamp(events: SessionEvent[]): number | null {
+  return events.reduce<number | null>((latest, event) => {
+    if (!("ts" in event)) return latest;
+    return latest === null || event.ts > latest ? event.ts : latest;
+  }, null);
+}
+
 function CopyBranchName({ branch }: { branch: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -1719,6 +1738,8 @@ export default function ThreadView({
   initialLineCount,
   initialStatus,
   initialPreviewUrl,
+  createdAt,
+  lastWorkedAt,
   serverLogsNode,
   branch,
   parentBranch,
@@ -1745,6 +1766,7 @@ export default function ThreadView({
   const [events, setEvents] = useState<SessionEvent[]>(initialEvents);
   const [status, setStatus] = useState(initialStatus);
   const [previewUrl, setPreviewUrl] = useState<string | null>(initialPreviewUrl);
+  const displayedLastWorkedAt = latestEventTimestamp(events) ?? lastWorkedAt;
   /** Status of the preview server as reported by the process manager. */
   const [proxyServerStatus, setProxyServerStatus] = useState<'starting' | 'running' | 'stopped' | 'unknown'>('unknown');
   const sounds = useSounds();
@@ -2411,6 +2433,16 @@ export default function ThreadView({
           )}
         </p>
         <CopyBranchName branch={sessionBranch} />
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-amber-100/70">
+          <span className="inline-flex items-center gap-1">
+            <Clock size={12} aria-hidden="true" />
+            Created {formatThreadDate(createdAt)}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Clock size={12} aria-hidden="true" />
+            Last worked {formatThreadDate(displayedLastWorkedAt)}
+          </span>
+        </div>
 
         {/* Setup steps */}
         {!isSetupActive && setupSection && setupStepCount > 0 && (
